@@ -10,6 +10,7 @@ import logging
 from app.core.config import settings
 from app.core.database import engine, Base
 from app.api.v1.cameras import router as cameras_router, camera_service
+from app.api.v1.motion_events import router as motion_events_router
 
 # Configure logging
 logging.basicConfig(
@@ -38,6 +39,8 @@ app.add_middleware(
 )
 
 # Register API routers
+# Note: Register motion_events before cameras to ensure proper route precedence
+app.include_router(motion_events_router, prefix=settings.API_V1_PREFIX)
 app.include_router(cameras_router, prefix=settings.API_V1_PREFIX)
 
 

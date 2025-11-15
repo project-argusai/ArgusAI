@@ -45,7 +45,7 @@ development_status:
 
   # F2: Motion Detection
   epic-f2: contexted
-  f2-1-motion-detection-algorithm: in-progress
+  f2-1-motion-detection-algorithm: review
   f2-2-motion-detection-zones: backlog
   f2-3-detection-schedule: backlog
   epic-f2-retrospective: optional

@@ -1,6 +1,6 @@
 """Camera SQLAlchemy ORM model"""
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, CheckConstraint
-from sqlalchemy.orm import validates
+from sqlalchemy.orm import validates, relationship
 from app.core.database import Base
 from app.utils.encryption import encrypt_password, decrypt_password
 import uuid
@@ -24,8 +24,10 @@ class Camera(Base):
         device_index: USB camera device index (0, 1, 2..., nullable for RTSP)
         frame_rate: Target frames per second (1-30)
         is_enabled: Whether camera capture is active
+        motion_enabled: Whether motion detection is active (default True)
         motion_sensitivity: Motion detection sensitivity ('low', 'medium', 'high')
         motion_cooldown: Seconds between motion triggers (0-300)
+        motion_algorithm: Motion detection algorithm ('mog2', 'knn', 'frame_diff')
         created_at: Record creation timestamp (UTC)
         updated_at: Last modification timestamp (UTC)
     """
@@ -41,10 +43,15 @@ class Camera(Base):
     device_index = Column(Integer, nullable=True)
     frame_rate = Column(Integer, default=5, nullable=False)
     is_enabled = Column(Boolean, default=True, nullable=False)
+    motion_enabled = Column(Boolean, default=True, nullable=False)
     motion_sensitivity = Column(String(20), default='medium', nullable=False)
     motion_cooldown = Column(Integer, default=60, nullable=False)
+    motion_algorithm = Column(String(20), default='mog2', nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    # Relationships
+    motion_events = relationship("MotionEvent", back_populates="camera", cascade="all, delete-orphan")
     
     __table_args__ = (
         CheckConstraint("type IN ('rtsp', 'usb')", name='check_camera_type'),

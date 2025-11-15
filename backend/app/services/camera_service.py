@@ -13,6 +13,8 @@ from datetime import datetime
 import numpy as np
 
 from app.models.camera import Camera
+from app.services.motion_detection_service import motion_detection_service
+from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +168,12 @@ class CameraService:
                 if camera_id in self._camera_status:
                     del self._camera_status[camera_id]
 
+            # Clean up motion detection resources
+            try:
+                motion_detection_service.cleanup_camera(camera_id)
+            except Exception as e:
+                logger.error(f"Error cleaning up motion detection for camera {camera_id}: {e}", exc_info=True)
+
             logger.info(f"Stopped camera {camera_id}")
 
         except Exception as e:
@@ -279,11 +287,36 @@ class CameraService:
                     # Frame captured successfully
                     self._update_status(camera_id, "connected")
 
-                    # TODO: Pass frame to motion detection service (F2)
-                    # motion_detected = motion_detection_service.detect_motion(frame)
-                    # if motion_detected:
-                    #     # Trigger AI event processing
-                    #     pass
+                    # Motion detection integration (F2.1)
+                    if camera.motion_enabled:
+                        frame_start = time.time()
+                        try:
+                            # Get database session for motion event storage
+                            db = next(get_db())
+                            try:
+                                motion_event = motion_detection_service.process_frame(
+                                    camera_id=camera_id,
+                                    frame=frame,
+                                    camera=camera,
+                                    db=db
+                                )
+                                if motion_event:
+                                    logger.info(f"Motion event {motion_event.id} created for camera {camera.name}")
+                            finally:
+                                db.close()
+
+                            # Log processing time for performance monitoring
+                            processing_time = (time.time() - frame_start) * 1000  # Convert to ms
+                            if processing_time > 100:  # Warn if exceeds 100ms target
+                                logger.warning(
+                                    f"Motion detection processing slow: {processing_time:.1f}ms "
+                                    f"(target <100ms) for camera {camera.name}"
+                                )
+                            else:
+                                logger.debug(f"Motion detection: {processing_time:.1f}ms for camera {camera.name}")
+
+                        except Exception as e:
+                            logger.error(f"Motion detection error for camera {camera_id}: {e}", exc_info=True)
 
                     # Maintain target FPS
                     frame_processing_time = time.time() - frame_start_time

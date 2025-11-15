@@ -19,16 +19,19 @@ depends_on = None
 def upgrade() -> None:
     """Add motion detection configuration fields to cameras and create motion_events table"""
 
-    # Add motion configuration fields to cameras table
-    op.add_column('cameras', sa.Column('motion_enabled', sa.Boolean(), nullable=False, server_default='true'))
-    op.add_column('cameras', sa.Column('motion_algorithm', sa.String(length=20), nullable=False, server_default='mog2'))
+    # Add motion configuration fields to cameras table (if they don't exist)
+    # Note: SQLite doesn't support adding check constraints to existing tables
+    # Validation will be enforced at application level via Pydantic
 
-    # Add check constraint for motion_algorithm
-    op.create_check_constraint(
-        'check_motion_algorithm',
-        'cameras',
-        "motion_algorithm IN ('mog2', 'knn', 'frame_diff')"
-    )
+    # Check if columns already exist (from partial migration run)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('cameras')]
+
+    if 'motion_enabled' not in columns:
+        op.add_column('cameras', sa.Column('motion_enabled', sa.Boolean(), nullable=False, server_default='true'))
+    if 'motion_algorithm' not in columns:
+        op.add_column('cameras', sa.Column('motion_algorithm', sa.String(length=20), nullable=False, server_default='mog2'))
 
     # Create motion_events table
     op.create_table(
@@ -65,6 +68,5 @@ def downgrade() -> None:
     op.drop_table('motion_events')
 
     # Drop motion fields from cameras table
-    op.drop_constraint('check_motion_algorithm', 'cameras', type_='check')
     op.drop_column('cameras', 'motion_algorithm')
     op.drop_column('cameras', 'motion_enabled')

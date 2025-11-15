@@ -11,6 +11,7 @@ class CameraBase(BaseModel):
     type: Literal['rtsp', 'usb'] = Field(..., description="Camera type: rtsp or usb")
     frame_rate: int = Field(default=5, ge=1, le=30, description="Target frames per second")
     is_enabled: bool = Field(default=True, description="Whether camera capture is active")
+    motion_enabled: bool = Field(default=True, description="Whether motion detection is active")
     motion_sensitivity: Literal['low', 'medium', 'high'] = Field(
         default='medium',
         description="Motion detection sensitivity level"
@@ -20,6 +21,10 @@ class CameraBase(BaseModel):
         ge=0,
         le=300,
         description="Seconds between motion triggers"
+    )
+    motion_algorithm: Literal['mog2', 'knn', 'frame_diff'] = Field(
+        default='mog2',
+        description="Motion detection algorithm"
     )
 
 
@@ -81,8 +86,10 @@ class CameraUpdate(BaseModel):
     password: Optional[str] = Field(None, max_length=100)
     frame_rate: Optional[int] = Field(None, ge=1, le=30)
     is_enabled: Optional[bool] = None
+    motion_enabled: Optional[bool] = None
     motion_sensitivity: Optional[Literal['low', 'medium', 'high']] = None
     motion_cooldown: Optional[int] = Field(None, ge=0, le=300)
+    motion_algorithm: Optional[Literal['mog2', 'knn', 'frame_diff']] = None
 
 
 class CameraResponse(CameraBase):

@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { use, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,18 +17,21 @@ import { apiClient, ApiError } from '@/lib/api-client';
 import type { CameraFormValues } from '@/lib/validations/camera';
 
 interface EditCameraPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 /**
  * Edit camera page component
  */
 export default function EditCameraPage({ params }: EditCameraPageProps) {
+  // Unwrap params Promise (Next.js 15+ requirement)
+  const { id } = use(params);
+
   const router = useRouter();
   const { showSuccess, showError } = useToast();
-  const { camera, loading, error } = useCameraDetail(params.id);
+  const { camera, loading, error } = useCameraDetail(id);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
 

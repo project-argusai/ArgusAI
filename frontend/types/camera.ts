@@ -14,6 +14,11 @@ export type CameraType = 'rtsp' | 'usb';
 export type MotionSensitivity = 'low' | 'medium' | 'high';
 
 /**
+ * Motion detection algorithm options
+ */
+export type MotionAlgorithm = 'mog2' | 'knn' | 'frame_diff';
+
+/**
  * Complete camera object (matches backend CameraResponse)
  */
 export interface ICamera {
@@ -27,6 +32,7 @@ export interface ICamera {
   is_enabled: boolean;
   motion_sensitivity: MotionSensitivity;
   motion_cooldown: number;
+  motion_algorithm: MotionAlgorithm;
   created_at: string; // ISO 8601 datetime
   updated_at: string; // ISO 8601 datetime
 }
@@ -45,6 +51,7 @@ export interface ICameraCreate {
   is_enabled?: boolean;
   motion_sensitivity?: MotionSensitivity;
   motion_cooldown?: number;
+  motion_algorithm?: MotionAlgorithm;
 }
 
 /**
@@ -60,6 +67,7 @@ export interface ICameraUpdate {
   is_enabled?: boolean;
   motion_sensitivity?: MotionSensitivity;
   motion_cooldown?: number;
+  motion_algorithm?: MotionAlgorithm;
 }
 
 /**

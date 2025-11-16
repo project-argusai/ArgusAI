@@ -30,6 +30,7 @@ import {
 import { cameraFormSchema, type CameraFormValues } from '@/lib/validations/camera';
 import type { ICamera, ICameraTestResponse } from '@/types/camera';
 import { apiClient, ApiError } from '@/lib/api-client';
+import { MotionSettingsSection } from './MotionSettingsSection';
 
 interface CameraFormProps {
   /**
@@ -81,6 +82,7 @@ export function CameraForm({
           is_enabled: initialData.is_enabled,
           motion_sensitivity: initialData.motion_sensitivity,
           motion_cooldown: initialData.motion_cooldown,
+          motion_algorithm: initialData.motion_algorithm,
         }
       : {
           name: '',
@@ -88,7 +90,8 @@ export function CameraForm({
           frame_rate: 5,
           is_enabled: true,
           motion_sensitivity: 'medium',
-          motion_cooldown: 60,
+          motion_cooldown: 30,
+          motion_algorithm: 'mog2',
         },
   });
 
@@ -293,32 +296,8 @@ export function CameraForm({
           )}
         />
 
-        {/* Motion Sensitivity */}
-        <FormField
-          control={form.control}
-          name="motion_sensitivity"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Motion Sensitivity</FormLabel>
-              <Select
-                onValueChange={field.onChange}
-                defaultValue={field.value}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+        {/* Motion Detection Settings */}
+        <MotionSettingsSection form={form} />
 
         {/* Test Connection Button (edit mode only) */}
         {isEditMode && (

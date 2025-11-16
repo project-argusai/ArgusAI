@@ -52,7 +52,7 @@ development_status:
 
   # F2.1: Motion Detection Validation & UI Completion
   epic-f2-1: backlog
-  f2-1-1-motion-detection-ui-components: backlog
+  f2-1-1-motion-detection-ui-components: done
   f2-1-2-detection-zone-drawing-ui: backlog
   f2-1-3-detection-schedule-editor-ui: backlog
   f2-1-4-validation-and-documentation: backlog

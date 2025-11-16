@@ -1,0 +1,261 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>2.1</epicId>
+    <storyId>1</storyId>
+    <title>Motion Detection UI Components</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/f2-1-1-motion-detection-ui-components.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>to configure motion detection settings through a user interface</iWant>
+    <soThat>I can easily adjust sensitivity, algorithm, and cooldown parameters without using API calls directly</soThat>
+    <tasks>
+      <task id="1" ac="1,2,3">Create Motion Configuration UI Components
+        - Create MotionSettingsSection React component in frontend/components/camera/MotionSettingsSection.tsx
+        - Add sensitivity selector dropdown (Low, Medium, High)
+        - Add algorithm selector dropdown (MOG2, KNN, Frame Differencing)
+        - Add cooldown input field (5-300 seconds validation)
+        - Add tooltips/help text for each field
+        - Style using shadcn/ui patterns
+      </task>
+      <task id="2" ac="4">Integrate with Camera Form
+        - Import MotionSettingsSection into CameraForm.tsx
+        - Add motion settings to form schema (Zod validation)
+        - Position after camera connection settings
+        - Include in form submission payload
+        - Add conditional rendering for motion-capable cameras
+      </task>
+      <task id="3" ac="1,2,3,4">API Integration
+        - Update camera API types for motion fields
+        - Extend PUT /cameras/{id}/motion/config integration
+        - Extend GET /cameras/{id}/motion/config integration
+        - Handle API errors (toast notifications)
+        - Show loading state during save
+      </task>
+      <task id="4" ac="1,2,3">Form Validation and UX
+        - Zod schema validation for cooldown (5-300 range)
+        - Client-side validation error messages
+        - Display current values when editing
+        - Default values: Medium, MOG2, 30s
+        - Visual feedback for unsaved changes
+      </task>
+      <task id="5" ac="All">Testing
+        - Manual test: Add new camera with custom settings
+        - Manual test: Edit existing camera settings
+        - Manual test: Verify persistence after reload
+        - Manual test: Validation with invalid values
+        - Manual test: Tooltip display
+        - Document results in completion notes
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-1" priority="high">Motion Sensitivity Configuration
+      - User on camera configuration page can access motion detection settings
+      - Dropdown selector for sensitivity (Low, Medium, High)
+      - Selected sensitivity persists to backend API
+      - Current sensitivity displayed when editing existing camera
+    </criterion>
+    <criterion id="AC-2" priority="high">Algorithm Selection
+      - User can choose algorithm: MOG2, KNN, or Frame Differencing
+      - Algorithm selection saved to backend
+      - Brief description displayed (tooltip or help text)
+    </criterion>
+    <criterion id="AC-3" priority="high">Cooldown Period Configuration
+      - Input field for cooldown in seconds (5-300 range)
+      - UI validates input within valid range
+      - Cooldown value persists to backend API
+    </criterion>
+    <criterion id="AC-4" priority="high">Integration with Camera Configuration
+      - Motion settings integrated into camera configuration form
+      - Settings saved alongside other camera properties
+      - Test connection validates motion configuration (if camera running)
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/architecture.md" title="Architecture Document" section="Frontend Stack &amp; Integration Points">
+        Frontend: Next.js 15 with App Router, TypeScript 5.x, Tailwind CSS, shadcn/ui components, React Hook Form, Zod validation.
+        Backend: FastAPI 0.115+, Python 3.11+, SQLAlchemy 2.0+, OpenCV 4.8+.
+        Integration: REST API at http://localhost:8000/api/v1/*, CORS configured for frontend.
+      </doc>
+      <doc path="docs/sprint-artifacts/epic-f2-retrospective.md" title="Epic F2 Retrospective" section="Epic F2.1 Definition">
+        Epic F2.1 Goal: Complete deferred frontend UI components and validate motion detection system.
+        Story F2.1-1: Motion Detection UI Components (6 hours estimated).
+        Backend foundation complete: MotionDetectionService, ScheduleManager, DetectionZoneManager all operational with 130/130 tests passing.
+      </doc>
+      <doc path="docs/sprint-artifacts/f2-3-detection-schedule.md" title="Previous Story F2.3" section="Dev Notes - Learnings">
+        Backend API endpoints already implemented: PUT /cameras/{id}/motion/config and GET /cameras/{id}/motion/config.
+        Request/response schemas: MotionConfigUpdate in backend/app/schemas/motion.py.
+        Technical patterns: Singleton services, fail-open strategy, JSON column storage, performance-first design.
+        Frontend deferred: Motion sensitivity/algorithm UI, zone drawing UI, schedule editor UI all deferred from Epic F2.
+      </doc>
+    </docs>
+    <code>
+      <artifact path="frontend/components/cameras/CameraForm.tsx" kind="component" symbol="CameraForm" reason="Existing camera form - integrate MotionSettingsSection here">
+        React Hook Form component with Zod validation, conditional fields based on camera type.
+        Uses shadcn/ui components: Form, Input, Button, Select, Slider.
+        Current default values include motion_sensitivity and motion_cooldown (lines 90-91).
+        Pattern to follow for new motion settings section.
+      </artifact>
+      <artifact path="frontend/types/camera.ts" kind="type-definitions" symbol="ICamera, MotionSensitivity" reason="TypeScript types - extend with motion algorithm">
+        Defines CameraType, MotionSensitivity ('low' | 'medium' | 'high').
+        ICamera interface includes motion_sensitivity and motion_cooldown fields.
+        Need to add motion_algorithm field to match backend MotionConfigUpdate schema.
+      </artifact>
+      <artifact path="backend/app/schemas/motion.py" kind="schema" symbol="MotionConfigUpdate" lines="23-52" reason="Backend schema for motion configuration - frontend must match">
+        Defines motion_enabled, motion_sensitivity ('low'|'medium'|'high'), motion_cooldown (0-300), motion_algorithm ('mog2'|'knn'|'frame_diff').
+        Pydantic validation enforces field constraints.
+        Frontend MotionSettingsSection must send compatible payload.
+      </artifact>
+      <artifact path="backend/app/api/v1/cameras.py" kind="api-endpoint" symbol="PUT /cameras/{id}/motion/config, GET /cameras/{id}/motion/config" reason="Backend endpoints to integrate with">
+        Motion configuration endpoints already implemented per F2.1.
+        Frontend will call these endpoints to get/update motion settings.
+        Endpoints validate using MotionConfigUpdate schema, return MotionConfigResponse.
+      </artifact>
+      <artifact path="frontend/lib/validations/camera.ts" kind="validation" symbol="cameraFormSchema" reason="Zod schema - extend with motion algorithm validation">
+        Current Zod schema validates camera form fields.
+        Need to add motion_algorithm field with literal type: z.enum(['mog2', 'knn', 'frame_diff']).
+        Follow existing pattern for motion_sensitivity and motion_cooldown.
+      </artifact>
+    </code>
+    <dependencies>
+      <frontend>
+        <package name="react" version="19.2.0" />
+        <package name="next" version="16.0.3" />
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="zod" version="^4.1.12" />
+        <package name="@hookform/resolvers" version="^5.2.2" />
+        <package name="lucide-react" version="^0.553.0" />
+        <package name="tailwindcss" version="latest" />
+        <package name="shadcn-ui" version="latest (components)" />
+        <package name="@radix-ui/react-select" version="^2.2.6" />
+        <package name="@radix-ui/react-slider" version="^1.3.6" />
+        <package name="sonner" version="^2.0.7 (for toast notifications)" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="pydantic" version="^2.10.0" />
+        <package name="sqlalchemy" version="^2.0.36" />
+        <package name="opencv-python" version="^4.12.0" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint category="styling" priority="high">
+      Use shadcn/ui component library for all UI elements (Button, Input, Select, Label, Form components).
+      Follow existing patterns from CameraForm.tsx for consistency.
+      Tailwind CSS classes for custom styling if needed.
+    </constraint>
+    <constraint category="validation" priority="high">
+      Zod schema validation for all form fields.
+      Cooldown must be validated to 5-300 second range.
+      Algorithm must be literal type: 'mog2' | 'knn' | 'frame_diff'.
+      Use @hookform/resolvers for React Hook Form + Zod integration.
+    </constraint>
+    <constraint category="state-management" priority="medium">
+      React Hook Form for form state (useForm hook).
+      No global state needed - component-level state sufficient.
+      Form values passed to parent onSubmit handler.
+    </constraint>
+    <constraint category="api-integration" priority="high">
+      Use existing apiClient from lib/api-client.ts for HTTP calls.
+      Handle ApiError for proper error messaging.
+      Display toast notifications using sonner library.
+      Loading states during API calls.
+    </constraint>
+    <constraint category="typescript" priority="high">
+      TypeScript strict mode enabled.
+      All props and return types must be explicitly typed.
+      Extend ICamera and ICameraUpdate types in types/camera.ts.
+    </constraint>
+    <constraint category="testing" priority="medium">
+      Manual testing required (no automated frontend tests in Epic F2.1).
+      Document test results in story completion notes.
+      Test checklist: add camera, edit camera, persistence, validation, tooltips.
+    </constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="MotionConfigUpdate" kind="REST API Request Body">
+      <signature>
+        {
+          motion_enabled?: boolean;
+          motion_sensitivity?: 'low' | 'medium' | 'high';
+          motion_cooldown?: number; // 0-300
+          motion_algorithm?: 'mog2' | 'knn' | 'frame_diff';
+        }
+      </signature>
+      <path>backend/app/schemas/motion.py:23-52</path>
+      <usage>Send to PUT /cameras/{id}/motion/config endpoint</usage>
+    </interface>
+    <interface name="MotionConfigResponse" kind="REST API Response Body">
+      <signature>
+        {
+          motion_enabled: boolean;
+          motion_sensitivity: 'low' | 'medium' | 'high';
+          motion_cooldown: number;
+          motion_algorithm: 'mog2' | 'knn' | 'frame_diff';
+        }
+      </signature>
+      <path>backend/app/schemas/motion.py:55-64</path>
+      <usage>Response from GET /cameras/{id}/motion/config endpoint</usage>
+    </interface>
+    <interface name="CameraFormValues" kind="TypeScript Type">
+      <signature>
+        Inferred from cameraFormSchema (Zod).
+        Need to extend with motion_algorithm field.
+      </signature>
+      <path>frontend/lib/validations/camera.ts</path>
+      <usage>React Hook Form type, extends to parent onSubmit handler</usage>
+    </interface>
+    <interface name="MotionSettingsSectionProps" kind="React Component Props">
+      <signature>
+        interface MotionSettingsSectionProps {
+          form: UseFormReturn&lt;CameraFormValues&gt;;
+          // No other props needed - integrates with existing form
+        }
+      </signature>
+      <path>frontend/components/camera/MotionSettingsSection.tsx (to be created)</path>
+      <usage>Component will receive form instance from CameraForm parent</usage>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend testing: Manual testing only for Epic F2.1 (per retrospective decision).
+      No automated frontend tests currently - Epic F2 retrospective identified this as technical debt.
+      Backend testing: pytest with 130/130 tests passing (100% pass rate maintained).
+      Testing checklist documented in Task 5 of story file.
+    </standards>
+    <locations>
+      Frontend tests: None currently (to be added in future epic)
+      Backend tests: backend/tests/test_api/ and backend/tests/test_services/
+      Manual test documentation: Story completion notes section
+    </locations>
+    <ideas>
+      <idea ac="AC-1">
+        Manual test: Create new camera, select each sensitivity level (Low, Medium, High), submit form, verify API call includes correct motion_sensitivity value, reload page and verify value persists.
+      </idea>
+      <idea ac="AC-2">
+        Manual test: For each algorithm (MOG2, KNN, Frame Diff), select from dropdown, verify tooltip displays description, submit and verify backend receives correct motion_algorithm value.
+      </idea>
+      <idea ac="AC-3">
+        Manual test: Input cooldown values: valid (30, 60, 150), invalid (&lt;5, &gt;300, non-numeric). Verify Zod validation displays error messages for invalid values. Verify valid values persist.
+      </idea>
+      <idea ac="AC-4">
+        Manual test: Edit existing camera with motion settings, verify current values pre-populate form fields. Test conditional rendering by switching camera type (should hide/show motion section).
+      </idea>
+      <idea ac="All">
+        Manual test: Network error simulation - disable backend, submit form, verify error toast displays. Re-enable backend, verify retry succeeds.
+      </idea>
+    </ideas>
+  </tests>
+</story-context>

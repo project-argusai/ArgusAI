@@ -1,0 +1,262 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>2.1</epicId>
+    <storyId>2.1.3</storyId>
+    <title>Detection Schedule Editor UI</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/f2-1-3-detection-schedule-editor-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>to configure time-based and day-based detection schedules via a user-friendly interface</iWant>
+    <soThat>motion detection only runs during specific time ranges and days of the week, reducing resource usage and false alerts during inactive hours</soThat>
+    <tasks>
+      <task id="1" ac="1,2,3">
+        <description>Create Schedule Editor Component</description>
+        <subtasks>
+          <subtask>Create DetectionScheduleEditor.tsx component in frontend/components/cameras/DetectionScheduleEditor.tsx</subtask>
+          <subtask>Add schedule enable/disable toggle switch (similar to motion_enabled in MotionSettingsSection)</subtask>
+          <subtask>Implement time range selectors using shadcn/ui Input components with type="time"</subtask>
+          <subtask>Add day-of-week checkboxes (7 checkboxes for Monday-Sunday)</subtask>
+          <subtask>Display selected time range in human-readable format</subtask>
+          <subtask>Add validation: at least one day selected if schedule enabled</subtask>
+          <subtask>Add visual feedback for overnight schedules (start > end)</subtask>
+        </subtasks>
+      </task>
+      <task id="2" ac="4">
+        <description>Schedule TypeScript Types</description>
+        <subtasks>
+          <subtask>Add IDetectionSchedule interface to frontend/types/camera.ts</subtask>
+          <subtask>Define schedule structure: { enabled: boolean, start_time: string, end_time: string, days: number[] }</subtask>
+          <subtask>Extend ICamera, ICameraCreate, ICameraUpdate to include detection_schedule field</subtask>
+          <subtask>Ensure schedule field is nullable (optional configuration)</subtask>
+        </subtasks>
+      </task>
+      <task id="3" ac="4,6">
+        <description>Schedule Validation Schema</description>
+        <subtasks>
+          <subtask>Create detectionScheduleSchema in frontend/lib/validations/camera.ts using Zod</subtask>
+          <subtask>Validate time format (HH:MM 24-hour format)</subtask>
+          <subtask>Validate days array (integers 0-6, at least one day if enabled)</subtask>
+          <subtask>Validate enabled field (boolean)</subtask>
+          <subtask>Allow overnight schedules (start_time > end_time is valid)</subtask>
+          <subtask>Integrate schedule schema into cameraFormSchema</subtask>
+        </subtasks>
+      </task>
+      <task id="4" ac="1,2,3,4">
+        <description>Integrate with CameraForm</description>
+        <subtasks>
+          <subtask>Add Detection Schedule section to CameraForm.tsx after Detection Zones</subtask>
+          <subtask>Import DetectionScheduleEditor component</subtask>
+          <subtask>Wire schedule editor to React Hook Form (form state management)</subtask>
+          <subtask>Add detection_schedule to form defaultValues</subtask>
+          <subtask>Handle schedule updates with form.setValue()</subtask>
+          <subtask>Include schedule in form submission payload</subtask>
+        </subtasks>
+      </task>
+      <task id="5" ac="5,6">
+        <description>Current Schedule Status Indicator</description>
+        <subtasks>
+          <subtask>Create ScheduleStatusIndicator sub-component within DetectionScheduleEditor.tsx</subtask>
+          <subtask>Calculate current status based on local time, schedule config</subtask>
+          <subtask>Display "Active Now", "Inactive (Outside Schedule)", or "Always Active (No Schedule)"</subtask>
+          <subtask>Use color coding (green for active, gray for inactive, blue for always active)</subtask>
+          <subtask>Update indicator on schedule change (not real-time polling)</subtask>
+          <subtask>Handle overnight schedules correctly in status calculation</subtask>
+        </subtasks>
+      </task>
+      <task id="6" ac="2,3,6">
+        <description>Visual Styling and UX Polish</description>
+        <subtasks>
+          <subtask>Style schedule section using shadcn/ui Card component</subtask>
+          <subtask>Add clear section headings and descriptions</subtask>
+          <subtask>Use consistent spacing and layout with Motion Settings section</subtask>
+          <subtask>Display time range in readable format: "09:00 - 17:00" or "22:00 - 06:00 (Overnight)"</subtask>
+          <subtask>Highlight selected days visually (blue background for checked)</subtask>
+          <subtask>Add tooltip explaining overnight schedules if start > end</subtask>
+        </subtasks>
+      </task>
+      <task id="7" ac="4">
+        <description>Form Integration Testing</description>
+        <subtasks>
+          <subtask>Verify schedule persists to backend on form submit</subtask>
+          <subtask>Verify schedule loads correctly on page refresh</subtask>
+          <subtask>Test validation error display for invalid schedule data</subtask>
+          <subtask>Test that disabled schedule saves as null or {enabled: false}</subtask>
+          <subtask>Verify TypeScript build succeeds with 0 errors</subtask>
+          <subtask>Manual test: configure schedule, save, reload page, verify schedule restored</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">
+      <title>Schedule Enable/Disable Toggle</title>
+      <description>Given a user is on the camera configuration page, when they view the Detection Schedule section, then they see an enable/disable toggle for the schedule. The toggle state is saved to the backend immediately. When disabled, the camera detects motion 24/7 (schedule ignored).</description>
+    </criterion>
+    <criterion id="2">
+      <title>Time Range Selection</title>
+      <description>Given a user enables the detection schedule, when they interact with the time range selectors, then they can set a start time and end time using time pickers (24-hour format). The time range is validated (start &lt; end, or overnight support if start > end). The selected time range is displayed clearly (e.g., "09:00 - 17:00").</description>
+    </criterion>
+    <criterion id="3">
+      <title>Day of Week Selection</title>
+      <description>Given a user is configuring the detection schedule, when they view the day selector, then they see checkboxes for all 7 days (Monday-Sunday). They can select/deselect any combination of days. At least one day must be selected if schedule is enabled. Selected days are visually distinct from unselected days.</description>
+    </criterion>
+    <criterion id="4">
+      <title>Schedule Persistence</title>
+      <description>Given a user has configured a detection schedule, when they save the camera configuration, then the schedule is persisted to the backend via PUT /cameras/{id}. The schedule state is retrieved when the page loads via GET /cameras/{id}. Validation errors are displayed if schedule data is invalid.</description>
+    </criterion>
+    <criterion id="5">
+      <title>Current Schedule Status Indicator</title>
+      <description>Given a camera has an active detection schedule, when a user views the camera configuration, then they see a status indicator showing if detection is currently active. The indicator updates based on current time and schedule configuration. The indicator shows "Always Active" if schedule is disabled or not configured.</description>
+    </criterion>
+    <criterion id="6">
+      <title>Overnight Schedule Support</title>
+      <description>Given a user wants detection to run overnight (e.g., 22:00 - 06:00), when they set start_time > end_time, then the UI accepts and saves the overnight schedule. A visual indicator shows "Overnight schedule (crosses midnight)". The schedule status correctly reflects active/inactive for overnight ranges.</description>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-f2.md</path>
+        <title>Epic F2 Technical Specification - Motion Detection</title>
+        <section>DetectionSchedule Schema and ScheduleManager</section>
+        <snippet>Backend schedule system already implemented. DetectionSchedule schema: {enabled: bool, start_time: str, end_time: str, days: List[int]}. ScheduleManager singleton with thread-safe Lock, fail-open strategy. Overnight schedule support (start_time > end_time valid). Days stored as 0-6 integers (0=Monday, 6=Sunday). Performance: &lt;1ms schedule check overhead.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/epic-f2-retrospective.md</path>
+        <title>Epic F2 Retrospective - Motion Detection</title>
+        <section>Epic F2.1 Story Definitions</section>
+        <snippet>F2.1-3: Detection Schedule Editor UI (6 hours). Create time range selector (start/end time pickers), day-of-week checkboxes, schedule enable/disable toggle, current schedule status indicator. Frontend UI deferred from backend Story F2.3, now scheduled for completion.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/f2-1-2-detection-zone-drawing-ui.md</path>
+        <title>Story F2.1-2 - Detection Zone Drawing UI (Previous Story)</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>Established patterns for this story: Nullable field handling (.optional().nullable() for backend compatibility), Form integration (useState + form.setValue), Toggle switches (custom button with role="switch"), shadcn/ui Card/Button/Input patterns, Zod nested schemas with custom error messages. Files to reference: MotionSettingsSection.tsx (toggle pattern), types/camera.ts (interface extension), lib/validations/camera.ts (Zod patterns).</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>frontend/components/cameras/MotionSettingsSection.tsx</path>
+        <kind>component</kind>
+        <symbol>MotionSettingsSection</symbol>
+        <lines>1-292</lines>
+        <reason>Reference for toggle switch pattern (motion_enabled toggle at lines 77-111), section layout structure, and shadcn/ui component usage. Use as template for schedule enable/disable toggle.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/cameras/CameraForm.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraForm</symbol>
+        <lines>1-502</lines>
+        <reason>Parent form component where DetectionScheduleEditor will be integrated. Add schedule section after Detection Zones section (around line 414). Reference for React Hook Form integration, form.setValue() usage, and defaultValues pattern.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/cameras/DetectionZoneList.tsx</path>
+        <kind>component</kind>
+        <symbol>DetectionZoneList</symbol>
+        <lines>1-266</lines>
+        <reason>Reference for Card component styling, inline editing patterns, and visual design consistency. Use similar layout for schedule editor section.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/camera.ts</path>
+        <kind>types</kind>
+        <symbol>ICamera, ICameraCreate, ICameraUpdate</symbol>
+        <lines>1-121</lines>
+        <reason>TypeScript type definitions to extend with IDetectionSchedule interface and detection_schedule field. Follow nullable pattern: detection_schedule?: IDetectionSchedule | null. Already has detection_zones field as reference (line 57).</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/validations/camera.ts</path>
+        <kind>validation</kind>
+        <symbol>cameraFormSchema, detectionZoneSchema</symbol>
+        <lines>1-86</lines>
+        <reason>Zod validation schemas to extend with detectionScheduleSchema. Reference detectionZoneSchema (lines 20-25) for nested schema pattern. Integrate schedule schema into cameraFormSchema similar to detection_zones (line 54).</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <framework name="Next.js" version="16.0.3" />
+        <framework name="React" version="19.2.0" />
+        <framework name="TypeScript" version="^5" />
+        <package name="react-hook-form" version="^7.66.0" usage="Form state management" />
+        <package name="zod" version="^4.1.12" usage="Schema validation" />
+        <package name="@hookform/resolvers" version="^5.2.2" usage="Zod resolver for React Hook Form" />
+        <package name="@radix-ui/react-dialog" version="^1.1.15" usage="shadcn/ui Dialog component" />
+        <package name="@radix-ui/react-label" version="^2.1.8" usage="shadcn/ui Label component" />
+        <package name="@radix-ui/react-tooltip" version="^1.2.8" usage="shadcn/ui Tooltip component" />
+        <package name="lucide-react" version="^0.553.0" usage="Icon library" />
+        <package name="tailwindcss" version="^4" usage="Styling" />
+        <package name="date-fns" version="^4.1.0" usage="Optional date/time utilities" />
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architectural">Follow F2.1-1 and F2.1-2 component patterns: Create dedicated section component (DetectionScheduleEditor.tsx), integrate into CameraForm.tsx as separate bordered section. Use React Hook Form for state management consistent with existing form.</constraint>
+    <constraint type="styling">Use shadcn/ui components (Card, Input, Button, Label, Tooltip). Section structure: border rounded-lg p-6 bg-muted/20. Toggle switches: custom button with role="switch", blue when enabled, gray when disabled. Follow MotionSettingsSection layout patterns.</constraint>
+    <constraint type="validation">Backend returns null for optional fields, frontend must handle gracefully. Use .optional().nullable() in Zod schemas. Null-safe Input handling: value={field.value ?? ''}. TypeScript strict mode: 0 compilation errors mandatory.</constraint>
+    <constraint type="time-handling">Use HTML5 input type="time" for time pickers (24-hour format, native browser UI). Store times as "HH:MM" strings matching backend format. No timezone handling in MVP (uses local system time). Allow overnight schedules: start_time > end_time is valid.</constraint>
+    <constraint type="day-handling">Display days as checkboxes: Monday through Sunday. Map to 0-6 integers for backend (0=Monday, 6=Sunday per Python weekday()). Store as array: [0, 1, 2, 3, 4] for weekdays. At least one day required if schedule enabled.</constraint>
+    <constraint type="build-quality">ESLint compliance: Fix unescaped quotes in JSX (use &quot; or backticks). React Hook Form integration: Follow established patterns. Zero TypeScript compilation errors. Manual testing required before marking done (no automated frontend tests yet).</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GET /cameras/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /cameras/{id} → Returns ICamera with detection_schedule JSON field</signature>
+      <path>Backend API (already implemented in Epic F2.3)</path>
+    </interface>
+    <interface>
+      <name>PUT /cameras/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /cameras/{id} with body: {detection_schedule: {enabled: bool, start_time: str, end_time: str, days: int[]}} → Updates camera including schedule</signature>
+      <path>Backend API (already implemented in Epic F2.3)</path>
+    </interface>
+    <interface>
+      <name>GET /cameras/{id}/schedule/status</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /cameras/{id}/schedule/status → Returns current active/inactive status based on time and schedule config</signature>
+      <path>Backend API (already implemented in Epic F2.3)</path>
+    </interface>
+    <interface>
+      <name>IDetectionSchedule</name>
+      <kind>TypeScript interface</kind>
+      <signature>interface IDetectionSchedule { enabled: boolean; start_time: string; end_time: string; days: number[]; }</signature>
+      <path>frontend/types/camera.ts (to be created)</path>
+    </interface>
+    <interface>
+      <name>detectionScheduleSchema</name>
+      <kind>Zod schema</kind>
+      <signature>z.object({ enabled: z.boolean(), start_time: z.string().regex(/^\d{2}:\d{2}$/), end_time: z.string().regex(/^\d{2}:\d{2}$/), days: z.array(z.number().int().min(0).max(6)).min(1) })</signature>
+      <path>frontend/lib/validations/camera.ts (to be created)</path>
+    </interface>
+    <interface>
+      <name>DetectionScheduleEditor</name>
+      <kind>React component</kind>
+      <signature>function DetectionScheduleEditor({ form }: { form: UseFormReturn&lt;CameraFormValues&gt; }): JSX.Element</signature>
+      <path>frontend/components/cameras/DetectionScheduleEditor.tsx (to be created)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend test infrastructure not yet established (per Epic F2 retrospective decision). Focus on manual testing and TypeScript compilation validation. All stories deferred automated frontend testing to future epic. Build must succeed with 0 TypeScript errors. ESLint must pass with 0 errors (warnings acceptable for React Compiler and img optimization).</standards>
+    <locations>No frontend test directories yet. Backend tests located in backend/tests/ (pytest). Future frontend tests would go in frontend/__tests__/ or frontend/tests/ when infrastructure established.</locations>
+    <ideas>
+      <idea ac="1">Manual test: Toggle schedule enable/disable, verify form state updates and submission includes correct enabled value.</idea>
+      <idea ac="2">Manual test: Select time range 09:00 - 17:00, verify display format, verify overnight range 22:00 - 06:00 shows "Overnight" indicator.</idea>
+      <idea ac="3">Manual test: Select weekdays (Mon-Fri), verify days array [0,1,2,3,4] in form data. Test validation: try enabling schedule with no days selected, expect error.</idea>
+      <idea ac="4">Manual test: Configure schedule, save camera, reload page, verify schedule restored correctly. Test validation error display for invalid time format.</idea>
+      <idea ac="5">Manual test: Check status indicator shows "Active Now" when current time is within schedule range, "Inactive" when outside, "Always Active" when schedule disabled.</idea>
+      <idea ac="6">Manual test: Set overnight schedule (22:00 - 06:00), verify status calculation handles midnight wraparound correctly. Check indicator at 23:00, 02:00, 07:00 to validate logic.</idea>
+      <idea general="TypeScript compilation: Run npm run build, verify 0 errors. ESLint: Run npm run lint, verify 0 errors (2 warnings acceptable).</idea>
+    </ideas>
+  </tests>
+</story-context>

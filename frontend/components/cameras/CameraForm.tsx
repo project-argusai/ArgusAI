@@ -34,6 +34,7 @@ import { MotionSettingsSection } from './MotionSettingsSection';
 import { DetectionZoneDrawer } from './DetectionZoneDrawer';
 import { DetectionZoneList } from './DetectionZoneList';
 import { ZonePresetTemplates } from './ZonePresetTemplates';
+import { DetectionScheduleEditor } from './DetectionScheduleEditor';
 
 interface CameraFormProps {
   /**
@@ -92,6 +93,12 @@ export function CameraForm({
           motion_cooldown: initialData.motion_cooldown,
           motion_algorithm: initialData.motion_algorithm,
           detection_zones: initialData.detection_zones || [],
+          detection_schedule: initialData.detection_schedule || {
+            enabled: false,
+            start_time: '09:00',
+            end_time: '17:00',
+            days: [0, 1, 2, 3, 4],
+          },
         }
       : {
           name: '',
@@ -103,6 +110,12 @@ export function CameraForm({
           motion_cooldown: 30,
           motion_algorithm: 'mog2',
           detection_zones: [],
+          detection_schedule: {
+            enabled: false,
+            start_time: '09:00',
+            end_time: '17:00',
+            days: [0, 1, 2, 3, 4],
+          },
         },
   });
 
@@ -412,6 +425,9 @@ export function CameraForm({
             </p>
           )}
         </div>
+
+        {/* Detection Schedule */}
+        <DetectionScheduleEditor form={form} />
 
         {/* Test Connection Button (edit mode only) */}
         {isEditMode && (

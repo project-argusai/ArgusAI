@@ -1,7 +1,8 @@
 """Pydantic schemas for camera API endpoints"""
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 from datetime import datetime
+import json
 
 
 class CameraBase(BaseModel):
@@ -90,6 +91,28 @@ class CameraUpdate(BaseModel):
     motion_sensitivity: Optional[Literal['low', 'medium', 'high']] = None
     motion_cooldown: Optional[int] = Field(None, ge=0, le=300)
     motion_algorithm: Optional[Literal['mog2', 'knn', 'frame_diff']] = None
+    detection_zones: Optional[Any] = Field(None, description="JSON array of DetectionZone objects (accepts object or string)")
+    detection_schedule: Optional[Any] = Field(None, description="JSON object: DetectionSchedule schema (accepts object or string)")
+
+    @field_validator('detection_zones', mode='before')
+    @classmethod
+    def serialize_detection_zones(cls, v):
+        """Convert detection_zones from object to JSON string if needed"""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return v
+        return json.dumps(v)
+
+    @field_validator('detection_schedule', mode='before')
+    @classmethod
+    def serialize_detection_schedule(cls, v):
+        """Convert detection_schedule from object to JSON string if needed"""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            return v
+        return json.dumps(v)
 
 
 class CameraResponse(CameraBase):
@@ -99,12 +122,38 @@ class CameraResponse(CameraBase):
     rtsp_url: Optional[str] = Field(None, description="RTSP URL (credentials removed)")
     username: Optional[str] = None
     device_index: Optional[int] = None
-    detection_zones: Optional[str] = Field(None, description="JSON array of DetectionZone objects")
-    detection_schedule: Optional[str] = Field(None, description="JSON object: DetectionSchedule schema")
+    detection_zones: Optional[Any] = Field(None, description="JSON array of DetectionZone objects")
+    detection_schedule: Optional[Any] = Field(None, description="JSON object: DetectionSchedule schema")
     created_at: datetime
     updated_at: datetime
 
     # Note: password field is intentionally omitted (write-only field)
+
+    @field_validator('detection_zones', mode='before')
+    @classmethod
+    def deserialize_detection_zones(cls, v):
+        """Convert detection_zones from JSON string to object"""
+        if v is None or v == '':
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return None
+        return v
+
+    @field_validator('detection_schedule', mode='before')
+    @classmethod
+    def deserialize_detection_schedule(cls, v):
+        """Convert detection_schedule from JSON string to object"""
+        if v is None or v == '':
+            return None
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return None
+        return v
 
     model_config = {
         "from_attributes": True,  # Enable ORM mode for SQLAlchemy models

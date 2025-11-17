@@ -39,6 +39,17 @@ export interface IDetectionZone {
 }
 
 /**
+ * Detection schedule configuration (matches backend DetectionSchedule schema)
+ * Controls when motion detection is active based on time and day
+ */
+export interface IDetectionSchedule {
+  enabled: boolean;
+  start_time: string; // Format: "HH:MM" (24-hour)
+  end_time: string;   // Format: "HH:MM" (24-hour)
+  days: number[];     // 0-6 (Monday-Sunday per Python weekday())
+}
+
+/**
  * Complete camera object (matches backend CameraResponse)
  */
 export interface ICamera {
@@ -55,7 +66,7 @@ export interface ICamera {
   motion_cooldown: number;
   motion_algorithm: MotionAlgorithm;
   detection_zones?: IDetectionZone[] | null; // Optional array of detection zones (max 10)
-  detection_schedule?: string | null; // JSON string for schedule
+  detection_schedule?: IDetectionSchedule | null; // Optional detection schedule configuration
   created_at: string; // ISO 8601 datetime
   updated_at: string; // ISO 8601 datetime
 }
@@ -77,6 +88,7 @@ export interface ICameraCreate {
   motion_cooldown?: number;
   motion_algorithm?: MotionAlgorithm;
   detection_zones?: IDetectionZone[];
+  detection_schedule?: IDetectionSchedule | null;
 }
 
 /**
@@ -96,6 +108,7 @@ export interface ICameraUpdate {
   motion_algorithm?: MotionAlgorithm;
   device_index?: number | null;
   detection_zones?: IDetectionZone[];
+  detection_schedule?: IDetectionSchedule | null;
 }
 
 /**

@@ -162,6 +162,28 @@ export const apiClient = {
         method: 'POST',
       });
     },
+
+    /**
+     * Get camera preview thumbnail
+     * @param id Camera UUID
+     * @returns Preview thumbnail as base64 or path
+     * @throws ApiError with 404 if not found
+     */
+    preview: async (id: string): Promise<{ thumbnail_base64?: string; thumbnail_path?: string }> => {
+      return apiFetch<{ thumbnail_base64?: string; thumbnail_path?: string }>(`/cameras/${id}/preview`);
+    },
+
+    /**
+     * Trigger manual camera analysis
+     * @param id Camera UUID
+     * @returns Success confirmation
+     * @throws ApiError with 404 if not found
+     */
+    analyze: async (id: string): Promise<{ success: boolean; message?: string }> => {
+      return apiFetch<{ success: boolean; message?: string }>(`/cameras/${id}/analyze`, {
+        method: 'POST',
+      });
+    },
   },
 
   /**

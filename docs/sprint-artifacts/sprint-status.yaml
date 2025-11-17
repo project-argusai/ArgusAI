@@ -70,7 +70,7 @@ development_status:
   epic-4: backlog
   4-1-build-nextjs-dashboard-foundation-and-layout: done
   4-2-create-event-timeline-view-with-filtering: done
-  4-3-implement-live-camera-preview-grid: backlog
+  4-3-implement-live-camera-preview-grid: done
   4-4-build-system-settings-page: backlog
   epic-4-retrospective: optional
 

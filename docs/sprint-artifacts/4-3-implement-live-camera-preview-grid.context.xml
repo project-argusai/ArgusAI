@@ -1,0 +1,266 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>4</epicId>
+    <storyId>3</storyId>
+    <title>Implement Live Camera Preview Grid</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/4-3-implement-live-camera-preview-grid.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to see live previews of all my cameras on the dashboard</iWant>
+    <soThat>I can monitor my property in real-time</soThat>
+    <tasks>
+      - Task 1: Create CameraPreviewCard component (AC: #1, #3, #4)
+      - Task 2: Implement auto-refresh preview logic (AC: #2, #7)
+      - Task 3: Build camera grid layout page (AC: #1, #8)
+      - Task 4: Implement manual analyze trigger (AC: #5)
+      - Task 5: Create full-screen preview modal (AC: #6)
+      - Task 6: Implement connection status logic (AC: #3)
+      - Task 7: Add error handling and retry (AC: #4)
+      - Task 8: Implement performance optimizations (AC: #7)
+      - Task 9: Testing and validation (AC: All)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    1. Camera Grid Layout - Responsive grid (1/2/3 columns), 16:9 aspect ratio, auto-adjusts for 1-8 cameras, empty state
+    2. Live Preview Auto-Refresh - Fetch every 2 seconds via TanStack Query refetchInterval, smooth fade-in, pause when tab hidden
+    3. Connection Status Indicator - Green/yellow/red/gray badges based on camera state and last_capture_at
+    4. Error Handling - Graceful degradation with retry button, 5-second timeout, stale data warning
+    5. Manual Analyze Trigger - "Analyze Now" button triggers POST /api/v1/cameras/{id}/analyze, shows loading state
+    6. Full-Screen Preview Modal - Click to expand, modal with larger image, keyboard navigation, continues auto-refresh
+    7. Performance Optimization - React.memo, Next.js Image, TanStack Query caching, conditional polling, Page Visibility API
+    8. Responsive Design - Mobile (1 col), tablet (2 col), desktop (3 col), accessible keyboard navigation
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>F6.2: Live Camera View</section>
+        <snippet>Grid layout showing all configured cameras. Live thumbnail updates (1 FPS refresh). Click to expand full-screen view. Previews update every 1-2 seconds. Handles 1-4 cameras efficiently.</snippet>
+      </doc>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>F6.4: Manual Analysis Trigger</section>
+        <snippet>User can manually analyze current camera frame. Button on each camera preview: "Analyze Now". Bypasses motion detection. Analysis completes within 5 seconds.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/4-2-create-event-timeline-view-with-filtering.md</path>
+        <title>Story 4.2: Event Timeline View</title>
+        <section>Learnings from Previous Story</section>
+        <snippet>TanStack Query already configured in QueryProvider. Use React.memo for list items. Next.js Image component for optimization. shadcn/ui components (Dialog, Card, Button) available. TypeScript strict mode required.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/2-3-build-camera-management-api-endpoints.md</path>
+        <title>Story 2.3: Camera Management API</title>
+        <section>Backend API Endpoints</section>
+        <snippet>GET /api/v1/cameras - List all cameras with filters. GET /api/v1/cameras/{id} - Get single camera. Camera fields: id, name, stream_url, is_enabled, last_capture_at.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/types/camera.ts</path>
+        <kind>type-definition</kind>
+        <symbol>ICamera</symbol>
+        <lines>1-20</lines>
+        <reason>Camera interface with id, name, stream_url, is_enabled, last_capture_at - use for camera preview data</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api-client</kind>
+        <symbol>apiClient.cameras</symbol>
+        <lines>86-165</lines>
+        <reason>Existing camera API methods (list, getById, create, update, delete, testConnection) - extend with preview() and analyze() methods</reason>
+      </file>
+      <file>
+        <path>frontend/components/providers/query-provider.tsx</path>
+        <kind>provider</kind>
+        <symbol>QueryProvider</symbol>
+        <lines>1-30</lines>
+        <reason>TanStack Query already configured - use existing provider, do NOT recreate</reason>
+      </file>
+      <file>
+        <path>frontend/lib/hooks/useEvents.ts</path>
+        <kind>custom-hook</kind>
+        <symbol>useEvents</symbol>
+        <lines>1-86</lines>
+        <reason>Reference pattern for TanStack Query hooks with polling and mutations - follow similar structure for useCameraPreview</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/card.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Card</symbol>
+        <lines>1-80</lines>
+        <reason>shadcn/ui Card component available - use for CameraPreviewCard structure</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Dialog</symbol>
+        <lines>1-150</lines>
+        <reason>Radix UI Dialog component available - use for full-screen preview modal</reason>
+      </file>
+      <file>
+        <path>frontend/app/page.tsx</path>
+        <kind>page</kind>
+        <symbol>DashboardHome</symbol>
+        <lines>1-100</lines>
+        <reason>Dashboard home page - add camera grid section below existing stats cards</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <lines>1-144</lines>
+        <reason>Reference for memoized card component with Next.js Image - follow similar patterns for CameraPreviewCard</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <node>
+        <package>next</package>
+        <version>^16.0.3</version>
+        <reason>Next.js App Router and Image component</reason>
+      </node>
+      <node>
+        <package>@tanstack/react-query</package>
+        <version>^5.90.10</version>
+        <reason>Data fetching with polling (refetchInterval)</reason>
+      </node>
+      <node>
+        <package>react</package>
+        <version>^19.0.0</version>
+        <reason>React.memo for performance optimization</reason>
+      </node>
+      <node>
+        <package>date-fns</package>
+        <version>^4.1.0</version>
+        <reason>Format relative timestamps for last update</reason>
+      </node>
+      <node>
+        <package>lucide-react</package>
+        <version>^0.468.0</version>
+        <reason>Icons for camera, status indicators</reason>
+      </node>
+      <node>
+        <package>@radix-ui/react-dialog</package>
+        <version>latest</version>
+        <reason>Accessible modal for full-screen preview</reason>
+      </node>
+      <node>
+        <package>sonner</package>
+        <version>^1.7.1</version>
+        <reason>Toast notifications for errors and success</reason>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - Use existing QueryProvider from frontend/components/providers/query-provider.tsx - DO NOT recreate
+    - Extend apiClient in frontend/lib/api-client.ts with preview() and analyze() methods
+    - Use ICamera interface from frontend/types/camera.ts - do NOT create new camera type
+    - Follow TanStack Query patterns from frontend/lib/hooks/useEvents.ts for polling hooks
+    - Use React.memo for CameraPreviewCard to prevent unnecessary re-renders
+    - Next.js Image component required for automatic image optimization and lazy loading
+    - TypeScript strict mode enabled - no explicit 'any' usage allowed
+    - Build must pass with zero errors (npm run build)
+    - Linting must pass with zero errors (npm run lint)
+    - Responsive grid using Tailwind CSS: grid-cols-1 sm:grid-cols-2 lg:grid-cols-3
+    - shadcn/ui components required: Card, Dialog, Button (already installed)
+    - Page Visibility API for pausing polling when tab hidden
+    - 2-second refresh interval (refetchInterval: 2000) for efficient polling
+    - Stale data detection: last_capture_at &gt; 10 seconds = warning indicator
+    - 5-second timeout for preview fetch requests
+    - Follow accessibility best practices: keyboard navigation, ARIA labels, semantic HTML
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GET /api/v1/cameras</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/cameras?is_enabled=boolean → ICamera[]</signature>
+      <path>backend/app/api/v1/cameras.py</path>
+      <notes>Already exists - use for fetching camera list</notes>
+    </interface>
+    <interface>
+      <name>GET /api/v1/cameras/:id/preview</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/cameras/:id/preview → { thumbnail_base64: string } | { thumbnail_path: string }</signature>
+      <path>backend/app/api/v1/cameras.py</path>
+      <notes>May need to implement or verify endpoint exists - returns current camera frame thumbnail</notes>
+    </interface>
+    <interface>
+      <name>POST /api/v1/cameras/:id/analyze</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/cameras/:id/analyze → 202 Accepted | { event: IEvent }</signature>
+      <path>backend/app/api/v1/cameras.py</path>
+      <notes>May need to implement - triggers manual frame analysis bypassing motion detection</notes>
+    </interface>
+    <interface>
+      <name>apiClient.cameras.preview</name>
+      <kind>API client method</kind>
+      <signature>preview: (id: string) =&gt; Promise&lt;{ thumbnail_base64?: string, thumbnail_path?: string }&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+      <notes>Need to add - wraps GET /api/v1/cameras/:id/preview</notes>
+    </interface>
+    <interface>
+      <name>apiClient.cameras.analyze</name>
+      <kind>API client method</kind>
+      <signature>analyze: (id: string) =&gt; Promise&lt;void&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+      <notes>Need to add - wraps POST /api/v1/cameras/:id/analyze</notes>
+    </interface>
+    <interface>
+      <name>useCameraPreview</name>
+      <kind>React hook</kind>
+      <signature>useCameraPreview(cameraId: string, enabled: boolean) =&gt; { preview: string | null, isLoading: boolean, error: Error | null }</signature>
+      <path>frontend/lib/hooks/useCameraPreview.ts</path>
+      <notes>Need to create - TanStack Query hook with refetchInterval: 2000, pauses on tab hidden</notes>
+    </interface>
+    <interface>
+      <name>useAnalyzeCamera</name>
+      <kind>React hook</kind>
+      <signature>useAnalyzeCamera() =&gt; { mutate: (cameraId: string) =&gt; void, isLoading: boolean, error: Error | null }</signature>
+      <path>frontend/lib/hooks/useCameraPreview.ts</path>
+      <notes>Need to create - TanStack Query mutation for manual analyze trigger</notes>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      - Build verification: npm run build must pass with zero errors
+      - Linting: npm run lint must pass with zero errors
+      - TypeScript strict mode: All types properly defined, no 'any' usage
+      - Manual testing: Test with 0, 1, 2, 4, 8 cameras
+      - Responsive testing: Verify layout on mobile (320px), tablet (768px), desktop (1440px)
+      - Performance: Verify polling pauses when tab hidden using Page Visibility API
+      - Error handling: Test offline cameras, network errors, timeout scenarios
+      - Accessibility: Test keyboard navigation (Tab, Enter, Escape, Arrow keys)
+    </standards>
+
+    <locations>
+      - Build validation: npm run build (frontend directory)
+      - Linting: npm run lint (frontend directory)
+      - Manual testing: Run dev server and test in browser
+    </locations>
+
+    <ideas>
+      - AC1: Test grid layout with 0, 1, 2, 3, 4, 8 cameras - verify responsive columns
+      - AC2: Verify auto-refresh polling works every 2 seconds, pauses when tab hidden
+      - AC3: Test connection status updates based on is_enabled and last_capture_at fields
+      - AC4: Test error boundary with simulated offline camera, verify retry button works
+      - AC5: Test manual analyze button triggers endpoint, shows loading state, navigates to events
+      - AC6: Test full-screen modal opens on click, keyboard navigation (Escape, arrows) works
+      - AC7: Verify React.memo prevents unnecessary re-renders when other cameras update
+      - AC8: Test responsive breakpoints at 640px and 1024px, verify touch-friendly on mobile
+    </ideas>
+  </tests>
+</story-context>

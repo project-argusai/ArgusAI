@@ -4,6 +4,7 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Activity, Camera, Calendar, Bell, TrendingUp } from "lucide-react";
+import { CameraGrid } from "@/components/cameras/CameraGrid";
 
 export const metadata = {
   title: "Dashboard - Live Object AI Classifier",
@@ -75,6 +76,9 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Live Camera Preview Grid */}
+      <CameraGrid />
 
       {/* Recent Activity */}
       <Card>

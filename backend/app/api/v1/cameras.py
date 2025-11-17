@@ -1273,12 +1273,16 @@ def analyze_camera(
         from app.models.motion_event import MotionEvent
         from datetime import datetime, timezone
 
+        # Get current camera settings for algorithm
+        algorithm = camera.motion_algorithm
+
         # Create motion event to trigger AI analysis
+        # Note: confidence=1.0 indicates manual trigger
         motion_event = MotionEvent(
             camera_id=camera_id,
+            timestamp=datetime.now(timezone.utc),
             confidence=1.0,  # Manual trigger = 100% confidence
-            is_manual=True,  # Flag for manual analysis
-            detected_at=datetime.now(timezone.utc)
+            algorithm_used=algorithm
         )
 
         db.add(motion_event)
@@ -1288,7 +1292,7 @@ def analyze_camera(
         # Note: The background event processing will pick this up
         # and generate the AI description asynchronously
 
-        logger.info(f"Manual analysis triggered for camera {camera_id}")
+        logger.info(f"Manual analysis triggered for camera {camera_id} (motion_event: {motion_event.id})")
 
         return {
             "success": True,

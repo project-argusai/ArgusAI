@@ -64,11 +64,11 @@ development_status:
   3-2-implement-event-storage-and-retrieval-system: done
   3-3-build-event-driven-processing-pipeline: done
   3-4-implement-data-retention-and-cleanup: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: completed
 
   # Epic 4: Dashboard User Interface
   epic-4: backlog
-  4-1-build-nextjs-dashboard-foundation-and-layout: backlog
+  4-1-build-nextjs-dashboard-foundation-and-layout: in-progress
   4-2-create-event-timeline-view-with-filtering: backlog
   4-3-implement-live-camera-preview-grid: backlog
   4-4-build-system-settings-page: backlog

@@ -6,16 +6,24 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Video, Calendar, Bell, Settings, Menu } from 'lucide-react';
+import { Video, Calendar, Bell, Settings, Menu, Home, User, Circle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 
 const navigation = [
-  { name: 'Events', href: '/events', icon: Calendar, available: false },
+  { name: 'Dashboard', href: '/', icon: Home, available: true },
+  { name: 'Events', href: '/events', icon: Calendar, available: true },
   { name: 'Cameras', href: '/cameras', icon: Video, available: true },
-  { name: 'Alert Rules', href: '/alert-rules', icon: Bell, available: false },
-  { name: 'Settings', href: '/settings', icon: Settings, available: false },
+  { name: 'Rules', href: '/rules', icon: Bell, available: true },
+  { name: 'Settings', href: '/settings', icon: Settings, available: true },
 ];
 
 /**
@@ -68,15 +76,68 @@ export function Header() {
             })}
           </nav>
 
-          {/* Mobile Menu Button */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="md:hidden"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
+          {/* Right Side Actions */}
+          <div className="flex items-center gap-2">
+            {/* System Status Indicator */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50">
+                    <Circle className="h-2 w-2 fill-green-500 text-green-500" />
+                    <span className="text-xs font-medium hidden sm:inline">Healthy</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">System Status: Healthy</p>
+                  <p className="text-xs text-muted-foreground">All services operational</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* Notification Bell */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative">
+                    <Bell className="h-5 w-5" />
+                    <Badge
+                      variant="destructive"
+                      className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
+                    >
+                      0
+                    </Badge>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">No new notifications</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* User Menu (Phase 1.5 Placeholder) */}
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="hidden md:flex">
+                    <User className="h-5 w-5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">User menu coming in Phase 1.5</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            {/* Mobile Menu Button */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="md:hidden"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Mobile Navigation */}

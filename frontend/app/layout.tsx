@@ -7,6 +7,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { Header } from "@/components/layout/Header";
+import { Sidebar } from "@/components/layout/Sidebar";
+import { MobileNav } from "@/components/layout/MobileNav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -41,9 +43,13 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <Header />
-          <main className="min-h-screen bg-background">
-            {children}
+          <Sidebar />
+          <main className="min-h-screen bg-background pt-16 pb-16 lg:pb-0 lg:pl-60 transition-all duration-300">
+            <div className="container mx-auto">
+              {children}
+            </div>
           </main>
+          <MobileNav />
           <Toaster />
         </ThemeProvider>
       </body>

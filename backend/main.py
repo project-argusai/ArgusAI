@@ -125,6 +125,22 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("Cleanup scheduler initialized (daily at 2:00 AM)")
 
+    # Start enabled cameras on startup (Story 4.3)
+    from app.core.database import get_db
+    from app.models.camera import Camera
+    db = next(get_db())
+    try:
+        enabled_cameras = db.query(Camera).filter(Camera.is_enabled == True).all()
+        logger.info(f"Starting {len(enabled_cameras)} enabled cameras...")
+        for camera in enabled_cameras:
+            success = camera_service.start_camera(camera)
+            if success:
+                logger.info(f"Started camera: {camera.name} ({camera.id})")
+            else:
+                logger.warning(f"Failed to start camera: {camera.name} ({camera.id})")
+    finally:
+        db.close()
+
     logger.info("Application startup complete")
 
     yield  # Application runs here

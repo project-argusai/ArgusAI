@@ -45,6 +45,8 @@ class CameraService:
         self._stop_flags: Dict[str, threading.Event] = {}
         self._status_lock = threading.Lock()
         self._camera_status: Dict[str, dict] = {}
+        self._latest_frames: Dict[str, np.ndarray] = {}  # Store latest frame per camera
+        self._frame_lock = threading.Lock()  # Lock for frame access
 
         logger.info("CameraService initialized")
 
@@ -168,6 +170,11 @@ class CameraService:
                 if camera_id in self._camera_status:
                     del self._camera_status[camera_id]
 
+            # Clean up latest frame
+            with self._frame_lock:
+                if camera_id in self._latest_frames:
+                    del self._latest_frames[camera_id]
+
             # Clean up motion detection resources
             try:
                 motion_detection_service.cleanup_camera(camera_id)
@@ -286,6 +293,10 @@ class CameraService:
 
                     # Frame captured successfully
                     self._update_status(camera_id, "connected")
+
+                    # Store latest frame for preview endpoint
+                    with self._frame_lock:
+                        self._latest_frames[camera_id] = frame.copy()
 
                     # Motion detection integration (F2.1)
                     if camera.motion_enabled:
@@ -442,6 +453,23 @@ class CameraService:
         """
         with self._status_lock:
             return self._camera_status.copy()
+
+    def get_latest_frame(self, camera_id: str) -> Optional[np.ndarray]:
+        """
+        Get the latest captured frame for a camera
+
+        Args:
+            camera_id: UUID of camera
+
+        Returns:
+            Latest frame as numpy array (BGR format) or None if no frame available
+
+        Thread-safe: Yes (uses frame_lock)
+        """
+        with self._frame_lock:
+            frame = self._latest_frames.get(camera_id)
+            # Return a copy to prevent external modification
+            return frame.copy() if frame is not None else None
 
     def stop_all_cameras(self, timeout: float = 5.0) -> None:
         """

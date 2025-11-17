@@ -1106,3 +1106,201 @@ def get_camera_schedule_status(
         "current_day": current_day,
         "schedule_enabled": schedule_enabled
     }
+
+
+# ============================================================================
+# Live Preview & Manual Analysis Endpoints (Story 4.3)
+# ============================================================================
+
+@router.get("/{camera_id}/preview")
+def get_camera_preview(
+    camera_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get current camera preview frame as base64-encoded JPEG
+
+    Args:
+        camera_id: UUID of camera
+        db: Database session
+
+    Returns:
+        JSON with thumbnail_base64 field containing base64-encoded JPEG
+
+    Raises:
+        404: Camera not found
+        400: Camera not running or failed to capture frame
+
+    Example Response:
+        {
+            "thumbnail_base64": "/9j/4AAQSkZJRg..."
+        }
+    """
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+
+        if not camera:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Camera {camera_id} not found"
+            )
+
+        # Check if camera is enabled
+        if not camera.is_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Camera {camera_id} is disabled"
+            )
+
+        # Get camera status from service
+        camera_status = camera_service.get_camera_status(camera_id)
+
+        if not camera_status or camera_status.get('status') != 'connected':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Camera {camera_id} is not currently running"
+            )
+
+        # Get latest frame from camera service
+        latest_frame = camera_service.get_latest_frame(camera_id)
+
+        if latest_frame is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No frame available from camera"
+            )
+
+        # Resize to preview size (640x480 or maintain aspect ratio)
+        height, width = latest_frame.shape[:2]
+        preview_width = 640
+        aspect_ratio = width / height
+        preview_height = int(preview_width / aspect_ratio)
+
+        preview_frame = cv2.resize(latest_frame, (preview_width, preview_height))
+
+        # Encode as JPEG
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+        ret, buffer = cv2.imencode('.jpg', preview_frame, encode_param)
+
+        if not ret:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to encode preview image"
+            )
+
+        # Convert to base64
+        preview_b64 = base64.b64encode(buffer).decode('utf-8')
+
+        return {
+            "thumbnail_base64": preview_b64
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get preview for camera {camera_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get camera preview: {str(e)}"
+        )
+
+
+@router.post("/{camera_id}/analyze")
+def analyze_camera(
+    camera_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger manual camera analysis (bypasses motion detection)
+
+    This endpoint forces an immediate AI analysis of the current camera frame,
+    regardless of motion detection settings. The analysis happens asynchronously
+    and results are saved as an Event in the database.
+
+    Args:
+        camera_id: UUID of camera
+        db: Database session
+
+    Returns:
+        Success confirmation message
+
+    Raises:
+        404: Camera not found
+        400: Camera not running or analysis failed
+
+    Example Response:
+        {
+            "success": true,
+            "message": "Analysis triggered successfully"
+        }
+    """
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+
+        if not camera:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Camera {camera_id} not found"
+            )
+
+        # Check if camera is enabled
+        if not camera.is_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Camera {camera_id} is disabled. Enable camera first."
+            )
+
+        # Check if camera is running
+        camera_status = camera_service.get_camera_status(camera_id)
+
+        if not camera_status or camera_status.get('status') != 'connected':
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Camera {camera_id} is not currently running"
+            )
+
+        # Get latest frame
+        latest_frame = camera_service.get_latest_frame(camera_id)
+
+        if latest_frame is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No frame available from camera"
+            )
+
+        # Trigger async analysis via motion event
+        # This will create a MotionEvent and trigger AI processing
+        from app.models.motion_event import MotionEvent
+        from datetime import datetime, timezone
+
+        # Create motion event to trigger AI analysis
+        motion_event = MotionEvent(
+            camera_id=camera_id,
+            confidence=1.0,  # Manual trigger = 100% confidence
+            is_manual=True,  # Flag for manual analysis
+            detected_at=datetime.now(timezone.utc)
+        )
+
+        db.add(motion_event)
+        db.commit()
+        db.refresh(motion_event)
+
+        # Note: The background event processing will pick this up
+        # and generate the AI description asynchronously
+
+        logger.info(f"Manual analysis triggered for camera {camera_id}")
+
+        return {
+            "success": True,
+            "message": "Analysis triggered successfully"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to analyze camera {camera_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger analysis: {str(e)}"
+        )

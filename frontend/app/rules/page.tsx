@@ -1,17 +1,45 @@
+'use client';
+
 /**
- * Alert Rules page - Coming in Story 5.2
- * Placeholder page for navigation structure
+ * Alert Rules page - Epic 5, Story 5.2
+ * Manage alert rules and notifications
  */
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Bell } from "lucide-react";
-
-export const metadata = {
-  title: "Alert Rules - Live Object AI Classifier",
-  description: "Manage alert rules and notifications",
-};
+import { useState } from 'react';
+import type { IAlertRule } from '@/types/alert-rule';
+import { RulesList } from '@/components/rules/RulesList';
+import { RuleFormDialog } from '@/components/rules/RuleFormDialog';
+import { DeleteRuleDialog } from '@/components/rules/DeleteRuleDialog';
 
 export default function RulesPage() {
+  // Modal states
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [editingRule, setEditingRule] = useState<IAlertRule | null>(null);
+  const [deletingRule, setDeletingRule] = useState<IAlertRule | null>(null);
+
+  const handleCreateRule = () => {
+    setEditingRule(null);
+    setIsFormOpen(true);
+  };
+
+  const handleEditRule = (rule: IAlertRule) => {
+    setEditingRule(rule);
+    setIsFormOpen(true);
+  };
+
+  const handleDeleteRule = (rule: IAlertRule) => {
+    setDeletingRule(rule);
+  };
+
+  const handleFormClose = () => {
+    setIsFormOpen(false);
+    setEditingRule(null);
+  };
+
+  const handleDeleteClose = () => {
+    setDeletingRule(null);
+  };
+
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6">
@@ -21,29 +49,25 @@ export default function RulesPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center space-x-2">
-            <Bell className="h-5 w-5 text-yellow-600" />
-            <CardTitle>Coming Soon</CardTitle>
-          </div>
-          <CardDescription>
-            Alert rule configuration will be available in Epic 5
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            This page will include:
-          </p>
-          <ul className="list-disc list-inside mt-2 space-y-1 text-sm text-muted-foreground">
-            <li>Create and manage alert rules</li>
-            <li>Configure conditions (object type, confidence, camera)</li>
-            <li>Set up webhook integrations</li>
-            <li>Test alert rules before deploying</li>
-            <li>View alert history and logs</li>
-          </ul>
-        </CardContent>
-      </Card>
+      <RulesList
+        onCreateRule={handleCreateRule}
+        onEditRule={handleEditRule}
+        onDeleteRule={handleDeleteRule}
+      />
+
+      {/* Create/Edit Rule Dialog */}
+      <RuleFormDialog
+        open={isFormOpen}
+        onOpenChange={setIsFormOpen}
+        rule={editingRule}
+        onClose={handleFormClose}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteRuleDialog
+        rule={deletingRule}
+        onClose={handleDeleteClose}
+      />
     </div>
   );
 }

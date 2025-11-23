@@ -37,6 +37,7 @@ class Event(Base):
     thumbnail_path = Column(String(500), nullable=True)  # Filesystem mode: relative path
     thumbnail_base64 = Column(Text, nullable=True)  # Database mode: base64 JPEG
     alert_triggered = Column(Boolean, nullable=False, default=False)  # Epic 5 feature
+    alert_rule_ids = Column(Text, nullable=True)  # JSON array of triggered rule UUIDs (Epic 5)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

@@ -21,6 +21,14 @@ import type {
   AIKeyTestResponse,
   DeleteDataResponse,
 } from '@/types/settings';
+import type {
+  IAlertRule,
+  IAlertRuleCreate,
+  IAlertRuleUpdate,
+  IAlertRuleListResponse,
+  IAlertRuleTestRequest,
+  IAlertRuleTestResponse,
+} from '@/types/alert-rule';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const API_V1_PREFIX = '/api/v1';
@@ -331,6 +339,90 @@ export const apiClient = {
     deleteAllData: async (): Promise<DeleteDataResponse> => {
       return apiFetch<DeleteDataResponse>('/events', {
         method: 'DELETE',
+      });
+    },
+  },
+
+  /**
+   * Alert Rules API client (Epic 5)
+   */
+  alertRules: {
+    /**
+     * Get all alert rules
+     * @param filters Optional filters (is_enabled)
+     * @returns Paginated list of alert rules
+     */
+    list: async (filters?: { is_enabled?: boolean }): Promise<IAlertRuleListResponse> => {
+      const params = new URLSearchParams();
+      if (filters?.is_enabled !== undefined) {
+        params.append('is_enabled', String(filters.is_enabled));
+      }
+
+      const queryString = params.toString();
+      const endpoint = `/alert-rules${queryString ? `?${queryString}` : ''}`;
+
+      return apiFetch<IAlertRuleListResponse>(endpoint);
+    },
+
+    /**
+     * Get single alert rule by ID
+     * @param id Alert rule UUID
+     * @returns Alert rule object
+     * @throws ApiError with 404 if not found
+     */
+    getById: async (id: string): Promise<IAlertRule> => {
+      return apiFetch<IAlertRule>(`/alert-rules/${id}`);
+    },
+
+    /**
+     * Create new alert rule
+     * @param data Alert rule creation payload
+     * @returns Created alert rule object
+     * @throws ApiError with 422 for validation errors
+     */
+    create: async (data: IAlertRuleCreate): Promise<IAlertRule> => {
+      return apiFetch<IAlertRule>('/alert-rules', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /**
+     * Update existing alert rule
+     * @param id Alert rule UUID
+     * @param data Partial alert rule update payload
+     * @returns Updated alert rule object
+     * @throws ApiError with 404 if not found, 422 for validation errors
+     */
+    update: async (id: string, data: IAlertRuleUpdate): Promise<IAlertRule> => {
+      return apiFetch<IAlertRule>(`/alert-rules/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /**
+     * Delete alert rule
+     * @param id Alert rule UUID
+     * @throws ApiError with 404 if not found
+     */
+    delete: async (id: string): Promise<void> => {
+      await apiFetch<void>(`/alert-rules/${id}`, {
+        method: 'DELETE',
+      });
+    },
+
+    /**
+     * Test alert rule against historical events
+     * @param id Alert rule UUID
+     * @param data Optional test parameters
+     * @returns Test results with matching event IDs
+     * @throws ApiError with 404 if not found
+     */
+    test: async (id: string, data?: IAlertRuleTestRequest): Promise<IAlertRuleTestResponse> => {
+      return apiFetch<IAlertRuleTestResponse>(`/alert-rules/${id}/test`, {
+        method: 'POST',
+        body: JSON.stringify(data || {}),
       });
     },
   },

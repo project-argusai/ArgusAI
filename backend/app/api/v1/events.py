@@ -9,7 +9,7 @@ Provides REST API for AI-generated semantic event management:
 - GET /events/export - Export events to JSON or CSV
 - DELETE /events/cleanup - Manual cleanup of old events
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, asc, text
@@ -22,6 +22,7 @@ import base64
 import uuid
 import csv
 import io
+import asyncio
 
 from app.core.database import get_db
 from app.models.event import Event
@@ -85,9 +86,36 @@ def _save_thumbnail_to_filesystem(thumbnail_base64: str, event_id: str) -> str:
         raise ValueError(f"Invalid thumbnail data: {e}")
 
 
+async def _process_event_alerts_background(event_id: str):
+    """
+    Background task to process alert rules for a new event.
+
+    Creates a new database session for the background task since
+    the original session may be closed by the time this runs.
+
+    Args:
+        event_id: UUID of the event to process
+    """
+    from app.core.database import SessionLocal
+    from app.services.alert_engine import process_event_alerts
+
+    db = SessionLocal()
+    try:
+        await process_event_alerts(event_id, db)
+    except Exception as e:
+        logger.error(
+            f"Background alert processing failed for event {event_id}: {e}",
+            exc_info=True,
+            extra={"event_id": event_id}
+        )
+    finally:
+        db.close()
+
+
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
-def create_event(
+async def create_event(
     event_data: EventCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
@@ -162,6 +190,9 @@ def create_event(
             f"Created event {event_id} for camera {event_data.camera_id} "
             f"(confidence={event_data.confidence}, objects={event_data.objects_detected})"
         )
+
+        # Trigger alert rule evaluation in background (Epic 5)
+        background_tasks.add_task(_process_event_alerts_background, event_id)
 
         return event
 

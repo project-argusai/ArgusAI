@@ -574,14 +574,17 @@ class EventProcessor:
                 }
             )
 
-            # Step 2: Store event via POST /api/v1/events
+            # Step 2: Generate thumbnail from frame
+            thumbnail_base64 = self._generate_thumbnail(event.frame)
+
+            # Step 3: Store event via POST /api/v1/events
             event_data = {
                 "camera_id": event.camera_id,
                 "timestamp": event.timestamp.isoformat(),
                 "description": ai_result.description,
                 "confidence": ai_result.confidence,
                 "objects_detected": ai_result.objects_detected,
-                "thumbnail_base64": None,  # TODO: Generate thumbnail from frame
+                "thumbnail_base64": thumbnail_base64,
                 "alert_triggered": False  # Will be set by alert evaluation (Epic 5)
             }
 
@@ -701,6 +704,53 @@ class EventProcessor:
             except Exception as e:
                 logger.error(f"Error draining queue: {e}", exc_info=True)
                 self.event_queue.task_done()
+
+    def _generate_thumbnail(self, frame: np.ndarray, max_width: int = 320, max_height: int = 180) -> Optional[str]:
+        """
+        Generate a base64-encoded JPEG thumbnail from a frame.
+
+        Args:
+            frame: OpenCV frame (numpy array in BGR format)
+            max_width: Maximum thumbnail width (default 320px)
+            max_height: Maximum thumbnail height (default 180px)
+
+        Returns:
+            Base64-encoded JPEG string with data URI prefix, or None on error
+        """
+        try:
+            import cv2
+            import base64
+
+            if frame is None:
+                logger.warning("Cannot generate thumbnail: frame is None")
+                return None
+
+            # Calculate aspect-preserving resize
+            height, width = frame.shape[:2]
+            scale = min(max_width / width, max_height / height)
+
+            if scale < 1:
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            else:
+                resized = frame
+
+            # Encode as JPEG
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+            success, buffer = cv2.imencode('.jpg', resized, encode_params)
+
+            if not success:
+                logger.warning("Failed to encode thumbnail as JPEG")
+                return None
+
+            # Convert to base64 with data URI prefix
+            b64_str = base64.b64encode(buffer).decode('utf-8')
+            return f"data:image/jpeg;base64,{b64_str}"
+
+        except Exception as e:
+            logger.error(f"Error generating thumbnail: {e}", exc_info=True)
+            return None
 
     def get_metrics(self) -> Dict:
         """

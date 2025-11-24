@@ -7,6 +7,7 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -279,6 +280,30 @@ app.include_router(webhooks_router, prefix=settings.API_V1_PREFIX)  # Story 5.3
 app.include_router(notifications_router, prefix=settings.API_V1_PREFIX)  # Story 5.4
 app.include_router(websocket_router)  # Story 5.4 - WebSocket at /ws (no prefix)
 app.include_router(logs_router, prefix=settings.API_V1_PREFIX)  # Story 6.2 - Log retrieval
+
+# Thumbnail serving endpoint (with CORS support)
+from fastapi.responses import FileResponse, Response as FastAPIResponse
+
+@app.get("/api/v1/thumbnails/{date}/{filename}")
+async def get_thumbnail(date: str, filename: str):
+    """Serve thumbnail images with CORS support"""
+    thumbnail_dir = os.path.join(os.path.dirname(__file__), 'data', 'thumbnails')
+    file_path = os.path.join(thumbnail_dir, date, filename)
+
+    if os.path.exists(file_path):
+        with open(file_path, "rb") as f:
+            content = f.read()
+        return FastAPIResponse(
+            content=content,
+            media_type="image/jpeg",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "public, max-age=86400"
+            }
+        )
+
+    from fastapi import HTTPException
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
 @app.get("/")

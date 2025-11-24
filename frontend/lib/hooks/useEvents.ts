@@ -11,13 +11,23 @@ const EVENTS_PER_PAGE = 20;
 
 /**
  * Simple query for recent events (dashboard use)
+ * Auto-refetches every 10 seconds to pick up new events
  */
 export function useRecentEvents(limit: number = 5) {
   return useQuery({
     queryKey: ['events', 'recent', limit],
     queryFn: () => apiClient.events.list({}, { skip: 0, limit }),
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 10 * 1000, // 10 seconds
+    refetchInterval: 10 * 1000, // Poll every 10 seconds for new events
   });
+}
+
+/**
+ * Hook to invalidate all event queries (call when new events arrive via WebSocket)
+ */
+export function useInvalidateEvents() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: ['events'] });
 }
 
 /**

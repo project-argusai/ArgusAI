@@ -59,9 +59,23 @@ export interface IWebSocketNotification {
 }
 
 /**
+ * WebSocket new event message payload
+ */
+export interface IWebSocketNewEvent {
+  type: 'NEW_EVENT';
+  data: {
+    event_id: string;
+    camera_id: string;
+    description: string | null;
+  };
+  timestamp: string;
+}
+
+/**
  * WebSocket message types
  */
 export type WebSocketMessage =
   | IWebSocketNotification
+  | IWebSocketNewEvent
   | { type: 'ping' | 'pong' }
   | { type: 'ALERT_TRIGGERED'; data: { event: Record<string, unknown>; rule: Record<string, unknown> }; timestamp: string };

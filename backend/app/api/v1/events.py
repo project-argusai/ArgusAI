@@ -50,7 +50,7 @@ def _save_thumbnail_to_filesystem(thumbnail_base64: str, event_id: str) -> str:
     Save base64-encoded thumbnail to filesystem
 
     Args:
-        thumbnail_base64: Base64-encoded JPEG image
+        thumbnail_base64: Base64-encoded JPEG image (with or without data URI prefix)
         event_id: Event UUID for filename
 
     Returns:
@@ -60,6 +60,13 @@ def _save_thumbnail_to_filesystem(thumbnail_base64: str, event_id: str) -> str:
         ValueError: If thumbnail data is invalid
     """
     try:
+        # Strip data URI prefix if present (e.g., "data:image/jpeg;base64,")
+        if thumbnail_base64.startswith('data:'):
+            # Find the base64 data after the comma
+            comma_idx = thumbnail_base64.find(',')
+            if comma_idx != -1:
+                thumbnail_base64 = thumbnail_base64[comma_idx + 1:]
+
         # Decode base64 to bytes
         thumbnail_bytes = base64.b64decode(thumbnail_base64)
 
@@ -75,15 +82,43 @@ def _save_thumbnail_to_filesystem(thumbnail_base64: str, event_id: str) -> str:
         with open(file_path, 'wb') as f:
             f.write(thumbnail_bytes)
 
-        # Return relative path from data directory
-        relative_path = f"thumbnails/{date_str}/{filename}"
-        logger.debug(f"Saved thumbnail to {relative_path}")
+        # Return relative path (without thumbnails/ prefix since the endpoint adds it)
+        relative_path = f"{date_str}/{filename}"
+        logger.debug(f"Saved thumbnail to thumbnails/{relative_path}")
 
         return relative_path
 
     except Exception as e:
         logger.error(f"Failed to save thumbnail for event {event_id}: {e}")
         raise ValueError(f"Invalid thumbnail data: {e}")
+
+
+async def _broadcast_new_event(event_id: str, camera_id: str, description: str):
+    """
+    Broadcast new event notification via WebSocket.
+
+    Notifies all connected dashboard clients that a new event was created.
+
+    Args:
+        event_id: UUID of the new event
+        camera_id: Camera that captured the event
+        description: Event description
+    """
+    try:
+        from app.services.websocket_manager import get_websocket_manager
+
+        ws_manager = get_websocket_manager()
+        await ws_manager.broadcast({
+            "type": "NEW_EVENT",
+            "data": {
+                "event_id": event_id,
+                "camera_id": camera_id,
+                "description": description[:100] if description else None,
+            }
+        })
+        logger.debug(f"Broadcasted new event notification for {event_id}")
+    except Exception as e:
+        logger.warning(f"Failed to broadcast new event: {e}")
 
 
 async def _process_event_alerts_background(event_id: str):
@@ -189,6 +224,14 @@ async def create_event(
         logger.info(
             f"Created event {event_id} for camera {event_data.camera_id} "
             f"(confidence={event_data.confidence}, objects={event_data.objects_detected})"
+        )
+
+        # Broadcast new event to WebSocket clients for instant dashboard updates
+        background_tasks.add_task(
+            _broadcast_new_event,
+            event_id,
+            event_data.camera_id,
+            event_data.description
         )
 
         # Trigger alert rule evaluation in background (Epic 5)

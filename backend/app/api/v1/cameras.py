@@ -33,6 +33,7 @@ from app.schemas.motion import (
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import motion_detection_service
 from app.services.detection_zone_manager import detection_zone_manager
+from app.services.event_processor import get_event_processor, ProcessingEvent
 
 logger = logging.getLogger(__name__)
 
@@ -1344,7 +1345,7 @@ def get_camera_preview(
 
 
 @router.post("/{camera_id}/analyze")
-def analyze_camera(
+async def analyze_camera(
     camera_id: str,
     db: Session = Depends(get_db)
 ):
@@ -1406,31 +1407,30 @@ def analyze_camera(
                 detail="No frame available from camera"
             )
 
-        # Trigger async analysis via motion event
-        # This will create a MotionEvent and trigger AI processing
-        from app.models.motion_event import MotionEvent
+        # Get event processor
+        event_processor = get_event_processor()
+        if event_processor is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Event processor not running. Check if AI service is configured."
+            )
+
+        # Queue event for AI processing
         from datetime import datetime, timezone
 
-        # Get current camera settings for algorithm
-        algorithm = camera.motion_algorithm
-
-        # Create motion event to trigger AI analysis
-        # Note: confidence=1.0 indicates manual trigger
-        motion_event = MotionEvent(
+        processing_event = ProcessingEvent(
             camera_id=camera_id,
+            camera_name=camera.name,
+            frame=latest_frame,
             timestamp=datetime.now(timezone.utc),
-            confidence=1.0,  # Manual trigger = 100% confidence
-            algorithm_used=algorithm
+            detected_objects=["manual_trigger"],
+            metadata={"trigger": "manual", "source": "analyze_button"}
         )
 
-        db.add(motion_event)
-        db.commit()
-        db.refresh(motion_event)
+        # Queue the event for async AI processing
+        await event_processor.queue_event(processing_event)
 
-        # Note: The background event processing will pick this up
-        # and generate the AI description asynchronously
-
-        logger.info(f"Manual analysis triggered for camera {camera_id} (motion_event: {motion_event.id})")
+        logger.info(f"Manual analysis queued for camera {camera_id} ({camera.name})")
 
         return {
             "success": True,

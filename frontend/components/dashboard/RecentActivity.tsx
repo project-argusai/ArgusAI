@@ -5,7 +5,8 @@
 
 'use client';
 
-import { useRecentEvents } from '@/lib/hooks/useEvents';
+import { useRecentEvents, useInvalidateEvents } from '@/lib/hooks/useEvents';
+import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Activity, ArrowRight, Camera, Clock, AlertCircle } from 'lucide-react';
@@ -15,6 +16,23 @@ import { getConfidenceColor } from '@/types/event';
 
 export function RecentActivity() {
   const { data, isLoading, error } = useRecentEvents(5);
+  const invalidateEvents = useInvalidateEvents();
+
+  // Connect to WebSocket for instant updates
+  useWebSocket({
+    onNewEvent: () => {
+      // New event created - refetch immediately
+      invalidateEvents();
+    },
+    onNotification: () => {
+      // Alert notification received - refetch to show updated data
+      invalidateEvents();
+    },
+    onAlert: () => {
+      // Alert triggered - refetch to show updated data
+      invalidateEvents();
+    },
+  });
 
   return (
     <Card>
@@ -72,19 +90,28 @@ export function RecentActivity() {
                 className="flex items-start space-x-3 p-2 rounded-lg hover:bg-muted/50 transition-colors group"
               >
                 {/* Thumbnail */}
-                {event.thumbnail_base64 ? (
-                  <img
-                    src={event.thumbnail_base64.startsWith('data:')
+                {(() => {
+                  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+                  const src = event.thumbnail_base64
+                    ? event.thumbnail_base64.startsWith('data:')
                       ? event.thumbnail_base64
-                      : `data:image/jpeg;base64,${event.thumbnail_base64}`}
-                    alt="Event thumbnail"
-                    className="w-16 h-12 object-cover rounded flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-16 h-12 bg-muted rounded flex items-center justify-center flex-shrink-0">
-                    <Camera className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                )}
+                      : `data:image/jpeg;base64,${event.thumbnail_base64}`
+                    : event.thumbnail_path
+                    ? `${apiUrl}/api/v1/thumbnails/${event.thumbnail_path.replace(/^thumbnails\//, '')}`
+                    : null;
+
+                  return src ? (
+                    <img
+                      src={src}
+                      alt="Event thumbnail"
+                      className="w-16 h-12 object-cover rounded flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-16 h-12 bg-muted rounded flex items-center justify-center flex-shrink-0">
+                      <Camera className="h-5 w-5 text-muted-foreground" />
+                    </div>
+                  );
+                })()}
 
                 {/* Event details */}
                 <div className="flex-1 min-w-0">

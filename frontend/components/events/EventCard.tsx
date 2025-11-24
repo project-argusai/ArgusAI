@@ -5,7 +5,6 @@
 'use client';
 
 import { useState, memo } from 'react';
-import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { Video, ChevronDown, ChevronUp } from 'lucide-react';
 import type { IEvent } from '@/types/event';
@@ -36,10 +35,11 @@ export const EventCard = memo(function EventCard({ event, onClick }: EventCardPr
   const confidenceColorClass = getConfidenceColor(event.confidence);
 
   // Determine thumbnail source
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   const thumbnailSrc = event.thumbnail_base64
     ? `data:image/jpeg;base64,${event.thumbnail_base64}`
     : event.thumbnail_path
-    ? `/api/v1/thumbnails/${event.thumbnail_path}`
+    ? `${apiUrl}/api/v1/thumbnails/${event.thumbnail_path.replace(/^thumbnails\//, '')}`
     : null;
 
   // Truncate description to 3 lines (~150 chars)
@@ -56,13 +56,13 @@ export const EventCard = memo(function EventCard({ event, onClick }: EventCardPr
     >
       <div className="flex flex-col sm:flex-row">
         {/* Thumbnail */}
-        <div className="relative w-full sm:w-80 h-48 sm:h-auto bg-gray-100 flex-shrink-0">
+        <div className="relative w-full sm:w-80 h-48 bg-gray-100 flex-shrink-0">
           {thumbnailSrc && !imageError ? (
-            <Image
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
               src={thumbnailSrc}
               alt="Event thumbnail"
-              fill
-              className="object-cover"
+              className="w-full h-full object-cover"
               onError={() => setImageError(true)}
             />
           ) : (

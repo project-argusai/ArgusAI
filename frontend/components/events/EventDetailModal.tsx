@@ -138,10 +138,11 @@ export function EventDetailModal({
   const confidenceLevel = getConfidenceLevel(event.confidence);
 
   // Determine image source
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   const imageSrc = event.thumbnail_base64
     ? `data:image/jpeg;base64,${event.thumbnail_base64}`
     : event.thumbnail_path
-    ? `/api/v1/thumbnails/${event.thumbnail_path}`
+    ? `${apiUrl}/api/v1/thumbnails/${event.thumbnail_path.replace(/^thumbnails\//, '')}`
     : null;
 
   return (
@@ -201,6 +202,7 @@ export function EventDetailModal({
                 fill
                 className="object-contain"
                 onError={() => setImageError(true)}
+                unoptimized={imageSrc.startsWith('http://localhost') || imageSrc.startsWith('data:')}
                 priority
               />
             ) : (

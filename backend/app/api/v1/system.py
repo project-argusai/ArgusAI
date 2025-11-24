@@ -41,6 +41,35 @@ router = APIRouter(
 )
 
 
+@router.get("/debug/ai-keys")
+def debug_ai_keys(db: Session = Depends(get_db)):
+    """Debug endpoint to check if AI keys are saved in database"""
+    keys_to_check = [
+        'ai_api_key_openai',
+        'ai_api_key_claude',
+        'ai_api_key_gemini',
+        'settings_primary_api_key',
+        'settings_primary_model',
+    ]
+
+    results = {}
+    for key in keys_to_check:
+        setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if setting:
+            value = setting.value
+            # Show if encrypted and first/last few chars
+            if value.startswith('encrypted:'):
+                results[key] = f"encrypted (length: {len(value)})"
+            elif value.startswith('****'):
+                results[key] = f"masked: {value}"
+            else:
+                results[key] = f"plaintext (first 4 chars): {value[:4]}... (length: {len(value)})"
+        else:
+            results[key] = "NOT FOUND"
+
+    return results
+
+
 @router.get("/debug/network")
 def debug_network_test():
     """Debug endpoint to test network connectivity from server context"""
@@ -461,7 +490,38 @@ async def update_settings(
 
         for field_name, value in update_data.items():
             if value is not None:  # Only update non-None values
+                # Skip masked API key values
+                if field_name in ('primary_api_key', 'fallback_api_key') and isinstance(value, str) and value.startswith('****'):
+                    logger.debug(f"Skipping masked value for {field_name}")
+                    continue
                 _set_setting_in_db(db, f"{SETTINGS_PREFIX}{field_name}", value)
+
+        # If API key was updated (and not a masked value), also save it with provider-specific key name
+        # so AI service can find it
+        if 'primary_api_key' in update_data and update_data['primary_api_key']:
+            api_key = update_data['primary_api_key']
+
+            # Skip masked values (they start with ****)
+            if api_key.startswith('****'):
+                logger.debug("Skipping masked API key value")
+            else:
+                # Get the model to determine the provider
+                model = update_data.get('primary_model')
+                if not model:
+                    # Get current model from database
+                    model_setting = _get_setting_from_db(db, f"{SETTINGS_PREFIX}primary_model")
+                    model = model_setting or 'gpt-4o-mini'
+
+                # Map model to provider key name
+                model_to_key = {
+                    'gpt-4o-mini': 'ai_api_key_openai',
+                    'claude-3-haiku': 'ai_api_key_claude',
+                    'gemini-flash': 'ai_api_key_gemini',
+                }
+                provider_key = model_to_key.get(model)
+                if provider_key:
+                    _set_setting_in_db(db, provider_key, api_key)
+                    logger.info(f"Saved API key for provider: {provider_key}")
 
         # Return complete updated settings
         return await get_settings(db)

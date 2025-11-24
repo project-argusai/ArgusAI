@@ -1,0 +1,257 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>5</epicId>
+    <storyId>1</storyId>
+    <title>Implement Alert Rule Engine</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/5-1-implement-alert-rule-engine.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>a rule evaluation engine that triggers alerts based on event conditions</iWant>
+    <soThat>users receive notifications when specific events occur</soThat>
+    <tasks>
+      - Task 1: Create database model and migration (AC: #1)
+      - Task 2: Create Pydantic schemas for API validation (AC: #1, #8)
+      - Task 3: Implement rule evaluation engine core logic (AC: #2, #3, #7)
+      - Task 4: Implement evaluate_all_rules function (AC: #2, #4, #7)
+      - Task 5: Implement dashboard notification action (AC: #5)
+      - Task 6: Implement webhook action with retry logic (AC: #6, #7)
+      - Task 7: Integrate alert engine into event pipeline (AC: #4)
+      - Task 8: Create alert rule CRUD API endpoints (AC: #8)
+      - Task 9: Testing and validation (AC: All)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    1. Alert Rule Data Structure - Database schema with AlertRule model, JSON conditions/actions, Alembic migration
+    2. Rule Evaluation Engine - Core logic with evaluate_rule() and evaluate_all_rules(), AND logic for conditions
+    3. Cooldown Enforcement - Prevent alert spam with last_triggered_at timestamp checking
+    4. Rule Execution Flow - Hook into event pipeline, async BackgroundTasks execution
+    5. Dashboard Notification Action - Create notification record, WebSocket broadcast
+    6. Webhook Action - HTTP POST with httpx, 5s timeout, 3 retries with exponential backoff
+    7. Performance and Reliability - <500ms for 20 rules, async execution, graceful error handling
+    8. API Endpoints for Rule Management - CRUD endpoints at /api/v1/alert-rules with test endpoint
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>F5: Alert Rule Engine</section>
+        <snippet>Alert rule engine with conditions (object types, cameras, time/day, confidence), actions (dashboard notification, webhook), cooldown enforcement. Must support AND/OR logic, test feature, and rule enable/disable.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Database Schema - alert_rules table</section>
+        <snippet>AlertRule table with id (UUID), name (TEXT), is_enabled (BOOLEAN), conditions (JSON), actions (JSON), cooldown_minutes (INTEGER), last_triggered_at (TIMESTAMP). Conditions JSON: object_types, cameras, time_of_day, days_of_week, min_confidence. Actions JSON: dashboard_notification, webhook {url, headers}.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Backend Webhook Targets</section>
+        <snippet>Webhook protocol: HTTPS POST, 5s timeout, 3 retries with exponential backoff (1s, 2s, 4s). Custom headers supported for auth. Log webhook execution in webhook_logs table.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>WebSocket Protocol</section>
+        <snippet>WebSocket message format for alerts: {"type": "ALERT_TRIGGERED", "data": {"event": Event, "rule": AlertRule}}. Connection at ws://localhost:8000/ws. Auto-reconnect with exponential backoff.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Background Tasks</section>
+        <snippet>Use FastAPI BackgroundTasks for async processing. Pattern: background_tasks.add_task(process_event_alerts, event.id). Non-blocking, no queue persistence needed for MVP.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epic 5: Alert & Automation System</title>
+        <section>Story 5.1 - Technical Notes</section>
+        <snippet>Create /backend/app/services/alert_engine.py with evaluate_rule(rule, event) -> bool. Time of day: datetime.time objects. Days of week: event.timestamp.weekday() + 1 (ISO weekday). Consider rule caching in memory for performance.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>1-53</lines>
+        <reason>Event model with camera_id, timestamp, description, confidence, objects_detected (JSON), alert_triggered (bool). Rule evaluation will check these fields. Line 39: alert_triggered column already exists for Epic 5.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor._process_event</symbol>
+        <lines>598-602</lines>
+        <reason>Event pipeline has stub comment for alert rule integration (Step 3). Line 599: "TODO: Integrate with alert_service.evaluate_rules(event)". This is where AlertEngine.process_event() will be called.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>api</kind>
+        <symbol>create_event</symbol>
+        <lines>88-177</lines>
+        <reason>Event creation endpoint. This is where BackgroundTasks will be added to trigger alert rule evaluation after event is stored in database. Pattern: background_tasks.add_task(process_event_alerts, event.id).</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/core/database.py</path>
+        <kind>core</kind>
+        <symbol>get_db</symbol>
+        <reason>Database session management pattern. Use Depends(get_db) for dependency injection in alert_rules API endpoints. Follow existing patterns for transactions and rollback.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <reason>Camera model for rule condition "cameras" field. Rule evaluation checks if event.camera_id matches rule.conditions.cameras list.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventCreate</symbol>
+        <reason>Pydantic schema pattern for request validation. Create similar schemas for AlertRuleCreate, AlertRuleUpdate, AlertRuleResponse in backend/app/schemas/alert_rule.py.</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="==0.115.0">Web framework with async support, BackgroundTasks</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database models, async engine</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="pydantic" version=">=2.10.0">Data validation and schemas</package>
+        <package name="httpx" version="==0.25.2">Async HTTP client for webhooks</package>
+        <package name="pytest" version="==7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="==0.21.1">Async test support</package>
+        <package name="apscheduler" version=">=3.10.4">Optional for scheduled tasks (not required for MVP)</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - Use FastAPI async patterns throughout (async def for endpoints and services)
+    - Follow existing service layer pattern (see event_processor.py, ai_service.py, camera_service.py)
+    - Use Pydantic strict mode for schema validation (catch invalid rule structures)
+    - JSON columns for conditions and actions (flexible structure, no schema changes needed)
+    - UUID primary keys (consistent with cameras, events tables)
+    - Timestamps in UTC with timezone (DateTime(timezone=True) in SQLAlchemy)
+    - Use SQLAlchemy ORM for all database access (no raw SQL except for specific optimizations)
+    - Backend uses ruff for linting, black for formatting
+    - All code must pass pytest tests before completion
+    - Error handling: Log exceptions with full context (event_id, rule_id, error message, stack trace)
+    - Graceful degradation: Failed webhook should not crash alert engine or prevent dashboard notification
+    - Database transactions: Use atomic updates for last_triggered_at to prevent race conditions
+    - Performance target: Rule evaluation <500ms for 20 rules
+    - Cooldown enforcement: Check last_triggered_at before evaluation, update atomically after trigger
+    - AND logic for conditions: ALL specified conditions must match for rule to fire
+    - OR logic for object types: Event must contain AT LEAST ONE matching object
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AlertRule Model</name>
+      <kind>SQLAlchemy Model</kind>
+      <signature>
+        class AlertRule(Base):
+            id: str (UUID, PK)
+            name: str
+            is_enabled: bool
+            conditions: str (JSON: {"object_types": [], "cameras": [], "time_of_day": {}, "days_of_week": [], "min_confidence": int})
+            actions: str (JSON: {"dashboard_notification": bool, "webhook": {"url": str, "headers": dict}})
+            cooldown_minutes: int
+            last_triggered_at: datetime (nullable)
+            created_at: datetime
+            updated_at: datetime
+      </signature>
+      <path>backend/app/models/alert_rule.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/alert-rules</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/alert-rules?is_enabled=true -> {"data": AlertRule[], "meta": {}}</signature>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/alert-rules</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/alert-rules {name, is_enabled, conditions, actions, cooldown_minutes} -> {"data": AlertRule, "meta": {}}</signature>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/alert-rules/{id}/test</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/alert-rules/{id}/test -> {"data": {"matching_events": Event[]}, "meta": {}}</signature>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface>
+      <name>AlertEngine.evaluate_rule</name>
+      <kind>Service method</kind>
+      <signature>async def evaluate_rule(rule: AlertRule, event: Event) -> bool</signature>
+      <path>backend/app/services/alert_engine.py</path>
+    </interface>
+    <interface>
+      <name>AlertEngine.evaluate_all_rules</name>
+      <kind>Service method</kind>
+      <signature>async def evaluate_all_rules(event: Event) -> List[AlertRule]</signature>
+      <path>backend/app/services/alert_engine.py</path>
+    </interface>
+    <interface>
+      <name>Event Model (existing)</name>
+      <kind>SQLAlchemy Model</kind>
+      <signature>
+        class Event(Base):
+            id: str (UUID)
+            camera_id: str (FK to cameras.id)
+            timestamp: datetime (indexed, timezone-aware)
+            description: str
+            confidence: int (0-100)
+            objects_detected: str (JSON array: ["person", "vehicle", ...])
+            alert_triggered: bool (default False)
+            alert_rule_ids: str (JSON array of rule UUIDs - ADD THIS FIELD)
+      </signature>
+      <path>backend/app/models/event.py</path>
+    </interface>
+    <interface>
+      <name>WebSocket Broadcast</name>
+      <kind>WebSocket message</kind>
+      <signature>{"type": "ALERT_TRIGGERED", "data": {"event": Event, "rule": AlertRule}, "timestamp": "ISO8601"}</signature>
+      <path>WebSocket manager (to be integrated)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend testing uses pytest with pytest-asyncio for async tests. Test files located in backend/tests/ with structure:
+      - backend/tests/test_services/ for service layer tests (alert_engine.py)
+      - backend/tests/test_api/ for API endpoint tests (alert_rules.py)
+      - backend/tests/conftest.py for shared fixtures (test database, test client)
+
+      Test patterns:
+      - Use pytest fixtures for database setup/teardown
+      - Mock external dependencies (httpx for webhooks, WebSocket manager)
+      - Use TestClient from fastapi.testclient for API tests
+      - Async tests marked with @pytest.mark.asyncio
+      - Coverage target: 60%+ for core functions
+    </standards>
+    <locations>
+      - backend/tests/test_services/test_alert_engine.py (new file)
+      - backend/tests/test_api/test_alert_rules.py (new file)
+      - backend/tests/conftest.py (extend with alert rule fixtures)
+    </locations>
+    <ideas>
+      <test acRef="1">Database schema validation: Create AlertRule model, verify JSON fields, test indexes on is_enabled and last_triggered_at</test>
+      <test acRef="2">Rule evaluation logic: Test evaluate_rule() with various condition combinations (object types, cameras, time of day, days of week, confidence)</test>
+      <test acRef="2">Rule evaluation edge cases: Test time_of_day crossing midnight, test Monday=1 Sunday=7 weekday logic</test>
+      <test acRef="3">Cooldown enforcement: Mock datetime.utcnow(), test cooldown skip logic, test cooldown expiration</test>
+      <test acRef="4">Event pipeline integration: Create event via API, verify background task triggers, check alert_triggered field updated</test>
+      <test acRef="5">Dashboard notification: Mock WebSocket manager, verify broadcast called with correct payload</test>
+      <test acRef="6">Webhook execution: Mock httpx.AsyncClient, test retry logic (3 attempts), test timeout handling, verify webhook_logs table entry</test>
+      <test acRef="7">Performance: Benchmark evaluate_all_rules() with 20 rules, verify <500ms completion</test>
+      <test acRef="8">API CRUD endpoints: Test GET/POST/PUT/DELETE /api/v1/alert-rules, test validation errors, test 404 handling</test>
+      <test acRef="8">Rule test endpoint: POST /api/v1/alert-rules/{id}/test with recent events, verify matching logic</test>
+    </ideas>
+  </tests>
+</story-context>

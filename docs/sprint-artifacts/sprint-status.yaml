@@ -1,8 +1,6 @@
-# generated: 2025-11-15
-# project: live-object-ai-classifier
-# project_key: live-object-ai-classifier
-# tracking_system: file-system
-# story_location: docs/sprint-artifacts
+# Sprint Status
+# Auto-generated from epics.md structure
+# Last updated: 2025-11-17
 
 # STATUS DEFINITIONS:
 # ==================
@@ -15,7 +13,7 @@
 #   - drafted: Story file created in stories folder
 #   - ready-for-dev: Draft approved and story context created
 #   - in-progress: Developer actively working on implementation
-#   - review: Under SM review (via code-review workflow)
+#   - review: Under review (via code-review workflow)
 #   - done: Story completed
 #
 # Retrospective Status:
@@ -29,91 +27,65 @@
 # - SM typically drafts next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', SM reviews, then Dev moves to 'done'
 
-generated: 2025-11-15
-project: live-object-ai-classifier
+generated: 2025-11-17
+project: Live Object AI Classifier
 project_key: live-object-ai-classifier
 tracking_system: file-system
 story_location: docs/sprint-artifacts
 
 development_status:
-  # F1: Camera Feed Integration
-  epic-f1: contexted
-  f1-1-rtsp-camera-support: done
-  f1-2-camera-configuration-ui: done
-  f1-3-webcam-usb-camera-support: done
-  epic-f1-retrospective: completed
+  # Epic 1: Foundation & Infrastructure Setup
+  epic-1: done
+  1-1-initialize-project-repository-and-development-environment: done
+  1-2-design-and-implement-database-schema: done
+  1-3-set-up-core-backend-api-structure-and-health-endpoint: done
+  epic-1-retrospective: completed
 
-  # F2: Motion Detection
-  epic-f2: contexted
-  f2-1-motion-detection-algorithm: done
-  f2-2-motion-detection-zones: done
-  f2-3-detection-schedule: done
-  epic-f2-retrospective: completed
+  # Epic 2: Camera Feed Integration & Management
+  epic-2: done
+  2-1-implement-rtsp-camera-connection-and-frame-capture: done
+  2-2-implement-usb-webcam-support-for-local-cameras: done
+  2-3-build-camera-management-api-endpoints: done
+  2-4-implement-motion-detection-algorithm: done
+  2-5-create-camera-configuration-ui-in-dashboard: done
+  epic-2-retrospective: completed
 
-  # F2.1: Motion Detection Validation & UI Completion
-  epic-f2-1: backlog
+  # Epic F2.1: Motion Detection Validation & UI Completion
+  epic-f2-1: done
   f2-1-1-motion-detection-ui-components: done
   f2-1-2-detection-zone-drawing-ui: done
   f2-1-3-detection-schedule-editor-ui: done
-  f2-1-4-validation-and-documentation: backlog
-  f2-1-5-technical-cleanup: backlog
+  f2-1-4-validation-and-documentation: done
   epic-f2-1-retrospective: optional
 
-  # F3: AI-Powered Description Generation
-  epic-f3: backlog
-  f3-1-natural-language-processing: backlog
-  f3-2-image-capture-processing: backlog
-  f3-3-ai-model-selection-fallback: backlog
-  f3-4-description-enhancement-prompt: backlog
-  epic-f3-retrospective: optional
+  # Epic 3: AI-Powered Event Description & Processing
+  epic-3: done
+  3-1-integrate-ai-vision-api-for-description-generation: done
+  3-2-implement-event-storage-and-retrieval-system: done
+  3-3-build-event-driven-processing-pipeline: done
+  3-4-implement-data-retention-and-cleanup: done
+  epic-3-retrospective: completed
 
-  # F4: Event Storage & Management
-  epic-f4: backlog
-  f4-1-event-data-structure: backlog
-  f4-2-event-retrieval-api: backlog
-  f4-3-data-retention-policy: backlog
-  f4-4-event-search: backlog
-  epic-f4-retrospective: optional
+  # Epic 4: Dashboard User Interface
+  epic-4: backlog
+  4-1-build-nextjs-dashboard-foundation-and-layout: done
+  4-2-create-event-timeline-view-with-filtering: done
+  4-3-implement-live-camera-preview-grid: done
+  4-4-build-system-settings-page: done
+  epic-4-retrospective: optional
 
-  # F5: Alert Rule Engine
-  epic-f5: backlog
-  f5-1-basic-alert-rules: backlog
-  f5-2-alert-rule-configuration-ui: backlog
-  f5-3-advanced-rule-logic: backlog
-  f5-4-alert-cooldown: backlog
-  epic-f5-retrospective: optional
+  # Epic 5: Alert Rules & Notifications
+  epic-5: backlog
+  5-1-implement-alert-rule-engine: done
+  5-2-build-alert-rule-configuration-ui: done
+  5-3-implement-webhook-integration: done
+  5-4-build-in-dashboard-notification-center: done
+  epic-5-retrospective: optional
 
-  # F6: Dashboard & User Interface
-  epic-f6: backlog
-  f6-1-event-timeline-view: backlog
-  f6-2-live-camera-view: backlog
-  f6-3-system-settings-page: backlog
-  f6-4-manual-analysis-trigger: backlog
-  f6-5-dashboard-statistics: backlog
-  f6-6-notification-center: backlog
-  epic-f6-retrospective: optional
-
-  # F7: Authentication & Security
-  epic-f7: backlog
-  f7-1-user-authentication: backlog
-  f7-2-api-key-management: backlog
-  f7-3-https-tls-support: backlog
-  f7-4-rate-limiting: backlog
-  epic-f7-retrospective: optional
-
-  # F8: System Administration
-  epic-f8: backlog
-  f8-1-health-check-endpoint: backlog
-  f8-2-logging-debugging: backlog
-  f8-3-backup-restore: backlog
-  epic-f8-retrospective: optional
-
-  # F9: Webhook Integration
-  epic-f9: backlog
-  f9-1-webhook-configuration: backlog
-  f9-2-webhook-testing: backlog
-  f9-3-webhook-logs: backlog
-  epic-f9-retrospective: optional
-
-  # Tech Debt & Maintenance
-  deprecation-fixes-1: done
+  # Epic 6: Security & System Management
+  epic-6: backlog
+  6-1-implement-api-key-encryption-and-management: done
+  6-2-add-comprehensive-logging-and-monitoring: done
+  6-3-implement-basic-user-authentication-phase-1-5: ready-for-dev
+  6-4-add-system-backup-and-restore-functionality: backlog
+  epic-6-retrospective: optional

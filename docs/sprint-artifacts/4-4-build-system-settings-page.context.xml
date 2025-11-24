@@ -1,0 +1,249 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>4</epicId>
+    <storyId>4.4</storyId>
+    <title>Build System Settings Page</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/4-4-build-system-settings-page.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>a centralized settings page to configure all system options</iWant>
+    <soThat>I can customize the system without editing configuration files</soThat>
+    <tasks>
+      1. Create Settings Page Layout and Routing (AC: #1)
+      2. Implement General Settings Tab (AC: #2)
+      3. Implement AI Models Settings Tab (AC: #3, #7)
+      4. Implement Motion Detection Settings Tab (AC: #4)
+      5. Implement Data &amp; Privacy Settings Tab (AC: #5)
+      6. Implement Form State Management (AC: #6)
+      7. Add Confirmation Modals for Dangerous Actions (AC: #8)
+      8. Implement Real-time Validation and Error Display (AC: #6)
+      9. Testing and Polish (AC: All)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    1. Settings Page Layout - Organized tabbed interface with all system options (4 tabs: General, AI Models, Motion Detection, Data &amp; Privacy, responsive sidebar/pills navigation, Save/Cancel buttons)
+
+    2. General Tab - Basic system configuration (System Name, Timezone with auto-detect, Language dropdown, Date Format, Time Format)
+
+    3. AI Models Tab - AI provider configuration (Primary Model dropdown, API Key password input with mask, Test API Key button, Fallback Model, Description Prompt textarea, Reset to Default button, Fernet encryption)
+
+    4. Motion Detection Tab - Detection algorithm settings (Sensitivity slider Low/Medium/High, Detection Method radio buttons, Cooldown Period number input 30-300s, Minimum Motion Area slider 1-10%, Save Debug Images toggle)
+
+    5. Data &amp; Privacy Tab - Data retention and cleanup options (Data Retention dropdown, Thumbnail Storage radio buttons, Auto Cleanup toggle, Export Data button, Delete All Data red button with confirmation, Storage stats display)
+
+    6. Form Validation and Saving - Real-time validation with error messages (Zod schema validation on blur, inline error display with red borders, Save button disabled when validation fails or no changes, PUT /api/v1/settings with dirty fields only, Success/error toasts, Optimistic UI updates with rollback)
+
+    7. API Key Testing - Validate AI provider credentials (Test button disabled when empty, POST /api/v1/ai/test-key with loading spinner max 10s, Success/error states with specific messages: invalid format, authentication failed, rate limit, network error)
+
+    8. Dangerous Action Confirmations - Prevent accidental data loss (Delete All Data modal with checkbox "I understand this cannot be undone", Retention change warning for deletions, Reset Prompt confirmation, All modals use Radix UI Dialog)
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Frontend Stack</section>
+        <snippet>Next.js 15.x App Router, TypeScript 5.x strict mode, Tailwind CSS + shadcn/ui, React Hook Form + Zod validation, TanStack Query for data fetching, lucide-react icons, sonner for toasts</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Complete Project Structure</section>
+        <snippet>Settings page location: frontend/app/settings/page.tsx, Settings components: frontend/components/settings/*.tsx, Form handling: react-hook-form with Zod, Tabs: Headless UI Tab component</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epics Document</title>
+        <section>Story 4.4: Build System Settings Page</section>
+        <snippet>Prerequisites: Story 1.3 (backend settings), Story 3.1 (AI service). Technical Notes: react-hook-form + Zod validation, Headless UI Tab component, Settings API: GET/PUT /api/v1/settings, Timezone detection: Intl.DateTimeFormat().resolvedOptions().timeZone</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/4-3-implement-live-camera-preview-grid.md</path>
+        <title>Story 4.3 - Previous Story</title>
+        <section>Dev Agent Record - Learnings</section>
+        <snippet>Component patterns: React.memo for performance, Next.js Image for optimization, Responsive layouts 1/2/3 col. API Client: Centralized at frontend/lib/api-client.ts. Form/UI: shadcn/ui Dialog, Button, Input, Tabs. TypeScript: Strict mode, no any types, zero build errors required. Performance: useMemo for expensive computations.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/app/settings/page.tsx</path>
+        <kind>page</kind>
+        <symbol>SettingsPage</symbol>
+        <lines>1-50</lines>
+        <reason>Existing placeholder page to be replaced with full implementation - currently shows "Coming Soon" card with metadata and basic structure</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/MotionSettingsSection.tsx</path>
+        <kind>component</kind>
+        <symbol>MotionSettingsSection</symbol>
+        <lines>1-50</lines>
+        <reason>Reference implementation for motion detection settings UI - shows pattern for form fields, tooltips, select dropdowns, and algorithm descriptions. Can reuse similar patterns for Motion Detection tab in Settings page.</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>service</kind>
+        <symbol>apiClient</symbol>
+        <lines>86-261</lines>
+        <reason>Centralized API client - need to add settings object with get() and update() methods following established pattern. Currently has cameras and events APIs.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/form.tsx</path>
+        <kind>component</kind>
+        <symbol>Form components</symbol>
+        <lines>all</lines>
+        <reason>shadcn/ui form components for react-hook-form integration - FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>component</kind>
+        <symbol>Dialog components</symbol>
+        <lines>all</lines>
+        <reason>Radix UI Dialog wrapper for confirmation modals - needed for dangerous action confirmations (Delete All Data, Reset Prompt)</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>api</kind>
+        <symbol>router</symbol>
+        <lines>1-100</lines>
+        <reason>Existing system settings API - has retention policy GET/PUT endpoints and SystemSetting model integration. Shows pattern for settings persistence in database.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/system_setting.py</path>
+        <kind>model</kind>
+        <symbol>SystemSetting</symbol>
+        <lines>all</lines>
+        <reason>Database model for system settings - key-value store for configuration. Need to add more settings keys for General, AI Models, Motion Detection tabs.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="zod" version="^4.1.12" />
+        <package name="@hookform/resolvers" version="^5.2.2" />
+        <package name="@radix-ui/react-dialog" version="^1.1.15" />
+        <package name="@radix-ui/react-select" version="^2.2.6" />
+        <package name="@radix-ui/react-slider" version="^1.3.6" />
+        <package name="@radix-ui/react-label" version="^2.1.8" />
+        <package name="@radix-ui/react-tooltip" version="^1.2.8" />
+        <package name="@radix-ui/react-checkbox" version="^1.3.3" />
+        <package name="sonner" version="^2.0.7" />
+        <package name="lucide-react" version="^0.553.0" />
+        <package name="next" version="16.0.3" />
+        <package name="next-themes" version="^0.4.6" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="0.115+" />
+        <package name="sqlalchemy" version="2.0+" />
+        <package name="cryptography" version="latest" note="For Fernet API key encryption" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - TypeScript strict mode enabled - no explicit any types allowed
+    - All form fields must use react-hook-form with Zod validation
+    - Must use shadcn/ui components (Dialog, Select, Input, Slider, etc.)
+    - Responsive design required: mobile (&lt;768px), tablet (768-1024px), desktop (&gt;1024px)
+    - API keys must never be logged or exposed in console - always masked in UI
+    - Dangerous actions (Delete All Data, retention changes) require explicit confirmation
+    - Build must pass with zero TypeScript errors
+    - Linting must pass (npm run lint)
+    - All form state changes must be tracked for dirty detection
+    - Optimistic UI updates required - apply immediately, rollback on error
+    - Settings API calls must only send changed fields (dirty tracking)
+    - All modals must trap focus and support keyboard navigation
+    - Timezone auto-detection using Intl.DateTimeFormat().resolvedOptions().timeZone
+  </constraints>
+
+  <interfaces>
+    <api>
+      <name>GET /api/v1/settings</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/settings -&gt; SystemSettings object with all configuration values</signature>
+      <path>backend/app/api/v1/system.py (to be extended)</path>
+    </api>
+    <api>
+      <name>PUT /api/v1/settings</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /api/v1/settings (body: Partial&lt;SystemSettings&gt;) -&gt; Updated SystemSettings object</signature>
+      <path>backend/app/api/v1/system.py (to be created)</path>
+    </api>
+    <api>
+      <name>POST /api/v1/ai/test-key</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/ai/test-key (body: {model: string, api_key: string}) -&gt; {valid: boolean, error?: string}</signature>
+      <path>backend/app/api/v1/ai.py (already exists from Story 3.1)</path>
+    </api>
+    <api>
+      <name>GET /api/v1/events/export</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events/export?format=json|csv -&gt; StreamingResponse download</signature>
+      <path>backend/app/api/v1/events.py (already exists from Story 3.4)</path>
+    </api>
+    <interface>
+      <name>SystemSettings</name>
+      <kind>TypeScript interface</kind>
+      <signature>interface SystemSettings {
+  // General
+  system_name: string;
+  timezone: string;
+  language: string;
+  date_format: string;
+  time_format: '12h' | '24h';
+
+  // AI Models
+  primary_model: 'gpt-4o-mini' | 'claude-3-haiku' | 'gemini-flash';
+  primary_api_key: string; // Encrypted in backend
+  fallback_model?: 'gpt-4o-mini' | 'claude-3-haiku' | 'gemini-flash' | null;
+  description_prompt: string;
+
+  // Motion Detection
+  motion_sensitivity: number; // 0-100
+  detection_method: 'background_subtraction' | 'frame_difference';
+  cooldown_period: number; // seconds
+  min_motion_area: number; // 1-10 percent
+  save_debug_images: boolean;
+
+  // Data &amp; Privacy
+  retention_days: number; // -1 for forever
+  thumbnail_storage: 'filesystem' | 'database';
+  auto_cleanup: boolean;
+}</signature>
+      <path>frontend/types/settings.ts (to be created)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend testing uses Jest + React Testing Library. Test files located in __tests__ directories or co-located with components as *.test.tsx. Component tests verify rendering, user interactions, form validation. API integration tests mock fetch calls. TypeScript strict mode in tests.
+    </standards>
+    <locations>
+      frontend/__tests__/
+      frontend/components/**/*.test.tsx
+      backend/tests/test_api/
+      backend/tests/test_services/
+    </locations>
+    <ideas>
+      <test ac="1">Test tabbed navigation switches between General, AI Models, Motion Detection, Data &amp; Privacy tabs</test>
+      <test ac="1">Test responsive layout: sidebar on desktop, horizontal pills on mobile</test>
+      <test ac="2">Test General tab loads current values from API, auto-detects timezone</test>
+      <test ac="3">Test AI Models tab masks API key input, shows Test button, handles test success/failure</test>
+      <test ac="4">Test Motion Detection slider updates sensitivity value, cooldown accepts 30-300 range</test>
+      <test ac="5">Test Data &amp; Privacy export button triggers download, Delete All Data shows confirmation</test>
+      <test ac="6">Test form validation shows errors on invalid inputs, disables Save when no changes</test>
+      <test ac="6">Test form submission sends only dirty fields, shows success toast, handles API errors with rollback</test>
+      <test ac="7">Test API key validation with valid/invalid keys, displays appropriate error messages</test>
+      <test ac="8">Test Delete All Data confirmation modal requires checkbox, Reset Prompt shows confirmation</test>
+      <test ac="8">Test retention change warning shows when shortening period would delete events</test>
+    </ideas>
+  </tests>
+</story-context>

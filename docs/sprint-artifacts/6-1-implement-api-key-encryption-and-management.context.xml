@@ -1,0 +1,263 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>6</epicId>
+    <storyId>1</storyId>
+    <title>Implement API Key Encryption and Management</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/6-1-implement-api-key-encryption-and-management.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer</asA>
+    <iWant>sensitive data (API keys, passwords) encrypted at rest</iWant>
+    <soThat>the system is secure even if the database is compromised</soThat>
+    <tasks>
+      <task id="1" ac="1,3">Create encryption utility module with Fernet implementation</task>
+      <task id="2" ac="2">Add encryption key configuration and validation</task>
+      <task id="3" ac="4">Integrate encryption with Camera service</task>
+      <task id="4" ac="4">Integrate encryption with AI API keys in settings</task>
+      <task id="5" ac="4">Integrate encryption with webhook auth headers</task>
+      <task id="6" ac="5">Implement API key test endpoint</task>
+      <task id="7" ac="6">Add logging security measures</task>
+      <task id="8" ac="4">Create database migration for existing data</task>
+      <task id="9" ac="5">Update frontend settings UI for key management</task>
+      <task id="10" ac="1-6">Testing and validation</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1" title="Fernet Encryption Implementation">Strong symmetric encryption using cryptography library with Fernet algorithm</criterion>
+    <criterion id="2" title="Encryption Key Management">Secure key storage in environment variables with validation on startup</criterion>
+    <criterion id="3" title="Encryption Utility Functions">Reusable encrypt/decrypt functions in backend/app/core/encryption.py</criterion>
+    <criterion id="4" title="Database Storage Encryption">Encrypted camera passwords, AI API keys, and webhook headers</criterion>
+    <criterion id="5" title="API Key Validation Endpoint">POST /api/v1/ai/test-key to validate keys before saving</criterion>
+    <criterion id="6" title="Security Best Practices">Never log decrypted values, mask sensitive data in logs and responses</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Security Architecture</section>
+        <snippet>API Key Encryption: Fernet (symmetric) via cryptography lib for secure storage of AI API keys. Keys stored encrypted in database with "encrypted:" prefix.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/09-security-architecture.md</path>
+        <title>Security Architecture</title>
+        <section>API Key Encryption</section>
+        <snippet>Fernet symmetric encryption using cryptography library. Encryption key stored in environment variable ENCRYPTION_KEY.</snippet>
+      </doc>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>F7.2 API Key Management</section>
+        <snippet>Encrypted storage of API keys, input fields mask keys (show only last 4 chars), test API key button before saving, rotate keys without downtime.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epics Document</title>
+        <section>Story 6.1</section>
+        <snippet>Implement API Key Encryption and Management using Fernet symmetric encryption from cryptography library with key from ENCRYPTION_KEY environment variable.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>backend/app/utils/encryption.py</path>
+        <kind>utility</kind>
+        <symbol>encrypt_password, decrypt_password</symbol>
+        <lines>1-85</lines>
+        <reason>EXISTING: Core encryption module already implemented with Fernet. Functions encrypt_password() and decrypt_password() with "encrypted:" prefix pattern. Handles edge cases (empty, none, already encrypted).</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/core/config.py</path>
+        <kind>config</kind>
+        <symbol>Settings.ENCRYPTION_KEY</symbol>
+        <lines>12-13</lines>
+        <reason>EXISTING: ENCRYPTION_KEY already defined as required setting (no default for security).</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera, encrypt_password_validator, get_decrypted_password</symbol>
+        <lines>1-122</lines>
+        <reason>EXISTING: Camera model already has password encryption via @validates decorator and get_decrypted_password() method.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/cameras.py</path>
+        <kind>controller</kind>
+        <symbol>router</symbol>
+        <lines>336-337</lines>
+        <reason>EXISTING: Camera API already uses get_decrypted_password() for RTSP authentication.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIProviderBase, decrypt_password</symbol>
+        <lines>36</lines>
+        <reason>EXISTING: AI service imports decrypt_password for API key decryption.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/system_setting.py</path>
+        <kind>model</kind>
+        <symbol>SystemSetting</symbol>
+        <reason>Target for AI API key storage encryption. Currently stores keys - needs encryption integration.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/alert_engine.py</path>
+        <kind>service</kind>
+        <symbol>AlertEngine</symbol>
+        <reason>Target for webhook header decryption when sending webhook requests.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/settings.py</path>
+        <kind>controller</kind>
+        <symbol>router</symbol>
+        <reason>Target for new POST /api/v1/ai/test-key endpoint.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/settings/page.tsx</path>
+        <kind>page</kind>
+        <symbol>SettingsPage</symbol>
+        <reason>Target for "Test API Key" button UI enhancement.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_utils/test_encryption.py</path>
+        <kind>test</kind>
+        <symbol>TestPasswordEncryption</symbol>
+        <lines>1-84</lines>
+        <reason>EXISTING: Comprehensive encryption tests already implemented. Tests roundtrip, edge cases, invalid formats.</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="cryptography" version="41.0.7">Fernet symmetric encryption (EXISTING - already installed)</package>
+        <package name="python-jose[cryptography]" version="3.3.0">JWT handling with cryptography backend (EXISTING)</package>
+        <package name="passlib[bcrypt]" version="1.7.4">Password hashing (EXISTING)</package>
+        <package name="fastapi[standard]" version="0.115.0">Web framework (EXISTING)</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM with validators (EXISTING)</package>
+        <package name="pydantic-settings" version=">=2.6.0">Settings management (EXISTING)</package>
+        <package name="openai" version=">=1.54.0">OpenAI API client for key testing (EXISTING)</package>
+        <package name="anthropic" version=">=0.39.0">Anthropic API client for key testing (EXISTING)</package>
+        <package name="google-generativeai" version=">=0.8.0">Google AI client for key testing (EXISTING)</package>
+        <package name="pytest" version="7.4.3">Testing framework (EXISTING)</package>
+      </python>
+      <node>
+        <package name="@tanstack/react-query" version="^5.90.10">Data fetching for test key endpoint (EXISTING)</package>
+        <package name="react-hook-form" version="^7.66.0">Form handling for settings (EXISTING)</package>
+        <package name="zod" version="^4.1.12">Schema validation (EXISTING)</package>
+        <package name="sonner" version="^2.0.7">Toast notifications for test results (EXISTING)</package>
+        <package name="lucide-react" version="^0.553.0">Icons for test button (EXISTING)</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="docs/architecture.md#Security-Architecture">
+      Encryption key stored in environment variable (never in code/database). Use Fernet symmetric encryption from cryptography library.
+    </constraint>
+    <constraint source="docs/epics.md#Story-6.1">
+      Never log decrypted values (mask in logs: "key=****"). Clear decrypted values from memory after use. No decrypted values in error messages.
+    </constraint>
+    <constraint source="docs/prd.md#F7.2">
+      Input fields mask keys (show only last 4 chars). Test API key button before saving. Key rotation support planned for Phase 2.
+    </constraint>
+    <constraint source="EXISTING_CODE">
+      Encryption module already exists at backend/app/utils/encryption.py. Camera model already uses auto-encryption via @validates decorator. Pattern: "encrypted:" prefix for encrypted values.
+    </constraint>
+    <constraint source="docs/architecture.md#Implementation-Patterns">
+      Backend services follow singleton pattern. API routes in /api/v1/. Schemas in /schemas/. Tests in /tests/test_* directories.
+    </constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>encrypt_password</name>
+      <kind>function</kind>
+      <signature>def encrypt_password(password: str) -> str</signature>
+      <path>backend/app/utils/encryption.py</path>
+      <note>EXISTING - Returns base64-encoded ciphertext with "encrypted:" prefix</note>
+    </interface>
+    <interface>
+      <name>decrypt_password</name>
+      <kind>function</kind>
+      <signature>def decrypt_password(encrypted_password: str) -> str</signature>
+      <path>backend/app/utils/encryption.py</path>
+      <note>EXISTING - Returns original plaintext, handles backward compatibility</note>
+    </interface>
+    <interface>
+      <name>POST /api/v1/ai/test-key</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/ai/test-key { provider: "openai"|"anthropic"|"google", api_key: string } -> { valid: boolean, message: string }</signature>
+      <path>backend/app/api/v1/settings.py</path>
+      <note>TO BE IMPLEMENTED - Validate API key without persisting</note>
+    </interface>
+    <interface>
+      <name>Camera.get_decrypted_password</name>
+      <kind>method</kind>
+      <signature>def get_decrypted_password(self) -> str</signature>
+      <path>backend/app/models/camera.py</path>
+      <note>EXISTING - Decrypts password for RTSP connection</note>
+    </interface>
+    <interface>
+      <name>Settings.ENCRYPTION_KEY</name>
+      <kind>config</kind>
+      <signature>ENCRYPTION_KEY: str (required, no default)</signature>
+      <path>backend/app/core/config.py</path>
+      <note>EXISTING - Required environment variable for encryption</note>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with fixtures defined in conftest.py. Tests organized by type: test_api/, test_services/, test_models/, test_utils/.
+      Frontend testing with Jest/React Testing Library (if configured). Backend tests run with: pytest or python -m pytest.
+      Encryption tests already exist at backend/tests/test_utils/test_encryption.py with comprehensive coverage.
+    </standards>
+    <locations>
+      <location>backend/tests/test_utils/test_encryption.py</location>
+      <location>backend/tests/test_api/test_cameras.py</location>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_services/test_camera_service.py</location>
+      <location>backend/tests/test_models/test_camera.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1,3">Test encrypt/decrypt roundtrip for API keys (similar to password tests) - EXISTING tests cover this</idea>
+      <idea ac="2">Test startup validation with invalid/missing ENCRYPTION_KEY</idea>
+      <idea ac="4">Test system_settings encryption of AI API keys</idea>
+      <idea ac="4">Test alert_rules webhook header encryption</idea>
+      <idea ac="5">Test /api/v1/ai/test-key endpoint with valid/invalid keys per provider</idea>
+      <idea ac="5">Test rate limiting on test-key endpoint (max 10/minute)</idea>
+      <idea ac="6">Audit log output to ensure no plaintext credentials appear</idea>
+      <idea ac="6">Test mask_sensitive utility function with various inputs</idea>
+    </ideas>
+  </tests>
+
+  <implementationNotes>
+    <note priority="high">
+      SIGNIFICANT EXISTING INFRASTRUCTURE: The encryption module (backend/app/utils/encryption.py), config setting (ENCRYPTION_KEY),
+      camera password encryption, and tests are already fully implemented. This story may be partially complete.
+    </note>
+    <note priority="high">
+      REMAINING WORK:
+      1. Extend encryption to AI API keys in system_settings
+      2. Extend encryption to webhook headers in alert_rules
+      3. Add POST /api/v1/ai/test-key endpoint
+      4. Add mask_sensitive() utility for logging
+      5. Add "Test API Key" button to frontend settings UI
+      6. Create data migration for existing unencrypted values (if any)
+    </note>
+    <note priority="medium">
+      Consider renaming existing functions from "password" to more generic "sensitive" or keep for backward compatibility.
+      Current functions: encrypt_password(), decrypt_password() - work for any string, not just passwords.
+    </note>
+    <note priority="low">
+      Architecture notes app/utils/encryption.py but story mentions app/core/encryption.py.
+      Existing code is in app/utils/ - use existing location.
+    </note>
+  </implementationNotes>
+</story-context>

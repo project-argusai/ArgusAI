@@ -1,0 +1,262 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>4</epicId>
+    <storyId>2</storyId>
+    <title>Create Event Timeline View with Filtering</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/4-2-create-event-timeline-view-with-filtering.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to see all detected events in a chronological timeline with filtering capabilities</iWant>
+    <soThat>I can review what happened when I was away and quickly find specific events</soThat>
+    <tasks>
+      - Task 1: Create Events page and timeline layout (AC: #1, #8)
+      - Task 2: Implement EventCard component (AC: #2)
+      - Task 3: Implement filter sidebar (AC: #3, #5)
+      - Task 4: Implement search functionality (AC: #4)
+      - Task 5: Implement URL query param sync (AC: #5)
+      - Task 6: Create event detail modal (AC: #6)
+      - Task 7: Implement API integration (AC: All)
+      - Task 8: Implement performance optimizations (AC: #7)
+      - Task 9: Testing and validation (AC: All)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    1. Event Timeline Display - Scrollable reverse chronological list with infinite scroll, lazy loading, empty state
+    2. Event Card Details - Thumbnail, relative timestamp, camera name, AI description (truncated), confidence indicator, object badges
+    3. Filter Sidebar - Date range, camera multi-select, object type, confidence slider, apply/reset buttons
+    4. Search Functionality - Full-text search with 500ms debounce, real-time updates
+    5. Filter Behavior - AND logic, URL persistence, shareable URLs, session state
+    6. Event Detail Modal - Full image, complete description, metadata, download/delete actions, keyboard navigation
+    7. Performance Optimization - Virtual scrolling, lazy loading, debounce, caching, optimistic UI
+    8. Responsive Design - Mobile/tablet/desktop layouts with touch-friendly controls
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <item>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Frontend Stack</section>
+        <snippet>Next.js 15+ with App Router, TanStack Query v5 for data fetching, Tailwind CSS with custom theme, Headless UI for modals</snippet>
+      </item>
+      <item>
+        <path>docs/sprint-artifacts/4-1-build-nextjs-dashboard-foundation-and-layout.md</path>
+        <title>Story 4.1 - Dashboard Foundation</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>TanStack Query provider configured at frontend/components/providers/query-provider.tsx with staleTime 60s, gcTime 5min. Context providers for Auth, Notifications, Settings available. Lazy state initialization pattern for SSR/hydration.</snippet>
+      </item>
+      <item>
+        <path>docs/sprint-artifacts/3-2-implement-event-storage-and-retrieval-system.md</path>
+        <title>Story 3.2 - Event Storage and Retrieval</title>
+        <section>Backend API Endpoints</section>
+        <snippet>GET /api/v1/events with query params: skip, limit, camera_id, start_date, end_date, search, objects, min_confidence. Returns paginated event list. Event structure: id (UUID), camera_id, timestamp (ISO 8601), description, confidence (0-100), objects_detected (array), thumbnail_path/base64.</snippet>
+      </item>
+      <item>
+        <path>docs/epics.md</path>
+        <title>Epic Breakdown</title>
+        <section>Epic 4: Story 4.2</section>
+        <snippet>Event timeline view with filtering - infinite scroll, filter sidebar (date/camera/objects/confidence), search, detail modal, performance optimizations (virtual scrolling, lazy loading), responsive design</snippet>
+      </item>
+    </docs>
+
+    <code>
+      <item>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>service</kind>
+        <symbol>apiFetch, apiClient.cameras</symbol>
+        <lines>1-162</lines>
+        <reason>Base API client with error handling. Use as reference for creating apiClient.events with similar patterns (list, getById, delete methods)</reason>
+      </item>
+      <item>
+        <path>frontend/components/providers/query-provider.tsx</path>
+        <kind>provider</kind>
+        <symbol>QueryProvider</symbol>
+        <lines>1-39</lines>
+        <reason>TanStack Query configuration already set up. Use useInfiniteQuery for pagination, useQuery for filters</reason>
+      </item>
+      <item>
+        <path>frontend/contexts/NotificationContext.tsx</path>
+        <kind>context</kind>
+        <symbol>useNotifications</symbol>
+        <lines>1-103</lines>
+        <reason>Notification system available for toast messages on delete/error events</reason>
+      </item>
+      <item>
+        <path>frontend/app/page.tsx</path>
+        <kind>component</kind>
+        <symbol>DashboardPage</symbol>
+        <lines>1-133</lines>
+        <reason>Reference for card-based layout patterns, stats card styling, responsive grid</reason>
+      </item>
+      <item>
+        <path>frontend/app/events/page.tsx</path>
+        <kind>component</kind>
+        <symbol>EventsPage (placeholder)</symbol>
+        <lines>1-50</lines>
+        <reason>Existing placeholder - REPLACE with full event timeline implementation</reason>
+      </item>
+      <item>
+        <path>frontend/components/layout/Sidebar.tsx</path>
+        <kind>component</kind>
+        <symbol>Sidebar</symbol>
+        <lines>30-36</lines>
+        <reason>Reference for lazy state initialization pattern to avoid hydration errors</reason>
+      </item>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <item name="@tanstack/react-query" version="^5.90.10" reason="Data fetching, caching, infinite scroll (useInfiniteQuery)" />
+        <item name="date-fns" version="^4.1.0" reason="formatDistanceToNow for relative timestamps" />
+        <item name="lucide-react" version="^0.553.0" reason="Icons for camera, objects, UI elements" />
+        <item name="@radix-ui/react-dialog" version="^1.1.15" reason="Event detail modal (Headless UI Dialog)" />
+        <item name="@radix-ui/react-slider" version="^1.3.6" reason="Confidence range slider in filters" />
+        <item name="sonner" version="^2.0.7" reason="Toast notifications for delete confirmations, errors" />
+        <item name="react-hook-form" version="^7.66.0" reason="Filter form state management" />
+        <item name="zod" version="^4.1.12" reason="Validation for filter inputs" />
+        <item name="next" version="16.0.3" reason="useSearchParams, useRouter for URL query params" />
+        <item name="tailwindcss" version="^4" reason="Responsive styling, custom theme colors" />
+      </frontend>
+      <recommended>
+        <item name="@tanstack/react-virtual" version="latest" reason="Virtual scrolling for large event lists (performance optimization)" />
+        <item name="react-intersection-observer" version="latest" reason="Alternative for lazy loading images (if not using native Intersection Observer)" />
+      </recommended>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - Use TanStack Query useInfiniteQuery for pagination (20 events per page)
+    - Follow lazy state initialization pattern for localStorage (avoid hydration errors)
+    - Use Next.js Image component for thumbnails with blur placeholder
+    - Implement debounce with custom useDebounce hook (500ms for search)
+    - URL query params must use Next.js useSearchParams and useRouter (no window.location)
+    - Filter logic must combine with AND (not OR) - camera AND objects AND date range
+    - Delete operations must use optimistic UI updates with TanStack Query mutation
+    - Confidence indicator colors: 90-100% green, 70-89% yellow, <70% red
+    - Responsive breakpoints: mobile <640px, tablet 640-1024px, desktop >1024px
+    - All API calls use existing apiFetch wrapper with error handling
+    - TypeScript strict mode required - proper typing for all components and APIs
+    - Follow Tailwind custom theme: Primary Blue, Success Green, Warning Yellow, Destructive Red
+  </constraints>
+
+  <interfaces>
+    <item>
+      <name>GET /api/v1/events</name>
+      <kind>REST endpoint</kind>
+      <signature>
+        Query Parameters:
+        - skip: number (pagination offset, default 0)
+        - limit: number (page size, default 20)
+        - camera_id: string | undefined (filter by camera UUID)
+        - start_date: string | undefined (ISO 8601 datetime)
+        - end_date: string | undefined (ISO 8601 datetime)
+        - search: string | undefined (full-text search on description)
+        - objects: string | undefined (comma-separated: "person,vehicle")
+        - min_confidence: number | undefined (0-100)
+
+        Response: {
+          items: Event[],
+          total: number,
+          skip: number,
+          limit: number
+        }
+      </signature>
+      <path>backend/app/api/v1/events.py</path>
+    </item>
+    <item>
+      <name>GET /api/v1/events/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>
+        Path Parameters:
+        - id: string (Event UUID)
+
+        Response: Event
+      </signature>
+      <path>backend/app/api/v1/events.py</path>
+    </item>
+    <item>
+      <name>DELETE /api/v1/events/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>
+        Path Parameters:
+        - id: string (Event UUID)
+
+        Response: 204 No Content
+      </signature>
+      <path>backend/app/api/v1/events.py</path>
+    </item>
+    <item>
+      <name>GET /api/v1/cameras</name>
+      <kind>REST endpoint</kind>
+      <signature>
+        Query Parameters:
+        - is_enabled: boolean | undefined
+
+        Response: Camera[]
+      </signature>
+      <path>backend/app/api/v1/cameras.py</path>
+    </item>
+    <item>
+      <name>Event</name>
+      <kind>TypeScript interface</kind>
+      <signature>
+        interface Event {
+          id: string;                    // UUID
+          camera_id: string;             // UUID foreign key
+          timestamp: string;             // ISO 8601 datetime
+          description: string;           // AI-generated description
+          confidence: number;            // 0-100
+          objects_detected: string[];    // ["person", "vehicle", "animal", "package", "unknown"]
+          thumbnail_path: string | null;
+          thumbnail_base64: string | null;
+          alert_triggered: boolean;
+          created_at: string;            // ISO 8601
+        }
+      </signature>
+      <path>frontend/types/event.ts (to be created)</path>
+    </item>
+    <item>
+      <name>EventFilters</name>
+      <kind>TypeScript interface</kind>
+      <signature>
+        interface EventFilters {
+          search?: string;
+          camera_id?: string;
+          start_date?: string;
+          end_date?: string;
+          objects?: string[];
+          min_confidence?: number;
+        }
+      </signature>
+      <path>frontend/types/event.ts (to be created)</path>
+    </item>
+  </interfaces>
+
+  <tests>
+    <standards>
+      TypeScript strict mode provides compile-time validation. Manual testing for user interactions (filtering, search, modal navigation). Build process validates linting and type errors. No automated tests required for MVP frontend components per project standards.
+    </standards>
+
+    <locations>
+      - Frontend: No test directory (manual testing only)
+      - Build validation: npm run build (TypeScript + ESLint)
+    </locations>
+
+    <ideas>
+      AC #1: Test timeline with 0, 1, 20, 100+ events to verify infinite scroll and empty state
+      AC #2: Test event card rendering with various description lengths, missing thumbnails
+      AC #3: Test all filter combinations (date ranges, multi-camera, multi-object, confidence slider)
+      AC #4: Test search with special characters, empty queries, very long queries
+      AC #5: Test URL sharing - copy URL with filters, paste in new tab, verify filters restore
+      AC #6: Test modal keyboard navigation (Escape, Arrow keys), backdrop click, delete confirmation
+      AC #7: Test performance with large event lists, verify lazy loading of images
+      AC #8: Test responsive behavior at breakpoints (640px, 1024px), touch interactions on mobile
+    </ideas>
+  </tests>
+</story-context>

@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Object AI Classifier - Color Theme Explorer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: #f5f5f5;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            color: #1a1a1a;
+            margin-bottom: 0.5rem;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .theme-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+            gap: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .theme-card {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .theme-header {
+            margin-bottom: 1.5rem;
+        }
+
+        .theme-name {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .theme-description {
+            color: #666;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .theme-personality {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .personality-tag {
+            background: #f0f0f0;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            color: #555;
+        }
+
+        .color-palette {
+            margin-bottom: 2rem;
+        }
+
+        .palette-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .palette-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 0.75rem;
+        }
+
+        .color-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .color-swatch {
+            flex: 1;
+            min-height: 80px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 0.75rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .color-name {
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .color-hex {
+            font-size: 0.7rem;
+            font-family: 'Courier New', monospace;
+        }
+
+        .components-demo {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .demo-section {
+            margin-bottom: 1.5rem;
+        }
+
+        .demo-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #444;
+            margin-bottom: 0.75rem;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            border: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .input {
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 2px solid;
+            font-size: 0.95rem;
+            transition: all 0.2s;
+        }
+
+        .input:focus {
+            outline: none;
+            border-width: 2px;
+        }
+
+        .card {
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid;
+            margin-bottom: 1rem;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .card-text {
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .alert {
+            padding: 1rem 1.25rem;
+            border-radius: 8px;
+            border-left: 4px solid;
+            margin-bottom: 0.75rem;
+            font-size: 0.9rem;
+        }
+
+        .comparison-note {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-top: 2rem;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎨 Live Object AI Classifier - Color Theme Explorer</h1>
+        <p>Explore 4 theme directions designed for your intelligent security system</p>
+    </div>
+
+    <div class="theme-grid">
+        <!-- Theme 1: Trust & Intelligence -->
+        <div class="theme-card">
+            <div class="theme-header">
+                <h2 class="theme-name" style="color: #2563eb;">Theme 1: Trust & Intelligence</h2>
+                <p class="theme-description">Professional, trustworthy, AI-powered. Classic blue conveys security and reliability while feeling modern and intelligent.</p>
+                <div class="theme-personality">
+                    <span class="personality-tag">Professional</span>
+                    <span class="personality-tag">Trustworthy</span>
+                    <span class="personality-tag">Intelligent</span>
+                    <span class="personality-tag">Clear</span>
+                </div>
+            </div>
+
+            <div class="color-palette">
+                <div class="palette-section">
+                    <div class="palette-label">Primary Colors</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #2563eb; color: white;">
+                            <div class="color-name">Primary</div>
+                            <div class="color-hex">#2563eb</div>
+                        </div>
+                        <div class="color-swatch" style="background: #3b82f6; color: white;">
+                            <div class="color-name">Primary Light</div>
+                            <div class="color-hex">#3b82f6</div>
+                        </div>
+                        <div class="color-swatch" style="background: #1d4ed8; color: white;">
+                            <div class="color-name">Primary Dark</div>
+                            <div class="color-hex">#1d4ed8</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Semantic Colors</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #10b981; color: white;">
+                            <div class="color-name">Success</div>
+                            <div class="color-hex">#10b981</div>
+                        </div>
+                        <div class="color-swatch" style="background: #f59e0b; color: white;">
+                            <div class="color-name">Warning</div>
+                            <div class="color-hex">#f59e0b</div>
+                        </div>
+                        <div class="color-swatch" style="background: #ef4444; color: white;">
+                            <div class="color-name">Error</div>
+                            <div class="color-hex">#ef4444</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Neutral Palette</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #f9fafb; color: #1f2937;">
+                            <div class="color-name">Background</div>
+                            <div class="color-hex">#f9fafb</div>
+                        </div>
+                        <div class="color-swatch" style="background: #e5e7eb; color: #1f2937;">
+                            <div class="color-name">Border</div>
+                            <div class="color-hex">#e5e7eb</div>
+                        </div>
+                        <div class="color-swatch" style="background: #1f2937; color: white;">
+                            <div class="color-name">Text</div>
+                            <div class="color-hex">#1f2937</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="components-demo">
+                <div class="demo-section">
+                    <div class="demo-label">Buttons</div>
+                    <div class="button-group">
+                        <button class="btn" style="background: #2563eb; color: white;">Primary Action</button>
+                        <button class="btn" style="background: white; color: #2563eb; border: 2px solid #2563eb;">Secondary</button>
+                        <button class="btn btn-disabled" style="background: #e5e7eb; color: #9ca3af;">Disabled</button>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Form Input</div>
+                    <div class="input-group">
+                        <input class="input" style="border-color: #e5e7eb; color: #1f2937;" placeholder="Camera Name" value="">
+                        <input class="input" style="border-color: #2563eb; color: #1f2937; background: #eff6ff;" placeholder="RTSP URL (focused)" value="rtsp://192.168.1.100">
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Event Card</div>
+                    <div class="card" style="border-color: #e5e7eb; background: white;">
+                        <div class="card-title" style="color: #1f2937;">Package Delivery Detected</div>
+                        <div class="card-text" style="color: #6b7280;">Adult male, brown UPS uniform, carrying package, approached front door at 2:34 PM</div>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Alerts</div>
+                    <div class="alert" style="background: #d1fae5; border-left-color: #10b981; color: #065f46;">
+                        ✓ Camera connected successfully
+                    </div>
+                    <div class="alert" style="background: #fee2e2; border-left-color: #ef4444; color: #991b1b;">
+                        ✕ Connection failed - check RTSP URL
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Theme 2: Guardian Slate -->
+        <div class="theme-card">
+            <div class="theme-header">
+                <h2 class="theme-name" style="color: #475569;">Theme 2: Guardian Slate</h2>
+                <p class="theme-description">Sophisticated, protective, calm. Deep slate tones convey privacy and professionalism with a modern, premium feel.</p>
+                <div class="theme-personality">
+                    <span class="personality-tag">Sophisticated</span>
+                    <span class="personality-tag">Protective</span>
+                    <span class="personality-tag">Premium</span>
+                    <span class="personality-tag">Privacy-focused</span>
+                </div>
+            </div>
+
+            <div class="color-palette">
+                <div class="palette-section">
+                    <div class="palette-label">Primary Colors</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #475569; color: white;">
+                            <div class="color-name">Primary</div>
+                            <div class="color-hex">#475569</div>
+                        </div>
+                        <div class="color-swatch" style="background: #64748b; color: white;">
+                            <div class="color-name">Primary Light</div>
+                            <div class="color-hex">#64748b</div>
+                        </div>
+                        <div class="color-swatch" style="background: #334155; color: white;">
+                            <div class="color-name">Primary Dark</div>
+                            <div class="color-hex">#334155</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Accent & Semantic</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #0ea5e9; color: white;">
+                            <div class="color-name">Accent</div>
+                            <div class="color-hex">#0ea5e9</div>
+                        </div>
+                        <div class="color-swatch" style="background: #22c55e; color: white;">
+                            <div class="color-name">Success</div>
+                            <div class="color-hex">#22c55e</div>
+                        </div>
+                        <div class="color-swatch" style="background: #f97316; color: white;">
+                            <div class="color-name">Warning</div>
+                            <div class="color-hex">#f97316</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Neutral Palette</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #f8fafc; color: #0f172a;">
+                            <div class="color-name">Background</div>
+                            <div class="color-hex">#f8fafc</div>
+                        </div>
+                        <div class="color-swatch" style="background: #e2e8f0; color: #0f172a;">
+                            <div class="color-name">Border</div>
+                            <div class="color-hex">#e2e8f0</div>
+                        </div>
+                        <div class="color-swatch" style="background: #0f172a; color: white;">
+                            <div class="color-name">Text</div>
+                            <div class="color-hex">#0f172a</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="components-demo">
+                <div class="demo-section">
+                    <div class="demo-label">Buttons</div>
+                    <div class="button-group">
+                        <button class="btn" style="background: #475569; color: white;">Primary Action</button>
+                        <button class="btn" style="background: #0ea5e9; color: white;">Accent Action</button>
+                        <button class="btn" style="background: white; color: #475569; border: 2px solid #475569;">Secondary</button>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Form Input</div>
+                    <div class="input-group">
+                        <input class="input" style="border-color: #e2e8f0; color: #0f172a; background: white;" placeholder="Alert Rule Name" value="">
+                        <input class="input" style="border-color: #0ea5e9; color: #0f172a; background: #f0f9ff;" placeholder="Webhook URL (focused)" value="https://home-assistant.local/webhook">
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Event Card</div>
+                    <div class="card" style="border-color: #e2e8f0; background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <div class="card-title" style="color: #0f172a;">Motion Detected - Front Yard</div>
+                        <div class="card-text" style="color: #64748b;">Vehicle with headlights, white sedan, slowly passed by driveway at 11:47 PM</div>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Alerts</div>
+                    <div class="alert" style="background: #ecfdf5; border-left-color: #22c55e; color: #065f46;">
+                        ✓ Alert rule "Package Delivery" is now active
+                    </div>
+                    <div class="alert" style="background: #fff7ed; border-left-color: #f97316; color: #9a3412;">
+                        ⚠ Motion detection sensitivity is very high
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Theme 3: Welcoming Guardian -->
+        <div class="theme-card">
+            <div class="theme-header">
+                <h2 class="theme-name" style="color: #0d9488;">Theme 3: Welcoming Guardian</h2>
+                <p class="theme-description">Approachable yet secure. Warm teal balances hospitality with protection - friendly but still professional and capable.</p>
+                <div class="theme-personality">
+                    <span class="personality-tag">Approachable</span>
+                    <span class="personality-tag">Balanced</span>
+                    <span class="personality-tag">Modern</span>
+                    <span class="personality-tag">Friendly</span>
+                </div>
+            </div>
+
+            <div class="color-palette">
+                <div class="palette-section">
+                    <div class="palette-label">Primary Colors</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #0d9488; color: white;">
+                            <div class="color-name">Primary</div>
+                            <div class="color-hex">#0d9488</div>
+                        </div>
+                        <div class="color-swatch" style="background: #14b8a6; color: white;">
+                            <div class="color-name">Primary Light</div>
+                            <div class="color-hex">#14b8a6</div>
+                        </div>
+                        <div class="color-swatch" style="background: #0f766e; color: white;">
+                            <div class="color-name">Primary Dark</div>
+                            <div class="color-hex">#0f766e</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Secondary & Semantic</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #6366f1; color: white;">
+                            <div class="color-name">Secondary</div>
+                            <div class="color-hex">#6366f1</div>
+                        </div>
+                        <div class="color-swatch" style="background: #10b981; color: white;">
+                            <div class="color-name">Success</div>
+                            <div class="color-hex">#10b981</div>
+                        </div>
+                        <div class="color-swatch" style="background: #f43f5e; color: white;">
+                            <div class="color-name">Error</div>
+                            <div class="color-hex">#f43f5e</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Neutral Palette</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #f0fdfa; color: #134e4a;">
+                            <div class="color-name">Background</div>
+                            <div class="color-hex">#f0fdfa</div>
+                        </div>
+                        <div class="color-swatch" style="background: #ccfbf1; color: #134e4a;">
+                            <div class="color-name">Surface</div>
+                            <div class="color-hex">#ccfbf1</div>
+                        </div>
+                        <div class="color-swatch" style="background: #134e4a; color: white;">
+                            <div class="color-name">Text</div>
+                            <div class="color-hex">#134e4a</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="components-demo">
+                <div class="demo-section">
+                    <div class="demo-label">Buttons</div>
+                    <div class="button-group">
+                        <button class="btn" style="background: #0d9488; color: white;">Add Camera</button>
+                        <button class="btn" style="background: #6366f1; color: white;">Test Connection</button>
+                        <button class="btn" style="background: white; color: #0d9488; border: 2px solid #0d9488;">Cancel</button>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Form Input</div>
+                    <div class="input-group">
+                        <input class="input" style="border-color: #99f6e4; color: #134e4a; background: white;" placeholder="Enter camera name" value="">
+                        <input class="input" style="border-color: #0d9488; color: #134e4a; background: #f0fdfa;" placeholder="Email for alerts (focused)" value="sarah@example.com">
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Event Card</div>
+                    <div class="card" style="border-color: #99f6e4; background: white;">
+                        <div class="card-title" style="color: #134e4a;">Welcome Home!</div>
+                        <div class="card-text" style="color: #14b8a6;">Marcus detected arriving home, garage door opening at 6:15 PM. Home Assistant automation triggered.</div>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Alerts</div>
+                    <div class="alert" style="background: #d1fae5; border-left-color: #10b981; color: #065f46;">
+                        ✓ All cameras connected and monitoring
+                    </div>
+                    <div class="alert" style="background: #ffe4e6; border-left-color: #f43f5e; color: #881337;">
+                        ✕ Suspicious activity detected - person loitering
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Theme 4: Modern Sentinel -->
+        <div class="theme-card">
+            <div class="theme-header">
+                <h2 class="theme-name" style="color: #7c3aed;">Theme 4: Modern Sentinel</h2>
+                <p class="theme-description">Tech-forward, innovative, premium. Purple/indigo conveys AI intelligence and cutting-edge technology with a sophisticated edge.</p>
+                <div class="theme-personality">
+                    <span class="personality-tag">Innovative</span>
+                    <span class="personality-tag">Premium</span>
+                    <span class="personality-tag">AI-Forward</span>
+                    <span class="personality-tag">Sophisticated</span>
+                </div>
+            </div>
+
+            <div class="color-palette">
+                <div class="palette-section">
+                    <div class="palette-label">Primary Colors</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #7c3aed; color: white;">
+                            <div class="color-name">Primary</div>
+                            <div class="color-hex">#7c3aed</div>
+                        </div>
+                        <div class="color-swatch" style="background: #8b5cf6; color: white;">
+                            <div class="color-name">Primary Light</div>
+                            <div class="color-hex">#8b5cf6</div>
+                        </div>
+                        <div class="color-swatch" style="background: #6d28d9; color: white;">
+                            <div class="color-name">Primary Dark</div>
+                            <div class="color-hex">#6d28d9</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Accent & Semantic</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #06b6d4; color: white;">
+                            <div class="color-name">Accent Cyan</div>
+                            <div class="color-hex">#06b6d4</div>
+                        </div>
+                        <div class="color-swatch" style="background: #14b8a6; color: white;">
+                            <div class="color-name">Success</div>
+                            <div class="color-hex">#14b8a6</div>
+                        </div>
+                        <div class="color-swatch" style="background: #ec4899; color: white;">
+                            <div class="color-name">Alert</div>
+                            <div class="color-hex">#ec4899</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="palette-section">
+                    <div class="palette-label">Neutral Palette</div>
+                    <div class="color-row">
+                        <div class="color-swatch" style="background: #faf5ff; color: #581c87;">
+                            <div class="color-name">Background</div>
+                            <div class="color-hex">#faf5ff</div>
+                        </div>
+                        <div class="color-swatch" style="background: #e9d5ff; color: #581c87;">
+                            <div class="color-name">Surface</div>
+                            <div class="color-hex">#e9d5ff</div>
+                        </div>
+                        <div class="color-swatch" style="background: #1e1b4b; color: white;">
+                            <div class="color-name">Text</div>
+                            <div class="color-hex">#1e1b4b</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="components-demo">
+                <div class="demo-section">
+                    <div class="demo-label">Buttons</div>
+                    <div class="button-group">
+                        <button class="btn" style="background: linear-gradient(135deg, #7c3aed 0%, #8b5cf6 100%); color: white; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);">Analyze Now</button>
+                        <button class="btn" style="background: #06b6d4; color: white;">Configure AI</button>
+                        <button class="btn" style="background: white; color: #7c3aed; border: 2px solid #7c3aed;">View Settings</button>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Form Input</div>
+                    <div class="input-group">
+                        <input class="input" style="border-color: #e9d5ff; color: #1e1b4b; background: white;" placeholder="AI Model Selection" value="">
+                        <input class="input" style="border-color: #7c3aed; color: #1e1b4b; background: #faf5ff; box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);" placeholder="API Key (focused)" value="sk-...">
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Event Card</div>
+                    <div class="card" style="border-color: #e9d5ff; background: linear-gradient(135deg, #ffffff 0%, #faf5ff 100%); box-shadow: 0 4px 6px rgba(124, 58, 237, 0.1);">
+                        <div class="card-title" style="color: #1e1b4b;">AI Analysis Complete - 94% Confidence</div>
+                        <div class="card-text" style="color: #6d28d9;">Person detected: Adult female, late 20s, blue jacket, carrying laptop bag. Identified as regular visitor pattern.</div>
+                    </div>
+                </div>
+
+                <div class="demo-section">
+                    <div class="demo-label">Alerts</div>
+                    <div class="alert" style="background: #ccfbf1; border-left-color: #14b8a6; color: #134e4a;">
+                        ✓ AI model upgraded to GPT-4o Vision
+                    </div>
+                    <div class="alert" style="background: #fce7f3; border-left-color: #ec4899; color: #831843;">
+                        ⚠ Unusual activity pattern detected
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="comparison-note">
+        <strong>📝 Comparison Tip:</strong> Open this file in a browser and compare themes side-by-side. Which colors and personality feel right for your vision?
+    </div>
+</body>
+</html>

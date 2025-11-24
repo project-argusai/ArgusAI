@@ -1,0 +1,237 @@
+<story-context id="5-4-build-in-dashboard-notification-center" v="1.0">
+  <metadata>
+    <epicId>5</epicId>
+    <storyId>4</storyId>
+    <title>Build In-Dashboard Notification Center</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/5-4-build-in-dashboard-notification-center.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to see real-time notifications in the dashboard when rules trigger</iWant>
+    <soThat>I'm immediately aware of important events</soThat>
+    <tasks>
+      <task id="1">Create notifications database model and migration (AC: #6)</task>
+      <task id="2">Implement notifications API endpoints (AC: #6)</task>
+      <task id="3">Implement WebSocket endpoint (AC: #5, #7)</task>
+      <task id="4">Integrate notification creation with alert engine (AC: #5, #6)</task>
+      <task id="5">Build NotificationBell component (AC: #1)</task>
+      <task id="6">Build NotificationDropdown component (AC: #2, #3, #4)</task>
+      <task id="7">Implement WebSocket client hook (AC: #5, #7)</task>
+      <task id="8">Create NotificationContext provider (AC: #1, #5)</task>
+      <task id="9">Integrate NotificationBell in Header (AC: #1, #2)</task>
+      <task id="10">Add frontend API client for notifications (AC: #6)</task>
+      <task id="11">Testing and validation</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Notification Bell Icon - Header notification indicator with badge, real-time count update</criterion>
+    <criterion id="2">Notifications Dropdown - Panel with list, mark all read, max 20 shown</criterion>
+    <criterion id="3">Notification Item Display - Thumbnail, title, description, timestamp, read/unread state</criterion>
+    <criterion id="4">Notification States - Read/unread management, mark as read on click</criterion>
+    <criterion id="5">Real-Time Delivery - WebSocket connection with broadcast on alert trigger</criterion>
+    <criterion id="6">Notification Storage - Backend API and database with CRUD operations</criterion>
+    <criterion id="7">WebSocket Connection Management - Auto-connect, reconnect with backoff, heartbeat</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epic Breakdown</title>
+        <section>Story 5.4: Build In-Dashboard Notification Center</section>
+        <snippet>User wants real-time notifications in dashboard when rules trigger. Includes bell icon, dropdown, WebSocket delivery, and notification storage.</snippet>
+      </doc>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>F6.6: Notification Center</section>
+        <snippet>In-dashboard notifications for new events: notification bell with unread count, dropdown showing recent alerts, mark as read/unread, real-time updates via WebSocket.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Key Architectural Principles</section>
+        <snippet>Principle #4: Real-Time Updates - WebSocket notifications for live event feed. Event-driven architecture with asynchronous processing.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/5-3-implement-webhook-integration.md</path>
+        <title>Story 5.3 - Webhook Integration</title>
+        <section>Dev Agent Record</section>
+        <snippet>Alert engine integration patterns, webhook logging UI patterns (WebhookLogs.tsx), API client extension patterns. Use as reference for notification UI.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <!-- Existing Backend Code -->
+      <artifact>
+        <path>backend/app/services/websocket_manager.py</path>
+        <kind>service</kind>
+        <symbol>WebSocketManager</symbol>
+        <lines>35-182</lines>
+        <reason>EXISTING WebSocket manager with connect, disconnect, broadcast methods. Use this - do NOT recreate. Has broadcast_alert method ready for notifications.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/alert_engine.py</path>
+        <kind>service</kind>
+        <symbol>AlertEngine</symbol>
+        <reason>Integration point for creating notifications when dashboard_notification action triggers. Modify _execute_dashboard_notification method.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/alert_rule.py</path>
+        <kind>model</kind>
+        <symbol>AlertRule, WebhookLog</symbol>
+        <reason>Reference for SQLAlchemy model patterns. Notification model should follow same patterns.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/alert_rules.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <reason>Reference for FastAPI router patterns. Notifications router should follow same structure.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/main.py</path>
+        <kind>application</kind>
+        <symbol>app</symbol>
+        <reason>Register WebSocket endpoint and notifications router here. Follow existing router registration pattern.</reason>
+      </artifact>
+
+      <!-- Existing Frontend Code -->
+      <artifact>
+        <path>frontend/contexts/NotificationContext.tsx</path>
+        <kind>context</kind>
+        <symbol>NotificationProvider, useNotifications</symbol>
+        <lines>1-97</lines>
+        <reason>EXISTING notification context with state management. EXTEND this - do NOT recreate. Add WebSocket integration and API persistence.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/layout/Header.tsx</path>
+        <kind>component</kind>
+        <symbol>Header</symbol>
+        <lines>97-115</lines>
+        <reason>EXISTING notification bell icon (static). Modify to use NotificationContext for dynamic count and add dropdown trigger.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/rules/WebhookLogs.tsx</path>
+        <kind>component</kind>
+        <symbol>WebhookLogs</symbol>
+        <reason>Reference for list/table UI patterns with filtering, pagination, and detail modal. Use similar patterns for notification list.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>utility</kind>
+        <symbol>apiClient</symbol>
+        <reason>Extend with notifications namespace for CRUD operations. Follow webhooks namespace pattern.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/alert-rule.ts</path>
+        <kind>types</kind>
+        <symbol>IWebhookLog</symbol>
+        <reason>Reference for TypeScript interface patterns. Create similar interfaces for notifications.</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <backend>
+        <package name="fastapi" version="0.115.0">WebSocket support built-in via fastapi.WebSocket</package>
+        <package name="sqlalchemy" version="2.0.36">ORM for notification model</package>
+        <package name="pydantic" version="2.10.0">Request/response schemas</package>
+      </backend>
+      <frontend>
+        <package name="@tanstack/react-query" version="5.90.10">API data fetching, mutations</package>
+        <package name="react" version="19.2.0">Hooks, context</package>
+        <package name="lucide-react" version="0.553.0">Bell icon already imported in Header</package>
+        <package name="@radix-ui/react-dialog" version="1.1.15">For notification detail modal</package>
+        <package name="sonner" version="2.0.7">Toast notifications</package>
+        <package name="date-fns" version="4.1.0">formatDistanceToNow for relative timestamps</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface>
+      <name>WebSocketManager</name>
+      <kind>class</kind>
+      <signature>
+        async connect(websocket: WebSocket) -> None
+        async disconnect(websocket: WebSocket) -> None
+        async broadcast(message: Dict[str, Any]) -> int
+        async broadcast_alert(event_data: Dict, rule_data: Dict) -> int
+        get_connection_count() -> int
+      </signature>
+      <path>backend/app/services/websocket_manager.py</path>
+    </interface>
+    <interface>
+      <name>useNotifications</name>
+      <kind>hook</kind>
+      <signature>
+        notifications: Notification[]
+        unreadCount: number
+        addNotification(notification: Omit&lt;Notification, 'id' | 'timestamp' | 'read'&gt;) -> void
+        markAsRead(id: string) -> void
+        markAllAsRead() -> void
+        clearNotification(id: string) -> void
+        clearAll() -> void
+      </signature>
+      <path>frontend/contexts/NotificationContext.tsx</path>
+    </interface>
+    <interface>
+      <name>NotificationsAPI (TO CREATE)</name>
+      <kind>REST endpoints</kind>
+      <signature>
+        GET /api/v1/notifications - List notifications with pagination
+        PATCH /api/v1/notifications/:id/read - Mark single as read
+        PATCH /api/v1/notifications/mark-all-read - Mark all as read
+        DELETE /api/v1/notifications/:id - Delete notification
+      </signature>
+      <path>backend/app/api/v1/notifications.py (new)</path>
+    </interface>
+    <interface>
+      <name>WebSocket Endpoint (TO CREATE)</name>
+      <kind>WebSocket</kind>
+      <signature>
+        ws://host/ws - Accept connection, maintain with ping/pong
+        Message format: { type: "notification", data: {...} }
+      </signature>
+      <path>backend/app/api/v1/websocket.py (new)</path>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint type="pattern">Follow existing SQLAlchemy model patterns from alert_rule.py</constraint>
+    <constraint type="pattern">Follow existing FastAPI router patterns from alert_rules.py</constraint>
+    <constraint type="pattern">Use TanStack Query for API data fetching with mutations</constraint>
+    <constraint type="pattern">Use existing NotificationContext - extend rather than recreate</constraint>
+    <constraint type="pattern">Use existing WebSocketManager singleton - do NOT create new manager</constraint>
+    <constraint type="architecture">WebSocket endpoint must handle connection lifecycle (connect, disconnect, heartbeat)</constraint>
+    <constraint type="architecture">Notification creation must be non-blocking (async) in alert engine</constraint>
+    <constraint type="security">WebSocket connections should validate/authenticate in Phase 1.5</constraint>
+    <constraint type="testing">Write unit tests for notification API endpoints</constraint>
+    <constraint type="testing">Write tests for WebSocket connection manager</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Test files in tests/test_api/ and tests/test_services/.
+      Frontend: npm run build for type checking, npm run lint for code quality. No dedicated test framework configured yet.
+      Follow patterns from tests/test_services/test_webhook_service.py and tests/test_api/test_webhooks.py.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_notifications.py (new)</location>
+      <location>backend/tests/test_services/test_websocket.py (new)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test notification badge count updates when new notification added</idea>
+      <idea ac="2">Test dropdown displays max 20 notifications, sorted by date</idea>
+      <idea ac="3">Test notification item renders all required fields</idea>
+      <idea ac="4">Test markAsRead updates notification state, removes blue dot</idea>
+      <idea ac="5">Test WebSocket broadcasts notification to all connected clients</idea>
+      <idea ac="6">Test CRUD API endpoints return correct responses</idea>
+      <idea ac="7">Test WebSocket reconnects with exponential backoff on disconnect</idea>
+    </ideas>
+  </tests>
+</story-context>

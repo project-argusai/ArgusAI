@@ -1,0 +1,1530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Object AI Classifier - Design Directions</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            line-height: 1.6;
+        }
+
+        .viewer-controls {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: #0f172a;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .viewer-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .viewer-nav {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .nav-btn {
+            background: #475569;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: #64748b;
+        }
+
+        .direction-indicator {
+            background: #334155;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .mockup-container {
+            margin-top: 80px;
+            padding: 2rem;
+            display: none;
+        }
+
+        .mockup-container.active {
+            display: block;
+        }
+
+        .mockup-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .mockup-name {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            color: #0ea5e9;
+        }
+
+        .mockup-subtitle {
+            font-size: 1.1rem;
+            color: #94a3b8;
+            margin-bottom: 1rem;
+        }
+
+        .mockup-tags {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+        }
+
+        .tag {
+            background: #475569;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+        }
+
+        .mockup-frame {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: #f8fafc;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+        }
+
+        /* Direction 1: Information Dense Dashboard */
+        .dashboard-dense {
+            display: flex;
+            height: 900px;
+        }
+
+        .sidebar {
+            width: 240px;
+            background: #0f172a;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #0ea5e9;
+            margin-bottom: 2rem;
+        }
+
+        .nav-item {
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+            color: #94a3b8;
+            transition: all 0.2s;
+        }
+
+        .nav-item.active {
+            background: #475569;
+            color: white;
+            border-left: 3px solid #0ea5e9;
+        }
+
+        .nav-item:hover:not(.active) {
+            background: #1e293b;
+            color: #e2e8f0;
+        }
+
+        .main-content {
+            flex: 1;
+            background: #f8fafc;
+            overflow-y: auto;
+        }
+
+        .page-header {
+            background: white;
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .page-title {
+            font-size: 1.75rem;
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            padding: 0.625rem 1.25rem;
+            border-radius: 6px;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #475569;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #334155;
+        }
+
+        .btn-accent {
+            background: #0ea5e9;
+            color: white;
+        }
+
+        .btn-accent:hover {
+            background: #0284c7;
+        }
+
+        .content-area {
+            padding: 2rem;
+        }
+
+        .filters-bar {
+            background: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .filter-label {
+            font-size: 0.85rem;
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .filter-select {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #0f172a;
+            background: white;
+        }
+
+        .search-box {
+            flex: 1;
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.625rem 1rem 0.625rem 2.5rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #94a3b8;
+        }
+
+        .event-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        .event-card {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+
+        .event-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .event-card.alert {
+            border-left: 4px solid #f97316;
+        }
+
+        .event-thumbnail {
+            width: 100%;
+            height: 180px;
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+            font-size: 0.85rem;
+        }
+
+        .event-content {
+            padding: 1rem;
+        }
+
+        .event-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .event-time {
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        .event-camera {
+            font-size: 0.85rem;
+            color: #475569;
+            font-weight: 500;
+        }
+
+        .event-description {
+            color: #0f172a;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            margin-bottom: 0.75rem;
+        }
+
+        .event-badges {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            padding: 0.25rem 0.625rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .badge-person {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .badge-vehicle {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .badge-package {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .confidence-indicator {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .confidence-high {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .confidence-med {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        /* Direction 2: Spacious Timeline */
+        .timeline-spacious .event-grid {
+            grid-template-columns: 1fr;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .timeline-spacious .event-card {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .timeline-spacious .event-thumbnail {
+            width: 320px;
+            height: 180px;
+            flex-shrink: 0;
+        }
+
+        .timeline-spacious .event-content {
+            flex: 1;
+            padding: 1.5rem;
+        }
+
+        /* Direction 3: Card Gallery */
+        .card-gallery .event-grid {
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+        }
+
+        .card-gallery .event-card {
+            border-radius: 12px;
+        }
+
+        .card-gallery .event-thumbnail {
+            height: 200px;
+        }
+
+        .card-gallery .event-content {
+            padding: 1.25rem;
+        }
+
+        /* Direction 4: Camera Monitor Grid */
+        .camera-grid-layout {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.5rem;
+            padding: 2rem;
+        }
+
+        .camera-preview {
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+
+        .camera-header {
+            padding: 1rem;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .camera-name {
+            font-weight: 600;
+            color: #0f172a;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-connected {
+            background: #22c55e;
+        }
+
+        .status-connecting {
+            background: #f97316;
+        }
+
+        .status-error {
+            background: #ef4444;
+        }
+
+        .camera-feed {
+            width: 100%;
+            height: 240px;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #64748b;
+            position: relative;
+        }
+
+        .analyze-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .camera-feed:hover .analyze-overlay {
+            opacity: 1;
+        }
+
+        .camera-footer {
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: #64748b;
+        }
+
+        /* Direction 5: Split View */
+        .split-view-layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 1.5rem;
+            height: calc(100vh - 140px);
+        }
+
+        .split-main {
+            overflow-y: auto;
+        }
+
+        .split-sidebar {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            border: 1px solid #e2e8f0;
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            margin-bottom: 2rem;
+        }
+
+        .sidebar-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #0f172a;
+            margin-bottom: 1rem;
+        }
+
+        .stat-card {
+            background: #f8fafc;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-bottom: 0.75rem;
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        /* Direction 6: Minimalist Clean */
+        .minimalist-layout .filters-bar {
+            background: transparent;
+            padding: 1rem 0;
+            box-shadow: none;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .minimalist-layout .event-card {
+            border: none;
+            border-bottom: 1px solid #e2e8f0;
+            border-radius: 0;
+        }
+
+        .minimalist-layout .event-card:hover {
+            background: #f8fafc;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .minimalist-layout .event-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .thumbnail-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-top: 1.5rem;
+        }
+
+        .thumbnail-item {
+            aspect-ratio: 16/9;
+            background: linear-gradient(135deg, #334155 0%, #475569 100%);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #94a3b8;
+            font-size: 0.75rem;
+        }
+
+        .notes {
+            background: #0f172a;
+            padding: 2rem;
+            margin-top: 2rem;
+            border-radius: 8px;
+        }
+
+        .notes-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #0ea5e9;
+        }
+
+        .notes-content {
+            color: #94a3b8;
+            line-height: 1.8;
+        }
+
+        .notes-list {
+            list-style: none;
+            margin-top: 1rem;
+        }
+
+        .notes-list li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .notes-list li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #0ea5e9;
+        }
+    </style>
+</head>
+<body>
+    <div class="viewer-controls">
+        <div class="viewer-title">🎨 Design Direction Explorer</div>
+        <div class="viewer-nav">
+            <button class="nav-btn" onclick="previousDirection()">← Previous</button>
+            <div class="direction-indicator">
+                <span id="current-direction">1</span> / 6
+            </div>
+            <button class="nav-btn" onclick="nextDirection()">Next →</button>
+        </div>
+    </div>
+
+    <!-- Direction 1: Information Dense Dashboard -->
+    <div class="mockup-container active" id="direction-1">
+        <div class="mockup-header">
+            <h1 class="mockup-name">Direction 1: Information Dense Dashboard</h1>
+            <p class="mockup-subtitle">Professional & Efficient - Maximize information density</p>
+            <div class="mockup-tags">
+                <span class="tag">Sidebar Navigation</span>
+                <span class="tag">2-Column Event Grid</span>
+                <span class="tag">Compact Cards</span>
+                <span class="tag">Always-Visible Filters</span>
+            </div>
+        </div>
+
+        <div class="mockup-frame">
+            <div class="dashboard-dense">
+                <div class="sidebar">
+                    <div class="logo">🔒 ObjectAI</div>
+                    <div class="nav-item active">📊 Events</div>
+                    <div class="nav-item">📹 Cameras</div>
+                    <div class="nav-item">⚡ Alert Rules</div>
+                    <div class="nav-item">⚙️ Settings</div>
+                </div>
+
+                <div class="main-content">
+                    <div class="page-header">
+                        <h1 class="page-title">Event Timeline</h1>
+                        <div class="header-actions">
+                            <button class="btn btn-accent">🔍 Advanced Search</button>
+                            <button class="btn btn-primary">+ Export</button>
+                        </div>
+                    </div>
+
+                    <div class="content-area">
+                        <div class="filters-bar">
+                            <div class="filter-group">
+                                <span class="filter-label">Camera:</span>
+                                <select class="filter-select">
+                                    <option>All Cameras</option>
+                                    <option>Front Door</option>
+                                    <option>Driveway</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <span class="filter-label">Object:</span>
+                                <select class="filter-select">
+                                    <option>All Objects</option>
+                                    <option>Person</option>
+                                    <option>Vehicle</option>
+                                    <option>Package</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <span class="filter-label">Date:</span>
+                                <select class="filter-select">
+                                    <option>Today</option>
+                                    <option>Last 7 Days</option>
+                                    <option>Last 30 Days</option>
+                                </select>
+                            </div>
+                            <div class="search-box">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" class="search-input" placeholder="Search event descriptions...">
+                            </div>
+                        </div>
+
+                        <div class="event-grid">
+                            <div class="event-card alert">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">2 minutes ago</span>
+                                        <span class="confidence-indicator confidence-high">94%</span>
+                                    </div>
+                                    <div class="event-camera">📹 Front Door</div>
+                                    <div class="event-description">Adult male, brown UPS uniform, carrying large Amazon package, approached front door and rang doorbell</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-package">Package</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">1 hour ago</span>
+                                        <span class="confidence-indicator confidence-high">91%</span>
+                                    </div>
+                                    <div class="event-camera">📹 Driveway</div>
+                                    <div class="event-description">White sedan pulled into driveway, driver exited vehicle, female mid-30s carrying grocery bags</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-vehicle">Vehicle</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">3 hours ago</span>
+                                        <span class="confidence-indicator confidence-med">76%</span>
+                                    </div>
+                                    <div class="event-camera">📹 Front Door</div>
+                                    <div class="event-description">Movement detected near bushes, possibly animal or wind-blown vegetation</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person" style="background: #f3f4f6; color: #6b7280;">Unknown</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">5 hours ago</span>
+                                        <span class="confidence-indicator confidence-high">88%</span>
+                                    </div>
+                                    <div class="event-camera">📹 Driveway</div>
+                                    <div class="event-description">Mail carrier arrived on foot, placed mail in mailbox, continued down street</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person">Person</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes">
+            <h3 class="notes-title">Design Philosophy: Information Dense Dashboard</h3>
+            <div class="notes-content">
+                <strong>Best for:</strong> Power users, Marcus (smart home enthusiast), users who monitor frequently
+                <ul class="notes-list">
+                    <li>2-column grid maximizes screen real estate</li>
+                    <li>Persistent filters enable quick refinement without extra clicks</li>
+                    <li>Sidebar navigation provides context and easy switching</li>
+                    <li>Compact cards show more events per screen</li>
+                    <li>Always-visible search encourages frequent use</li>
+                </ul>
+                <strong>Trade-offs:</strong> Can feel busy, less breathing room, more cognitive load
+            </div>
+        </div>
+    </div>
+
+    <!-- Direction 2: Spacious Timeline -->
+    <div class="mockup-container" id="direction-2">
+        <div class="mockup-header">
+            <h1 class="mockup-name">Direction 2: Spacious Timeline</h1>
+            <p class="mockup-subtitle">Calm & Focused - Easy scanning with generous spacing</p>
+            <div class="mockup-tags">
+                <span class="tag">Single Column</span>
+                <span class="tag">Horizontal Cards</span>
+                <span class="tag">Large Thumbnails</span>
+                <span class="tag">Breathing Room</span>
+            </div>
+        </div>
+
+        <div class="mockup-frame">
+            <div class="dashboard-dense timeline-spacious">
+                <div class="sidebar">
+                    <div class="logo">🔒 ObjectAI</div>
+                    <div class="nav-item active">📊 Events</div>
+                    <div class="nav-item">📹 Cameras</div>
+                    <div class="nav-item">⚡ Alert Rules</div>
+                    <div class="nav-item">⚙️ Settings</div>
+                </div>
+
+                <div class="main-content">
+                    <div class="page-header">
+                        <h1 class="page-title">Event Timeline</h1>
+                        <div class="header-actions">
+                            <button class="btn btn-primary">🔍 Search</button>
+                            <button class="btn btn-accent">⚙️ Filters</button>
+                        </div>
+                    </div>
+
+                    <div class="content-area">
+                        <div class="event-grid">
+                            <div class="event-card alert">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <div>
+                                            <div class="event-camera" style="font-size: 1rem; margin-bottom: 0.5rem;">📹 Front Door</div>
+                                            <div class="event-time" style="font-size: 1rem;">2 minutes ago</div>
+                                        </div>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.85rem;">94% confident</span>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.1rem; line-height: 1.6; margin-top: 1rem;">Adult male, brown UPS uniform, carrying large Amazon-branded package, approached front door, placed package on porch mat, rang doorbell, and returned to delivery truck</div>
+                                    <div class="event-badges" style="margin-top: 1rem;">
+                                        <span class="badge badge-person" style="font-size: 0.85rem; padding: 0.375rem 0.75rem;">Person</span>
+                                        <span class="badge badge-package" style="font-size: 0.85rem; padding: 0.375rem 0.75rem;">Package</span>
+                                        <span class="badge" style="background: #fef3c7; color: #92400e; font-size: 0.85rem; padding: 0.375rem 0.75rem;">🔔 Alert Triggered</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <div>
+                                            <div class="event-camera" style="font-size: 1rem; margin-bottom: 0.5rem;">📹 Driveway</div>
+                                            <div class="event-time" style="font-size: 1rem;">1 hour ago</div>
+                                        </div>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.85rem;">91% confident</span>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.1rem; line-height: 1.6; margin-top: 1rem;">White Honda sedan pulled into driveway, driver door opened, female approximately mid-30s with blonde hair exited vehicle carrying multiple grocery bags, walked toward front door</div>
+                                    <div class="event-badges" style="margin-top: 1rem;">
+                                        <span class="badge badge-person" style="font-size: 0.85rem; padding: 0.375rem 0.75rem;">Person</span>
+                                        <span class="badge badge-vehicle" style="font-size: 0.85rem; padding: 0.375rem 0.75rem;">Vehicle</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <div>
+                                            <div class="event-camera" style="font-size: 1rem; margin-bottom: 0.5rem;">📹 Front Yard</div>
+                                            <div class="event-time" style="font-size: 1rem;">3 hours ago</div>
+                                        </div>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.85rem;">88% confident</span>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.1rem; line-height: 1.6; margin-top: 1rem;">Mail carrier in USPS uniform arrived on foot, opened mailbox, placed several envelopes and small package inside, closed mailbox and continued walking down street</div>
+                                    <div class="event-badges" style="margin-top: 1rem;">
+                                        <span class="badge badge-person" style="font-size: 0.85rem; padding: 0.375rem 0.75rem;">Person</span>
+                                        <span class="badge badge-package" style="font-size: 0.85rem; padding: 0.375rem 0.75rem;">Package</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes">
+            <h3 class="notes-title">Design Philosophy: Spacious Timeline</h3>
+            <div class="notes-content">
+                <strong>Best for:</strong> Sarah (homeowner), Linda (accessibility), users who want easy scanning
+                <ul class="notes-list">
+                    <li>Single column focuses attention on one event at a time</li>
+                    <li>Horizontal layout shows larger thumbnails and full descriptions</li>
+                    <li>Generous spacing reduces cognitive load</li>
+                    <li>Larger text improves readability for all users</li>
+                    <li>Clear hierarchy makes scanning effortless</li>
+                </ul>
+                <strong>Trade-offs:</strong> Fewer events visible per screen, requires more scrolling
+            </div>
+        </div>
+    </div>
+
+    <!-- Direction 3: Card Gallery -->
+    <div class="mockup-container" id="direction-3">
+        <div class="mockup-header">
+            <h1 class="mockup-name">Direction 3: Card Gallery</h1>
+            <p class="mockup-subtitle">Visual & Scannable - Image-first design</p>
+            <div class="mockup-tags">
+                <span class="tag">3-Column Grid</span>
+                <span class="tag">Large Images</span>
+                <span class="tag">Compact Text</span>
+                <span class="tag">Gallery View</span>
+            </div>
+        </div>
+
+        <div class="mockup-frame">
+            <div class="dashboard-dense card-gallery">
+                <div class="sidebar">
+                    <div class="logo">🔒 ObjectAI</div>
+                    <div class="nav-item active">📊 Events</div>
+                    <div class="nav-item">📹 Cameras</div>
+                    <div class="nav-item">⚡ Alert Rules</div>
+                    <div class="nav-item">⚙️ Settings</div>
+                </div>
+
+                <div class="main-content">
+                    <div class="page-header">
+                        <h1 class="page-title">Event Gallery</h1>
+                        <div class="header-actions">
+                            <button class="btn btn-primary">🔍 Search</button>
+                            <button class="btn btn-accent">⚙️ Filters</button>
+                        </div>
+                    </div>
+
+                    <div class="content-area">
+                        <div class="event-grid">
+                            <div class="event-card alert">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">2 min ago</span>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.7rem;">94%</span>
+                                    </div>
+                                    <div class="event-camera" style="margin-bottom: 0.5rem;">📹 Front Door</div>
+                                    <div class="event-description" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">Adult male, brown UPS uniform, carrying large package, approached door...</div>
+                                    <div class="event-badges" style="margin-top: 0.75rem;">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-package">Package</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">1 hour ago</span>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.7rem;">91%</span>
+                                    </div>
+                                    <div class="event-camera" style="margin-bottom: 0.5rem;">📹 Driveway</div>
+                                    <div class="event-description" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">White sedan pulled into driveway, female mid-30s carrying grocery bags...</div>
+                                    <div class="event-badges" style="margin-top: 0.75rem;">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-vehicle">Vehicle</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">3 hours ago</span>
+                                        <span class="confidence-indicator confidence-med" style="font-size: 0.7rem;">76%</span>
+                                    </div>
+                                    <div class="event-camera" style="margin-bottom: 0.5rem;">📹 Front Door</div>
+                                    <div class="event-description" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">Movement detected near bushes, possibly animal or wind-blown vegetation...</div>
+                                    <div class="event-badges" style="margin-top: 0.75rem;">
+                                        <span class="badge" style="background: #f3f4f6; color: #6b7280;">Unknown</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">5 hours ago</span>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.7rem;">88%</span>
+                                    </div>
+                                    <div class="event-camera" style="margin-bottom: 0.5rem;">📹 Front Yard</div>
+                                    <div class="event-description" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">Mail carrier arrived on foot, placed mail in mailbox, continued down street...</div>
+                                    <div class="event-badges" style="margin-top: 0.75rem;">
+                                        <span class="badge badge-person">Person</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">8 hours ago</span>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.7rem;">93%</span>
+                                    </div>
+                                    <div class="event-camera" style="margin-bottom: 0.5rem;">📹 Driveway</div>
+                                    <div class="event-description" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">Black SUV slowly passed by, paused briefly, then continued driving...</div>
+                                    <div class="event-badges" style="margin-top: 0.75rem;">
+                                        <span class="badge badge-vehicle">Vehicle</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-thumbnail">Camera Frame</div>
+                                <div class="event-content">
+                                    <div class="event-meta">
+                                        <span class="event-time">Yesterday</span>
+                                        <span class="confidence-indicator confidence-high" style="font-size: 0.7rem;">89%</span>
+                                    </div>
+                                    <div class="event-camera" style="margin-bottom: 0.5rem;">📹 Front Door</div>
+                                    <div class="event-description" style="font-size: 0.9rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">Neighbor walking dog, stopped briefly to chat with person at mailbox...</div>
+                                    <div class="event-badges" style="margin-top: 0.75rem;">
+                                        <span class="badge badge-person">Person</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes">
+            <h3 class="notes-title">Design Philosophy: Card Gallery</h3>
+            <div class="notes-content">
+                <strong>Best for:</strong> Visual scanners, users who recognize events by thumbnail, image-first browsing
+                <ul class="notes-list">
+                    <li>3-column grid shows many events at once</li>
+                    <li>Large thumbnails make visual scanning fast</li>
+                    <li>Truncated descriptions save space (click to expand)</li>
+                    <li>Gallery-style layout feels modern and organized</li>
+                    <li>Hover preview could show full description</li>
+                </ul>
+                <strong>Trade-offs:</strong> Less description visible, requires clicking for full details, can feel cluttered on smaller screens
+            </div>
+        </div>
+    </div>
+
+    <!-- Direction 4: Camera Monitor Grid -->
+    <div class="mockup-container" id="direction-4">
+        <div class="mockup-header">
+            <h1 class="mockup-name">Direction 4: Live Camera Monitor Grid</h1>
+            <p class="mockup-subtitle">Real-time Focus - Monitor all cameras simultaneously</p>
+            <div class="mockup-tags">
+                <span class="tag">Multi-Camera View</span>
+                <span class="tag">Live Feeds</span>
+                <span class="tag">Status Indicators</span>
+                <span class="tag">Quick Action</span>
+            </div>
+        </div>
+
+        <div class="mockup-frame">
+            <div class="dashboard-dense">
+                <div class="sidebar">
+                    <div class="logo">🔒 ObjectAI</div>
+                    <div class="nav-item">📊 Events</div>
+                    <div class="nav-item active">📹 Cameras</div>
+                    <div class="nav-item">⚡ Alert Rules</div>
+                    <div class="nav-item">⚙️ Settings</div>
+                </div>
+
+                <div class="main-content">
+                    <div class="page-header">
+                        <h1 class="page-title">Live Monitoring</h1>
+                        <div class="header-actions">
+                            <button class="btn btn-accent">+ Add Camera</button>
+                        </div>
+                    </div>
+
+                    <div class="camera-grid-layout">
+                        <div class="camera-preview">
+                            <div class="camera-header">
+                                <span class="camera-name">Front Door</span>
+                                <div class="status-indicator">
+                                    <div class="status-dot status-connected"></div>
+                                    <span style="color: #22c55e; font-weight: 500;">Connected</span>
+                                </div>
+                            </div>
+                            <div class="camera-feed">
+                                <span>Live Feed</span>
+                                <div class="analyze-overlay">
+                                    <button class="btn btn-accent">🔍 Analyze Now</button>
+                                </div>
+                            </div>
+                            <div class="camera-footer">
+                                Updated 2 seconds ago
+                            </div>
+                        </div>
+
+                        <div class="camera-preview">
+                            <div class="camera-header">
+                                <span class="camera-name">Driveway</span>
+                                <div class="status-indicator">
+                                    <div class="status-dot status-connected"></div>
+                                    <span style="color: #22c55e; font-weight: 500;">Connected</span>
+                                </div>
+                            </div>
+                            <div class="camera-feed">
+                                <span>Live Feed</span>
+                                <div class="analyze-overlay">
+                                    <button class="btn btn-accent">🔍 Analyze Now</button>
+                                </div>
+                            </div>
+                            <div class="camera-footer">
+                                Updated 1 second ago
+                            </div>
+                        </div>
+
+                        <div class="camera-preview">
+                            <div class="camera-header">
+                                <span class="camera-name">Backyard</span>
+                                <div class="status-indicator">
+                                    <div class="status-dot status-connecting"></div>
+                                    <span style="color: #f97316; font-weight: 500;">Connecting...</span>
+                                </div>
+                            </div>
+                            <div class="camera-feed" style="opacity: 0.6;">
+                                <span>Attempting connection...</span>
+                            </div>
+                            <div class="camera-footer">
+                                Reconnecting...
+                            </div>
+                        </div>
+
+                        <div class="camera-preview">
+                            <div class="camera-header">
+                                <span class="camera-name">Side Gate</span>
+                                <div class="status-indicator">
+                                    <div class="status-dot status-error"></div>
+                                    <span style="color: #ef4444; font-weight: 500;">Offline</span>
+                                </div>
+                            </div>
+                            <div class="camera-feed" style="opacity: 0.4;">
+                                <span>Connection failed</span>
+                            </div>
+                            <div class="camera-footer" style="color: #ef4444;">
+                                Check camera settings
+                            </div>
+                        </div>
+
+                        <div class="camera-preview">
+                            <div class="camera-header">
+                                <span class="camera-name">Garage</span>
+                                <div class="status-indicator">
+                                    <div class="status-dot status-connected"></div>
+                                    <span style="color: #22c55e; font-weight: 500;">Connected</span>
+                                </div>
+                            </div>
+                            <div class="camera-feed">
+                                <span>Live Feed</span>
+                                <div class="analyze-overlay">
+                                    <button class="btn btn-accent">🔍 Analyze Now</button>
+                                </div>
+                            </div>
+                            <div class="camera-footer">
+                                Updated 3 seconds ago
+                            </div>
+                        </div>
+
+                        <div class="camera-preview" style="border: 2px dashed #e2e8f0; background: #f8fafc;">
+                            <div class="camera-feed" style="background: transparent; color: #94a3b8; flex-direction: column; gap: 1rem;">
+                                <span style="font-size: 3rem;">+</span>
+                                <span>Add New Camera</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes">
+            <h3 class="notes-title">Design Philosophy: Live Camera Monitor Grid</h3>
+            <div class="notes-content">
+                <strong>Best for:</strong> Real-time monitoring, Marcus (smart home enthusiast), security-focused users
+                <ul class="notes-list">
+                    <li>All cameras visible simultaneously (control room feel)</li>
+                    <li>Quick "Analyze Now" action on hover (no navigation needed)</li>
+                    <li>Clear status indicators prevent confusion about connection state</li>
+                    <li>Grid scales from 1 to 12+ cameras</li>
+                    <li>Focus on live monitoring rather than event history</li>
+                </ul>
+                <strong>Trade-offs:</strong> Not optimized for event review, requires good internet for multiple streams
+            </div>
+        </div>
+    </div>
+
+    <!-- Direction 5: Split View Dashboard -->
+    <div class="mockup-container" id="direction-5">
+        <div class="mockup-header">
+            <h1 class="mockup-name">Direction 5: Split View Dashboard</h1>
+            <p class="mockup-subtitle">Context + Content - Events with live stats sidebar</p>
+            <div class="mockup-tags">
+                <span class="tag">Split Screen</span>
+                <span class="tag">Stats Sidebar</span>
+                <span class="tag">Event Focus</span>
+                <span class="tag">Quick Camera Tiles</span>
+            </div>
+        </div>
+
+        <div class="mockup-frame">
+            <div class="dashboard-dense">
+                <div class="sidebar">
+                    <div class="logo">🔒 ObjectAI</div>
+                    <div class="nav-item active">📊 Events</div>
+                    <div class="nav-item">📹 Cameras</div>
+                    <div class="nav-item">⚡ Alert Rules</div>
+                    <div class="nav-item">⚙️ Settings</div>
+                </div>
+
+                <div class="main-content">
+                    <div class="page-header">
+                        <h1 class="page-title">Dashboard Overview</h1>
+                        <div class="header-actions">
+                            <button class="btn btn-primary">🔍 Search</button>
+                        </div>
+                    </div>
+
+                    <div class="content-area">
+                        <div class="split-view-layout">
+                            <div class="split-main">
+                                <div class="event-grid">
+                                    <div class="event-card alert">
+                                        <div class="event-thumbnail">Camera Frame</div>
+                                        <div class="event-content">
+                                            <div class="event-meta">
+                                                <span class="event-time">2 minutes ago</span>
+                                                <span class="confidence-indicator confidence-high">94%</span>
+                                            </div>
+                                            <div class="event-camera">📹 Front Door</div>
+                                            <div class="event-description">Adult male, brown UPS uniform, carrying large Amazon package, approached front door and rang doorbell</div>
+                                            <div class="event-badges">
+                                                <span class="badge badge-person">Person</span>
+                                                <span class="badge badge-package">Package</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="event-card">
+                                        <div class="event-thumbnail">Camera Frame</div>
+                                        <div class="event-content">
+                                            <div class="event-meta">
+                                                <span class="event-time">1 hour ago</span>
+                                                <span class="confidence-indicator confidence-high">91%</span>
+                                            </div>
+                                            <div class="event-camera">📹 Driveway</div>
+                                            <div class="event-description">White sedan pulled into driveway, driver exited, female mid-30s carrying grocery bags</div>
+                                            <div class="event-badges">
+                                                <span class="badge badge-person">Person</span>
+                                                <span class="badge badge-vehicle">Vehicle</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="event-card">
+                                        <div class="event-thumbnail">Camera Frame</div>
+                                        <div class="event-content">
+                                            <div class="event-meta">
+                                                <span class="event-time">3 hours ago</span>
+                                                <span class="confidence-indicator confidence-high">88%</span>
+                                            </div>
+                                            <div class="event-camera">📹 Front Yard</div>
+                                            <div class="event-description">Mail carrier in USPS uniform arrived on foot, placed mail in mailbox</div>
+                                            <div class="event-badges">
+                                                <span class="badge badge-person">Person</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="split-sidebar">
+                                <div class="sidebar-section">
+                                    <h3 class="sidebar-title">Today's Activity</h3>
+                                    <div class="stat-card">
+                                        <div class="stat-label">Events Detected</div>
+                                        <div class="stat-value">28</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-label">Alerts Triggered</div>
+                                        <div class="stat-value">3</div>
+                                    </div>
+                                    <div class="stat-card">
+                                        <div class="stat-label">Avg Confidence</div>
+                                        <div class="stat-value">87%</div>
+                                    </div>
+                                </div>
+
+                                <div class="sidebar-section">
+                                    <h3 class="sidebar-title">Camera Status</h3>
+                                    <div class="stat-card" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="color: #0f172a; font-weight: 500;">Front Door</span>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <div class="status-dot status-connected"></div>
+                                            <span style="color: #22c55e; font-size: 0.85rem; font-weight: 500;">Online</span>
+                                        </div>
+                                    </div>
+                                    <div class="stat-card" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="color: #0f172a; font-weight: 500;">Driveway</span>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <div class="status-dot status-connected"></div>
+                                            <span style="color: #22c55e; font-size: 0.85rem; font-weight: 500;">Online</span>
+                                        </div>
+                                    </div>
+                                    <div class="stat-card" style="display: flex; justify-content: space-between; align-items: center;">
+                                        <span style="color: #0f172a; font-weight: 500;">Backyard</span>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <div class="status-dot status-error"></div>
+                                            <span style="color: #ef4444; font-size: 0.85rem; font-weight: 500;">Offline</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="sidebar-section">
+                                    <h3 class="sidebar-title">Quick Camera Tiles</h3>
+                                    <div class="thumbnail-grid" style="grid-template-columns: repeat(2, 1fr);">
+                                        <div class="thumbnail-item">Front</div>
+                                        <div class="thumbnail-item">Drive</div>
+                                        <div class="thumbnail-item">Back</div>
+                                        <div class="thumbnail-item">Gate</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes">
+            <h3 class="notes-title">Design Philosophy: Split View Dashboard</h3>
+            <div class="notes-content">
+                <strong>Best for:</strong> Users who want both events and context, data-driven users, dashboard overview
+                <ul class="notes-list">
+                    <li>Main content area for event timeline (primary focus)</li>
+                    <li>Sidebar provides at-a-glance context (stats, camera status)</li>
+                    <li>Quick camera thumbnail grid for visual monitoring</li>
+                    <li>Balances information density with organization</li>
+                    <li>Works well on wide screens (>1280px)</li>
+                </ul>
+                <strong>Trade-offs:</strong> Less space for events on narrower screens, sidebar can distract from event review
+            </div>
+        </div>
+    </div>
+
+    <!-- Direction 6: Minimalist Clean -->
+    <div class="mockup-container" id="direction-6">
+        <div class="mockup-header">
+            <h1 class="mockup-name">Direction 6: Minimalist Clean</h1>
+            <p class="mockup-subtitle">Calm & Uncluttered - Pure focus on content</p>
+            <div class="mockup-tags">
+                <span class="tag">Minimal Borders</span>
+                <span class="tag">Single Column</span>
+                <span class="tag">Clean Typography</span>
+                <span class="tag">Content First</span>
+            </div>
+        </div>
+
+        <div class="mockup-frame">
+            <div class="dashboard-dense minimalist-layout">
+                <div class="sidebar">
+                    <div class="logo">🔒 ObjectAI</div>
+                    <div class="nav-item active">📊 Events</div>
+                    <div class="nav-item">📹 Cameras</div>
+                    <div class="nav-item">⚡ Alert Rules</div>
+                    <div class="nav-item">⚙️ Settings</div>
+                </div>
+
+                <div class="main-content">
+                    <div class="page-header" style="border-bottom: none;">
+                        <h1 class="page-title">Events</h1>
+                        <div class="header-actions">
+                            <button class="btn btn-primary" style="background: transparent; color: #475569;">🔍 Search</button>
+                            <button class="btn btn-primary" style="background: transparent; color: #475569;">⚙️ Filter</button>
+                        </div>
+                    </div>
+
+                    <div class="content-area">
+                        <div class="filters-bar">
+                            <div class="search-box">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" class="search-input" placeholder="Search descriptions..." style="border: none; border-bottom: 2px solid #e2e8f0;">
+                            </div>
+                        </div>
+
+                        <div class="event-grid">
+                            <div class="event-card alert">
+                                <div class="event-content" style="padding: 2rem;">
+                                    <div class="event-meta" style="margin-bottom: 1rem;">
+                                        <div style="display: flex; gap: 1rem; align-items: center;">
+                                            <span class="event-time" style="font-size: 1rem;">2 minutes ago</span>
+                                            <span class="event-camera" style="color: #64748b;">📹 Front Door</span>
+                                        </div>
+                                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                            <span class="confidence-indicator confidence-high">94%</span>
+                                            <span class="badge" style="background: #fef3c7; color: #92400e;">🔔 Alert</span>
+                                        </div>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.125rem; line-height: 1.7; color: #0f172a; margin-bottom: 1rem;">Adult male, brown UPS uniform, carrying large Amazon-branded package, approached front door, placed package on porch mat, rang doorbell, and returned to delivery truck parked at curb</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-package">Package</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-content" style="padding: 2rem;">
+                                    <div class="event-meta" style="margin-bottom: 1rem;">
+                                        <div style="display: flex; gap: 1rem; align-items: center;">
+                                            <span class="event-time" style="font-size: 1rem;">1 hour ago</span>
+                                            <span class="event-camera" style="color: #64748b;">📹 Driveway</span>
+                                        </div>
+                                        <span class="confidence-indicator confidence-high">91%</span>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.125rem; line-height: 1.7; color: #0f172a; margin-bottom: 1rem;">White Honda sedan pulled into driveway, driver door opened, female approximately mid-30s with blonde hair exited vehicle carrying multiple reusable grocery bags, walked toward front door</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-vehicle">Vehicle</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-content" style="padding: 2rem;">
+                                    <div class="event-meta" style="margin-bottom: 1rem;">
+                                        <div style="display: flex; gap: 1rem; align-items: center;">
+                                            <span class="event-time" style="font-size: 1rem;">3 hours ago</span>
+                                            <span class="event-camera" style="color: #64748b;">📹 Front Door</span>
+                                        </div>
+                                        <span class="confidence-indicator confidence-med">76%</span>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.125rem; line-height: 1.7; color: #0f172a; margin-bottom: 1rem;">Movement detected near bushes adjacent to front walkway, appears to be wind-blown vegetation or possibly small animal, motion not sustained</div>
+                                    <div class="event-badges">
+                                        <span class="badge" style="background: #f3f4f6; color: #6b7280;">Unknown</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="event-card">
+                                <div class="event-content" style="padding: 2rem;">
+                                    <div class="event-meta" style="margin-bottom: 1rem;">
+                                        <div style="display: flex; gap: 1rem; align-items: center;">
+                                            <span class="event-time" style="font-size: 1rem;">5 hours ago</span>
+                                            <span class="event-camera" style="color: #64748b;">📹 Front Yard</span>
+                                        </div>
+                                        <span class="confidence-indicator confidence-high">88%</span>
+                                    </div>
+                                    <div class="event-description" style="font-size: 1.125rem; line-height: 1.7; color: #0f172a; margin-bottom: 1rem;">Mail carrier in official USPS uniform arrived on foot, opened mailbox, placed several envelopes and one small package inside, closed mailbox and continued walking down street</div>
+                                    <div class="event-badges">
+                                        <span class="badge badge-person">Person</span>
+                                        <span class="badge badge-package">Package</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="notes">
+            <h3 class="notes-title">Design Philosophy: Minimalist Clean</h3>
+            <div class="notes-content">
+                <strong>Best for:</strong> Users who want distraction-free reading, focus on descriptions, calm aesthetic
+                <ul class="notes-list">
+                    <li>Minimal borders and shadows reduce visual noise</li>
+                    <li>Single column keeps focus on one event at a time</li>
+                    <li>Generous padding creates breathing room</li>
+                    <li>Large, readable typography prioritizes content</li>
+                    <li>Calm, uncluttered aesthetic reduces cognitive load</li>
+                </ul>
+                <strong>Trade-offs:</strong> Less information density, no thumbnails (descriptions only), requires more scrolling
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDirection = 1;
+        const totalDirections = 6;
+
+        function showDirection(num) {
+            // Hide all
+            for (let i = 1; i <= totalDirections; i++) {
+                document.getElementById(`direction-${i}`).classList.remove('active');
+            }
+            // Show selected
+            document.getElementById(`direction-${num}`).classList.add('active');
+            document.getElementById('current-direction').textContent = num;
+            currentDirection = num;
+
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function nextDirection() {
+            if (currentDirection < totalDirections) {
+                showDirection(currentDirection + 1);
+            }
+        }
+
+        function previousDirection() {
+            if (currentDirection > 1) {
+                showDirection(currentDirection - 1);
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextDirection();
+            if (e.key === 'ArrowLeft') previousDirection();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,896 @@
+"""
+AI Vision Service for generating natural language descriptions from camera frames.
+
+Supports multiple AI providers with automatic fallback:
+- Primary: OpenAI GPT-4o mini (vision capable)
+- Secondary: Anthropic Claude 3 Haiku
+- Tertiary: Google Gemini Flash
+
+Features:
+- Multi-provider fallback for reliability
+- Image preprocessing (resize, JPEG conversion, base64 encoding)
+- Encrypted API key storage
+- Usage tracking and cost monitoring
+- Exponential backoff for rate limits
+- Performance logging (<5s SLA)
+"""
+
+import asyncio
+import base64
+import io
+import logging
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Optional, List, Dict, Any
+
+import numpy as np
+from PIL import Image
+import openai
+import anthropic
+import google.generativeai as genai
+from sqlalchemy.orm import Session
+
+from app.utils.encryption import decrypt_password
+from app.models.system_setting import SystemSetting
+from app.models.ai_usage import AIUsage
+
+logger = logging.getLogger(__name__)
+
+
+class AIProvider(Enum):
+    """Supported AI vision providers"""
+    OPENAI = "openai"
+    CLAUDE = "claude"
+    GEMINI = "gemini"
+
+
+@dataclass
+class AIResult:
+    """Result from AI description generation"""
+    description: str
+    confidence: int  # 0-100
+    objects_detected: List[str]  # person, vehicle, animal, package, unknown
+    provider: str  # Which provider was used
+    tokens_used: int
+    response_time_ms: int
+    cost_estimate: float  # USD
+    success: bool
+    error: Optional[str] = None
+
+
+class AIProviderBase(ABC):
+    """Base class for AI vision providers"""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.system_prompt = (
+            "You are describing video surveillance events for home security and accessibility. "
+            "Provide detailed, accurate descriptions."
+        )
+        self.user_prompt_template = (
+            "Describe what you see in this image. Include: "
+            "WHO (people, their appearance, clothing), "
+            "WHAT (objects, vehicles, packages), "
+            "WHERE (location in frame), "
+            "and ACTIONS (what is happening). "
+            "Be specific and detailed."
+        )
+
+    @abstractmethod
+    async def generate_description(
+        self,
+        image_base64: str,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str]
+    ) -> AIResult:
+        """Generate description from base64-encoded image"""
+        pass
+
+    def _build_user_prompt(
+        self,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str]
+    ) -> str:
+        """Build user prompt with context"""
+        context = f"\nContext: Camera '{camera_name}' at {timestamp}."
+        if detected_objects:
+            context += f" Motion detected: {', '.join(detected_objects)}."
+        return self.user_prompt_template + context
+
+    def _extract_objects(self, description: str) -> List[str]:
+        """Extract object types from description text"""
+        objects = []
+        description_lower = description.lower()
+
+        # Check for each object type
+        if any(word in description_lower for word in ['person', 'people', 'man', 'woman', 'child', 'human']):
+            objects.append('person')
+        if any(word in description_lower for word in ['vehicle', 'car', 'truck', 'van', 'motorcycle', 'bike']):
+            objects.append('vehicle')
+        if any(word in description_lower for word in ['animal', 'dog', 'cat', 'bird', 'pet']):
+            objects.append('animal')
+        if any(word in description_lower for word in ['package', 'box', 'delivery', 'parcel']):
+            objects.append('package')
+
+        # Default to unknown if nothing detected
+        if not objects:
+            objects.append('unknown')
+
+        return objects
+
+
+class OpenAIProvider(AIProviderBase):
+    """OpenAI GPT-4o mini vision provider"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key)
+        self.client = openai.AsyncOpenAI(api_key=api_key)
+        self.model = "gpt-4o-mini"
+        self.cost_per_1k_input_tokens = 0.00015  # Approximate
+        self.cost_per_1k_output_tokens = 0.00060
+
+    async def generate_description(
+        self,
+        image_base64: str,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str]
+    ) -> AIResult:
+        """Generate description using OpenAI GPT-4o mini"""
+        start_time = time.time()
+
+        try:
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects)
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=300,
+                timeout=10.0
+            )
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            description = response.choices[0].message.content.strip()
+
+            # Extract usage stats
+            tokens_used = response.usage.total_tokens if response.usage else 0
+            input_tokens = response.usage.prompt_tokens if response.usage else 0
+            output_tokens = response.usage.completion_tokens if response.usage else 0
+
+            # Calculate cost
+            cost = (
+                (input_tokens / 1000 * self.cost_per_1k_input_tokens) +
+                (output_tokens / 1000 * self.cost_per_1k_output_tokens)
+            )
+
+            # Generate confidence score (OpenAI doesn't provide one, use heuristic)
+            confidence = self._calculate_confidence(description, tokens_used)
+
+            # Extract objects from description
+            objects = self._extract_objects(description)
+
+            logger.info(
+                "AI API call successful",
+                extra={
+                    "event_type": "ai_api_success",
+                    "provider": "openai",
+                    "model": self.model,
+                    "response_time_ms": elapsed_ms,
+                    "tokens_used": tokens_used,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost,
+                    "confidence": confidence,
+                }
+            )
+
+            # Record metrics
+            try:
+                from app.core.metrics import record_ai_api_call
+                record_ai_api_call(
+                    provider="openai",
+                    model=self.model,
+                    status="success",
+                    duration_seconds=elapsed_ms / 1000,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=cost
+                )
+            except ImportError:
+                pass
+
+            return AIResult(
+                description=description,
+                confidence=confidence,
+                objects_detected=objects,
+                provider=AIProvider.OPENAI.value,
+                tokens_used=tokens_used,
+                response_time_ms=elapsed_ms,
+                cost_estimate=cost,
+                success=True
+            )
+
+        except Exception as e:
+            # Catch all exceptions (openai.APIError, network errors, etc.)
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(
+                "AI API call failed",
+                extra={
+                    "event_type": "ai_api_error",
+                    "provider": "openai",
+                    "model": self.model,
+                    "response_time_ms": elapsed_ms,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+
+            # Record error metrics
+            try:
+                from app.core.metrics import record_ai_api_call
+                record_ai_api_call(
+                    provider="openai",
+                    model=self.model,
+                    status="error",
+                    duration_seconds=elapsed_ms / 1000
+                )
+            except ImportError:
+                pass
+
+            return AIResult(
+                description="",
+                confidence=0,
+                objects_detected=[],
+                provider=AIProvider.OPENAI.value,
+                tokens_used=0,
+                response_time_ms=elapsed_ms,
+                cost_estimate=0.0,
+                success=False,
+                error=str(e)
+            )
+
+    def _calculate_confidence(self, description: str, tokens_used: int) -> int:
+        """Calculate confidence score based on response quality"""
+        confidence = 70  # Base confidence
+
+        # Longer descriptions are more confident
+        if tokens_used > 100:
+            confidence += 10
+        elif tokens_used > 50:
+            confidence += 5
+
+        # Contains specific details
+        if any(word in description.lower() for word in ['wearing', 'holding', 'standing', 'walking']):
+            confidence += 10
+
+        # Cap at 100
+        return min(confidence, 100)
+
+
+class ClaudeProvider(AIProviderBase):
+    """Anthropic Claude 3 Haiku vision provider"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key)
+        self.client = anthropic.AsyncAnthropic(api_key=api_key)
+        self.model = "claude-3-haiku-20240307"
+        self.cost_per_1k_input_tokens = 0.00025
+        self.cost_per_1k_output_tokens = 0.00125
+
+    async def generate_description(
+        self,
+        image_base64: str,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str]
+    ) -> AIResult:
+        """Generate description using Claude 3 Haiku"""
+        start_time = time.time()
+
+        try:
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects)
+
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=300,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": image_base64
+                                }
+                            },
+                            {
+                                "type": "text",
+                                "text": f"{self.system_prompt}\n\n{user_prompt}"
+                            }
+                        ]
+                    }
+                ],
+                timeout=10.0
+            )
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            description = response.content[0].text.strip()
+
+            # Extract usage stats
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
+            tokens_used = input_tokens + output_tokens
+
+            # Calculate cost
+            cost = (
+                (input_tokens / 1000 * self.cost_per_1k_input_tokens) +
+                (output_tokens / 1000 * self.cost_per_1k_output_tokens)
+            )
+
+            confidence = 75  # Claude is generally reliable
+            objects = self._extract_objects(description)
+
+            logger.info(
+                f"Claude success: {elapsed_ms}ms, {tokens_used} tokens, ${cost:.6f}, "
+                f"confidence={confidence}"
+            )
+
+            return AIResult(
+                description=description,
+                confidence=confidence,
+                objects_detected=objects,
+                provider=AIProvider.CLAUDE.value,
+                tokens_used=tokens_used,
+                response_time_ms=elapsed_ms,
+                cost_estimate=cost,
+                success=True
+            )
+
+        except Exception as e:
+            # Catch all exceptions (anthropic.APIError, network errors, etc.)
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Claude API error after {elapsed_ms}ms: {e}")
+            return AIResult(
+                description="",
+                confidence=0,
+                objects_detected=[],
+                provider=AIProvider.CLAUDE.value,
+                tokens_used=0,
+                response_time_ms=elapsed_ms,
+                cost_estimate=0.0,
+                success=False,
+                error=str(e)
+            )
+
+
+class GeminiProvider(AIProviderBase):
+    """Google Gemini Flash vision provider"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key)
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.cost_per_1k_tokens = 0.0001  # Approximate (free tier available)
+
+    async def generate_description(
+        self,
+        image_base64: str,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str]
+    ) -> AIResult:
+        """Generate description using Gemini Flash"""
+        start_time = time.time()
+
+        try:
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects)
+            full_prompt = f"{self.system_prompt}\n\n{user_prompt}"
+
+            # Decode base64 to bytes for Gemini
+            image_bytes = base64.b64decode(image_base64)
+            image_part = {"mime_type": "image/jpeg", "data": image_bytes}
+
+            response = await self.model.generate_content_async(
+                [full_prompt, image_part],
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=300,
+                    temperature=0.4
+                )
+            )
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            description = response.text.strip()
+
+            # Gemini doesn't provide detailed usage stats in all cases
+            tokens_used = 150  # Estimate
+            cost = tokens_used / 1000 * self.cost_per_1k_tokens
+
+            confidence = 70
+            objects = self._extract_objects(description)
+
+            logger.info(
+                f"Gemini success: {elapsed_ms}ms, ~{tokens_used} tokens, ${cost:.6f}, "
+                f"confidence={confidence}"
+            )
+
+            return AIResult(
+                description=description,
+                confidence=confidence,
+                objects_detected=objects,
+                provider=AIProvider.GEMINI.value,
+                tokens_used=tokens_used,
+                response_time_ms=elapsed_ms,
+                cost_estimate=cost,
+                success=True
+            )
+
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(f"Gemini API error after {elapsed_ms}ms: {e}")
+            return AIResult(
+                description="",
+                confidence=0,
+                objects_detected=[],
+                provider=AIProvider.GEMINI.value,
+                tokens_used=0,
+                response_time_ms=elapsed_ms,
+                cost_estimate=0.0,
+                success=False,
+                error=str(e)
+            )
+
+
+class AIService:
+    """Main AI service with multi-provider fallback and usage tracking"""
+
+    def __init__(self):
+        self.providers: Dict[AIProvider, Optional[AIProviderBase]] = {}
+        self.db: Optional[Session] = None  # Database session for usage tracking
+
+    async def load_api_keys_from_db(self, db: Session):
+        """
+        Load and decrypt API keys from system_settings table.
+
+        Loads encrypted API keys from database and configures all available providers.
+        Keys are stored with 'encrypted:' prefix and decrypted using Fernet encryption.
+
+        Args:
+            db: SQLAlchemy database session
+
+        Expected database keys:
+            - ai_api_key_openai: encrypted:... (OpenAI GPT-4o mini)
+            - ai_api_key_claude: encrypted:... (Anthropic Claude 3 Haiku)
+            - ai_api_key_gemini: encrypted:... (Google Gemini Flash)
+        """
+        logger.info("Loading AI provider API keys from database...")
+
+        try:
+            # Query all AI API key settings
+            settings = db.query(SystemSetting).filter(
+                SystemSetting.key.in_([
+                    'ai_api_key_openai',
+                    'ai_api_key_claude',
+                    'ai_api_key_gemini'
+                ])
+            ).all()
+
+            # Build key mapping
+            keys = {setting.key: setting.value for setting in settings}
+
+            # Decrypt and configure each provider
+            openai_key = None
+            claude_key = None
+            gemini_key = None
+
+            if 'ai_api_key_openai' in keys:
+                openai_key = decrypt_password(keys['ai_api_key_openai'])
+                logger.info("OpenAI API key loaded from database")
+
+            if 'ai_api_key_claude' in keys:
+                claude_key = decrypt_password(keys['ai_api_key_claude'])
+                logger.info("Claude API key loaded from database")
+
+            if 'ai_api_key_gemini' in keys:
+                gemini_key = decrypt_password(keys['ai_api_key_gemini'])
+                logger.info("Gemini API key loaded from database")
+
+            # Configure providers with decrypted keys
+            self.configure_providers(
+                openai_key=openai_key,
+                claude_key=claude_key,
+                gemini_key=gemini_key
+            )
+
+            logger.info(f"AI providers configured: {len(self.providers)} providers loaded")
+
+            # Store database session for usage tracking
+            self.db = db
+
+        except Exception as e:
+            logger.error(f"Failed to load API keys from database: {e}")
+            raise ValueError(f"Failed to load AI provider configuration: {e}")
+
+    def configure_providers(
+        self,
+        openai_key: Optional[str] = None,
+        claude_key: Optional[str] = None,
+        gemini_key: Optional[str] = None
+    ):
+        """
+        Configure AI providers with API keys.
+
+        Can be called directly with plaintext keys (for testing) or via load_api_keys_from_db()
+        for production use with encrypted keys from database.
+
+        Args:
+            openai_key: OpenAI API key (plaintext)
+            claude_key: Anthropic API key (plaintext)
+            gemini_key: Google API key (plaintext)
+        """
+        if openai_key:
+            self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key)
+            logger.info("OpenAI provider configured")
+
+        if claude_key:
+            self.providers[AIProvider.CLAUDE] = ClaudeProvider(claude_key)
+            logger.info("Claude provider configured")
+
+        if gemini_key:
+            self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key)
+            logger.info("Gemini provider configured")
+
+    async def generate_description(
+        self,
+        frame: np.ndarray,
+        camera_name: str,
+        timestamp: Optional[str] = None,
+        detected_objects: Optional[List[str]] = None,
+        sla_timeout_ms: int = 5000
+    ) -> AIResult:
+        """
+        Generate natural language description from camera frame.
+
+        Enforces <5s SLA (p95) by tracking total elapsed time across provider attempts
+        and aborting fallback chain if approaching the timeout limit.
+
+        Args:
+            frame: numpy array (BGR format from OpenCV)
+            camera_name: Name of camera for context
+            timestamp: ISO 8601 timestamp (default: now)
+            detected_objects: Objects detected by motion detection
+            sla_timeout_ms: Maximum time allowed in milliseconds (default: 5000ms = 5s)
+
+        Returns:
+            AIResult with description, confidence, objects, and usage stats
+        """
+        start_time = time.time()
+
+        if timestamp is None:
+            timestamp = datetime.utcnow().isoformat()
+        if detected_objects is None:
+            detected_objects = []
+
+        # Preprocess image
+        image_base64 = self._preprocess_image(frame)
+
+        # Try providers in order: OpenAI → Claude → Gemini
+        provider_order = [AIProvider.OPENAI, AIProvider.CLAUDE, AIProvider.GEMINI]
+        last_error = None
+
+        for provider_enum in provider_order:
+            # Check SLA timeout before trying next provider
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            if elapsed_ms >= sla_timeout_ms:
+                logger.warning(
+                    f"SLA timeout ({sla_timeout_ms}ms) exceeded after {elapsed_ms}ms. "
+                    f"Aborting fallback chain."
+                )
+                # Return last error result with SLA violation note
+                return AIResult(
+                    description=f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)",
+                    confidence=0,
+                    objects_detected=detected_objects or ['unknown'],
+                    provider="timeout",
+                    tokens_used=0,
+                    response_time_ms=elapsed_ms,
+                    cost_estimate=0.0,
+                    success=False,
+                    error=f"SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms"
+                )
+
+            provider = self.providers.get(provider_enum)
+            if provider is None:
+                logger.warning(f"{provider_enum.value} not configured, skipping")
+                continue
+
+            logger.info(f"Attempting {provider_enum.value}... (elapsed: {elapsed_ms}ms)")
+
+            # Try with exponential backoff for rate limits
+            result = await self._try_with_backoff(
+                provider,
+                image_base64,
+                camera_name,
+                timestamp,
+                detected_objects
+            )
+
+            # Track usage
+            self._track_usage(result)
+
+            if result.success:
+                total_elapsed_ms = int((time.time() - start_time) * 1000)
+                logger.info(
+                    f"Success with {result.provider}: '{result.description[:50]}...' "
+                    f"(total: {total_elapsed_ms}ms, {result.tokens_used} tokens, "
+                    f"${result.cost_estimate:.6f})"
+                )
+
+                # Log SLA violations (>5s p95 target)
+                if total_elapsed_ms > sla_timeout_ms:
+                    logger.warning(
+                        f"SLA violation: {total_elapsed_ms}ms > {sla_timeout_ms}ms target"
+                    )
+
+                return result
+            else:
+                last_error = result.error
+                logger.warning(
+                    f"{provider_enum.value} failed: {result.error}. "
+                    f"Trying next provider..."
+                )
+
+        # All providers failed
+        total_elapsed_ms = int((time.time() - start_time) * 1000)
+        logger.error(f"All AI providers failed after {total_elapsed_ms}ms")
+        return AIResult(
+            description="Failed to generate description - all AI providers unavailable",
+            confidence=0,
+            objects_detected=detected_objects or ['unknown'],
+            provider="none",
+            tokens_used=0,
+            response_time_ms=total_elapsed_ms,
+            cost_estimate=0.0,
+            success=False,
+            error=f"All providers failed. Last error: {last_error}"
+        )
+
+    def _preprocess_image(self, frame: np.ndarray) -> str:
+        """
+        Preprocess frame for AI API transmission.
+
+        - Resize to max 2048x2048
+        - Convert to JPEG (85% quality)
+        - Base64 encode
+        - Ensure <5MB payload
+        """
+        # Convert BGR (OpenCV) to RGB (PIL)
+        if len(frame.shape) == 3 and frame.shape[2] == 3:
+            frame_rgb = frame[:, :, ::-1]  # BGR to RGB
+        else:
+            frame_rgb = frame
+
+        # Create PIL image
+        image = Image.fromarray(frame_rgb)
+
+        # Resize if necessary
+        max_dim = 2048
+        if max(image.size) > max_dim:
+            ratio = max_dim / max(image.size)
+            new_size = tuple(int(dim * ratio) for dim in image.size)
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+            logger.debug(f"Resized image to {new_size}")
+
+        # Convert to JPEG with 85% quality
+        buffer = io.BytesIO()
+        image.convert('RGB').save(buffer, format='JPEG', quality=85)
+        jpeg_bytes = buffer.getvalue()
+
+        # Check size
+        size_mb = len(jpeg_bytes) / (1024 * 1024)
+        if size_mb > 5:
+            # Re-encode with lower quality
+            buffer = io.BytesIO()
+            image.convert('RGB').save(buffer, format='JPEG', quality=70)
+            jpeg_bytes = buffer.getvalue()
+            logger.warning(f"Image too large ({size_mb:.2f}MB), re-encoded at 70% quality")
+
+        # Base64 encode
+        image_base64 = base64.b64encode(jpeg_bytes).decode('utf-8')
+
+        logger.debug(f"Preprocessed image: {len(image_base64)} chars base64, {size_mb:.2f}MB")
+        return image_base64
+
+    async def _try_with_backoff(
+        self,
+        provider: AIProviderBase,
+        image_base64: str,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str],
+        max_retries: int = 3
+    ) -> AIResult:
+        """Try API call with exponential backoff for rate limits"""
+        delays = [2, 4, 8]  # Exponential backoff delays (seconds)
+
+        for attempt in range(max_retries):
+            result = await provider.generate_description(
+                image_base64,
+                camera_name,
+                timestamp,
+                detected_objects
+            )
+
+            # Check if rate limited (429)
+            if result.error and '429' in str(result.error):
+                if attempt < max_retries - 1:
+                    delay = delays[attempt]
+                    logger.warning(
+                        f"Rate limited, waiting {delay}s before retry {attempt + 2}/{max_retries}"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+
+            # Return result (success or non-retryable failure)
+            return result
+
+        # Max retries exhausted
+        return result
+
+    def _track_usage(self, result: AIResult):
+        """
+        Track API usage by persisting to database.
+
+        Stores each AI API call in the ai_usage table for historical tracking
+        and cost analysis. If database is not configured, logs a warning.
+
+        Args:
+            result: AIResult from provider with usage metadata
+        """
+        if self.db is None:
+            logger.warning("Database not configured, usage tracking disabled")
+            return
+
+        try:
+            usage_record = AIUsage(
+                timestamp=datetime.utcnow(),
+                provider=result.provider,
+                success=result.success,
+                tokens_used=result.tokens_used,
+                response_time_ms=result.response_time_ms,
+                cost_estimate=result.cost_estimate,
+                error=result.error
+            )
+
+            self.db.add(usage_record)
+            self.db.commit()
+
+            logger.debug(
+                f"Tracked usage: {result.provider} - "
+                f"{'success' if result.success else 'failed'} - "
+                f"{result.tokens_used} tokens - "
+                f"${result.cost_estimate:.6f}"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to track usage: {e}")
+            # Don't fail the API call just because tracking failed
+            self.db.rollback()
+
+    def get_usage_stats(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """
+        Get usage statistics from database.
+
+        Queries ai_usage table for aggregated statistics including total calls,
+        costs, tokens, and per-provider breakdowns.
+
+        Args:
+            start_date: Optional start of date range filter
+            end_date: Optional end of date range filter
+
+        Returns:
+            Dictionary with aggregated usage statistics
+        """
+        if self.db is None:
+            logger.warning("Database not configured, returning empty stats")
+            return {
+                'total_calls': 0,
+                'successful_calls': 0,
+                'failed_calls': 0,
+                'total_tokens': 0,
+                'total_cost': 0.0,
+                'avg_response_time_ms': 0,
+                'provider_breakdown': {}
+            }
+
+        try:
+            # Build query with date filters
+            query = self.db.query(AIUsage)
+
+            if start_date:
+                query = query.filter(AIUsage.timestamp >= start_date)
+            if end_date:
+                query = query.filter(AIUsage.timestamp <= end_date)
+
+            records = query.all()
+
+            if not records:
+                return {
+                    'total_calls': 0,
+                    'successful_calls': 0,
+                    'failed_calls': 0,
+                    'total_tokens': 0,
+                    'total_cost': 0.0,
+                    'avg_response_time_ms': 0,
+                    'provider_breakdown': {}
+                }
+
+            # Calculate aggregates
+            total_calls = len(records)
+            successful_calls = sum(1 for r in records if r.success)
+            failed_calls = total_calls - successful_calls
+            total_tokens = sum(r.tokens_used for r in records)
+            total_cost = sum(r.cost_estimate for r in records)
+            avg_response_time = sum(r.response_time_ms for r in records) / total_calls if total_calls > 0 else 0
+
+            # Provider breakdown
+            providers = {}
+            for provider_enum in [AIProvider.OPENAI, AIProvider.CLAUDE, AIProvider.GEMINI]:
+                provider_records = [r for r in records if r.provider == provider_enum.value]
+                if provider_records:
+                    providers[provider_enum.value] = {
+                        'calls': len(provider_records),
+                        'success_rate': sum(1 for r in provider_records if r.success) / len(provider_records) * 100,
+                        'tokens': sum(r.tokens_used for r in provider_records),
+                        'cost': sum(r.cost_estimate for r in provider_records)
+                    }
+
+            return {
+                'total_calls': total_calls,
+                'successful_calls': successful_calls,
+                'failed_calls': failed_calls,
+                'total_tokens': total_tokens,
+                'total_cost': round(total_cost, 4),
+                'avg_response_time_ms': round(avg_response_time, 2),
+                'provider_breakdown': providers
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get usage stats: {e}")
+            return {
+                'total_calls': 0,
+                'successful_calls': 0,
+                'failed_calls': 0,
+                'total_tokens': 0,
+                'total_cost': 0.0,
+                'avg_response_time_ms': 0,
+                'provider_breakdown': {}
+            }
+
+
+# Global AI service instance
+ai_service = AIService()

@@ -1,0 +1,285 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>3</epicId>
+    <storyId>3.1</storyId>
+    <title>Integrate AI Vision API for Description Generation</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/3-1-integrate-ai-vision-api-for-description-generation.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>to send frames to AI vision models and receive natural language descriptions</iWant>
+    <soThat>motion events are transformed into meaningful semantic records</soThat>
+    <tasks>
+      - Create AI service module at backend/app/services/ai_service.py
+      - Install Python packages: openai, anthropic, google-generativeai, httpx
+      - Implement OpenAI GPT-4o mini provider with image preprocessing and prompt optimization
+      - Implement fallback providers: Claude 3 Haiku and Gemini Flash
+      - Add error handling with exponential backoff for rate limits
+      - Implement usage tracking and cost monitoring
+      - Integrate with motion detection pipeline from Epic 2
+      - Add performance logging to meet &lt;5s SLA
+      - Create unit and integration tests
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">
+      <title>AI Model Integration - Multi-provider support with fallback</title>
+      <details>
+        - Primary: OpenAI GPT-4o mini (vision capable)
+        - Secondary: Anthropic Claude 3 Haiku, Google Gemini Flash
+        - Model selection configurable in system_settings table
+        - API keys stored encrypted using Fernet (app/utils/encryption.py)
+        - HTTP timeout: 10 seconds with retry logic
+      </details>
+    </criterion>
+    <criterion id="2">
+      <title>Image Preprocessing - Optimize frames before API transmission</title>
+      <details>
+        - Resize to max 2048x2048 (AI model limits)
+        - Convert to JPEG (85% quality)
+        - Base64 encode for API transmission
+        - Maximum payload: 5MB after encoding
+        - Leverage existing image utilities from Epic 2
+      </details>
+    </criterion>
+    <criterion id="3">
+      <title>AI Prompt Optimization - Tuned for security/accessibility</title>
+      <details>
+        - System prompt: "You are describing video surveillance events for home security and accessibility. Provide detailed, accurate descriptions."
+        - User prompt: "Describe what you see in this image. Include: WHO (people, appearance, clothing), WHAT (objects, vehicles, packages), WHERE (location in frame), and ACTIONS (what is happening). Be specific and detailed."
+        - Include context: camera name, timestamp, detected objects from motion detection
+      </details>
+    </criterion>
+    <criterion id="4">
+      <title>Response Parsing - Extract structured data from AI responses</title>
+      <details>
+        - Extract description text from model response
+        - Generate confidence score (0-100)
+        - Identify objects: person, vehicle, animal, package, unknown
+        - Parse into objects_detected JSON array
+        - Log all API calls for debugging and cost tracking
+      </details>
+    </criterion>
+    <criterion id="5">
+      <title>Error Handling and Fallback - Graceful degradation</title>
+      <details>
+        - Primary fails → try secondary model
+        - All fail → store "Failed to generate description" + error reason
+        - Rate limit (429): Exponential backoff (2s, 4s, 8s)
+        - Invalid API key: Log error and alert admin
+        - Network errors: Retry up to 3 times
+        - Log all failures to backend/data/logs/ai_service.log
+      </details>
+    </criterion>
+    <criterion id="6">
+      <title>Performance Requirement - Meet architecture SLA</title>
+      <details>
+        - Total AI description generation: &lt;5 seconds (p95)
+        - API call timeout: 10 seconds maximum
+        - Log response time to events.processing_time_ms
+      </details>
+    </criterion>
+    <criterion id="7">
+      <title>Cost and Usage Tracking - Monitor API consumption</title>
+      <details>
+        - Log: model used, tokens consumed, response time, cost estimate
+        - Track daily/monthly API usage
+        - Warning logs when approaching rate limits
+        - Endpoint: GET /api/v1/ai/usage returns usage statistics
+      </details>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>AI Service Design</section>
+        <snippet>Multi-provider AI service with automatic fallback. Primary: OpenAI GPT-4o mini, Secondary: Gemini Flash, Claude Haiku. Event-driven architecture with async processing. Performance target: &lt;5s event processing (p95).</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document - ADR-005</title>
+        <section>Multi-Provider AI with Fallback</section>
+        <snippet>Decision: Support OpenAI, Google Gemini, and Anthropic Claude with automatic fallback. Rationale: Reliability (one provider down doesn't break system), Cost flexibility, Quality A/B testing, User choice based on ethics/preference.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document - Technology Stack</title>
+        <section>AI SDKs</section>
+        <snippet>AI SDKs: openai, google-generativeai, anthropic. HTTP Client: httpx (async). API Key Encryption: cryptography (Fernet). Background Tasks: FastAPI BackgroundTasks for async processing.</snippet>
+      </doc>
+      <doc>
+        <path>docs/test-design-system.md</path>
+        <title>Test Design System</title>
+        <section>AI Integration Testing</section>
+        <snippet>Unit tests: Mock all AI provider APIs. Integration tests: Use real APIs with small budget (~$1). Performance tests: Measure p95 latency &lt;5s. Test fallback chain and error scenarios (rate limits, timeouts, failures).</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epic 3: AI-Powered Event Description & Processing</title>
+        <section>Story 3.1 Prerequisites</section>
+        <snippet>Prerequisites: Story 2.4 (motion detection). Epic 1 (database schema) and Epic 2 (camera integration, motion detection) are complete. Motion detection pipeline provides frames ready for AI analysis.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/utils/encryption.py</path>
+        <kind>utility</kind>
+        <symbol>encrypt_password, decrypt_password</symbol>
+        <lines>19-75</lines>
+        <reason>Fernet encryption/decryption for API keys. Use these functions to store AI API keys encrypted in system_settings table with 'encrypted:' prefix.</reason>
+      </file>
+      <file>
+        <path>backend/app/core/config.py</path>
+        <kind>config</kind>
+        <symbol>settings</symbol>
+        <lines>all</lines>
+        <reason>Pydantic Settings configuration. Contains ENCRYPTION_KEY and other environment variables. Use for loading configuration.</reason>
+      </file>
+      <file>
+        <path>backend/app/core/database.py</path>
+        <kind>database</kind>
+        <symbol>get_db, engine</symbol>
+        <lines>all</lines>
+        <reason>SQLAlchemy async database session management. Use get_db() for database access to query system_settings table for API keys and configuration.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/motion_detection_service.py</path>
+        <kind>service</kind>
+        <symbol>MotionDetectionService</symbol>
+        <lines>all</lines>
+        <reason>Motion detection service from Epic 2. Provides frames for AI analysis. Integration point: receive frames from this service when motion detected.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/__init__.py</path>
+        <kind>models</kind>
+        <symbol>Base</symbol>
+        <lines>all</lines>
+        <reason>SQLAlchemy models. Check for SystemSetting model for storing API keys and ai_usage tracking.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/__init__.py</path>
+        <kind>schemas</kind>
+        <symbol>Pydantic schemas</symbol>
+        <lines>all</lines>
+        <reason>Existing Pydantic validation schemas. Follow same patterns for AI service request/response schemas.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>application</kind>
+        <symbol>app</symbol>
+        <lines>all</lines>
+        <reason>FastAPI application entry point. Register new AI router here with app.include_router().</reason>
+      </file>
+      <file>
+        <path>backend/tests/conftest.py</path>
+        <kind>test</kind>
+        <symbol>pytest fixtures</symbol>
+        <lines>all</lines>
+        <reason>Shared pytest fixtures for database setup, test client. Use existing patterns for AI service tests.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <existing>
+          <package name="fastapi" version="0.115.0">Web framework with async support</package>
+          <package name="httpx" version="0.25.2">Async HTTP client - use for AI API calls</package>
+          <package name="pydantic" version="2.10.0">Data validation and settings</package>
+          <package name="sqlalchemy" version="2.0.36">ORM for database access</package>
+          <package name="cryptography" version="41.0.7">Fernet encryption for API keys</package>
+          <package name="pytest" version="7.4.3">Testing framework</package>
+          <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+        </existing>
+        <required>
+          <package name="openai">OpenAI Python SDK for GPT-4o mini vision API</package>
+          <package name="anthropic">Anthropic Python SDK for Claude 3 Haiku vision API</package>
+          <package name="google-generativeai">Google Gemini Python SDK for Gemini Flash vision API</package>
+        </required>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">
+      Event-driven architecture: AI service called asynchronously when motion detected. Use FastAPI BackgroundTasks for non-blocking processing.
+    </constraint>
+    <constraint type="performance">
+      Total event processing must be &lt;5 seconds (p95) per architecture.md. AI call is largest bottleneck - allow max 4 seconds for AI, use 10s timeout with fallback.
+    </constraint>
+    <constraint type="security">
+      API keys MUST be encrypted at rest using Fernet encryption (app/utils/encryption.py). Store in system_settings table with 'encrypted:' prefix. Never log plaintext API keys.
+    </constraint>
+    <constraint type="cost">
+      Track token usage and API costs. OpenAI GPT-4o mini is primary (cheapest: ~$0.00015/image). Implement budget warnings. Target: &lt;$0.10 per 1000 events.
+    </constraint>
+    <constraint type="reliability">
+      Implement provider fallback chain: OpenAI → Claude → Gemini. If all fail, store event with error description. Never fail silently - always create event record.
+    </constraint>
+    <constraint type="testing">
+      Unit tests must mock all AI providers. Integration tests use real APIs with $1 budget limit. Follow patterns in tests/test_services/ for consistency.
+    </constraint>
+    <constraint type="logging">
+      Use structured logging with logger from app/core/logging. Log all API calls with: provider, tokens, latency, cost, success/failure. Enable debugging for troubleshooting.
+    </constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AIService.generate_description</name>
+      <kind>Python async method</kind>
+      <signature>async def generate_description(frame: np.ndarray, camera: Camera, metadata: dict) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py (to be created)</path>
+      <description>Main entry point for AI description generation. Takes frame from motion detection, returns structured result with description, confidence, objects detected.</description>
+    </interface>
+    <interface>
+      <name>GET /api/v1/ai/usage</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/ai/usage?start_date=...&amp;end_date=...</signature>
+      <path>backend/app/api/v1/ai.py (to be created)</path>
+      <description>Returns AI usage statistics: total calls, tokens consumed, cost estimates, provider success rates. Supports date range filtering.</description>
+    </interface>
+    <interface>
+      <name>SystemSetting model</name>
+      <kind>SQLAlchemy ORM model</kind>
+      <signature>class SystemSetting(Base): key: str, value: str (JSON or encrypted:...)</signature>
+      <path>backend/app/models/system_setting.py (verify exists from Epic 1)</path>
+      <description>Key-value store for system configuration. Use for storing: ai_model_primary, ai_api_key_openai (encrypted), ai_api_key_claude (encrypted), ai_api_key_gemini (encrypted).</description>
+    </interface>
+    <interface>
+      <name>encrypt_password / decrypt_password</name>
+      <kind>Python utility functions</kind>
+      <signature>def encrypt_password(password: str) -> str; def decrypt_password(encrypted: str) -> str</signature>
+      <path>backend/app/utils/encryption.py</path>
+      <description>Fernet encryption utilities. Use encrypt_password() before storing API keys, decrypt_password() when loading for API calls. Returns 'encrypted:...' format.</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Testing follows pytest with async support (pytest-asyncio). Unit tests mock external dependencies. Integration tests use test database fixtures from conftest.py. Follow existing patterns in tests/test_services/ and tests/test_api/. Use httpx MockTransport for mocking HTTP API calls. Target 80%+ code coverage for core logic.
+    </standards>
+    <locations>
+      - backend/tests/test_services/test_ai_service.py (unit tests)
+      - backend/tests/test_api/test_ai.py (integration tests for usage endpoint)
+      - backend/tests/test_integration/ (E2E tests for motion → AI → storage flow)
+    </locations>
+    <ideas>
+      <test ac="1">Mock OpenAI API responses. Test successful description generation. Verify API key loaded from encrypted settings.</test>
+      <test ac="1">Test fallback chain: OpenAI fails (mock 500 error) → Claude succeeds. Verify provider switching works.</test>
+      <test ac="2">Test image preprocessing: Large image (4000x3000) resized to 2048x2048. Verify JPEG conversion and base64 encoding.</test>
+      <test ac="3">Test prompt construction: Verify system and user prompts include camera name, timestamp, detected objects from motion detection.</test>
+      <test ac="4">Test response parsing: Mock AI response → Extract description, confidence score, objects array. Verify JSON structure.</test>
+      <test ac="5">Test rate limit handling: Mock 429 response → Verify exponential backoff (2s, 4s, 8s delays). Test retry logic.</test>
+      <test ac="5">Test all providers fail: Mock all APIs return errors → Verify graceful error message stored.</test>
+      <test ac="6">Performance test: Measure actual API call latency with mock (should be &lt;100ms). Test timeout at 10s works.</test>
+      <test ac="7">Test usage tracking: Make 10 API calls → Verify usage statistics endpoint returns correct counts, tokens, cost estimates.</test>
+    </ideas>
+  </tests>
+</story-context>

@@ -1,0 +1,196 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>5</epicId>
+    <storyId>3</storyId>
+    <title>Implement Webhook Integration</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/5-3-implement-webhook-integration.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>smart home enthusiast</asA>
+    <iWant>to trigger webhooks when events occur</iWant>
+    <soThat>I can integrate with Home Assistant and other automation platforms</soThat>
+    <tasks>
+      <task id="1" ac="1,2,3">Implement webhook service with httpx, payload builder, retry logic</task>
+      <task id="2" ac="4">Implement webhook logging in webhook_logs table</task>
+      <task id="3" ac="5">Implement security validation (HTTPS, SSRF prevention, rate limiting)</task>
+      <task id="4" ac="6">Implement webhook test endpoint POST /api/v1/webhooks/test</task>
+      <task id="5" ac="4,7">Implement webhook logs API GET /api/v1/webhooks/logs</task>
+      <task id="6" ac="1,2">Integrate webhook execution with alert_engine.py</task>
+      <task id="7" ac="7">Build WebhookLogs.tsx frontend component</task>
+      <task id="8" ac="7">Add webhook logs section to Rules page</task>
+      <task id="9">Testing and validation</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1" name="Webhook HTTP POST Request">Send HTTP POST with JSON payload, 5s timeout, user-defined headers, User-Agent header</criterion>
+    <criterion id="2" name="Webhook Payload Format">JSON payload with event_id, timestamp, camera, description, confidence, objects_detected, thumbnail_url, rule</criterion>
+    <criterion id="3" name="Retry Logic">Exponential backoff (1s, 2s, 4s), 3 total attempts, 2xx = success</criterion>
+    <criterion id="4" name="Webhook Logging">Log attempts to webhook_logs table with status_code, response_time_ms, retry_count, error_message</criterion>
+    <criterion id="5" name="Security and Validation">HTTPS required, block localhost/private IPs (SSRF), rate limit 100/min per rule</criterion>
+    <criterion id="6" name="Webhook Testing Endpoint">POST /api/v1/webhooks/test returns status_code, response_body (truncated), response_time_ms</criterion>
+    <criterion id="7" name="Webhook Logs UI">Table with filters (rule, success/fail, date), details modal, CSV export</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epic Breakdown</title>
+        <section>Epic 5: Alert and Automation System, Story 5.3</section>
+        <snippet>Webhook integration requirements: HTTP POST, retry logic, logging, security validation, test endpoint, logs UI.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/5-1-implement-alert-rule-engine.md</path>
+        <title>Story 5.1: Implement Alert Rule Engine</title>
+        <section>Alert Engine, WebhookLog model</section>
+        <snippet>Alert engine service created with webhook placeholder. WebhookLog SQLAlchemy model exists in alert_rule.py.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/5-2-build-alert-rule-configuration-ui.md</path>
+        <title>Story 5.2: Build Alert Rule Configuration UI</title>
+        <section>WebhookConfig component, API client patterns</section>
+        <snippet>WebhookConfig.tsx UI component created for URL/headers input. API client pattern with TanStack Query established.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/models/alert_rule.py</path>
+        <kind>model</kind>
+        <symbol>WebhookLog</symbol>
+        <lines>76-114</lines>
+        <reason>WebhookLog SQLAlchemy model already created - REUSE for logging webhook attempts</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/alert_engine.py</path>
+        <kind>service</kind>
+        <symbol>AlertEngine</symbol>
+        <lines>1-350</lines>
+        <reason>Alert engine that triggers webhooks - integrate webhook_service here</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/alert_rules.py</path>
+        <kind>api-endpoint</kind>
+        <symbol>router</symbol>
+        <reason>Existing alert rules API - reference for route patterns and error handling</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/alert_rule.py</path>
+        <kind>schema</kind>
+        <symbol>AlertRuleActions</symbol>
+        <reason>Pydantic schema with webhook field structure (url, headers)</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/rules/WebhookConfig.tsx</path>
+        <kind>component</kind>
+        <symbol>WebhookConfig</symbol>
+        <reason>Existing webhook URL/headers UI component - reference for patterns</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/rules/RulesList.tsx</path>
+        <kind>component</kind>
+        <symbol>RulesList</symbol>
+        <reason>Table component pattern with TanStack Query - follow for WebhookLogs</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api-client</kind>
+        <symbol>apiClient.alertRules</symbol>
+        <lines>349-428</lines>
+        <reason>Extend with webhooks namespace for logs and test endpoints</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/alert-rule.ts</path>
+        <kind>types</kind>
+        <symbol>IWebhookConfig</symbol>
+        <reason>TypeScript interface for webhook configuration - REUSE</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <frontend>
+        <package name="next" version="16.0.3" />
+        <package name="react" version="19.2.0" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="zod" version="^4.1.12" />
+        <package name="date-fns" version="^4.1.0" />
+        <package name="lucide-react" version="^0.553.0" />
+        <package name="sonner" version="^2.0.7" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="uvicorn" version="0.24.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="httpx" version="0.25.2" />
+        <package name="apscheduler" version=">=3.10.4" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Create webhook_service.py in backend/app/services/ following AlertEngine patterns</constraint>
+    <constraint type="pattern">Create webhooks.py routes in backend/app/api/v1/ following alert_rules.py patterns</constraint>
+    <constraint type="pattern">Use httpx.AsyncClient for async HTTP requests with timeout=5.0</constraint>
+    <constraint type="pattern">Extend frontend api-client.ts with webhooks namespace</constraint>
+    <constraint type="security">HTTPS URLs required in production - reject http:// except localhost for dev</constraint>
+    <constraint type="security">SSRF prevention: Block localhost, 127.0.0.1, private IP ranges (10.x, 172.16-31.x, 192.168.x)</constraint>
+    <constraint type="performance">Webhook execution must be async - non-blocking to rule engine</constraint>
+    <constraint type="validation">Rate limit: Max 100 webhooks per minute per rule to prevent abuse</constraint>
+    <constraint type="retry">Exponential backoff: 1s, 2s, 4s delays between retries, max 3 attempts total</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/webhooks/test" kind="REST endpoint">
+      <signature>POST /api/v1/webhooks/test</signature>
+      <request>WebhookTestRequest { url: string, headers?: Record&lt;string, string&gt;, payload?: object }</request>
+      <response>WebhookTestResponse { success: bool, status_code: int, response_body: string (max 200 chars), response_time_ms: int, error?: string }</response>
+      <path>backend/app/api/v1/webhooks.py (to create)</path>
+    </interface>
+    <interface name="GET /api/v1/webhooks/logs" kind="REST endpoint">
+      <signature>GET /api/v1/webhooks/logs?rule_id=&amp;success=&amp;start_date=&amp;end_date=&amp;limit=&amp;offset=</signature>
+      <response>WebhookLogsResponse { data: WebhookLog[], total_count: int }</response>
+      <path>backend/app/api/v1/webhooks.py (to create)</path>
+    </interface>
+    <interface name="GET /api/v1/webhooks/logs/export" kind="REST endpoint">
+      <signature>GET /api/v1/webhooks/logs/export?format=csv</signature>
+      <response>CSV file download (Content-Type: text/csv)</response>
+      <path>backend/app/api/v1/webhooks.py (to create)</path>
+    </interface>
+    <interface name="WebhookService.send_webhook" kind="function">
+      <signature>async def send_webhook(url: str, headers: dict, payload: dict, max_retries: int = 3) -&gt; WebhookResult</signature>
+      <path>backend/app/services/webhook_service.py (to create)</path>
+    </interface>
+    <interface name="WebhookService.build_payload" kind="function">
+      <signature>def build_payload(event: Event, rule: AlertRule) -&gt; dict</signature>
+      <path>backend/app/services/webhook_service.py (to create)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend tests use pytest with pytest-asyncio. Frontend tests use Jest with React Testing Library. Test files co-located with source or in tests/ directory. Run backend tests with `pytest`, frontend with `npm test`, build with `npm run build`, lint with `npm run lint`.</standards>
+    <locations>
+      <location>backend/tests/test_services/test_webhook_service.py (to create)</location>
+      <location>backend/tests/test_api/test_webhooks.py (to create)</location>
+      <location>frontend/components/rules/WebhookLogs.test.tsx (optional)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test webhook HTTP POST sends correct headers and payload format</idea>
+      <idea ac="2">Test payload includes all required fields with correct types</idea>
+      <idea ac="3">Test retry logic with mocked failures - verify backoff timing</idea>
+      <idea ac="3">Test success after retry - verify retry_count in log</idea>
+      <idea ac="4">Test webhook logs are created for success and failure cases</idea>
+      <idea ac="5">Test HTTPS validation rejects http:// URLs</idea>
+      <idea ac="5">Test SSRF prevention blocks localhost and private IPs</idea>
+      <idea ac="5">Test rate limiting returns 429 when exceeded</idea>
+      <idea ac="6">Test webhook test endpoint returns correct response format</idea>
+      <idea ac="6">Test webhook test with timeout - verify error handling</idea>
+      <idea ac="7">Test WebhookLogs component renders table with correct columns</idea>
+      <idea ac="7">Test filter controls update query parameters</idea>
+    </ideas>
+  </tests>
+</story-context>

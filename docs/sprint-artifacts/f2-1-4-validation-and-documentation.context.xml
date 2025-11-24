@@ -1,0 +1,589 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context>
+  <metadata>
+    <story-id>f2-1-4-validation-and-documentation</story-id>
+    <story-title>Validation and Documentation</story-title>
+    <epic-id>f2-1</epic-id>
+    <epic-title>Motion Detection Validation & UI Completion</epic-title>
+    <generated-date>2025-11-16</generated-date>
+    <story-type>qa-validation</story-type>
+    <estimated-hours>12</estimated-hours>
+    <priority>critical</priority>
+    <blocking-epic>f3-ai-description-generation</blocking-epic>
+  </metadata>
+
+  <story-summary>
+    <purpose>
+      Complete deferred validation work from Epic F2 by performing comprehensive manual testing
+      of the motion detection system with sample footage and live cameras. Create repeatable
+      validation workflow documentation and hardware compatibility documentation before Epic F3.
+    </purpose>
+    <rationale>
+      Epic F2 Retrospective identified critical validation gap: motion detection was never validated
+      with real cameras or sample footage. Epic F3 (AI Description Generation) depends on reliable
+      motion events. This validation story ensures motion detection quality is proven before building
+      dependent AI features.
+    </rationale>
+    <deliverables>
+      <deliverable>docs/tested-hardware.md - Hardware compatibility documentation</deliverable>
+      <deliverable>docs/validation-workflow.md - Repeatable validation procedure</deliverable>
+      <deliverable>docs/motion-detection-validation-report.md - Validation results and findings</deliverable>
+      <deliverable>QA approval sign-off with measured true/false positive rates</deliverable>
+    </deliverables>
+  </story-summary>
+
+  <acceptance-criteria>
+    <ac id="1" priority="critical">
+      <title>Sample Footage Validation - All Three Algorithms</title>
+      <given>Sample footage exists in /samples folder</given>
+      <when>QA tests all 3 motion algorithms (MOG2, KNN, Frame Diff)</when>
+      <then>
+        - Each algorithm tested with 10+ video clips (person entering, different angles)
+        - Each algorithm tested with 10+ clips (trees, rain, shadows, lights - false triggers)
+        - True positive rate measured and documented (target: &gt;90%)
+        - False positive rate measured and documented (target: &lt;20%)
+        - Results captured in validation report with per-algorithm breakdown
+      </then>
+      <testing-approach>Manual testing with sample footage, quantitative measurement</testing-approach>
+    </ac>
+
+    <ac id="2" priority="critical">
+      <title>Live Camera Testing - USB and RTSP</title>
+      <given>At least one USB camera and one RTSP camera are available</given>
+      <when>QA performs manual testing with live camera feeds</when>
+      <then>
+        - Both camera types tested with motion detection enabled (all 3 algorithms)
+        - Detection zones configured and tested
+        - Detection schedules configured and tested
+        - Various sensitivity levels tested (low, medium, high)
+        - Camera brand/model information documented
+        - Configuration issues or limitations noted
+        - Live testing results confirm motion detection works end-to-end
+      </then>
+      <testing-approach>Live camera testing with real hardware</testing-approach>
+    </ac>
+
+    <ac id="3" priority="high">
+      <title>Performance and Quality Validation</title>
+      <given>Motion detection is running with live cameras</given>
+      <when>QA measures system performance and event quality</when>
+      <then>
+        - Frame processing time documented (&lt;100ms target from architecture)
+        - Motion detection latency documented (&lt;5ms target)
+        - Frame quality for AI analysis assessed (resolution, compression, clarity)
+        - False trigger scenarios documented (lighting changes, camera shake, etc.)
+        - Performance issues noted with reproduction steps
+      </then>
+      <testing-approach>Performance measurement and edge case testing</testing-approach>
+    </ac>
+
+    <ac id="4" priority="medium">
+      <title>Tested Hardware Documentation</title>
+      <given>QA has tested various camera hardware</given>
+      <when>Validation is complete</when>
+      <then>
+        Document created at docs/tested-hardware.md containing:
+        - Tested USB camera brands/models with compatibility notes
+        - Tested RTSP camera brands/models with stream URLs and authentication notes
+        - Known working configurations (resolution, frame rate, codec)
+        - Known issues or limitations per camera model
+      </then>
+      <testing-approach>Documentation creation</testing-approach>
+    </ac>
+
+    <ac id="5" priority="medium">
+      <title>Validation Workflow Documentation</title>
+      <given>QA has completed manual validation process</given>
+      <when>Workflow documentation is needed for future epics</when>
+      <then>
+        Document created at docs/validation-workflow.md containing:
+        - Step-by-step validation procedure
+        - How to use sample footage for testing
+        - How to test with live cameras
+        - How to measure true/false positive rates
+        - Expected results and acceptance thresholds
+        - Troubleshooting common issues
+        - Workflow is repeatable by any team member
+      </then>
+      <testing-approach>Documentation creation</testing-approach>
+    </ac>
+
+    <ac id="6" priority="high">
+      <title>Integration with Frontend UI</title>
+      <given>Frontend UI now exists for motion detection (from F2.1-1, F2.1-2, F2.1-3)</given>
+      <when>QA performs end-to-end testing</when>
+      <then>
+        - All UI components tested with live cameras:
+          * Motion sensitivity controls
+          * Algorithm selection
+          * Detection zone drawing
+          * Detection schedule configuration
+        - UI/UX issues documented
+        - Integration issues between frontend and backend identified
+      </then>
+      <testing-approach>End-to-end UI testing with live cameras</testing-approach>
+    </ac>
+  </acceptance-criteria>
+
+  <technical-context>
+    <architecture>
+      <motion-detection-flow>
+        1. CameraService captures frame (every 1/FPS seconds)
+        2. Check if motion detection enabled for camera
+        3. ScheduleManager: Check if detection active (time/day filters)
+        4. Check cooldown period (30s default, configurable 5-300s)
+        5. MotionDetector: Run algorithm (MOG2/KNN/FrameDiff)
+        6. Apply sensitivity threshold
+        7. DetectionZoneManager: Filter motion by zones
+        8. Extract largest contour → Calculate bounding box
+        9. MotionEventStore: Create motion event record in database
+       10. Emit motion event for AI processing (Epic F3)
+      </motion-detection-flow>
+
+      <performance-targets>
+        <target component="motion-detection" value="&lt;100ms" criticality="CRITICAL">
+          Motion detection processing per frame
+        </target>
+        <target component="zone-filtering" value="&lt;5ms" criticality="HIGH">
+          Zone filtering overhead
+        </target>
+        <target component="schedule-checking" value="&lt;1ms" criticality="MEDIUM">
+          Schedule validation overhead
+        </target>
+        <target component="end-to-end" value="&lt;5s" criticality="CRITICAL">
+          Motion detection → AI description (total latency budget)
+        </target>
+      </performance-targets>
+
+      <algorithms>
+        <algorithm name="MOG2" default="true">
+          Background subtraction using Mixture of Gaussians. Default algorithm.
+          Performance: ~30-50ms, balanced accuracy
+        </algorithm>
+        <algorithm name="KNN">
+          K-nearest neighbors background subtraction. More sensitive to small movements.
+          Performance: ~40-60ms, better accuracy but slower
+        </algorithm>
+        <algorithm name="frame_diff">
+          Simple frame differencing. Fastest but less accurate.
+          Performance: ~20-30ms, lower accuracy
+        </algorithm>
+      </algorithms>
+
+      <sensitivity-levels>
+        <level name="low" threshold="5%">Fewer false positives, may miss small movements</level>
+        <level name="medium" threshold="2%" default="true">Balanced, recommended</level>
+        <level name="high" threshold="0.5%">Catches all movement, higher false positives</level>
+      </sensitivity-levels>
+    </architecture>
+
+    <backend-services>
+      <service name="MotionDetectionService" file="backend/app/services/motion_detection_service.py">
+        Singleton service managing motion detection across all cameras.
+        - Per-camera MotionDetector instance management
+        - Cooldown period enforcement (prevents spam)
+        - Database event storage
+        - Thread-safe state management
+        - Full frame thumbnail generation (base64 JPEG, ~50KB)
+
+        Key method: process_frame(camera_id, frame, camera, db)
+        Returns: MotionEvent if motion detected AND cooldown elapsed, else None
+      </service>
+
+      <service name="DetectionZoneManager" file="backend/app/services/detection_zone_manager.py">
+        Singleton service for zone filtering logic.
+        - Bounding box intersection with polygon zones
+        - OpenCV pointPolygonTest for geometry checks
+        - Performance: &lt;1ms average (5x better than 5ms target)
+        - Fail-open strategy: invalid zones → allow motion
+
+        Key method: is_motion_in_zones(camera_id, bounding_box, detection_zones)
+        Returns: True if motion in zone OR no zones defined, False otherwise
+      </service>
+
+      <service name="ScheduleManager" file="backend/app/services/schedule_manager.py">
+        Singleton service for detection schedule validation.
+        - Time-based schedule validation (HH:MM format)
+        - Day-of-week filtering (0=Monday, 6=Sunday per Python weekday())
+        - Overnight schedule support (e.g., 22:00-06:00 crossing midnight)
+        - Performance: &lt;1ms per validation call
+        - Fail-open strategy: invalid config → always active
+
+        Key method: is_detection_active(camera_id, detection_schedule)
+        Returns: True if detection should be active, False otherwise
+      </service>
+    </backend-services>
+
+    <frontend-components>
+      <component name="CameraForm" file="frontend/components/cameras/CameraForm.tsx">
+        Main camera configuration form integrating all motion detection settings.
+        - React Hook Form + Zod validation
+        - Includes MotionSettingsSection, DetectionZoneDrawer, DetectionScheduleEditor
+        - Test connection button (edit mode only)
+        - Full form validation before submission
+      </component>
+
+      <component name="DetectionScheduleEditor" file="frontend/components/cameras/DetectionScheduleEditor.tsx">
+        Schedule configuration UI component (352 lines).
+        - Time range selectors (start/end time pickers, 24-hour format)
+        - Day-of-week checkboxes (Mon-Sun)
+        - Schedule enable/disable toggle
+        - Current schedule status indicator (Active Now, Inactive, Always Active)
+        - Overnight schedule detection and tooltip warning
+        - Handles timezone conversion (JS 0=Sunday → Python 0=Monday)
+      </component>
+
+      <component name="DetectionZoneDrawer" file="frontend/components/cameras/DetectionZoneDrawer.tsx">
+        Polygon zone drawing UI on camera preview.
+        - Canvas overlay with click handlers
+        - Polygon drawing (minimum 3 vertices)
+        - Double-click or "Finish" button to close polygon
+        - Coordinate normalization (0-1 scale relative to canvas)
+        - Visual rendering with connected lines and semi-transparent fill
+      </component>
+
+      <component name="DetectionZoneList" file="frontend/components/cameras/DetectionZoneList.tsx">
+        Zone management UI component.
+        - Display all zones with name, enabled toggle, delete button
+        - Inline zone name editing
+        - Enable/disable toggle per zone
+        - Delete confirmation dialog
+      </component>
+
+      <component name="ZonePresetTemplates" file="frontend/components/cameras/ZonePresetTemplates.tsx">
+        Preset zone templates for quick zone setup.
+        - Preset buttons: Rectangle, Triangle, L-shape
+        - Templates generate normalized polygon coordinates
+      </component>
+    </frontend-components>
+
+    <database-schema>
+      <table name="cameras">
+        <field name="motion_enabled" type="bool" default="true">Enable/disable motion detection</field>
+        <field name="motion_sensitivity" type="string" default="medium">low, medium, high</field>
+        <field name="motion_cooldown" type="int" default="30">Seconds between motion triggers (5-300)</field>
+        <field name="motion_algorithm" type="string" default="mog2">mog2, knn, frame_diff</field>
+        <field name="detection_zones" type="text" nullable="true">
+          JSON array: [{"id": "...", "name": "...", "vertices": [...], "enabled": true}]
+        </field>
+        <field name="detection_schedule" type="text" nullable="true">
+          JSON object: {"enabled": false, "start_time": "09:00", "end_time": "17:00", "days": [0,1,2,3,4]}
+        </field>
+      </table>
+
+      <table name="motion_events">
+        <field name="id" type="string" primary-key="true">UUID</field>
+        <field name="camera_id" type="string" foreign-key="cameras.id">Camera UUID</field>
+        <field name="timestamp" type="datetime">When motion detected (UTC)</field>
+        <field name="confidence" type="float">0.0 - 1.0 confidence score</field>
+        <field name="algorithm_used" type="string">mog2, knn, frame_diff</field>
+        <field name="bounding_box" type="text" nullable="true">
+          JSON: {"x": 100, "y": 50, "width": 200, "height": 150}
+        </field>
+        <field name="frame_thumbnail" type="text" nullable="true">Base64 JPEG (~50KB at 640x480)</field>
+        <field name="ai_event_id" type="string" nullable="true" foreign-key="ai_events.id">
+          Links to Epic F3 AI description event
+        </field>
+      </table>
+    </database-schema>
+  </technical-context>
+
+  <dependencies>
+    <prerequisite story="f2-1-1-motion-detection-ui-components" status="done">
+      Motion detection UI components (sensitivity, algorithm, cooldown)
+    </prerequisite>
+    <prerequisite story="f2-1-2-detection-zone-drawing-ui" status="done">
+      Detection zone drawing UI (polygon canvas, zone management)
+    </prerequisite>
+    <prerequisite story="f2-1-3-detection-schedule-editor-ui" status="done">
+      Detection schedule editor UI (time range, day selection)
+    </prerequisite>
+    <prerequisite type="hardware">
+      USB camera and RTSP camera must be available for testing
+    </prerequisite>
+    <prerequisite type="test-data">
+      Sample footage in /samples folder (true positive and false positive clips)
+    </prerequisite>
+
+    <blocking-epic id="f3" title="AI Description Generation">
+      Epic F3 is BLOCKED until this validation story is complete.
+      Rationale: AI will generate descriptions for motion events (garbage in, garbage out).
+      Frame quality and motion accuracy directly impact AI description quality.
+    </blocking-epic>
+  </dependencies>
+
+  <testing-standards>
+    <validation-targets>
+      <target metric="true-positive-rate" value="&gt;90%">
+        10+ video clips with person entering frame → 9+ detections required
+      </target>
+      <target metric="false-positive-rate" value="&lt;20%">
+        10+ videos with non-person motion → ≤2 false positives allowed
+      </target>
+      <target metric="frame-processing-time" value="&lt;100ms">
+        Motion detection processing latency (p95)
+      </target>
+      <target metric="zone-filtering-overhead" value="&lt;5ms">
+        Zone filtering performance overhead
+      </target>
+      <target metric="schedule-check-overhead" value="&lt;1ms">
+        Schedule validation performance overhead
+      </target>
+    </validation-targets>
+
+    <test-environments>
+      <environment name="macOS-M1" primary="true">macOS (M1 chip) - Primary development</environment>
+      <environment name="macOS-Intel">macOS (Intel chip)</environment>
+      <environment name="Linux-Ubuntu">Linux (Ubuntu 22.04, 2-core VM) - CI/CD</environment>
+    </test-environments>
+
+    <sample-footage-requirements>
+      <category name="true-positives" min-clips="10">
+        People entering frame from different angles:
+        - Front-on approach
+        - Side approach
+        - Walking across frame
+        - Multiple people
+        - Different lighting conditions
+      </category>
+      <category name="false-negatives" min-clips="10">
+        Non-person motion that should NOT trigger:
+        - Trees swaying
+        - Rain/snow
+        - Shadows moving
+        - Car headlights
+        - Curtains/blinds moving
+        - Reflections
+        - Lighting changes (sunrise/sunset)
+      </category>
+    </sample-footage-requirements>
+  </testing-standards>
+
+  <learnings-from-previous-stories>
+    <learning source="f2-1-3-detection-schedule-editor-ui" date="2025-11-16">
+      <title>Critical Backend Schema Fix Required</title>
+      <description>
+        Backend CameraUpdate schema was missing detection_zones and detection_schedule fields.
+        This caused Saturday/Sunday persistence bug, timezone bug, and toggle bug.
+      </description>
+      <resolution>
+        Fixed in backend/app/schemas/camera.py:93-156 with Pydantic serialization/deserialization validators:
+        - @field_validator('detection_zones', mode='before') - serialize object to JSON string
+        - @field_validator('detection_schedule', mode='before') - serialize object to JSON string
+        - @field_validator('detection_zones', mode='before') in CameraResponse - deserialize JSON to object
+        - @field_validator('detection_schedule', mode='before') in CameraResponse - deserialize JSON to object
+      </resolution>
+      <impact-on-this-story>
+        Detection zones and schedules now persist correctly - can be used confidently during live testing.
+        No backend fixes needed for this story.
+      </impact-on-this-story>
+    </learning>
+
+    <learning source="f2-1-3-detection-schedule-editor-ui" date="2025-11-16">
+      <title>Frontend Patterns Established</title>
+      <description>
+        React Hook Form + Zod validation pattern proven effective for complex forms.
+        shadcn/ui components provide consistent UX (Card, Input, Button, Tooltip).
+        Custom toggle switches follow established motion_enabled pattern.
+        Null-safe handling for optional configuration fields.
+      </description>
+      <impact-on-this-story>
+        UI components are production-ready for testing.
+        No frontend fixes anticipated for this story.
+      </impact-on-this-story>
+    </learning>
+
+    <learning source="f2-retrospective" date="2025-11-16">
+      <title>Sample Footage Available But Unused</title>
+      <description>
+        Project has sample footage in /samples folder but validation workflow never established.
+        F2.1 AC-1: "Test with 10 video clips (person entering from different angles)" - Deferred.
+        F2.1 AC-2: "Test with 10 clips (trees, rain, shadows, lights)" - Deferred.
+        Sample footage existed during F2 development but not integrated into testing.
+      </description>
+      <impact-on-this-story>
+        This story MUST use sample footage for algorithm validation (AC #1).
+        Task 1: Inventory sample footage in /samples folder (critical first step).
+      </impact-on-this-story>
+    </learning>
+
+    <learning source="f2-retrospective" date="2025-11-16">
+      <title>Manual Testing Deferred Twice</title>
+      <description>
+        Manual testing with physical cameras deferred in F1, deferred again in F2.
+        Epic F1 Retro Action Item #1: "Hardware validation testing with 3 cameras" - Not addressed.
+        Motion detection untested with real cameras (only mocked data).
+        Unknown compatibility with RTSP cameras (Hikvision, Dahua, Amcrest brands).
+      </description>
+      <impact-on-this-story>
+        This story MUST test with real cameras (USB + RTSP) per AC #2.
+        Hardware must be ordered/available before starting this story.
+        Document tested camera brands/models in docs/tested-hardware.md.
+      </impact-on-this-story>
+    </learning>
+
+    <learning source="architecture.md" section="Performance Considerations">
+      <title>Performance Baseline Required</title>
+      <description>
+        F1 Retrospective Action Item #4: Document actual CPU/memory with 1 camera @ 5 FPS + motion detection.
+        Test on: macOS (M1/Intel), Linux (Ubuntu 22.04, 2-core VM).
+        Use as reference for optimization.
+      </description>
+      <impact-on-this-story>
+        This story should measure and document performance baselines (AC #3).
+        Include CPU/memory metrics in validation report.
+      </impact-on-this-story>
+    </learning>
+  </learnings-from-previous-stories>
+
+  <constraints-and-risks>
+    <constraint type="hardware-availability">
+      Story cannot start until USB camera and RTSP camera are available for testing.
+      Action Item from retrospective: Dana orders RTSP camera today.
+    </constraint>
+
+    <constraint type="sample-footage">
+      Task 1 must inventory /samples folder contents before algorithm testing.
+      If footage is insufficient, create GitHub issue to obtain additional test videos.
+    </constraint>
+
+    <risk level="medium">
+      <description>False positive rate may exceed 20% target</description>
+      <mitigation>
+        - Sensitivity tuning during validation
+        - Detection zones to exclude problematic areas
+        - Document actual rates even if targets not met
+        - Provide recommendations for improvement
+      </mitigation>
+    </risk>
+
+    <risk level="low">
+      <description>Camera hardware compatibility issues</description>
+      <mitigation>
+        - Test multiple camera brands if available
+        - Document known issues and workarounds in tested-hardware.md
+        - Provide configuration recommendations per camera model
+      </mitigation>
+    </risk>
+  </constraints-and-risks>
+
+  <file-references>
+    <backend>
+      <file path="backend/app/services/motion_detection_service.py" lines="73-170">
+        Main process_frame() method - integrates schedule, zones, cooldown, algorithms
+      </file>
+      <file path="backend/app/services/detection_zone_manager.py" lines="53-165">
+        Zone filtering logic with pointPolygonTest
+      </file>
+      <file path="backend/app/services/schedule_manager.py" lines="53-176">
+        Schedule validation with overnight support
+      </file>
+      <file path="backend/app/schemas/camera.py" lines="93-156">
+        Pydantic validators for detection_zones and detection_schedule serialization
+      </file>
+      <file path="backend/requirements.txt">
+        Dependencies: opencv-python>=4.12.0, fastapi[standard]==0.115.0, etc.
+      </file>
+    </backend>
+
+    <frontend>
+      <file path="frontend/components/cameras/CameraForm.tsx" lines="1-517">
+        Main camera form integrating all motion detection settings
+      </file>
+      <file path="frontend/components/cameras/DetectionScheduleEditor.tsx" lines="1-352">
+        Schedule configuration UI with status indicator
+      </file>
+      <file path="frontend/package.json">
+        Dependencies: next 16.0.3, react 19.2.0, react-hook-form, zod, etc.
+      </file>
+    </frontend>
+
+    <documentation>
+      <file path="docs/architecture.md" lines="1-1406">
+        Complete system architecture
+      </file>
+      <file path="docs/sprint-artifacts/epic-f2-retrospective.md" lines="1-840">
+        Epic F2 retrospective with F2.1 story definitions
+      </file>
+      <file path="docs/sprint-artifacts/tech-spec-epic-f2.md" lines="1-856">
+        Technical specification for motion detection
+      </file>
+    </documentation>
+  </file-references>
+
+  <recommended-approach>
+    <phase number="1" name="Setup and Inventory">
+      <step>Task 1: Inventory sample footage in /samples folder</step>
+      <step>Categorize: true positives vs true negatives</step>
+      <step>Create validation tracking spreadsheet/document</step>
+      <step>Set up test environment (backend running, database clean state)</step>
+      <step>Verify USB and RTSP cameras are available and accessible</step>
+    </phase>
+
+    <phase number="2" name="Algorithm Testing with Sample Footage">
+      <step>Task 2: Test all 3 algorithms (MOG2, KNN, Frame Diff)</step>
+      <step>For each algorithm: Run 10+ true positive clips, document detection rate</step>
+      <step>For each algorithm: Run 10+ true negative clips, document false positive rate</step>
+      <step>Calculate aggregate metrics: true positive rate, false positive rate</step>
+      <step>Identify recommended algorithm based on results</step>
+    </phase>
+
+    <phase number="3" name="Live Camera Testing">
+      <step>Task 3: Test USB camera with all 3 algorithms</step>
+      <step>Task 4: Test RTSP camera with all 3 algorithms</step>
+      <step>For each camera: Test detection zones, schedules, sensitivity levels</step>
+      <step>Measure frame processing time and latency</step>
+      <step>Document camera brand, model, resolution, frame rate</step>
+      <step>Note any compatibility issues or limitations</step>
+    </phase>
+
+    <phase number="4" name="UI Integration Testing">
+      <step>Task 5: End-to-end UI testing with live cameras</step>
+      <step>Test motion detection UI components (sensitivity, algorithm, cooldown)</step>
+      <step>Test detection zone drawing UI (polygon creation, zone management)</step>
+      <step>Test detection schedule editor UI (time ranges, day selection)</step>
+      <step>Document any UI/UX issues or integration bugs</step>
+    </phase>
+
+    <phase number="5" name="Performance and Edge Cases">
+      <step>Task 6: Measure performance metrics</step>
+      <step>Test edge cases: lighting changes, camera shake, rapid movement</step>
+      <step>Document performance baselines and edge case behavior</step>
+    </phase>
+
+    <phase number="6" name="Documentation Creation">
+      <step>Task 7: Create docs/tested-hardware.md</step>
+      <step>Task 8: Create docs/validation-workflow.md</step>
+      <step>Task 9: Create docs/motion-detection-validation-report.md</step>
+      <step>Compile all results, recommendations, and sign-off</step>
+    </phase>
+  </recommended-approach>
+
+  <expected-outcomes>
+    <outcome type="quantitative">
+      True positive rate measured for all 3 algorithms (target: &gt;90%)
+      False positive rate measured for all 3 algorithms (target: &lt;20%)
+      Frame processing time measured (target: &lt;100ms)
+      Recommended algorithm identified based on empirical results
+    </outcome>
+
+    <outcome type="qualitative">
+      Camera compatibility matrix documented (tested brands/models)
+      Known issues and workarounds documented
+      Validation workflow established as standard process
+      QA sign-off with confidence in motion detection reliability
+    </outcome>
+
+    <outcome type="documentation">
+      docs/tested-hardware.md - Hardware compatibility reference
+      docs/validation-workflow.md - Repeatable testing procedure
+      docs/motion-detection-validation-report.md - Validation results
+    </outcome>
+
+    <outcome type="readiness">
+      Epic F3 unblocked - motion detection proven reliable
+      Validation workflow repeatable for future epics
+      Team confidence in production deployment
+    </outcome>
+  </expected-outcomes>
+</story-context>

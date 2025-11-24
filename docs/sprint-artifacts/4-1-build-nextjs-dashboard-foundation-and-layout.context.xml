@@ -1,0 +1,241 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>4</epicId>
+    <storyId>1</storyId>
+    <title>Build Next.js Dashboard Foundation and Layout</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/4-1-build-nextjs-dashboard-foundation-and-layout.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>frontend developer</asA>
+    <iWant>a responsive dashboard layout with navigation and routing</iWant>
+    <soThat>users can access all features through a clean interface</soThat>
+    <tasks>
+      - Set up Next.js App Router structure (layout.tsx, pages, loading/error states, TypeScript strict mode)
+      - Implement Header component (logo, navigation links, notification bell, status indicator, user menu)
+      - Implement Sidebar navigation (fixed 240px desktop sidebar, icons+labels, active state, collapse/expand)
+      - Implement Mobile navigation (bottom tab bar, hamburger menu)
+      - Configure Tailwind theme (custom colors, Inter font, responsive breakpoints)
+      - Set up global state management (React Context for auth/notifications/settings, TanStack Query)
+      - Implement routing patterns (client-side nav, loading states, error boundaries, 404, metadata)
+      - Create placeholder page content (dashboard, events, cameras, rules, settings)
+      - Testing and validation (manual testing, responsive, TypeScript validation)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    1. Application Structure - Next.js App Router foundation with TypeScript strict mode
+    2. Header Component - Top navigation with logo, links, notification bell, status indicator, user menu
+    3. Sidebar Navigation (Desktop >1024px) - Fixed 240px sidebar with icons, active state, collapse/expand
+    4. Mobile Navigation (<1024px) - Bottom tab bar with icons, hamburger menu
+    5. Responsive Breakpoints - Mobile (<640px), Tablet (640-1024px), Desktop (>1024px)
+    6. Theme and Styling - Tailwind CSS with custom colors (Blue/Green/Yellow/Red), Inter font
+    7. Routing Configuration - Client-side navigation, loading states, error boundaries, 404, metadata
+    8. Global State Management - React Context (auth/notifications/settings) + TanStack Query
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>System Architecture</title>
+        <section>Frontend Stack</section>
+        <snippet>Next.js 14+ with App Router architecture, Tailwind CSS 3.4+ with custom theme, React Context + TanStack Query for state management, Headless UI + Heroicons for components, TypeScript strict mode enabled.</snippet>
+      </doc>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>F6 - Dashboard User Interface</section>
+        <snippet>Dashboard requirements include event timeline view, live camera view, system settings page, manual analysis trigger, dashboard statistics, and notification center. Must be responsive and user-friendly.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epic Breakdown</title>
+        <section>Epic 4: Dashboard & Event Visualization</section>
+        <snippet>Story 4.1 establishes the foundation with responsive layout, navigation (header/sidebar/mobile), Tailwind theme, routing, and global state management for all Epic 4 UI features.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/3-4-implement-data-retention-and-cleanup.md</path>
+        <title>Previous Story Learnings</title>
+        <section>Completion Notes - Backend APIs Ready</section>
+        <snippet>Backend APIs completed and ready: GET /api/v1/events (listing with filtering), GET /api/v1/events/{id} (single event), GET /api/v1/cameras (camera listing), GET /api/v1/system/storage, GET /api/v1/system/retention. Backend running on localhost:8000.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>frontend/app/layout.tsx</path>
+        <kind>layout</kind>
+        <symbol>RootLayout</symbol>
+        <lines>27-52</lines>
+        <reason>Existing root layout with Header, ThemeProvider, and Toaster - will be enhanced with additional providers (TanStack Query, Context providers)</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/layout/Header.tsx</path>
+        <kind>component</kind>
+        <symbol>Header</symbol>
+        <lines>1-end</lines>
+        <reason>Existing Header component that provides top navigation - may need enhancements for notification bell, status indicator, and user menu per story requirements</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/button.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Button</symbol>
+        <lines>1-end</lines>
+        <reason>Shadcn/ui Button component available for navigation elements and actions</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/card.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Card</symbol>
+        <lines>1-end</lines>
+        <reason>Card components available for page content layout</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Dialog</symbol>
+        <lines>1-end</lines>
+        <reason>Dialog component available for modals and user menu dropdowns</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/tooltip.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Tooltip</symbol>
+        <lines>1-end</lines>
+        <reason>Tooltip component available for status indicators and help text</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/providers/theme-provider.tsx</path>
+        <kind>provider</kind>
+        <symbol>ThemeProvider</symbol>
+        <lines>1-end</lines>
+        <reason>Existing theme provider using next-themes - supports light/dark mode switching</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/page.tsx</path>
+        <kind>page</kind>
+        <symbol>HomePage</symbol>
+        <lines>1-end</lines>
+        <reason>Existing dashboard home page - will be enhanced with proper layout and placeholder content</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/cameras/page.tsx</path>
+        <kind>page</kind>
+        <symbol>CamerasPage</symbol>
+        <lines>1-end</lines>
+        <reason>Existing cameras page - demonstrates page routing pattern to follow</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/error.tsx</path>
+        <kind>error-boundary</kind>
+        <symbol>ErrorPage</symbol>
+        <lines>1-end</lines>
+        <reason>Existing error boundary - demonstrates error handling pattern already in place</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <frontend>
+        <framework>next@16.0.3</framework>
+        <framework>react@19.2.0</framework>
+        <framework>react-dom@19.2.0</framework>
+        <framework>typescript@^5</framework>
+        <styling>tailwindcss@^4</styling>
+        <ui>@radix-ui/react-dialog@^1.1.15</ui>
+        <ui>@radix-ui/react-label@^2.1.8</ui>
+        <ui>@radix-ui/react-select@^2.2.6</ui>
+        <ui>@radix-ui/react-slider@^1.3.6</ui>
+        <ui>@radix-ui/react-slot@^1.2.4</ui>
+        <ui>@radix-ui/react-tooltip@^1.2.8</ui>
+        <icons>lucide-react@^0.553.0</icons>
+        <forms>react-hook-form@^7.66.0</forms>
+        <validation>zod@^4.1.12</validation>
+        <validation>@hookform/resolvers@^5.2.2</validation>
+        <theme>next-themes@^0.4.6</theme>
+        <toast>sonner@^2.0.7</toast>
+        <utility>class-variance-authority@^0.7.1</utility>
+        <utility>clsx@^2.1.1</utility>
+        <utility>tailwind-merge@^3.4.0</utility>
+        <dates>date-fns@^4.1.0</dates>
+      </frontend>
+      <backend>
+        <note>Backend running on localhost:8000 with FastAPI, SQLAlchemy, OpenCV, Pillow for image processing</note>
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - Must use Next.js App Router architecture (not Pages Router)
+    - TypeScript strict mode must be enabled throughout
+    - Must use Tailwind CSS for all styling (no CSS-in-JS)
+    - Must follow shadcn/ui component patterns for consistency
+    - Responsive design required: mobile (<640px), tablet (640-1024px), desktop (>1024px)
+    - Sidebar must collapse on mobile (<1024px) and show bottom tab bar instead
+    - All navigation must use Next.js Link for client-side routing (no full page reloads)
+    - Theme must support both light and dark modes using next-themes
+    - Must not install TanStack Query yet (will be added in this story per AC #8)
+    - Must create React Context providers for auth, notifications, and system settings
+    - Logo and branding placeholder acceptable (final branding in future iteration)
+    - User menu is Phase 1.5 feature - implement placeholder UI only
+    - Backend APIs available at localhost:8000 but this story focuses on layout foundation only (API integration in Story 4.2+)
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Backend Event API</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events - Returns paginated event list with filtering</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+    <interface>
+      <name>Backend Camera API</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/cameras - Returns list of configured cameras</signature>
+      <path>backend/app/api/v1/cameras.py</path>
+    </interface>
+    <interface>
+      <name>Backend System API</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/system/storage - Returns storage statistics</signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+    <interface>
+      <name>Header Component</name>
+      <kind>React component</kind>
+      <signature>export function Header() - Renders top navigation bar</signature>
+      <path>frontend/components/layout/Header.tsx</path>
+    </interface>
+    <interface>
+      <name>ThemeProvider</name>
+      <kind>React provider</kind>
+      <signature>export function ThemeProvider({ children, ...props }) - Wraps app with theme context</signature>
+      <path>frontend/components/providers/theme-provider.tsx</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend uses manual testing for UI components and layouts. TypeScript strict mode provides compile-time validation. Next.js development server provides hot-reload for rapid iteration. Browser DevTools used for responsive design testing across breakpoints. Future stories will add automated E2E tests with Playwright or Cypress.
+    </standards>
+    <locations>
+      - No frontend test directory exists yet
+      - Backend tests located at: backend/tests/
+      - Manual testing recommended for this story (responsive behavior, navigation, layout)
+    </locations>
+    <ideas>
+      - AC #1: Verify TypeScript strict mode enabled in tsconfig.json (no errors on build)
+      - AC #2: Test Header component renders with all required elements (logo, nav links, notification bell, status indicator)
+      - AC #3: Test Sidebar shows on desktop (>1024px), hides on mobile, collapse/expand works, active state highlights current page
+      - AC #4: Test Mobile navigation shows bottom tab bar on mobile (<1024px), hamburger menu works
+      - AC #5: Test responsive breakpoints by resizing browser (mobile/tablet/desktop layouts)
+      - AC #6: Test Tailwind theme colors applied correctly across components
+      - AC #7: Test client-side navigation between pages (no full page reloads), test loading states, error states, 404 page
+      - AC #8: Test React Context providers wrap app correctly, TanStack Query provider initialized
+      - Manual: Navigate between all pages and verify layout consistency
+      - Manual: Test sidebar persistence across page navigations
+      - Manual: Test mobile bottom navigation on actual mobile device or responsive mode
+    </ideas>
+  </tests>
+</story-context>

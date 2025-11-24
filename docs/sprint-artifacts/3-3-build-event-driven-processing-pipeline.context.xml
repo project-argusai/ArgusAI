@@ -1,0 +1,261 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>3</epicId>
+    <storyId>3.3</storyId>
+    <title>Build Event-Driven Processing Pipeline</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/3-3-build-event-driven-processing-pipeline.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>an asynchronous event processing pipeline from motion detection to storage</iWant>
+    <soThat>the system handles events efficiently without blocking</soThat>
+    <tasks>
+      - Create Event Processor Service with asyncio.Queue (maxsize=50)
+      - Implement Motion Detection Tasks (continuous per camera, cooldown enforcement)
+      - Implement AI Worker Pool (configurable 2-5 workers, FIFO processing)
+      - Implement Error Handling (DB retry, queue overflow, worker restart, camera disconnect)
+      - Implement Metrics and Monitoring (queue depth, processing time, success/failure rates)
+      - Integrate with FastAPI Lifespan (startup/shutdown handlers)
+      - Testing (unit, integration, performance tests for latency and throughput)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">
+      <title>Pipeline Architecture</title>
+      <description>Async queue-based architecture with asyncio.Queue (maxsize=50), separate tasks per camera, worker pool (2-5 workers), non-blocking DB ops, graceful shutdown (30s timeout)</description>
+    </criterion>
+    <criterion id="AC2">
+      <title>Motion Detection Task</title>
+      <description>Continuous monitoring per enabled camera at camera.frame_rate FPS, capture frame on motion, queue event, enforce camera.motion_cooldown, handle camera disconnections with retry</description>
+    </criterion>
+    <criterion id="AC3">
+      <title>AI Processing Worker Pool</title>
+      <description>Configurable workers (default 2, max 5), FIFO queue processing, parallel event processing, queue overflow drops oldest events with warning</description>
+    </criterion>
+    <criterion id="AC4">
+      <title>Processing Flow</title>
+      <description>Complete lifecycle: Motion → Capture → Queue → Worker → AI API → Store → Alert (stub) → WebSocket (stub). End-to-end latency &lt;5s. Integration with Story 3.1 AI Service and Story 3.2 Event API</description>
+    </criterion>
+    <criterion id="AC5">
+      <title>Error Handling and Resilience</title>
+      <description>AI failures handled by fallback chain (Story 3.1), DB failures retry 3x with exponential backoff, queue overflow drops oldest, worker crashes auto-restart, camera disconnects pause/resume</description>
+    </criterion>
+    <criterion id="AC6">
+      <title>Monitoring and Metrics</title>
+      <description>Track queue depth, processing time (p50/p95/p99), success/failure rates. Expose via GET /api/v1/metrics (JSON format). Structured logging for all pipeline stages</description>
+    </criterion>
+    <criterion id="AC7">
+      <title>Performance Targets</title>
+      <description>End-to-end latency &lt;5s p95, throughput 10+ events/min, queue depth typically &lt;5, CPU &lt;50% on 2-core, memory &lt;1GB, shutdown within 30s</description>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <artifact>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Event-Driven Architecture</section>
+        <snippet>Uses asyncio-based event-driven architecture triggered by motion detection. FastAPI BackgroundTasks pattern for MVP (ADR-004), not Celery/Redis.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Performance Targets</section>
+        <snippet>End-to-end latency target is &lt;5 seconds p95 from motion detection to stored event. CPU usage target &lt;50% on 2-core system.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>ADR-004: FastAPI BackgroundTasks vs External Queue</section>
+        <snippet>Use FastAPI BackgroundTasks for event processing, not Celery/Redis. Simplicity preferred for MVP with single camera. Redis queue deferred to Phase 2 for distributed deployment.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/epics.md</path>
+        <title>Epic 3 Story 3.3</title>
+        <section>Build Event-Driven Processing Pipeline</section>
+        <snippet>Complete acceptance criteria with asyncio.Queue implementation, worker pattern, error handling, monitoring, and graceful shutdown requirements. Orchestrator at /backend/app/services/event_processor.py</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/3-1-integrate-ai-vision-api-for-description-generation.md</path>
+        <title>Story 3.1 Completion Notes</title>
+        <section>AI Service Integration</section>
+        <snippet>AIService.generate_description() available at backend/app/services/ai_service.py:515. Returns AIResult with description, confidence, objects_detected. Multi-provider fallback (OpenAI→Claude→Gemini). SLA &lt;5s enforced.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/3-2-implement-event-storage-and-retrieval-system.md</path>
+        <title>Story 3.2 Completion Notes</title>
+        <section>Event API Integration</section>
+        <snippet>POST /api/v1/events at backend/app/api/v1/events.py:80 ready for event creation. Accepts EventCreate schema (camera_id, timestamp, description, confidence, objects_detected, thumbnail_base64). Response time &lt;100ms.</snippet>
+      </artifact>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService.generate_description</symbol>
+        <lines>515-628</lines>
+        <reason>Required for AI processing in worker pool. Method signature: async generate_description(frame, camera_name, timestamp, detected_objects, sla_timeout_ms=5000) -&gt; AIResult</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService.load_api_keys_from_db</symbol>
+        <lines>423-481</lines>
+        <reason>Must be called on startup to load encrypted API keys before processing events</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>api</kind>
+        <symbol>create_event</symbol>
+        <lines>80-149</lines>
+        <reason>POST endpoint for storing processed events. Workers will call this after AI processing</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventCreate</symbol>
+        <lines>7-44</lines>
+        <reason>Pydantic schema for event creation. Required fields: camera_id, timestamp, description, confidence (0-100), objects_detected (List[str]), optional thumbnail_base64</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <lines>13-121</lines>
+        <reason>Camera ORM model with frame_rate, motion_enabled, motion_cooldown fields needed for motion detection tasks</reason>
+      </artifact>
+      <artifact>
+        <path>backend/main.py</path>
+        <kind>application</kind>
+        <symbol>app</symbol>
+        <lines>1-120</lines>
+        <reason>FastAPI app entry point. Need to add lifespan context manager for EventProcessor startup/shutdown</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_services/test_ai_service.py</path>
+        <kind>test</kind>
+        <symbol>Test patterns</symbol>
+        <lines>1-545</lines>
+        <reason>Reference for testing async services, mocking AI providers, testing fallback chains</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_api/test_events.py</path>
+        <kind>test</kind>
+        <symbol>Test patterns</symbol>
+        <lines>1-852</lines>
+        <reason>Reference for testing API integration, database fixtures, performance tests</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <python>
+        <package>fastapi</package>
+        <version>0.115+</version>
+        <purpose>FastAPI framework for lifespan management and async support</purpose>
+      </python>
+      <python>
+        <package>asyncio</package>
+        <version>built-in</version>
+        <purpose>asyncio.Queue, create_task, gather for async pipeline</purpose>
+      </python>
+      <python>
+        <package>httpx</package>
+        <version>latest</version>
+        <purpose>AsyncClient for non-blocking POST to /api/v1/events</purpose>
+      </python>
+      <python>
+        <package>sqlalchemy</package>
+        <version>2.0+</version>
+        <purpose>Async database sessions if using direct DB instead of API</purpose>
+      </python>
+      <python>
+        <package>pytest</package>
+        <version>latest</version>
+        <purpose>Testing framework</purpose>
+      </python>
+      <python>
+        <package>pytest-asyncio</package>
+        <version>latest</version>
+        <purpose>Testing async code</purpose>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - Use asyncio.Queue with maxsize=50 to prevent memory overflow during AI API slowdowns
+    - Worker count must be configurable via environment variable (default 2, max 5)
+    - Camera tasks must enforce motion_cooldown from camera.motion_cooldown field
+    - All database operations must be non-blocking (use httpx AsyncClient or async SQLAlchemy)
+    - Graceful shutdown must drain queue within 30s timeout
+    - Queue overflow must drop OLDEST events (not newest) to preserve recent data
+    - Worker exceptions must be caught and worker auto-restarted (no silent failures)
+    - All logging must be structured JSON format for parsing
+    - Metrics endpoint must return JSON (not Prometheus format for MVP)
+    - Integration with Story 3.1 AI Service is mandatory (do not recreate AI logic)
+    - Integration with Story 3.2 Event API is mandatory (do not bypass API layer)
+    - Epic 5 alert evaluation and Epic 4 WebSocket broadcast are STUBS only for now
+    - Performance target: end-to-end latency &lt;5s p95 (motion detection to stored event)
+    - Queue depth must be logged with every queue.put() operation for monitoring
+    - Camera disconnect/reconnect must not crash the pipeline
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AIService.generate_description</name>
+      <kind>async method</kind>
+      <signature>async def generate_description(frame: np.ndarray, camera_name: str, timestamp: str, detected_objects: List[str], sla_timeout_ms: int = 5000) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py:515</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/events</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/events with EventCreate body -> 201 Created with EventResponse</signature>
+      <path>backend/app/api/v1/events.py:80</path>
+    </interface>
+    <interface>
+      <name>EventCreate schema</name>
+      <kind>Pydantic schema</kind>
+      <signature>EventCreate(camera_id: str, timestamp: datetime, description: str, confidence: int, objects_detected: List[str], thumbnail_base64: Optional[str], alert_triggered: bool = False)</signature>
+      <path>backend/app/schemas/event.py:7</path>
+    </interface>
+    <interface>
+      <name>Camera model</name>
+      <kind>SQLAlchemy ORM</kind>
+      <signature>Camera with fields: id, name, frame_rate (1-30), motion_enabled, motion_cooldown (0-300), is_enabled</signature>
+      <path>backend/app/models/camera.py:13</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/metrics (new)</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/metrics -> JSON with queue_depth, events_processed, processing_time_ms (p50/p95/p99), pipeline_errors</signature>
+      <path>backend/app/api/v1/metrics.py (to be created)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Testing framework: pytest with pytest-asyncio for async code testing. Unit tests in tests/test_services/, integration tests in tests/test_api/, performance tests included. All tests must use fixtures for database sessions and mock external dependencies. Async tests use @pytest.mark.asyncio decorator. Follow existing patterns from test_ai_service.py and test_events.py.
+    </standards>
+    <locations>
+      - backend/tests/test_services/ (unit tests for EventProcessor, workers, queue logic)
+      - backend/tests/test_api/ (integration tests for metrics endpoint)
+      - backend/tests/test_integration/ (end-to-end pipeline tests, if created)
+    </locations>
+    <ideas>
+      - AC1: Test EventProcessor initialization, queue creation (maxsize=50), graceful shutdown with timeout
+      - AC2: Test MotionDetectionTask creation per camera, cooldown enforcement, camera disconnect handling
+      - AC3: Test worker pool creation (configurable count), FIFO queue processing, parallel processing, queue overflow behavior
+      - AC4: Mock integration test: Motion → Queue → Worker → Mocked AI → Real Event API → Verify in DB
+      - AC5: Test error scenarios: AI failure (handled by Story 3.1), DB retry with exponential backoff, worker crash/restart
+      - AC6: Test metrics endpoint returns correct JSON structure, test queue depth tracking
+      - AC7: Performance test: Measure end-to-end latency with 50+ simulated events, verify &lt;5s p95, test throughput 10+ events/min
+    </ideas>
+  </tests>
+</story-context>

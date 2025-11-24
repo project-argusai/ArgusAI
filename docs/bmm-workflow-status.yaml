@@ -29,7 +29,7 @@ workflow_status:
   # Phase 1: Planning
   prd: docs/prd/  # agent: pm (sharded into 11 focused documents)
   validate-prd: optional  # agent: pm
-  create-design: conditional  # agent: ux-designer
+  create-design: docs/ux-design-specification.md  # agent: ux-designer
 
   # Phase 2: Solutioning
   create-architecture: docs/architecture.md  # agent: architect

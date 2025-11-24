@@ -56,6 +56,7 @@ class Camera(Base):
 
     # Relationships
     motion_events = relationship("MotionEvent", back_populates="camera", cascade="all, delete-orphan")
+    events = relationship("Event", back_populates="camera", cascade="all, delete-orphan")
     
     __table_args__ = (
         CheckConstraint("type IN ('rtsp', 'usb')", name='check_camera_type'),

@@ -1,0 +1,256 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>5</epicId>
+    <storyId>2</storyId>
+    <title>Build Alert Rule Configuration UI</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/5-2-build-alert-rule-configuration-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>an intuitive interface to create and manage alert rules</iWant>
+    <soThat>I can define when I want to be notified without writing code</soThat>
+    <tasks>
+      <task id="1" ac="1">Create rules list page structure with TanStack Query data fetching</task>
+      <task id="2" ac="1">Implement rules table with enable/disable toggle, edit, and delete actions</task>
+      <task id="3" ac="2,3">Build rule form component with react-hook-form and Zod validation</task>
+      <task id="4" ac="2">Implement condition inputs (ObjectTypeSelector, CameraSelector, TimeRangePicker, DaysOfWeekSelector, ConfidenceSlider)</task>
+      <task id="5" ac="2,3">Implement action inputs (DashboardNotificationToggle, WebhookConfig)</task>
+      <task id="6" ac="4">Implement rule testing feature with POST /api/v1/alert-rules/{id}/test</task>
+      <task id="7" ac="7">Implement create/save functionality with POST /api/v1/alert-rules</task>
+      <task id="8" ac="5">Implement edit functionality with PUT /api/v1/alert-rules/{id}</task>
+      <task id="9" ac="6">Implement delete functionality with DELETE /api/v1/alert-rules/{id}</task>
+      <task id="10" ac="8">Add responsive design and accessibility</task>
+      <task id="11">Testing and validation</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1" name="Rules List Page">Display existing alert rules with table view, empty state, Create Rule button, Edit/Delete icons, enable/disable toggle</criterion>
+    <criterion id="2" name="Create Rule Form">Visual rule builder with name, enabled toggle, conditions section (object types, cameras, time of day, days of week, min confidence), actions section (dashboard notification, webhook), cooldown section</criterion>
+    <criterion id="3" name="Form Validation">Real-time validation with inline errors, at least one condition required, at least one action required, HTTPS URL validation for webhook</criterion>
+    <criterion id="4" name="Rule Testing Feature">Test Rule button calls POST /api/v1/alert-rules/{id}/test, shows matching events count and mini cards</criterion>
+    <criterion id="5" name="Edit Functionality">Pre-fill form with existing rule data, PUT to update, test before saving</criterion>
+    <criterion id="6" name="Delete Functionality">Confirmation modal, DELETE endpoint, remove from table with optimistic update</criterion>
+    <criterion id="7" name="Save Behavior">POST to create, success toast, error handling with inline errors, Cancel with dirty form confirmation</criterion>
+    <criterion id="8" name="Responsive Design">Mobile vertical stacked form, desktop two-column layout, ARIA labels, 44px+ touch targets</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Frontend Components, API Endpoints, Epic 5 Alert Rules</section>
+        <snippet>Next.js 14 with App Router, TanStack Query for API data, Headless UI for modals/toggles, react-hook-form with Zod validation.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/5-1-implement-alert-rule-engine.md</path>
+        <title>Story 5.1: Implement Alert Rule Engine</title>
+        <section>Backend API Endpoints, Pydantic Schemas, Conditions/Actions JSON Structure</section>
+        <snippet>Backend APIs implemented: GET/POST /alert-rules, GET/PUT/DELETE /alert-rules/{id}, POST /alert-rules/{id}/test. Use these endpoints in frontend.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics.md</path>
+        <title>Epic Breakdown</title>
+        <section>Epic 5: Alert and Automation System, Story 5.2</section>
+        <snippet>Complete UI requirements for alert rule configuration including form fields, validation rules, and responsive design specs.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api-client</kind>
+        <symbol>apiClient</symbol>
+        <lines>1-337</lines>
+        <reason>Extend with alertRules namespace following cameras/events/settings patterns</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/rules/page.tsx</path>
+        <kind>page</kind>
+        <symbol>RulesPage</symbol>
+        <lines>1-49</lines>
+        <reason>Placeholder page to replace with full implementation</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/alert_rule.py</path>
+        <kind>schema</kind>
+        <symbol>AlertRuleCreate, AlertRuleUpdate, AlertRuleResponse, AlertRuleConditions, AlertRuleActions</symbol>
+        <lines>1-366</lines>
+        <reason>Backend Pydantic schemas to replicate in TypeScript/Zod for frontend validation</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/alert_rules.py</path>
+        <kind>api-endpoint</kind>
+        <symbol>router</symbol>
+        <reason>Backend API endpoints to integrate with frontend. Endpoints: list, create, get, update, delete, test</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/form.tsx</path>
+        <kind>component</kind>
+        <symbol>Form, FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage</symbol>
+        <reason>Existing form components from shadcn/ui to use in rule form</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/switch.tsx</path>
+        <kind>component</kind>
+        <symbol>Switch</symbol>
+        <reason>Toggle component for enable/disable rule</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/checkbox.tsx</path>
+        <kind>component</kind>
+        <symbol>Checkbox</symbol>
+        <reason>Checkbox component for object types and days of week selection</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/slider.tsx</path>
+        <kind>component</kind>
+        <symbol>Slider</symbol>
+        <reason>Slider component for confidence threshold</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/select.tsx</path>
+        <kind>component</kind>
+        <symbol>Select, SelectTrigger, SelectContent, SelectItem</symbol>
+        <reason>Select component for camera multi-select dropdown</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>component</kind>
+        <symbol>Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription</symbol>
+        <reason>Dialog component for rule form modal and delete confirmation</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/alert-dialog.tsx</path>
+        <kind>component</kind>
+        <symbol>AlertDialog, AlertDialogAction, AlertDialogCancel</symbol>
+        <reason>Alert dialog for delete confirmation</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/common/ConfirmDialog.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfirmDialog</symbol>
+        <reason>Existing confirmation dialog pattern to follow</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/common/EmptyState.tsx</path>
+        <kind>component</kind>
+        <symbol>EmptyState</symbol>
+        <reason>Empty state component for when no rules exist</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <frontend>
+        <package name="next" version="16.0.3" />
+        <package name="react" version="19.2.0" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="@hookform/resolvers" version="^5.2.2" />
+        <package name="zod" version="^4.1.12" />
+        <package name="@radix-ui/react-switch" version="^1.2.6" />
+        <package name="@radix-ui/react-checkbox" version="^1.3.3" />
+        <package name="@radix-ui/react-select" version="^2.2.6" />
+        <package name="@radix-ui/react-slider" version="^1.3.6" />
+        <package name="@radix-ui/react-dialog" version="^1.1.15" />
+        <package name="@radix-ui/react-alert-dialog" version="^1.1.15" />
+        <package name="sonner" version="^2.0.7" />
+        <package name="date-fns" version="^4.1.0" />
+        <package name="lucide-react" version="^0.553.0" />
+        <package name="tailwindcss" version="^4" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="httpx" version="0.25.2" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing api-client.ts pattern when adding alertRules namespace</constraint>
+    <constraint type="pattern">Use TanStack Query useQuery/useMutation patterns from cameras/events pages</constraint>
+    <constraint type="pattern">Use react-hook-form with Zod resolver for form validation</constraint>
+    <constraint type="pattern">Use existing shadcn/ui components from frontend/components/ui/</constraint>
+    <constraint type="validation">Replicate Pydantic validators in Zod: URL format, time HH:MM format, days_of_week 1-7, min_confidence 0-100, cooldown_minutes 0-1440</constraint>
+    <constraint type="validation">At least one condition must be set (object_types, cameras, time_of_day, days_of_week, or min_confidence)</constraint>
+    <constraint type="validation">At least one action must be enabled (dashboard_notification or webhook)</constraint>
+    <constraint type="validation">Webhook URL must be HTTPS in production</constraint>
+    <constraint type="ui">Mobile-first responsive design with breakpoints: mobile (vertical), desktop (two-column)</constraint>
+    <constraint type="ui">Touch targets minimum 44x44px</constraint>
+    <constraint type="ui">ARIA labels and keyboard navigation required</constraint>
+    <constraint type="api">Backend APIs already implemented in Story 5.1 - do not modify backend</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/alert-rules" kind="REST endpoint">
+      <signature>GET /api/v1/alert-rules?is_enabled=bool</signature>
+      <response>AlertRuleListResponse { data: AlertRule[], total_count: number }</response>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface name="POST /api/v1/alert-rules" kind="REST endpoint">
+      <signature>POST /api/v1/alert-rules</signature>
+      <request>AlertRuleCreate { name, is_enabled?, conditions?, actions?, cooldown_minutes? }</request>
+      <response>AlertRuleResponse (201 Created)</response>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface name="GET /api/v1/alert-rules/{id}" kind="REST endpoint">
+      <signature>GET /api/v1/alert-rules/{id}</signature>
+      <response>AlertRuleResponse (200) or 404</response>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface name="PUT /api/v1/alert-rules/{id}" kind="REST endpoint">
+      <signature>PUT /api/v1/alert-rules/{id}</signature>
+      <request>AlertRuleUpdate { name?, is_enabled?, conditions?, actions?, cooldown_minutes? }</request>
+      <response>AlertRuleResponse (200) or 404</response>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface name="DELETE /api/v1/alert-rules/{id}" kind="REST endpoint">
+      <signature>DELETE /api/v1/alert-rules/{id}</signature>
+      <response>204 No Content or 404</response>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface name="POST /api/v1/alert-rules/{id}/test" kind="REST endpoint">
+      <signature>POST /api/v1/alert-rules/{id}/test</signature>
+      <request>AlertRuleTestRequest { limit?: number (default 50) }</request>
+      <response>AlertRuleTestResponse { rule_id, events_tested, events_matched, matching_event_ids }</response>
+      <path>backend/app/api/v1/alert_rules.py</path>
+    </interface>
+    <interface name="AlertRule TypeScript Type" kind="TypeScript interface">
+      <signature>interface AlertRule { id: string; name: string; is_enabled: boolean; conditions: AlertRuleConditions; actions: AlertRuleActions; cooldown_minutes: number; last_triggered_at: string | null; trigger_count: number; created_at: string; updated_at: string; }</signature>
+      <path>frontend/types/alert-rule.ts (to create)</path>
+    </interface>
+    <interface name="AlertRuleConditions TypeScript Type" kind="TypeScript interface">
+      <signature>interface AlertRuleConditions { object_types?: string[]; cameras?: string[]; time_of_day?: { start: string; end: string }; days_of_week?: number[]; min_confidence?: number; }</signature>
+      <path>frontend/types/alert-rule.ts (to create)</path>
+    </interface>
+    <interface name="AlertRuleActions TypeScript Type" kind="TypeScript interface">
+      <signature>interface AlertRuleActions { dashboard_notification?: boolean; webhook?: { url: string; headers?: Record&lt;string, string&gt;; }; }</signature>
+      <path>frontend/types/alert-rule.ts (to create)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend tests use Jest and React Testing Library. Component tests verify rendering, user interactions, and form validation. Integration tests verify API client calls and state updates. Run tests with `npm test` and build with `npm run build`. Lint with `npm run lint`.</standards>
+    <locations>
+      <location>frontend/__tests__/ (create if needed)</location>
+      <location>frontend/components/**/*.test.tsx (co-located tests)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test RulesList renders table with rules, shows empty state when no rules</idea>
+      <idea ac="1">Test enable/disable toggle calls PUT endpoint and updates UI optimistically</idea>
+      <idea ac="2">Test RuleForm renders all condition and action inputs</idea>
+      <idea ac="3">Test Zod validation rejects empty name, invalid URL, invalid time format</idea>
+      <idea ac="3">Test form-level validation requires at least one condition and one action</idea>
+      <idea ac="4">Test RuleTestResults shows matching events count and cards</idea>
+      <idea ac="5">Test edit mode pre-fills form with existing rule data</idea>
+      <idea ac="6">Test delete confirmation modal shows and calls DELETE endpoint</idea>
+      <idea ac="7">Test save calls POST endpoint and shows success toast</idea>
+      <idea ac="8">Test responsive layout changes at breakpoints</idea>
+    </ideas>
+  </tests>
+</story-context>

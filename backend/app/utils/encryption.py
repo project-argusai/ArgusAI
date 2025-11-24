@@ -45,6 +45,51 @@ def encrypt_password(password: str) -> str:
         raise ValueError("Failed to encrypt password")
 
 
+def is_encrypted(value: str) -> bool:
+    """
+    Check if a value is already encrypted (has 'encrypted:' prefix)
+
+    Args:
+        value: String to check
+
+    Returns:
+        True if value starts with 'encrypted:', False otherwise
+    """
+    if not value:
+        return False
+    return value.startswith("encrypted:")
+
+
+def mask_sensitive(value: str, show_chars: int = 4) -> str:
+    """
+    Mask sensitive value for logging, showing only last N characters
+
+    Args:
+        value: Sensitive string to mask
+        show_chars: Number of characters to show at the end (default: 4)
+
+    Returns:
+        Masked string like '****abcd' or '****' if too short
+
+    Example:
+        >>> mask_sensitive("sk-1234567890abcdef")
+        '****cdef'
+        >>> mask_sensitive("short")
+        '****'
+    """
+    if not value:
+        return "****"
+
+    # Don't reveal encrypted values at all
+    if value.startswith("encrypted:"):
+        return "****[encrypted]"
+
+    if len(value) <= show_chars:
+        return "****"
+
+    return "****" + value[-show_chars:]
+
+
 def decrypt_password(encrypted_password: str) -> str:
     """
     Decrypt a Fernet-encrypted password

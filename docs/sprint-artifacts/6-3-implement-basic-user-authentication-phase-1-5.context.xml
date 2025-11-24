@@ -1,0 +1,251 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>6</epicId>
+    <storyId>3</storyId>
+    <title>Implement Basic User Authentication (Phase 1.5)</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/6-3-implement-basic-user-authentication-phase-1-5.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to log in with a username and password</iWant>
+    <soThat>my camera system is protected from unauthorized access</soThat>
+    <tasks>
+      <task id="1" status="pending">Create User database model and migration (AC: #3)
+        <subtasks>
+          <subtask>Create backend/app/models/user.py with User model</subtask>
+          <subtask>Add id, username, password_hash, created_at, last_login fields</subtask>
+          <subtask>Create Alembic migration for users table</subtask>
+          <subtask>Add unique constraint on username</subtask>
+          <subtask>Create initial admin user setup script</subtask>
+        </subtasks>
+      </task>
+      <task id="2" status="pending">Implement password hashing utilities (AC: #2)
+        <subtasks>
+          <subtask>Install bcrypt package</subtask>
+          <subtask>Create backend/app/utils/auth.py with hash/verify functions</subtask>
+          <subtask>Hash with cost factor 12</subtask>
+          <subtask>Write unit tests for password hashing</subtask>
+        </subtasks>
+      </task>
+      <task id="3" status="pending">Implement JWT token utilities (AC: #5)
+        <subtasks>
+          <subtask>Install python-jose package</subtask>
+          <subtask>Add JWT_SECRET_KEY to config.py and .env</subtask>
+          <subtask>Create backend/app/utils/jwt.py with create/decode functions</subtask>
+          <subtask>Implement token expiration (24 hours)</subtask>
+          <subtask>Write unit tests for JWT creation/validation</subtask>
+        </subtasks>
+      </task>
+      <task id="4" status="pending">Create authentication API endpoints (AC: #4, #7, #10)
+        <subtasks>
+          <subtask>Create backend/app/api/v1/auth.py router</subtask>
+          <subtask>Implement POST /api/v1/auth/login endpoint</subtask>
+          <subtask>Implement POST /api/v1/auth/logout endpoint</subtask>
+          <subtask>Implement POST /api/v1/auth/change-password endpoint</subtask>
+          <subtask>Add rate limiting with slowapi (5 attempts/15 min)</subtask>
+          <subtask>Register auth router in main.py</subtask>
+          <subtask>Write integration tests for auth endpoints</subtask>
+        </subtasks>
+      </task>
+      <task id="5" status="pending">Implement authentication middleware (AC: #6)
+        <subtasks>
+          <subtask>Create backend/app/middleware/auth_middleware.py</subtask>
+          <subtask>Extract JWT from cookie or Authorization header</subtask>
+          <subtask>Validate token and fetch user</subtask>
+          <subtask>Add user to request.state</subtask>
+          <subtask>Exclude /health, /login, /metrics, /docs from auth</subtask>
+          <subtask>Add middleware to FastAPI app</subtask>
+          <subtask>Write tests for middleware</subtask>
+        </subtasks>
+      </task>
+      <task id="6" status="pending">Create frontend login page (AC: #8)
+        <subtasks>
+          <subtask>Create /frontend/app/login/page.tsx</subtask>
+          <subtask>Build login form with username/password fields</subtask>
+          <subtask>Add form validation (required, min length)</subtask>
+          <subtask>Handle form submission to /api/v1/auth/login</subtask>
+          <subtask>Display error messages</subtask>
+          <subtask>Redirect to dashboard on success</subtask>
+        </subtasks>
+      </task>
+      <task id="7" status="pending">Implement frontend auth context and protection (AC: #9)
+        <subtasks>
+          <subtask>Update /frontend/contexts/AuthContext.tsx with real auth</subtask>
+          <subtask>Create ProtectedRoute wrapper component</subtask>
+          <subtask>Update layout to check auth status</subtask>
+          <subtask>Add redirect to /login for unauthenticated users</subtask>
+          <subtask>Implement returnUrl handling for post-login redirect</subtask>
+          <subtask>Add logout button to header user menu</subtask>
+        </subtasks>
+      </task>
+      <task id="8" status="pending">Testing and validation (AC: #1-10)
+        <subtasks>
+          <subtask>Write unit tests for auth utilities (bcrypt, JWT)</subtask>
+          <subtask>Write integration tests for auth endpoints</subtask>
+          <subtask>Test login flow end-to-end</subtask>
+          <subtask>Test protected route redirection</subtask>
+          <subtask>Verify rate limiting works</subtask>
+          <subtask>Run npm run build and npm run lint for frontend</subtask>
+          <subtask>Run pytest for backend</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1" title="Login Redirect">
+      <description>When a user accesses the dashboard without authentication, they are redirected to /login</description>
+    </criterion>
+    <criterion id="2" title="Authentication Implementation">
+      <description>Username + password auth with bcrypt (cost 12), JWT tokens in HTTP-only cookies, 24h expiration</description>
+    </criterion>
+    <criterion id="3" title="Database Schema">
+      <description>Users table with id, username, password_hash, created_at, last_login. Default admin user created on setup.</description>
+    </criterion>
+    <criterion id="4" title="Login Endpoint">
+      <description>POST /api/v1/auth/login with rate limiting (5 attempts/15 min). Returns JWT, sets HTTP-only cookie.</description>
+    </criterion>
+    <criterion id="5" title="JWT Token">
+      <description>Payload: user_id, username, exp. HS256 signing with JWT_SECRET_KEY. 24h expiration.</description>
+    </criterion>
+    <criterion id="6" title="Authentication Middleware">
+      <description>Intercept API requests, check JWT in cookie/header, validate, add user to request.state. Exclude /health, /login, /metrics.</description>
+    </criterion>
+    <criterion id="7" title="Logout Endpoint">
+      <description>POST /api/v1/auth/logout clears JWT cookie, returns 200 OK</description>
+    </criterion>
+    <criterion id="8" title="Frontend Login Page">
+      <description>/login route with form, validation, error display, redirect on success</description>
+    </criterion>
+    <criterion id="9" title="Protected Routes">
+      <description>All dashboard routes require auth, redirect to /login if not authenticated, returnUrl handling</description>
+    </criterion>
+    <criterion id="10" title="Password Management">
+      <description>POST /api/v1/auth/change-password endpoint. Requirements: 8+ chars, 1 uppercase, 1 number, 1 special char.</description>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/architecture.md" title="Architecture Document" section="Authentication">
+        <snippet>Authentication uses JWT tokens stored in HTTP-only cookies. Backend middleware for API protection. Frontend uses React Context for auth state.</snippet>
+      </doc>
+      <doc path="docs/epics.md" title="Epics" section="Story 6.3">
+        <snippet>Basic user authentication with bcrypt password hashing, JWT tokens, login/logout endpoints, frontend login page and protected routes.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact path="frontend/contexts/AuthContext.tsx" kind="context" symbol="AuthProvider" lines="1-89" reason="EXISTING placeholder auth context - UPDATE with real API calls">
+        <note>Currently contains mock implementation. Update login() to call /api/v1/auth/login and logout() to call /api/v1/auth/logout.</note>
+      </artifact>
+      <artifact path="backend/app/middleware/logging_middleware.py" kind="middleware" symbol="RequestLoggingMiddleware" lines="1-50" reason="Pattern reference for auth middleware - follow same BaseHTTPMiddleware pattern">
+        <note>Use same Starlette BaseHTTPMiddleware pattern for auth middleware. Follow EXCLUDED_PATHS pattern.</note>
+      </artifact>
+      <artifact path="backend/app/models/__init__.py" kind="model" symbol="__all__" lines="1-10" reason="Add User model export here after creating user.py">
+        <note>Currently exports Camera, MotionEvent, SystemSetting, AIUsage, Event, AlertRule, WebhookLog. Add User to __all__.</note>
+      </artifact>
+      <artifact path="backend/app/core/config.py" kind="config" symbol="Settings" reason="Add JWT_SECRET_KEY setting here">
+        <note>Add JWT_SECRET_KEY: str = Field(default=..., env='JWT_SECRET_KEY') to Settings class.</note>
+      </artifact>
+      <artifact path="backend/main.py" kind="entrypoint" symbol="app" reason="Register auth router and auth middleware here">
+        <note>Add auth_router import and app.include_router. Add AuthMiddleware after RequestLoggingMiddleware.</note>
+      </artifact>
+      <artifact path="frontend/app/layout.tsx" kind="layout" symbol="RootLayout" reason="Auth provider already included - may need to add auth check">
+        <note>AuthProvider already wraps children. May need to add ProtectedRoute logic here or in individual pages.</note>
+      </artifact>
+      <artifact path="frontend/components/layout/Header.tsx" kind="component" symbol="Header" reason="Add logout button to user menu">
+        <note>Add user dropdown with logout button. Import useAuth hook to get logout function.</note>
+      </artifact>
+      <artifact path="backend/app/utils/encryption.py" kind="utility" symbol="encrypt_password" reason="Reference for utility patterns - auth.py follows same structure">
+        <note>Follow same pattern for auth.py - simple utility functions with clear docstrings and tests.</note>
+      </artifact>
+    </code>
+    <dependencies>
+      <backend>
+        <existing>
+          <package name="fastapi" version="0.115.0">Web framework with middleware and dependency injection</package>
+          <package name="pydantic-settings" version="2.6.0">Settings management for JWT_SECRET_KEY</package>
+          <package name="sqlalchemy" version="2.0.23">ORM for User model</package>
+        </existing>
+        <toAdd>
+          <package name="bcrypt" version=">=4.0.0">Password hashing with cost factor support</package>
+          <package name="python-jose[cryptography]" version=">=3.3.0">JWT token creation and validation</package>
+          <package name="slowapi" version=">=0.1.9">Rate limiting for login endpoint</package>
+        </toAdd>
+      </backend>
+      <frontend>
+        <existing>
+          <package name="react-hook-form" version="7.51.5">Form handling for login form</package>
+          <package name="@hookform/resolvers" version="3.4.2">Zod validation integration</package>
+          <package name="zod" version="3.23.8">Schema validation for login form</package>
+        </existing>
+        <toAdd>None required - existing packages sufficient</toAdd>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture.md" type="security">Password hashing MUST use bcrypt with cost factor 12 minimum</constraint>
+    <constraint source="architecture.md" type="security">JWT tokens MUST be stored in HTTP-only cookies with secure and SameSite flags</constraint>
+    <constraint source="epics.md" type="security">Rate limiting: Maximum 5 login attempts per 15 minutes per IP</constraint>
+    <constraint source="architecture.md" type="pattern">Use FastAPI dependency injection for auth middleware</constraint>
+    <constraint source="architecture.md" type="pattern">Use React Context for frontend auth state management</constraint>
+    <constraint source="epics.md" type="api">Auth endpoints use /api/v1/auth prefix</constraint>
+    <constraint source="epics.md" type="api">Exclude /health, /login, /metrics, /docs from auth middleware</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/auth/login" kind="REST endpoint" path="backend/app/api/v1/auth.py" lines="new">
+      <signature>POST /api/v1/auth/login {"username": str, "password": str} -> {"access_token": str, "user": User}</signature>
+      <note>Sets HTTP-only cookie with JWT. Rate limited to 5 attempts per 15 minutes.</note>
+    </interface>
+    <interface name="POST /api/v1/auth/logout" kind="REST endpoint" path="backend/app/api/v1/auth.py" lines="new">
+      <signature>POST /api/v1/auth/logout -> {"message": "Logged out"}</signature>
+      <note>Clears JWT cookie by setting max-age=0</note>
+    </interface>
+    <interface name="POST /api/v1/auth/change-password" kind="REST endpoint" path="backend/app/api/v1/auth.py" lines="new">
+      <signature>POST /api/v1/auth/change-password {"current_password": str, "new_password": str} -> {"message": "Password changed"}</signature>
+      <note>Requires valid JWT. Validates new password meets requirements.</note>
+    </interface>
+    <interface name="AuthMiddleware" kind="middleware" path="backend/app/middleware/auth_middleware.py" lines="new">
+      <signature>class AuthMiddleware(BaseHTTPMiddleware)</signature>
+      <note>Validates JWT from cookie or Authorization header. Adds user to request.state.</note>
+    </interface>
+    <interface name="User model" kind="SQLAlchemy model" path="backend/app/models/user.py" lines="new">
+      <signature>class User(Base): id, username, password_hash, created_at, last_login</signature>
+      <note>Username unique, 3-50 chars. Password hash is bcrypt (60 chars).</note>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <paragraph>Backend tests use pytest with pytest-asyncio. Tests in backend/tests/ with subdirectories. Use pytest fixtures from conftest.py. Frontend tests with npm run build and npm run lint.</paragraph>
+    </standards>
+    <locations>
+      <location>backend/tests/test_utils/test_auth.py - New file for password hashing tests</location>
+      <location>backend/tests/test_utils/test_jwt.py - New file for JWT tests</location>
+      <location>backend/tests/test_api/test_auth.py - New file for auth endpoint tests</location>
+      <location>backend/tests/test_middleware/test_auth_middleware.py - New file for middleware tests</location>
+    </locations>
+    <ideas>
+      <testIdea acId="2">Test bcrypt hash produces 60-char string</testIdea>
+      <testIdea acId="2">Test bcrypt verify returns True for correct password</testIdea>
+      <testIdea acId="2">Test bcrypt verify returns False for wrong password</testIdea>
+      <testIdea acId="5">Test JWT creation includes user_id, username, exp claims</testIdea>
+      <testIdea acId="5">Test JWT decoding returns correct payload</testIdea>
+      <testIdea acId="5">Test expired JWT raises exception</testIdea>
+      <testIdea acId="4">Test login with valid credentials returns 200 and sets cookie</testIdea>
+      <testIdea acId="4">Test login with invalid credentials returns 401</testIdea>
+      <testIdea acId="4">Test rate limiting blocks after 5 failed attempts</testIdea>
+      <testIdea acId="6">Test middleware allows excluded paths without auth</testIdea>
+      <testIdea acId="6">Test middleware rejects requests without valid JWT</testIdea>
+      <testIdea acId="6">Test middleware adds user to request.state for valid JWT</testIdea>
+      <testIdea acId="10">Test change password validates current password</testIdea>
+      <testIdea acId="10">Test change password enforces requirements (8+ chars, uppercase, number, special)</testIdea>
+    </ideas>
+  </tests>
+</story-context>

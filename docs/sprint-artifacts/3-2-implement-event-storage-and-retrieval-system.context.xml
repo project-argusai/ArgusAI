@@ -1,0 +1,328 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>3</epicId>
+    <storyId>3.2</storyId>
+    <title>Implement Event Storage and Retrieval System</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/3-2-implement-event-storage-and-retrieval-system.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>to store AI-generated events in the database with full metadata</iWant>
+    <soThat>events can be queried, filtered, and displayed to users</soThat>
+    <tasks>
+      - Create Pydantic schemas for event requests/responses
+      - Verify events table schema from Epic 1, add FTS5 for full-text search
+      - Implement POST /api/v1/events endpoint for event creation
+      - Implement GET /api/v1/events with filtering (camera, date range, objects, search)
+      - Implement GET /api/v1/events/{id} for single event retrieval
+      - Implement GET /api/v1/events/stats for aggregated statistics
+      - Add thumbnail storage with dual modes (filesystem/database)
+      - Optimize database queries with indexes
+      - Create unit and integration tests
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">
+      <title>Event Creation and Persistence - Store complete event metadata</title>
+      <details>
+        - Generate UUID for event ID (uuid4)
+        - Store camera_id (FK to cameras, CASCADE delete)
+        - Store timestamp (ISO 8601, indexed)
+        - Store description (AI-generated, FTS5 searchable)
+        - Store confidence (0-100, CHECK constraint)
+        - Store objects_detected (JSON array)
+        - Store thumbnail (path or base64)
+        - Set alert_triggered=false (updated by Epic 5)
+        - Auto-record created_at timestamp
+      </details>
+    </criterion>
+    <criterion id="2">
+      <title>Thumbnail Storage Modes - Flexible storage options</title>
+      <details>
+        - Filesystem mode: Save to /backend/data/thumbnails/{event_id}.jpg
+        - Database mode: Store base64 in thumbnail_base64 column
+        - Configurable via THUMBNAIL_STORAGE_MODE env var (default: filesystem)
+        - Create directory if doesn't exist, handle errors
+        - Image limit: 200KB (resize before storage)
+        - Cleanup on event deletion
+      </details>
+    </criterion>
+    <criterion id="3">
+      <title>Event Creation API - POST /api/v1/events</title>
+      <details>
+        - Accept event data from AI service (Story 3.1)
+        - Validate with Pydantic schema
+        - Return 201 Created with full event object
+        - Trigger alert evaluation async (Epic 5, optional)
+        - Broadcast to WebSocket (Epic 4, optional)
+        - Response time: &lt;100ms for DB write
+      </details>
+    </criterion>
+    <criterion id="4">
+      <title>Event Query API - GET /api/v1/events with filtering</title>
+      <details>
+        - Query params: camera_id, start_date, end_date, object_type, search, limit, offset
+        - Default: Last 50 events, sorted by timestamp DESC
+        - Response: events array, total_count, pagination metadata
+        - Example: GET /api/v1/events?camera_id=abc&amp;object_type=person&amp;limit=20
+      </details>
+    </criterion>
+    <criterion id="5">
+      <title>Single Event Retrieval - GET /api/v1/events/{id}</title>
+      <details>
+        - Return full event with metadata
+        - Include thumbnail (base64 or file path)
+        - Return 404 if not found
+        - Include camera info (name, type)
+        - Response time: &lt;50ms
+      </details>
+    </criterion>
+    <criterion id="6">
+      <title>Event Statistics API - GET /api/v1/events/stats</title>
+      <details>
+        - Total events (all time, today, week, month)
+        - Events by camera (count, percentage)
+        - Events by object type
+        - Events by hour (0-23 breakdown)
+        - Average confidence score
+        - Time range filters supported
+        - Cached for 1 minute
+        - Response time: &lt;200ms
+      </details>
+    </criterion>
+    <criterion id="7">
+      <title>Performance Optimization - Meet architecture requirements</title>
+      <details>
+        - Indexes: timestamp DESC, camera_id, objects_detected
+        - FTS5 index on description
+        - Query time: &lt;100ms for 50 events
+        - Pagination: LIMIT/OFFSET
+        - Connection pooling configured
+        - Test with 1000+ events
+      </details>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document - Database Schema</title>
+        <section>events table</section>
+        <snippet>events table: id (UUID PK), camera_id (FK), timestamp (indexed), description (TEXT, FTS5), confidence (0-100), objects_detected (JSON), thumbnail_path, thumbnail_base64, alert_triggered (bool), created_at. Indexes on timestamp DESC, camera_id. CASCADE delete on camera FK.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document - API Contracts</title>
+        <section>Events Endpoints</section>
+        <snippet>GET /events: pagination with limit/offset, filters (camera_id, date range, object_type, search). POST /events: create event, returns 201. GET /events/{id}: single event. GET /events/stats: aggregated statistics. GET /events/{id}/thumbnail: image file.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document - Performance</title>
+        <section>Database Optimizations</section>
+        <snippet>Indexes on timestamp, camera_id. FTS5 for full-text search. Pagination max 200 per page. Connection pooling. Query response: &lt;100ms for typical queries. Test with 1000+ events.</snippet>
+      </doc>
+      <doc>
+        <path>docs/test-design-system.md</path>
+        <title>Test Design - Integration Tests</title>
+        <section>API Endpoints</section>
+        <snippet>Integration tests: POST /events creates in DB, GET /events filters correctly, pagination works, full-text search performs. Use test database fixtures. Verify &lt;100ms response times.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/3-1-integrate-ai-vision-api-for-description-generation.md</path>
+        <title>Story 3.1 - AI Integration</title>
+        <section>Integration Point</section>
+        <snippet>Story 3.1 AI service will call POST /api/v1/events to store generated descriptions. Expects event_data with: camera_id, timestamp, description, confidence, objects_detected, thumbnail.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/models/motion_event.py</path>
+        <kind>model</kind>
+        <symbol>MotionEvent</symbol>
+        <lines>all</lines>
+        <reason>Existing event model from Epic 2. Verify if this is the events table or if separate Event model needed. Check schema matches Epic 1 design.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <lines>all</lines>
+        <reason>Camera model for FK relationship. Events table has camera_id FK to cameras.id with CASCADE delete.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/cameras.py</path>
+        <kind>api</kind>
+        <symbol>router, create_camera, get_cameras</symbol>
+        <lines>1-100</lines>
+        <reason>Existing API patterns for CRUD operations. Follow same structure for events API: router setup, Pydantic validation, error handling, response models.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/camera.py</path>
+        <kind>schema</kind>
+        <symbol>CameraCreate, CameraResponse</symbol>
+        <lines>all</lines>
+        <reason>Pydantic schema patterns. Create similar EventCreate, EventResponse, EventListResponse schemas. Follow validation patterns.</reason>
+      </file>
+      <file>
+        <path>backend/app/core/database.py</path>
+        <kind>database</kind>
+        <symbol>get_db, engine</symbol>
+        <lines>all</lines>
+        <reason>Database session dependency. Use get_db() in event endpoints for async database access.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>application</kind>
+        <symbol>app</symbol>
+        <lines>all</lines>
+        <reason>FastAPI app. Register events router with app.include_router(events.router, prefix="/api/v1").</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_cameras.py</path>
+        <kind>test</kind>
+        <symbol>test_create_camera, test_get_cameras</symbol>
+        <lines>all</lines>
+        <reason>API integration test patterns. Use same approach for events API tests: test client, database fixtures, validation.</reason>
+      </file>
+      <file>
+        <path>backend/tests/conftest.py</path>
+        <kind>test</kind>
+        <symbol>test_db, client</symbol>
+        <lines>all</lines>
+        <reason>Pytest fixtures for database and test client. Use in event API tests.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <existing>
+          <package name="fastapi" version="0.115.0">Web framework for REST API</package>
+          <package name="sqlalchemy" version="2.0.36">ORM for database operations</package>
+          <package name="pydantic" version="2.10.0">Request/response validation</package>
+          <package name="pytest" version="7.4.3">Testing framework</package>
+          <package name="httpx" version="0.25.2">Test client for API</package>
+        </existing>
+        <required>
+          <package name="pillow">Image processing for thumbnail resize (may already be installed)</package>
+        </required>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">
+      Follow REST API conventions: POST for create (201), GET for read (200), PUT for update, DELETE for delete. Use Pydantic for validation. Return consistent response format with data/meta structure.
+    </constraint>
+    <constraint type="database">
+      Use SQLAlchemy async ORM. Events table from Epic 1 must have all required columns. Add FTS5 virtual table for full-text search via Alembic migration. Indexes on timestamp, camera_id required.
+    </constraint>
+    <constraint type="performance">
+      Query response time: &lt;100ms for typical queries (50 events), &lt;50ms for single event lookup, &lt;200ms for statistics. Test with 1000+ events to ensure scalability.
+    </constraint>
+    <constraint type="pagination">
+      Use LIMIT/OFFSET for pagination. Max limit: 100 per page. Return pagination metadata: total_count, has_more, next_offset.
+    </constraint>
+    <constraint type="search">
+      Full-text search on description field using SQLite FTS5 extension. Create FTS5 virtual table synced with events table. Search query should use MATCH operator for performance.
+    </constraint>
+    <constraint type="storage">
+      Thumbnail storage mode configurable via THUMBNAIL_STORAGE_MODE env var. Filesystem mode: create /backend/data/thumbnails/ directory, save as {event_id}.jpg. Database mode: store base64 in thumbnail_base64 column. Max size: 200KB.
+    </constraint>
+    <constraint type="testing">
+      Integration tests must use test database fixtures. Test all endpoints: create, list, get, stats. Test filtering, pagination, search. Verify performance with large datasets.
+    </constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>POST /api/v1/events</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/events (body: EventCreate) -> EventResponse (201)</signature>
+      <path>backend/app/api/v1/events.py (to be created)</path>
+      <description>Create new event. Called by AI service (Story 3.1) after generating description. Validates data, stores in DB, returns created event with ID. Triggers async alert evaluation (Epic 5).</description>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events?camera_id=&amp;start_date=&amp;end_date=&amp;object_type=&amp;search=&amp;limit=&amp;offset= -> EventListResponse</signature>
+      <path>backend/app/api/v1/events.py</path>
+      <description>List events with filtering and pagination. Supports camera filter, date range, object type, full-text search. Returns events array with pagination metadata.</description>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events/{id} -> EventResponse (200) or 404</signature>
+      <path>backend/app/api/v1/events.py</path>
+      <description>Get single event by ID. Includes full metadata, camera info, thumbnail. Returns 404 if not found.</description>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events/stats</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events/stats?start_date=&amp;end_date= -> EventStatsResponse</signature>
+      <path>backend/app/api/v1/events.py</path>
+      <description>Get aggregated event statistics. Returns totals by time period, camera, object type, hour of day. Cached for 1 minute.</description>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events/{id}/thumbnail</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events/{id}/thumbnail -> image/jpeg (200) or 404</signature>
+      <path>backend/app/api/v1/events.py</path>
+      <description>Get event thumbnail image. Returns JPEG file from filesystem or decodes base64 from DB. Content-Type: image/jpeg.</description>
+    </interface>
+    <interface>
+      <name>Event (SQLAlchemy model)</name>
+      <kind>ORM model</kind>
+      <signature>class Event(Base): id, camera_id, timestamp, description, confidence, objects_detected, thumbnail_path, thumbnail_base64, alert_triggered, created_at</signature>
+      <path>backend/app/models/event.py (verify exists or create)</path>
+      <description>Event database model. Check if MotionEvent from Epic 2 is this table or if separate Event model needed per Epic 1 schema.</description>
+    </interface>
+    <interface>
+      <name>EventCreate (Pydantic schema)</name>
+      <kind>Pydantic schema</kind>
+      <signature>class EventCreate(BaseModel): camera_id, timestamp, description, confidence, objects_detected, thumbnail_path?, thumbnail_base64?</signature>
+      <path>backend/app/schemas/event.py (to be created)</path>
+      <description>Request schema for event creation. Validates required fields, types, constraints (confidence 0-100).</description>
+    </interface>
+    <interface>
+      <name>EventResponse (Pydantic schema)</name>
+      <kind>Pydantic schema</kind>
+      <signature>class EventResponse(BaseModel): id, camera_id, camera_name, timestamp, description, confidence, objects_detected, thumbnail_url?, alert_triggered, created_at</signature>
+      <path>backend/app/schemas/event.py</path>
+      <description>Response schema for event. Includes computed fields like camera_name (joined), thumbnail_url.</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Testing follows pytest with async support. Integration tests use FastAPI TestClient and test database fixtures from conftest.py. Follow patterns in tests/test_api/test_cameras.py. Mock external dependencies. Use factories for test data generation. Target 80%+ code coverage.
+    </standards>
+    <locations>
+      - backend/tests/test_api/test_events.py (API integration tests)
+      - backend/tests/test_models/test_event.py (model unit tests)
+      - backend/tests/test_schemas/test_event.py (schema validation tests)
+    </locations>
+    <ideas>
+      <test ac="1,3">Test POST /api/v1/events: Create event with valid data -> Returns 201 with event object. Verify stored in database.</test>
+      <test ac="1">Test event creation validation: Missing required field -> Returns 400. Invalid confidence (101) -> Returns 400.</test>
+      <test ac="2">Test thumbnail filesystem mode: Event created with thumbnail_path -> File saved to /backend/data/thumbnails/{id}.jpg.</test>
+      <test ac="2">Test thumbnail database mode: THUMBNAIL_STORAGE_MODE=database -> thumbnail_base64 populated, no file created.</test>
+      <test ac="4">Test GET /api/v1/events: No filters -> Returns last 50 events, sorted by timestamp DESC.</test>
+      <test ac="4">Test filtering by camera: GET /events?camera_id=abc -> Returns only events from that camera.</test>
+      <test ac="4">Test date range filter: GET /events?start_date=2025-11-01&amp;end_date=2025-11-16 -> Returns events in range.</test>
+      <test ac="4">Test full-text search: GET /events?search=delivery package -> Returns events with matching descriptions.</test>
+      <test ac="4">Test pagination: GET /events?limit=10&amp;offset=20 -> Returns events 21-30.</test>
+      <test ac="5">Test GET /api/v1/events/{id}: Valid ID -> Returns full event with camera info.</test>
+      <test ac="5">Test event not found: GET /events/invalid-id -> Returns 404.</test>
+      <test ac="6">Test GET /api/v1/events/stats: Returns total events, by camera, by object type, by hour, avg confidence.</test>
+      <test ac="6">Test stats caching: Two requests within 1 minute -> Second request uses cached result.</test>
+      <test ac="7">Performance test: Query 1000+ events -> Response time &lt;100ms.</test>
+      <test ac="7">Test FTS5 search performance: Search in 1000+ events -> Response time &lt;500ms.</test>
+    </ideas>
+  </tests>
+</story-context>

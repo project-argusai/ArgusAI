@@ -1,0 +1,296 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>3</epicId>
+    <storyId>3.4</storyId>
+    <title>Implement Data Retention and Cleanup</title>
+    <status>drafted</status>
+    <generatedAt>2025-11-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/3-4-implement-data-retention-and-cleanup.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>automatic cleanup of old events based on retention policy</iWant>
+    <soThat>storage doesn't grow unbounded and complies with user preferences</soThat>
+    <tasks>
+      - Create Cleanup Service (batch deletion, thumbnail cleanup, retention logic)
+      - Integrate APScheduler (daily scheduled job at 2:00 AM)
+      - Implement Retention Policy Settings (GET/PUT API endpoints)
+      - Implement Export Functionality (JSON/CSV streaming with date filters)
+      - Implement Manual Cleanup Endpoint (with confirmation parameter)
+      - Implement Storage Monitoring (database + thumbnail size tracking)
+      - Testing (unit, integration, performance with 10K+ events)
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">
+      <title>Retention Policy Configuration</title>
+      <description>Stored in system_settings table (data_retention_days), options: 7/30/90/365 days or forever (-1), default 30 days, configurable via API, applies to events and thumbnails</description>
+    </criterion>
+    <criterion id="AC2">
+      <title>Scheduled Cleanup Job</title>
+      <description>Runs daily at 2:00 AM using APScheduler, identifies events with created_at &lt; (now - retention_days), batch deletion max 1000 events per run, transaction-based (all or nothing per batch)</description>
+    </criterion>
+    <criterion id="AC3">
+      <title>Cleanup Operations</title>
+      <description>Delete event records from database with created_at index, delete associated thumbnail files from filesystem, cascade delete via foreign keys, log deletion statistics (events/thumbnails/space freed), graceful handling of missing files</description>
+    </criterion>
+    <criterion id="AC4">
+      <title>Storage Space Monitoring</title>
+      <description>Track database size via SQLite PRAGMA queries, track thumbnail directory size recursively, expose via GET /api/v1/system/storage, response: database_mb, thumbnails_mb, total_mb, event_count, warning at &gt;80% disk usage</description>
+    </criterion>
+    <criterion id="AC5">
+      <title>Event Export Functionality</title>
+      <description>GET /api/v1/events/export?format=json|csv&amp;start_date=...&amp;end_date=..., JSON: full event objects, CSV: flattened data (id, timestamp, camera_name, description, confidence, objects_detected), streaming response for large datasets, Content-Disposition attachment header</description>
+    </criterion>
+    <criterion id="AC6">
+      <title>Manual Cleanup Endpoint</title>
+      <description>DELETE /api/v1/events/cleanup?before_date=YYYY-MM-DD&amp;confirm=true, requires confirmation parameter, runs synchronously, returns deleted_count/thumbnails_deleted/space_freed_mb, creates audit log entry, validates before_date (not future)</description>
+    </criterion>
+    <criterion id="AC7">
+      <title>Retention Policy API</title>
+      <description>GET /api/v1/system/retention (get policy), PUT /api/v1/system/retention (update policy), request: {retention_days: int}, validation: -1, 0, 7, 30, 90, or 365 only, response includes next_cleanup_date</description>
+    </criterion>
+    <criterion id="AC8">
+      <title>Error Handling and Resilience</title>
+      <description>Cleanup job failures logged without crashing app, missing thumbnail files handled gracefully (warn and continue), database errors trigger rollback (transaction safety), scheduler failures logged with retry, disk space errors prevent cleanup</description>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <artifact>
+        <path>docs/epics.md</path>
+        <title>Epic 3 Story 3.4</title>
+        <section>Implement Data Retention and Cleanup</section>
+        <snippet>Automatic cleanup of old events, scheduled daily at 2:00 AM, batch deletion max 1000 events, export to JSON/CSV, storage monitoring via SQLite PRAGMA queries</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Database - SQLite</section>
+        <snippet>SQLite database with SQLAlchemy ORM, async operations, file storage at data/ directory, thumbnails at data/thumbnails/{YYYY-MM-DD}/</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/3-3-build-event-driven-processing-pipeline.md</path>
+        <title>Story 3.3 Completion Notes</title>
+        <section>FastAPI Lifespan Integration</section>
+        <snippet>Lifespan pattern established in main.py for service initialization/shutdown. Use @asynccontextmanager for startup/shutdown tasks. Pattern at main.py:48-93</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/3-3-build-event-driven-processing-pipeline.md</path>
+        <title>Story 3.3 Completion Notes</title>
+        <section>Architectural Patterns</section>
+        <snippet>Global service instance pattern with get_service() accessor. Structured logging with JSON-compatible extra fields. Dataclasses for structured data</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/3-2-implement-event-storage-and-retrieval-system.md</path>
+        <title>Story 3.2 Completion Notes</title>
+        <section>Event API Integration</section>
+        <snippet>Events router at backend/app/api/v1/events.py with GET /events, POST /events, GET /events/{id}, GET /events/stats/aggregate. Extend this router for export and cleanup endpoints</snippet>
+      </artifact>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>13-121</lines>
+        <reason>Event ORM model with created_at column (indexed) for retention queries. Foreign keys cascade delete to ai_usage. Thumbnail_path field for file cleanup</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>api</kind>
+        <symbol>router</symbol>
+        <lines>1-149</lines>
+        <reason>Events API router. Add export endpoint (GET /export) and manual cleanup endpoint (DELETE /cleanup) to this router</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse</symbol>
+        <lines>46-65</lines>
+        <reason>Event response schema for JSON export. May need EventExportSchema for CSV column mapping</reason>
+      </artifact>
+      <artifact>
+        <path>backend/main.py</path>
+        <kind>application</kind>
+        <symbol>lifespan</symbol>
+        <lines>48-93</lines>
+        <reason>FastAPI lifespan context manager for startup/shutdown. Add APScheduler initialization here following EventProcessor pattern</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor</symbol>
+        <lines>129-753</lines>
+        <reason>Reference for global service instance pattern, lifespan integration, and structured logging. Follow similar patterns for CleanupService</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/metrics.py</path>
+        <kind>api</kind>
+        <symbol>router</symbol>
+        <lines>1-95</lines>
+        <reason>Reference for system-level API endpoints. Storage monitoring and retention policy endpoints follow similar pattern to metrics endpoint</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_services/test_event_processor.py</path>
+        <kind>test</kind>
+        <symbol>Test patterns</symbol>
+        <lines>1-658</lines>
+        <reason>Reference for service testing patterns: AsyncMock for async methods, fixture patterns, performance tests with mocked services</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_api/test_events.py</path>
+        <kind>test</kind>
+        <symbol>Test patterns</symbol>
+        <lines>1-852</lines>
+        <reason>Reference for API endpoint testing: TestClient patterns, database fixtures, response validation, streaming response tests (if present)</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <python>
+        <package>apscheduler</package>
+        <version>latest</version>
+        <purpose>Cron-like job scheduling for daily cleanup tasks. Use AsyncIOScheduler with CronTrigger</purpose>
+      </python>
+      <python>
+        <package>fastapi</package>
+        <version>0.115+</version>
+        <purpose>FastAPI framework for API endpoints, lifespan management, StreamingResponse for exports</purpose>
+      </python>
+      <python>
+        <package>sqlalchemy</package>
+        <version>2.0+</version>
+        <purpose>ORM for database queries, transaction management, batch deletion with Event.created_at index</purpose>
+      </python>
+      <python>
+        <package>python-csv</package>
+        <version>built-in</version>
+        <purpose>csv.DictWriter for CSV export format</purpose>
+      </python>
+      <python>
+        <package>pytest</package>
+        <version>latest</version>
+        <purpose>Testing framework for unit and integration tests</purpose>
+      </python>
+      <python>
+        <package>pytest-asyncio</package>
+        <version>latest</version>
+        <purpose>Testing async code, scheduled tasks, and cleanup operations</purpose>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    - Use APScheduler AsyncIOScheduler (not BackgroundScheduler) for async compatibility with FastAPI
+    - Scheduled job must run daily at 2:00 AM server time using CronTrigger(hour=2, minute=0)
+    - Batch deletion must limit to max 1000 events per batch to prevent long database locks
+    - Each batch deletion must be within a database transaction (all-or-nothing per batch)
+    - Retention policy values must be validated: only -1, 0, 7, 30, 90, or 365 allowed
+    - Default retention policy is 30 days (stored in system_settings table as data_retention_days)
+    - Thumbnail file deletion must handle FileNotFoundError gracefully (log warning, continue)
+    - Database size must be calculated using SQLite PRAGMA page_count * page_size
+    - Thumbnail directory size must be calculated recursively (sum all file sizes)
+    - Export endpoints must use StreamingResponse for memory efficiency with large datasets
+    - CSV export format: id, timestamp, camera_name, description, confidence, objects_detected (flattened)
+    - JSON export format: full event objects as returned by EventResponse schema
+    - Manual cleanup endpoint requires confirm=true parameter to prevent accidental deletion
+    - Before_date parameter must be validated (valid date format, not future date)
+    - All cleanup operations must log statistics: events_deleted, thumbnails_deleted, space_freed_mb
+    - Scheduler must be initialized in FastAPI lifespan startup and shut down gracefully
+    - Cleanup job failures must be logged but must not crash the application
+    - System API endpoints (/system/retention, /system/storage) should follow metrics.py pattern
+    - All new endpoints must be registered in main.py router includes
+    - Follow structured logging pattern from EventProcessor (logger with extra={} dict)
+    - Testing must include performance tests with 10K+ events to validate batch deletion
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>CleanupService.cleanup_old_events</name>
+      <kind>async method</kind>
+      <signature>async def cleanup_old_events(retention_days: int, batch_size: int = 1000) -> Dict[str, Any]</signature>
+      <path>backend/app/services/cleanup_service.py (to be created)</path>
+    </interface>
+    <interface>
+      <name>CleanupService.get_database_size</name>
+      <kind>async method</kind>
+      <signature>async def get_database_size() -> float</signature>
+      <path>backend/app/services/cleanup_service.py (to be created)</path>
+    </interface>
+    <interface>
+      <name>CleanupService.get_thumbnails_size</name>
+      <kind>method</kind>
+      <signature>def get_thumbnails_size() -> float</signature>
+      <path>backend/app/services/cleanup_service.py (to be created)</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events/export</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events/export?format=json|csv&amp;start_date=YYYY-MM-DD&amp;end_date=YYYY-MM-DD -> StreamingResponse</signature>
+      <path>backend/app/api/v1/events.py (extend existing router)</path>
+    </interface>
+    <interface>
+      <name>DELETE /api/v1/events/cleanup</name>
+      <kind>REST endpoint</kind>
+      <signature>DELETE /api/v1/events/cleanup?before_date=YYYY-MM-DD&amp;confirm=true -> {"deleted_count": int, "thumbnails_deleted": int, "space_freed_mb": float}</signature>
+      <path>backend/app/api/v1/events.py (extend existing router)</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/system/retention</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/system/retention -> {"retention_days": int, "next_cleanup": str, "forever": bool}</signature>
+      <path>backend/app/api/v1/system.py (to be created)</path>
+    </interface>
+    <interface>
+      <name>PUT /api/v1/system/retention</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /api/v1/system/retention body: {"retention_days": int} -> {"retention_days": int, "next_cleanup": str, "forever": bool}</signature>
+      <path>backend/app/api/v1/system.py (to be created)</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/system/storage</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/system/storage -> {"database_mb": float, "thumbnails_mb": float, "total_mb": float, "event_count": int}</signature>
+      <path>backend/app/api/v1/system.py (to be created)</path>
+    </interface>
+    <interface>
+      <name>Event.created_at</name>
+      <kind>ORM column</kind>
+      <signature>Column(DateTime, index=True, nullable=False)</signature>
+      <path>backend/app/models/event.py:54</path>
+    </interface>
+    <interface>
+      <name>Event.thumbnail_path</name>
+      <kind>ORM column</kind>
+      <signature>Column(String(500), nullable=True)</signature>
+      <path>backend/app/models/event.py:58</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Testing framework: pytest with pytest-asyncio for async code testing. Unit tests in tests/test_services/, integration tests in tests/test_api/, performance tests included. All tests must use fixtures for database sessions and mock external dependencies. Async tests use @pytest.mark.asyncio decorator. Follow existing patterns from test_event_processor.py and test_events.py. Mock APScheduler for testing scheduled jobs.
+    </standards>
+    <locations>
+      - backend/tests/test_services/ (unit tests for CleanupService)
+      - backend/tests/test_api/ (integration tests for export, cleanup, retention, storage endpoints)
+    </locations>
+    <ideas>
+      - AC1: Test retention policy CRUD (GET/PUT), validation of allowed values, default 30 days
+      - AC2: Test scheduled job registration (mock APScheduler), daily trigger at 2:00 AM, cleanup execution
+      - AC3: Test batch deletion (create 2500 events, verify deleted in batches of 1000), test thumbnail file cleanup with missing files, test cascade delete
+      - AC4: Test database size calculation (PRAGMA queries), test thumbnails directory size (recursive), test storage endpoint response format
+      - AC5: Test JSON export (full objects, streaming), test CSV export (flattened format, correct columns), test date range filtering, test Content-Disposition header
+      - AC6: Test manual cleanup endpoint (requires confirm=true), test before_date validation (not future), test deletion statistics returned, test audit logging
+      - AC7: Test retention policy validation (reject invalid values), test next_cleanup_date calculation
+      - AC8: Test cleanup job failure handling (don't crash app), test missing thumbnail graceful handling, test transaction rollback on database error, test disk space error prevention
+      - Performance: Test cleanup with 10K+ events, verify batch processing, measure deletion time
+    </ideas>
+  </tests>
+</story-context>

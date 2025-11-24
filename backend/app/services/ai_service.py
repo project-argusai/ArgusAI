@@ -189,9 +189,34 @@ class OpenAIProvider(AIProviderBase):
             objects = self._extract_objects(description)
 
             logger.info(
-                f"OpenAI success: {elapsed_ms}ms, {tokens_used} tokens, ${cost:.6f}, "
-                f"confidence={confidence}"
+                "AI API call successful",
+                extra={
+                    "event_type": "ai_api_success",
+                    "provider": "openai",
+                    "model": self.model,
+                    "response_time_ms": elapsed_ms,
+                    "tokens_used": tokens_used,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost,
+                    "confidence": confidence,
+                }
             )
+
+            # Record metrics
+            try:
+                from app.core.metrics import record_ai_api_call
+                record_ai_api_call(
+                    provider="openai",
+                    model=self.model,
+                    status="success",
+                    duration_seconds=elapsed_ms / 1000,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=cost
+                )
+            except ImportError:
+                pass
 
             return AIResult(
                 description=description,
@@ -207,7 +232,30 @@ class OpenAIProvider(AIProviderBase):
         except Exception as e:
             # Catch all exceptions (openai.APIError, network errors, etc.)
             elapsed_ms = int((time.time() - start_time) * 1000)
-            logger.error(f"OpenAI API error after {elapsed_ms}ms: {e}")
+            logger.error(
+                "AI API call failed",
+                extra={
+                    "event_type": "ai_api_error",
+                    "provider": "openai",
+                    "model": self.model,
+                    "response_time_ms": elapsed_ms,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+
+            # Record error metrics
+            try:
+                from app.core.metrics import record_ai_api_call
+                record_ai_api_call(
+                    provider="openai",
+                    model=self.model,
+                    status="error",
+                    duration_seconds=elapsed_ms / 1000
+                )
+            except ImportError:
+                pass
+
             return AIResult(
                 description="",
                 confidence=0,

@@ -159,13 +159,32 @@ export default function SettingsPage() {
         return;
       }
 
-      const result = await apiClient.settings.testApiKey({ model, api_key: apiKey });
-      setKeyTestResult(result);
+      // Skip test if API key is masked (already saved and encrypted)
+      if (apiKey.startsWith('****')) {
+        toast.info('Enter a new API key to test');
+        return;
+      }
+
+      // Map model to provider
+      const providerMap: Record<string, 'openai' | 'anthropic' | 'google'> = {
+        'gpt-4o-mini': 'openai',
+        'claude-3-haiku': 'anthropic',
+        'gemini-flash': 'google',
+      };
+      const provider = providerMap[model];
+
+      if (!provider) {
+        toast.error('Unknown model provider');
+        return;
+      }
+
+      const result = await apiClient.settings.testApiKey({ provider, api_key: apiKey });
+      setKeyTestResult({ valid: result.valid, error: result.valid ? undefined : result.message });
 
       if (result.valid) {
-        toast.success('API key is valid');
+        toast.success(result.message || 'API key is valid');
       } else {
-        toast.error(result.error || 'API key validation failed');
+        toast.error(result.message || 'API key validation failed');
       }
 
       // Clear result after 3 seconds

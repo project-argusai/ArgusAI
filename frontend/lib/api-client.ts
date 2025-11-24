@@ -40,6 +40,12 @@ import type {
   IDeleteNotificationResponse,
   IBulkDeleteResponse,
 } from '@/types/notification';
+import type {
+  SystemHealth,
+  LogsResponse,
+  LogsQueryParams,
+  LogFilesResponse,
+} from '@/types/monitoring';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const API_V1_PREFIX = '/api/v1';
@@ -311,11 +317,11 @@ export const apiClient = {
 
     /**
      * Test AI API key
-     * @param data Model and API key to test
+     * @param data Provider and API key to test
      * @returns Test result with validation status
      */
     testApiKey: async (data: AIKeyTestRequest): Promise<AIKeyTestResponse> => {
-      return apiFetch<AIKeyTestResponse>('/ai/test-key', {
+      return apiFetch<AIKeyTestResponse>('/system/test-key', {
         method: 'POST',
         body: JSON.stringify(data),
       });
@@ -570,6 +576,84 @@ export const apiClient = {
         `/notifications${queryString ? `?${queryString}` : ''}`,
         { method: 'DELETE' }
       );
+    },
+  },
+
+  /**
+   * Monitoring API client (Story 6.2)
+   */
+  monitoring: {
+    /**
+     * Get system health status
+     * @returns Health check response
+     */
+    getHealth: async (): Promise<SystemHealth> => {
+      const url = `${API_BASE_URL}/health`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new ApiError('Failed to get health status', response.status);
+      }
+      return response.json();
+    },
+
+    /**
+     * Get log entries with filtering
+     * @param params Query parameters for filtering logs
+     * @returns Paginated log entries
+     */
+    getLogs: async (params?: LogsQueryParams): Promise<LogsResponse> => {
+      const queryParams = new URLSearchParams();
+      if (params?.level) queryParams.append('level', params.level);
+      if (params?.module) queryParams.append('module', params.module);
+      if (params?.search) queryParams.append('search', params.search);
+      if (params?.start_date) queryParams.append('start_date', params.start_date);
+      if (params?.end_date) queryParams.append('end_date', params.end_date);
+      if (params?.limit) queryParams.append('limit', String(params.limit));
+      if (params?.offset) queryParams.append('offset', String(params.offset));
+
+      const queryString = queryParams.toString();
+      return apiFetch<LogsResponse>(`/logs${queryString ? `?${queryString}` : ''}`);
+    },
+
+    /**
+     * Get available log files
+     * @returns List of log files
+     */
+    getLogFiles: async (): Promise<LogFilesResponse> => {
+      return apiFetch<LogFilesResponse>('/logs/files');
+    },
+
+    /**
+     * Download log file
+     * @param date Optional date string (YYYY-MM-DD)
+     * @param logType Log type ('app' or 'error')
+     * @returns Blob for download
+     */
+    downloadLogs: async (date?: string, logType: string = 'app'): Promise<Blob> => {
+      const params = new URLSearchParams();
+      if (date) params.append('date', date);
+      params.append('log_type', logType);
+      const queryString = params.toString();
+
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/logs/download${queryString ? `?${queryString}` : ''}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new ApiError('Failed to download logs', response.status);
+      }
+      return response.blob();
+    },
+
+    /**
+     * Get Prometheus metrics
+     * @returns Raw metrics text
+     */
+    getMetrics: async (): Promise<string> => {
+      const url = `${API_BASE_URL}/metrics`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new ApiError('Failed to get metrics', response.status);
+      }
+      return response.text();
     },
   },
 };

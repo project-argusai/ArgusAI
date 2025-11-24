@@ -3,15 +3,18 @@ FastAPI application entry point for Live Object AI Classifier
 
 Initializes the FastAPI app, registers routers, and sets up startup/shutdown events.
 """
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
 from app.core.database import engine, Base
+from app.core.logging_config import setup_logging, get_logger
+from app.core.metrics import init_metrics, get_metrics, get_content_type, update_system_metrics
+from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.api.v1.cameras import router as cameras_router, camera_service
 from app.api.v1.motion_events import router as motion_events_router
 from app.api.v1.ai import router as ai_router
@@ -22,37 +25,19 @@ from app.api.v1.alert_rules import router as alert_rules_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.websocket import router as websocket_router
+from app.api.v1.logs import router as logs_router
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 
-# Configure logging
-import os
-from logging.handlers import RotatingFileHandler
+# Application version
+APP_VERSION = "1.0.0"
 
-# Ensure log directory exists
-log_dir = os.path.join(os.path.dirname(__file__), 'data', 'logs')
-os.makedirs(log_dir, exist_ok=True)
+# Initialize structured JSON logging (Story 6.2)
+setup_logging(app_version=APP_VERSION)
+logger = get_logger(__name__)
 
-# Configure root logger
-logging.basicConfig(
-    level=settings.LOG_LEVEL,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Add file handler for AI service logs
-ai_service_logger = logging.getLogger('app.services.ai_service')
-ai_service_log_file = os.path.join(log_dir, 'ai_service.log')
-ai_file_handler = RotatingFileHandler(
-    ai_service_log_file,
-    maxBytes=10*1024*1024,  # 10MB
-    backupCount=5
-)
-ai_file_handler.setFormatter(
-    logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-)
-ai_service_logger.addHandler(ai_file_handler)
-
-logger = logging.getLogger(__name__)
+# Initialize Prometheus metrics
+init_metrics(version=APP_VERSION)
 
 # Global scheduler instance
 scheduler: AsyncIOScheduler = None
@@ -101,21 +86,38 @@ async def lifespan(app: FastAPI):
     """
     global scheduler
 
-    # Startup logic
-    logger.info("Application starting up...")
+    # Startup logic with structured logging (Story 6.2)
+    logger.info(
+        "Application starting",
+        extra={
+            "event_type": "app_startup",
+            "version": APP_VERSION,
+            "log_level": settings.LOG_LEVEL,
+            "debug_mode": settings.DEBUG,
+        }
+    )
 
     # Create database tables
     Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created/verified")
+    logger.info(
+        "Database initialized",
+        extra={"event_type": "database_init", "status": "success"}
+    )
 
     # Create thumbnails directory
     thumbnail_dir = os.path.join(os.path.dirname(__file__), 'data', 'thumbnails')
     os.makedirs(thumbnail_dir, exist_ok=True)
-    logger.info(f"Thumbnails directory: {thumbnail_dir}")
+    logger.info(
+        "Thumbnails directory ready",
+        extra={"event_type": "directory_init", "path": thumbnail_dir}
+    )
 
     # Initialize Event Processor (Story 3.3)
     await initialize_event_processor()
-    logger.info("Event processor initialized and started")
+    logger.info(
+        "Event processor started",
+        extra={"event_type": "event_processor_init", "status": "running"}
+    )
 
     # Initialize APScheduler for daily cleanup (Story 3.4)
     scheduler = AsyncIOScheduler()
@@ -126,45 +128,116 @@ async def lifespan(app: FastAPI):
         name="Daily event cleanup based on retention policy",
         replace_existing=True
     )
+
+    # Add system metrics update job (every minute)
+    scheduler.add_job(
+        update_system_metrics,
+        trigger=CronTrigger(minute="*"),  # Every minute
+        id="system_metrics_update",
+        name="Update system resource metrics",
+        replace_existing=True
+    )
+
     scheduler.start()
-    logger.info("Cleanup scheduler initialized (daily at 2:00 AM)")
+    logger.info(
+        "Scheduler started",
+        extra={
+            "event_type": "scheduler_init",
+            "jobs": ["daily_cleanup", "system_metrics_update"]
+        }
+    )
 
     # Start enabled cameras on startup (Story 4.3)
     from app.core.database import get_db
     from app.models.camera import Camera
+    from app.core.metrics import record_camera_status
+
     db = next(get_db())
     try:
         enabled_cameras = db.query(Camera).filter(Camera.is_enabled == True).all()
-        logger.info(f"Starting {len(enabled_cameras)} enabled cameras...")
+        total_cameras = db.query(Camera).count()
+        started_count = 0
+
+        logger.info(
+            "Starting cameras",
+            extra={
+                "event_type": "camera_startup",
+                "enabled_count": len(enabled_cameras),
+                "total_count": total_cameras
+            }
+        )
+
         for camera in enabled_cameras:
             success = camera_service.start_camera(camera)
             if success:
-                logger.info(f"Started camera: {camera.name} ({camera.id})")
+                started_count += 1
+                logger.info(
+                    "Camera started",
+                    extra={
+                        "event_type": "camera_connected",
+                        "camera_id": str(camera.id),
+                        "camera_name": camera.name
+                    }
+                )
             else:
-                logger.warning(f"Failed to start camera: {camera.name} ({camera.id})")
+                logger.warning(
+                    "Camera failed to start",
+                    extra={
+                        "event_type": "camera_connection_failed",
+                        "camera_id": str(camera.id),
+                        "camera_name": camera.name
+                    }
+                )
+
+        # Update camera metrics
+        record_camera_status(started_count, total_cameras)
+
     finally:
         db.close()
 
-    logger.info("Application startup complete")
+    logger.info(
+        "Application startup complete",
+        extra={
+            "event_type": "app_startup_complete",
+            "version": APP_VERSION,
+            "cameras_started": started_count if 'started_count' in dir() else 0
+        }
+    )
 
     yield  # Application runs here
 
-    # Shutdown logic
-    logger.info("Application shutting down...")
+    # Shutdown logic with structured logging
+    logger.info(
+        "Application shutting down",
+        extra={"event_type": "app_shutdown_start", "version": APP_VERSION}
+    )
 
     # Stop scheduler
     if scheduler and scheduler.running:
         scheduler.shutdown(wait=False)
-        logger.info("Cleanup scheduler stopped")
+        logger.info(
+            "Scheduler stopped",
+            extra={"event_type": "scheduler_shutdown"}
+        )
 
     # Stop Event Processor (Story 3.3)
     await shutdown_event_processor(timeout=30.0)
-    logger.info("Event processor stopped")
+    logger.info(
+        "Event processor stopped",
+        extra={"event_type": "event_processor_shutdown"}
+    )
 
     # Stop all camera threads
     camera_service.stop_all_cameras(timeout=5.0)
+    logger.info(
+        "Cameras stopped",
+        extra={"event_type": "cameras_shutdown"}
+    )
 
-    logger.info("Application shutdown complete")
+    logger.info(
+        "Application shutdown complete",
+        extra={"event_type": "app_shutdown_complete", "version": APP_VERSION}
+    )
 
 
 # Create FastAPI app
@@ -186,6 +259,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add request logging middleware (Story 6.2, AC: #2)
+app.add_middleware(RequestLoggingMiddleware)
+
 # Register API routers
 # Note: Register motion_events before cameras to ensure proper route precedence
 app.include_router(motion_events_router, prefix=settings.API_V1_PREFIX)
@@ -198,6 +274,7 @@ app.include_router(alert_rules_router, prefix=settings.API_V1_PREFIX)  # Story 5
 app.include_router(webhooks_router, prefix=settings.API_V1_PREFIX)  # Story 5.3
 app.include_router(notifications_router, prefix=settings.API_V1_PREFIX)  # Story 5.4
 app.include_router(websocket_router)  # Story 5.4 - WebSocket at /ws (no prefix)
+app.include_router(logs_router, prefix=settings.API_V1_PREFIX)  # Story 6.2 - Log retrieval
 
 
 @app.get("/")
@@ -217,6 +294,19 @@ async def health_check():
         "status": "healthy",
         "camera_count": len(camera_service.get_all_camera_status())
     }
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """
+    Prometheus metrics endpoint (Story 6.2, AC: #6)
+
+    Returns Prometheus-compatible metrics for scraping.
+    """
+    return Response(
+        content=get_metrics(),
+        media_type=get_content_type()
+    )
 
 
 if __name__ == "__main__":

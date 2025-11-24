@@ -8,7 +8,8 @@ Endpoints for system-level configuration and monitoring:
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
+from pydantic import BaseModel, Field
 import logging
 
 from app.schemas.system import (
@@ -21,8 +22,18 @@ from app.schemas.system import (
 from app.services.cleanup_service import get_cleanup_service
 from app.core.database import get_db, SessionLocal
 from app.models.system_setting import SystemSetting
+from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 
 logger = logging.getLogger(__name__)
+
+# Keys that contain sensitive data and should be encrypted
+SENSITIVE_SETTING_KEYS = [
+    "settings_primary_api_key",
+    "settings_fallback_api_key",
+    "ai_api_key_openai",
+    "ai_api_key_claude",
+    "ai_api_key_gemini",
+]
 
 router = APIRouter(
     prefix="/system",
@@ -287,12 +298,20 @@ def _get_setting_from_db(db: Session, key: str, default: any = None) -> any:
 
 
 def _set_setting_in_db(db: Session, key: str, value: any):
-    """Set a single setting value in database"""
+    """Set a single setting value in database, encrypting sensitive values"""
+    # Convert to string if needed
+    str_value = str(value) if not isinstance(value, str) else value
+
+    # Encrypt sensitive values (API keys)
+    if key in SENSITIVE_SETTING_KEYS and str_value and not is_encrypted(str_value):
+        str_value = encrypt_password(str_value)
+        logger.debug(f"Encrypted sensitive setting: {key}")
+
     setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
     if setting:
-        setting.value = str(value) if not isinstance(value, str) else value
+        setting.value = str_value
     else:
-        setting = SystemSetting(key=key, value=str(value) if not isinstance(value, str) else value)
+        setting = SystemSetting(key=key, value=str_value)
         db.add(setting)
     db.commit()
 
@@ -305,11 +324,14 @@ async def get_settings(db: Session = Depends(get_db)):
     Returns complete system configuration including general settings,
     AI model configuration, motion detection parameters, and data retention settings.
 
+    **Note:** API keys are masked for security (only last 4 characters shown).
+
     **Response:**
     ```json
     {
         "system_name": "Live Object AI Classifier",
         "timezone": "America/Los_Angeles",
+        "primary_api_key": "****abcd",
         ...
     }
     ```
@@ -322,13 +344,28 @@ async def get_settings(db: Session = Depends(get_db)):
         # Load all settings from database, use defaults if not set
         settings_dict = {}
 
+        # Fields that contain sensitive data (API keys)
+        sensitive_fields = ["primary_api_key", "fallback_api_key"]
+
         # Get all settings fields from the schema
         for field_name, field_info in SystemSettings.model_fields.items():
             db_value = _get_setting_from_db(db, f"{SETTINGS_PREFIX}{field_name}")
 
             if db_value is not None:
+                # Decrypt and mask sensitive fields for response
+                if field_name in sensitive_fields:
+                    if is_encrypted(db_value):
+                        # Decrypt to get original, then mask for display
+                        try:
+                            decrypted = decrypt_password(db_value)
+                            settings_dict[field_name] = mask_sensitive(decrypted)
+                        except ValueError:
+                            settings_dict[field_name] = "****[invalid]"
+                    else:
+                        # Old unencrypted value - mask it
+                        settings_dict[field_name] = mask_sensitive(db_value)
                 # Convert string back to appropriate type
-                if field_info.annotation == bool:
+                elif field_info.annotation == bool:
                     settings_dict[field_name] = db_value.lower() in ('true', '1', 'yes')
                 elif field_info.annotation == int:
                     settings_dict[field_name] = int(db_value)
@@ -397,3 +434,182 @@ async def update_settings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update settings"
         )
+
+
+# ============================================================================
+# AI API Key Management
+# ============================================================================
+
+
+class TestKeyRequest(BaseModel):
+    """Request body for API key test endpoint"""
+    provider: Literal["openai", "anthropic", "google"] = Field(
+        ..., description="AI provider to test"
+    )
+    api_key: str = Field(..., min_length=1, description="API key to test")
+
+
+class TestKeyResponse(BaseModel):
+    """Response from API key test endpoint"""
+    valid: bool = Field(..., description="Whether the key is valid")
+    message: str = Field(..., description="Result message")
+    provider: str = Field(..., description="Provider that was tested")
+
+
+@router.post("/test-key", response_model=TestKeyResponse)
+async def test_api_key(request: TestKeyRequest):
+    """
+    Test an AI provider API key without saving it
+
+    Makes a lightweight validation request to the specified AI provider
+    to verify the API key works. The key is NOT stored.
+
+    **Request Body:**
+    ```json
+    {
+        "provider": "openai",
+        "api_key": "sk-..."
+    }
+    ```
+
+    **Response:**
+    ```json
+    {
+        "valid": true,
+        "message": "API key validated successfully",
+        "provider": "openai"
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Key validation result returned
+    - 400: Invalid request
+    - 500: Internal server error
+    """
+    try:
+        provider = request.provider
+        api_key = request.api_key
+
+        # Log test attempt (masked key)
+        logger.info(f"Testing API key for provider: {provider}, key: {mask_sensitive(api_key)}")
+
+        if provider == "openai":
+            valid, message = await _test_openai_key(api_key)
+        elif provider == "anthropic":
+            valid, message = await _test_anthropic_key(api_key)
+        elif provider == "google":
+            valid, message = await _test_google_key(api_key)
+        else:
+            return TestKeyResponse(
+                valid=False,
+                message=f"Unknown provider: {provider}",
+                provider=provider
+            )
+
+        return TestKeyResponse(
+            valid=valid,
+            message=message,
+            provider=provider
+        )
+
+    except Exception as e:
+        logger.error(f"Error testing API key: {e}", exc_info=True)
+        return TestKeyResponse(
+            valid=False,
+            message=f"Error testing key: {str(e)}",
+            provider=request.provider
+        )
+
+
+async def _test_openai_key(api_key: str) -> tuple[bool, str]:
+    """Test OpenAI API key with a minimal request"""
+    try:
+        import openai
+        client = openai.OpenAI(api_key=api_key)
+        # Make a minimal request - list models is lightweight
+        models = client.models.list()
+        # If we get here, the key is valid
+        return True, "OpenAI API key validated successfully"
+    except openai.AuthenticationError:
+        return False, "Invalid API key - authentication failed"
+    except openai.RateLimitError:
+        return True, "API key valid (rate limited, but authenticated)"
+    except Exception as e:
+        return False, f"OpenAI API error: {str(e)}"
+
+
+async def _test_anthropic_key(api_key: str) -> tuple[bool, str]:
+    """Test Anthropic API key with a minimal request"""
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        # Make a minimal message request to test the key
+        # Using count_tokens is not available, so we make a small completion
+        response = client.messages.create(
+            model="claude-3-haiku-20240307",
+            max_tokens=1,
+            messages=[{"role": "user", "content": "test"}]
+        )
+        return True, "Anthropic API key validated successfully"
+    except anthropic.AuthenticationError:
+        return False, "Invalid API key - authentication failed"
+    except anthropic.RateLimitError:
+        return True, "API key valid (rate limited, but authenticated)"
+    except Exception as e:
+        return False, f"Anthropic API error: {str(e)}"
+
+
+async def _test_google_key(api_key: str) -> tuple[bool, str]:
+    """Test Google AI API key with a minimal request"""
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        # List models to verify the key works
+        models = list(genai.list_models())
+        return True, "Google AI API key validated successfully"
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "api key" in error_msg or "invalid" in error_msg or "401" in error_msg:
+            return False, "Invalid API key - authentication failed"
+        return False, f"Google AI API error: {str(e)}"
+
+
+def get_decrypted_api_key(db: Session, provider: str) -> Optional[str]:
+    """
+    Get decrypted API key for a specific provider from system settings
+
+    This is used by the AI service to retrieve API keys for making requests.
+
+    Args:
+        db: Database session
+        provider: AI provider name ("openai", "anthropic", "google")
+
+    Returns:
+        Decrypted API key or None if not set
+    """
+    # Map provider to settings key
+    key_map = {
+        "openai": "settings_primary_api_key",  # or specific key
+        "anthropic": "settings_primary_api_key",
+        "google": "settings_primary_api_key",
+    }
+
+    db_key = key_map.get(provider)
+    if not db_key:
+        return None
+
+    # Get encrypted value from database
+    encrypted_value = _get_setting_from_db(db, db_key)
+    if not encrypted_value:
+        return None
+
+    # Decrypt if encrypted
+    if is_encrypted(encrypted_value):
+        try:
+            return decrypt_password(encrypted_value)
+        except ValueError:
+            logger.error(f"Failed to decrypt API key for {provider}")
+            return None
+    else:
+        # Return unencrypted value (legacy)
+        return encrypted_value

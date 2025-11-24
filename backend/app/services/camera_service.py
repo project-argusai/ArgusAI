@@ -8,9 +8,15 @@ import cv2
 import threading
 import time
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from datetime import datetime, timezone
 import numpy as np
+
+try:
+    import av
+    PYAV_AVAILABLE = True
+except ImportError:
+    PYAV_AVAILABLE = False
 
 from app.models.camera import Camera
 from app.services.motion_detection_service import motion_detection_service
@@ -226,18 +232,42 @@ class CameraService:
 
         while not stop_flag.is_set():
             cap = None
+            av_container = None
+            av_stream = None
+            use_pyav = False
 
             try:
                 # Attempt to connect to camera
                 logger.debug(f"Connecting to camera {camera_id} (attempt {retry_count + 1})")
 
-                cap = cv2.VideoCapture(connection_str)
+                # For RTSP cameras (especially rtsps://), use PyAV if available
+                if camera.type == "rtsp" and PYAV_AVAILABLE and connection_str.startswith("rtsps://"):
+                    try:
+                        logger.debug(f"Using PyAV for secure RTSP stream: {camera_id}")
+                        av_container = av.open(connection_str, options={'rtsp_transport': 'tcp'})
+                        av_stream = av_container.streams.video[0]
+                        use_pyav = True
+                        logger.debug(f"PyAV connected: {av_stream.codec_context.width}x{av_stream.codec_context.height}")
+                    except Exception as e:
+                        logger.warning(f"PyAV failed for camera {camera_id}, falling back to OpenCV: {e}")
+                        if av_container:
+                            av_container.close()
+                        av_container = None
+                        use_pyav = False
 
-                # Set connection timeout (10 seconds)
-                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
+                # Fall back to OpenCV (or use for USB cameras)
+                if not use_pyav:
+                    if camera.type == "rtsp":
+                        cap = cv2.VideoCapture(connection_str, cv2.CAP_FFMPEG)
+                    else:
+                        cap = cv2.VideoCapture(connection_str)
+                    cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)
 
-                # Check if connection successful
-                if not cap.isOpened():
+                    if not cap.isOpened():
+                        raise ConnectionError(f"Failed to open camera {camera_id}")
+
+                # Check if connection successful (either method)
+                if not use_pyav and (cap is None or not cap.isOpened()):
                     raise ConnectionError(f"Failed to open camera {camera_id}")
 
                 # Store active capture
@@ -264,12 +294,31 @@ class CameraService:
                 # Calculate sleep interval for target FPS
                 sleep_interval = 1.0 / camera.frame_rate if camera.frame_rate > 0 else 0.2
 
+                # Create PyAV frame generator if using PyAV
+                av_frame_gen = None
+                if use_pyav and av_container:
+                    av_frame_gen = av_container.decode(av_stream)
+
                 # Main capture loop
                 while not stop_flag.is_set():
                     frame_start_time = time.time()
 
-                    # Read frame
-                    ret, frame = cap.read()
+                    # Read frame (PyAV or OpenCV)
+                    ret = False
+                    frame = None
+
+                    if use_pyav and av_frame_gen:
+                        try:
+                            av_frame = next(av_frame_gen)
+                            frame = av_frame.to_ndarray(format='bgr24')
+                            ret = True
+                        except (StopIteration, av.error.EOFError):
+                            ret = False
+                        except Exception as e:
+                            logger.debug(f"PyAV frame read error: {e}")
+                            ret = False
+                    else:
+                        ret, frame = cap.read()
 
                     if not ret:
                         # Frame read failed - trigger reconnection
@@ -353,6 +402,12 @@ class CameraService:
                     cap.release()
                     if camera_id in self._active_captures:
                         del self._active_captures[camera_id]
+                # Close PyAV container if used
+                if av_container is not None:
+                    try:
+                        av_container.close()
+                    except Exception:
+                        pass
 
             # Reconnection logic with exponential backoff
             if not stop_flag.is_set():

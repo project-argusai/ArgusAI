@@ -17,6 +17,12 @@ import cv2
 import base64
 import numpy as np
 
+try:
+    import av
+    PYAV_AVAILABLE = True
+except ImportError:
+    PYAV_AVAILABLE = False
+
 from app.core.database import get_db
 from app.models.camera import Camera
 from app.schemas.camera import CameraCreate, CameraUpdate, CameraResponse, CameraTestResponse
@@ -300,6 +306,83 @@ def delete_camera(
         )
 
 
+@router.post("/{camera_id}/reconnect")
+def reconnect_camera(
+    camera_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Force reconnect a camera (stop and restart capture)
+
+    Args:
+        camera_id: UUID of camera to reconnect
+        db: Database session
+
+    Returns:
+        Success status and message
+
+    Raises:
+        404: Camera not found
+        400: Camera is disabled
+    """
+    import time
+
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+
+        if not camera:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Camera {camera_id} not found"
+            )
+
+        if not camera.is_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Camera {camera_id} is disabled. Enable it first."
+            )
+
+        # Stop camera if running
+        camera_service.stop_camera(camera_id)
+        time.sleep(0.5)
+
+        # Try to verify connection with PyAV before starting capture thread
+        # This helps with intermittent network issues
+        try:
+            import av
+            connection_str = camera_service._build_rtsp_url(camera)
+            if connection_str.startswith("rtsps://"):
+                logger.info(f"Testing PyAV connection for camera {camera_id}")
+                container = av.open(connection_str, options={'rtsp_transport': 'tcp'}, timeout=10)
+                stream = container.streams.video[0]
+                # Get one frame to verify
+                for frame in container.decode(stream):
+                    logger.info(f"PyAV test successful: {stream.codec_context.width}x{stream.codec_context.height}")
+                    break
+                container.close()
+        except Exception as e:
+            logger.warning(f"PyAV pre-test failed: {e}")
+            # Continue anyway - the capture thread will retry
+
+        # Start camera
+        success = camera_service.start_camera(camera)
+
+        if success:
+            logger.info(f"Camera {camera_id} reconnect initiated")
+            return {"success": True, "message": "Camera reconnect initiated"}
+        else:
+            return {"success": False, "message": "Failed to start camera"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reconnect camera {camera_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reconnect camera: {str(e)}"
+        )
+
+
 @router.post("/{camera_id}/test", response_model=CameraTestResponse)
 def test_camera_connection(
     camera_id: str,
@@ -353,33 +436,58 @@ def test_camera_connection(
             )
 
         # Attempt connection
-        cap = cv2.VideoCapture(connection_str)
-        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)  # 10 second timeout
+        frame = None
+        cap = None
+        av_container = None
 
-        if not cap.isOpened():
-            cap.release()
-
-            # USB-specific error message
-            if camera.type == "usb":
+        # Use PyAV for secure RTSP (rtsps://) streams
+        if camera.type == "rtsp" and PYAV_AVAILABLE and connection_str.startswith("rtsps://"):
+            try:
+                av_container = av.open(connection_str, options={'rtsp_transport': 'tcp'})
+                av_stream = av_container.streams.video[0]
+                for av_frame in av_container.decode(av_stream):
+                    frame = av_frame.to_ndarray(format='bgr24')
+                    break
+                av_container.close()
+            except Exception as e:
+                if av_container:
+                    av_container.close()
                 return CameraTestResponse(
                     success=False,
-                    message=f"USB camera not found at device index {camera.device_index}. Check that camera is connected."
+                    message=f"Failed to connect to secure RTSP stream: {str(e)}"
                 )
+        else:
+            # Use OpenCV for USB cameras and non-secure RTSP
+            if camera.type == "rtsp":
+                cap = cv2.VideoCapture(connection_str, cv2.CAP_FFMPEG)
             else:
+                cap = cv2.VideoCapture(connection_str)
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10000)  # 10 second timeout
+
+            if not cap.isOpened():
+                cap.release()
+
+                # USB-specific error message
+                if camera.type == "usb":
+                    return CameraTestResponse(
+                        success=False,
+                        message=f"USB camera not found at device index {camera.device_index}. Check that camera is connected."
+                    )
+                else:
+                    return CameraTestResponse(
+                        success=False,
+                        message="Failed to connect to camera. Check IP address, port, and network connectivity."
+                    )
+
+            # Try to read a test frame
+            ret, frame = cap.read()
+            cap.release()
+
+            if not ret or frame is None:
                 return CameraTestResponse(
                     success=False,
-                    message="Failed to connect to camera. Check IP address, port, and network connectivity."
+                    message="Connected to camera but failed to capture frame. Check camera stream format."
                 )
-
-        # Try to read a test frame
-        ret, frame = cap.read()
-
-        if not ret or frame is None:
-            cap.release()
-            return CameraTestResponse(
-                success=False,
-                message="Connected to camera but failed to capture frame. Check camera stream format."
-            )
 
         # Generate thumbnail
         try:
@@ -622,28 +730,56 @@ def test_motion_detection(
         # NOTE: This is a simplified implementation
         # Real implementation would need to add a method to CameraService to get latest frame
         # For now, we'll attempt to capture a frame directly
+        frame = None
+
         if camera.type == "rtsp":
             connection_str = camera_service._build_rtsp_url(camera)
+
+            # Use PyAV for secure RTSP streams
+            if PYAV_AVAILABLE and connection_str.startswith("rtsps://"):
+                try:
+                    av_container = av.open(connection_str, options={'rtsp_transport': 'tcp'})
+                    av_stream = av_container.streams.video[0]
+                    for av_frame in av_container.decode(av_stream):
+                        frame = av_frame.to_ndarray(format='bgr24')
+                        break
+                    av_container.close()
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Failed to capture frame from secure RTSP stream: {str(e)}"
+                    )
+            else:
+                cap = cv2.VideoCapture(connection_str, cv2.CAP_FFMPEG)
+                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+                if not cap.isOpened():
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Failed to capture frame from camera"
+                    )
+                ret, frame = cap.read()
+                cap.release()
+                if not ret or frame is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Failed to read frame from camera"
+                    )
         else:
             connection_str = camera.device_index
-
-        cap = cv2.VideoCapture(connection_str)
-        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-
-        if not cap.isOpened():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to capture frame from camera"
-            )
-
-        ret, frame = cap.read()
-        cap.release()
-
-        if not ret or frame is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to read frame from camera"
-            )
+            cap = cv2.VideoCapture(connection_str)
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            if not cap.isOpened():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to capture frame from camera"
+                )
+            ret, frame = cap.read()
+            cap.release()
+            if not ret or frame is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Failed to read frame from camera"
+                )
 
         # Use test overrides or camera defaults
         sensitivity = test_request.sensitivity if test_request and test_request.sensitivity else camera.motion_sensitivity

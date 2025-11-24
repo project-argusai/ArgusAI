@@ -43,14 +43,17 @@ export interface StorageStats {
   total_mb: number;
 }
 
+export type AIProvider = 'openai' | 'anthropic' | 'google';
+
 export interface AIKeyTestRequest {
-  model: AIModel;
+  provider: AIProvider;
   api_key: string;
 }
 
 export interface AIKeyTestResponse {
   valid: boolean;
-  error?: string;
+  message: string;
+  provider: string;
 }
 
 export interface DeleteDataRequest {

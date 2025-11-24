@@ -1,0 +1,272 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>6</epicId>
+    <storyId>2</storyId>
+    <title>Add Comprehensive Logging and Monitoring</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/6-2-add-comprehensive-logging-and-monitoring.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>detailed logs and system metrics</iWant>
+    <soThat>I can troubleshoot issues and monitor system health</soThat>
+    <tasks>
+      <task id="1" status="pending">Configure structured JSON logging (AC: #1)
+        <subtasks>
+          <subtask>Install python-json-logger package</subtask>
+          <subtask>Create logging configuration in /backend/app/core/logging_config.py</subtask>
+          <subtask>Configure JSON formatter with required fields (timestamp, level, message, module, request_id)</subtask>
+          <subtask>Set up file handler with rotation (7 days, 100MB max)</subtask>
+          <subtask>Make log level configurable via LOG_LEVEL environment variable</subtask>
+          <subtask>Create /backend/logs/ directory structure</subtask>
+        </subtasks>
+      </task>
+      <task id="2" status="pending">Implement request logging middleware (AC: #2)
+        <subtasks>
+          <subtask>Create middleware in /backend/app/middleware/logging_middleware.py</subtask>
+          <subtask>Generate UUID for each request as request_id</subtask>
+          <subtask>Log request start: method, path, timestamp</subtask>
+          <subtask>Log request end: status code, response time (ms)</subtask>
+          <subtask>Use contextvars to propagate request_id to all logs</subtask>
+          <subtask>Add middleware to FastAPI app in main.py</subtask>
+        </subtasks>
+      </task>
+      <task id="3" status="pending">Add operation-specific logging throughout codebase (AC: #3)
+        <subtasks>
+          <subtask>Application startup/shutdown in main.py</subtask>
+          <subtask>Camera connection events in camera_service.py</subtask>
+          <subtask>Motion detection events in motion_detector.py</subtask>
+          <subtask>AI API calls in ai_service.py</subtask>
+          <subtask>Event creation in event_processor.py</subtask>
+          <subtask>Alert rule evaluation in alert_engine.py</subtask>
+          <subtask>Webhook execution in webhook_service.py</subtask>
+        </subtasks>
+      </task>
+      <task id="4" status="pending">Implement sensitive data protection (AC: #4)
+        <subtasks>
+          <subtask>Import mask_sensitive() from encryption utils in relevant modules</subtask>
+          <subtask>Audit existing log statements for credential exposure</subtask>
+          <subtask>Add log sanitization function to prevent log injection</subtask>
+          <subtask>Test that no plaintext credentials appear in logs</subtask>
+        </subtasks>
+      </task>
+      <task id="5" status="pending">Create log retrieval API endpoints (AC: #5)
+        <subtasks>
+          <subtask>Create /backend/app/api/v1/logs.py router</subtask>
+          <subtask>Implement GET /api/v1/logs with filtering (level, module, dates, search)</subtask>
+          <subtask>Implement log parsing to read JSON log files</subtask>
+          <subtask>Implement GET /api/v1/logs/download?date=YYYY-MM-DD</subtask>
+          <subtask>Add pagination (limit, offset) support</subtask>
+          <subtask>Register router in main.py</subtask>
+        </subtasks>
+      </task>
+      <task id="6" status="pending">Set up Prometheus metrics (AC: #6)
+        <subtasks>
+          <subtask>Install prometheus_client package</subtask>
+          <subtask>Create metrics registry in /backend/app/core/metrics.py</subtask>
+          <subtask>Define Counter for request counts (labels: endpoint, status)</subtask>
+          <subtask>Define Histogram for request latency (labels: endpoint)</subtask>
+          <subtask>Define Gauge for event processing metrics</subtask>
+          <subtask>Define Gauge for AI API metrics (calls, errors, cost)</subtask>
+          <subtask>Define Gauge for camera connection status</subtask>
+          <subtask>Define Gauge for system resources (CPU, memory, disk)</subtask>
+          <subtask>Create GET /metrics endpoint returning prometheus format</subtask>
+          <subtask>Instrument middleware to record request metrics</subtask>
+        </subtasks>
+      </task>
+      <task id="7" status="pending">Create health monitoring dashboard components (AC: #7)
+        <subtasks>
+          <subtask>Create /frontend/app/status/page.tsx status page</subtask>
+          <subtask>Add system health card to Settings page</subtask>
+          <subtask>Display: uptime, events today, error rate, service status</subtask>
+          <subtask>Create API type definitions in /frontend/types/monitoring.ts</subtask>
+          <subtask>Add status API calls to api-client.ts</subtask>
+        </subtasks>
+      </task>
+      <task id="8" status="pending">Testing and validation (AC: #1-7)
+        <subtasks>
+          <subtask>Write unit tests for logging configuration</subtask>
+          <subtask>Test JSON log format and rotation</subtask>
+          <subtask>Test request_id propagation in logs</subtask>
+          <subtask>Test log retrieval API endpoints</subtask>
+          <subtask>Test Prometheus metrics output format</subtask>
+          <subtask>Verify no credentials in logs (security audit)</subtask>
+          <subtask>Run npm run build and npm run lint for frontend</subtask>
+          <subtask>Run pytest for backend</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1" title="Structured JSON Logging">
+      <description>Machine-parseable log format with JSON structure including timestamp, level, message, module, and request_id. Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL. Configurable via LOG_LEVEL environment variable. Output to stdout and file with daily rotation, 7-day retention, 100MB max per file.</description>
+    </criterion>
+    <criterion id="2" title="Request Logging Middleware">
+      <description>Generate UUID per request as request_id. Log method, path, status code, response time (ms). Add request_id to all subsequent logs in request context. Async writes to avoid blocking requests.</description>
+    </criterion>
+    <criterion id="3" title="Operation-Specific Logging">
+      <description>Comprehensive event tracking for: startup/shutdown with version and config, camera connection events, motion detection with confidence scores, AI API calls with model/tokens/cost, event creation, alert rule evaluation, webhook execution, and errors with full stack traces.</description>
+    </criterion>
+    <criterion id="4" title="Sensitive Data Protection">
+      <description>Never log passwords, API keys, or tokens. Use mask_sensitive() function from Story 6.1 encryption utils. Sanitize user input in logs to prevent log injection.</description>
+    </criterion>
+    <criterion id="5" title="Log Retrieval API">
+      <description>GET /api/v1/logs endpoint with query params: level, module, start_date, end_date, search. Returns array of log entries in JSON. Download endpoint: GET /api/v1/logs/download?date=YYYY-MM-DD returns log file.</description>
+    </criterion>
+    <criterion id="6" title="Prometheus Metrics Endpoint">
+      <description>GET /metrics endpoint in Prometheus-compatible format. Metrics include: request count by endpoint/status, latency p50/p95/p99, events processed, AI API calls/errors/cost, camera status count, database query metrics, and system resource usage (CPU, memory, disk).</description>
+    </criterion>
+    <criterion id="7" title="Health Monitoring Dashboard">
+      <description>Display in Settings page: system uptime, events processed today, error rate. Status page at /status route showing all services (database, AI, cameras). Integrate with existing GET /api/v1/health endpoint.</description>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/architecture.md" title="Architecture Document" section="Logging Standards">
+        <snippet>Log levels: DEBUG for detailed diagnostics, INFO for general messages, WARNING for unexpected but handled, ERROR for handled errors, CRITICAL for system failures. Structured logging with extra fields for context.</snippet>
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture Document" section="Implementation Patterns">
+        <snippet>Backend logging should follow Python standard logging conventions. Metrics endpoint for Prometheus scraping. Health checks at /api/health.</snippet>
+      </doc>
+      <doc path="docs/prd.md" title="PRD" section="F8.2 Logging and Debugging">
+        <snippet>Comprehensive logging for troubleshooting. Log levels: DEBUG, INFO, WARNING, ERROR. Configurable per category. Log rotation (max 100MB, keep 7 days). Download logs from dashboard.</snippet>
+      </doc>
+      <doc path="docs/epics.md" title="Epics" section="Story 6.2">
+        <snippet>Structured logging with JSON format. Request ID per request using contextvars. Prometheus metrics at /metrics. Log retrieval API. Health monitoring dashboard.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact path="backend/main.py" kind="entrypoint" symbol="lifespan" lines="93-168" reason="Application lifecycle - add startup/shutdown logging with version info, add middleware registration">
+        <note>Current logging setup at lines 28-55 uses basic format. Needs upgrade to JSON formatter. Add request logging middleware here.</note>
+      </artifact>
+      <artifact path="backend/app/core/config.py" kind="config" symbol="Settings" lines="6-35" reason="Already has LOG_LEVEL setting. May need additional logging config settings.">
+        <note>LOG_LEVEL already configurable. Consider adding LOG_FORMAT, LOG_FILE_PATH settings.</note>
+      </artifact>
+      <artifact path="backend/app/utils/encryption.py" kind="utility" symbol="mask_sensitive" reason="Existing function for masking sensitive data in logs - MUST use this for AC#4">
+        <note>mask_sensitive(value, show_chars=4) returns masked string. Import: from app.utils.encryption import mask_sensitive</note>
+      </artifact>
+      <artifact path="backend/app/api/v1/system.py" kind="router" symbol="router" reason="System settings API - may add log retrieval endpoints here or create separate logs.py">
+        <note>Already has logger configured. Good pattern reference for new endpoints.</note>
+      </artifact>
+      <artifact path="backend/app/services/ai_service.py" kind="service" symbol="AIService" reason="Add AI API call logging: model, tokens, response time, cost estimate">
+        <note>High-value logging target - track API usage and costs.</note>
+      </artifact>
+      <artifact path="backend/app/services/camera_service.py" kind="service" symbol="CameraService" reason="Add camera connection/disconnection, frame capture rate logging">
+        <note>Log camera start/stop, connection status changes, frame capture metrics.</note>
+      </artifact>
+      <artifact path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor" reason="Add event creation logging: event_id, camera, processing time, confidence">
+        <note>Central pipeline - log event flow through processing stages.</note>
+      </artifact>
+      <artifact path="backend/app/services/alert_engine.py" kind="service" symbol="AlertEngine" reason="Add rule evaluation logging: matched rules, actions executed">
+        <note>Log which rules match events, what actions are triggered.</note>
+      </artifact>
+      <artifact path="backend/app/services/webhook_service.py" kind="service" symbol="WebhookService" reason="Add webhook execution logging: URL (masked), status, retry count, response time">
+        <note>Already has logging. Enhance with structured JSON format and more detail.</note>
+      </artifact>
+      <artifact path="backend/app/services/motion_detector.py" kind="service" symbol="MotionDetector" reason="Add motion detection event logging: confidence, bounding box">
+        <note>Log detection events with metrics for tuning sensitivity.</note>
+      </artifact>
+      <artifact path="frontend/app/settings/page.tsx" kind="page" symbol="SettingsPage" reason="Add system health card showing uptime, events today, error rate">
+        <note>Existing settings page - add monitoring section/tab.</note>
+      </artifact>
+      <artifact path="frontend/lib/api-client.ts" kind="utility" symbol="apiClient" reason="Add status and logs API calls">
+        <note>Add fetchLogs, downloadLogs, fetchMetrics, fetchHealth functions.</note>
+      </artifact>
+    </code>
+    <dependencies>
+      <backend>
+        <existing>
+          <package name="fastapi" version="0.115.0">Web framework with middleware support</package>
+          <package name="uvicorn" version="0.24.0">ASGI server with logging integration</package>
+          <package name="pydantic-settings" version="2.6.0">Settings management</package>
+          <package name="cryptography" version="41.0.7">Fernet encryption for sensitive data</package>
+        </existing>
+        <toAdd>
+          <package name="python-json-logger" version=">=2.0.0">JSON formatter for Python logging</package>
+          <package name="prometheus_client" version=">=0.19.0">Prometheus metrics library</package>
+          <package name="psutil" version=">=5.9.0">System metrics (CPU, memory, disk)</package>
+        </toAdd>
+      </backend>
+      <frontend>
+        <existing>
+          <package name="@tanstack/react-query" version="5.90.10">Data fetching and caching</package>
+          <package name="lucide-react" version="0.553.0">Icons for status indicators</package>
+          <package name="date-fns" version="4.1.0">Date formatting for logs</package>
+        </existing>
+        <toAdd>None required - existing packages sufficient</toAdd>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture.md" type="pattern">Use Python standard logging module with structured JSON output for machine parseability</constraint>
+    <constraint source="architecture.md" type="pattern">Never log sensitive data: passwords, API keys, user emails - use mask_sensitive() helper</constraint>
+    <constraint source="prd.md" type="performance">Logging should not impact request latency - use async writes where possible</constraint>
+    <constraint source="architecture.md" type="naming">Backend files: snake_case.py, functions: snake_case, API endpoints: kebab-case</constraint>
+    <constraint source="architecture.md" type="structure">New middleware goes in /backend/app/middleware/ directory</constraint>
+    <constraint source="architecture.md" type="structure">New core modules go in /backend/app/core/ directory</constraint>
+    <constraint source="architecture.md" type="api">API endpoints follow REST conventions with /api/v1 prefix</constraint>
+    <constraint source="story-6.1" type="security">Import mask_sensitive from app.utils.encryption for masking sensitive values in logs</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /health" kind="REST endpoint" path="backend/main.py" lines="213-219">
+      <signature>GET /health -> {"status": "healthy", "camera_count": int}</signature>
+      <note>Existing health check - enhance with more component status</note>
+    </interface>
+    <interface name="GET /metrics" kind="REST endpoint" path="backend/app/core/metrics.py" lines="new">
+      <signature>GET /metrics -> Prometheus text format</signature>
+      <note>New endpoint - return Prometheus-compatible metrics</note>
+    </interface>
+    <interface name="GET /api/v1/logs" kind="REST endpoint" path="backend/app/api/v1/logs.py" lines="new">
+      <signature>GET /api/v1/logs?level=ERROR&module=ai_service&limit=100 -> [LogEntry]</signature>
+      <note>New endpoint - query log entries with filtering</note>
+    </interface>
+    <interface name="GET /api/v1/logs/download" kind="REST endpoint" path="backend/app/api/v1/logs.py" lines="new">
+      <signature>GET /api/v1/logs/download?date=YYYY-MM-DD -> file download</signature>
+      <note>New endpoint - download log file for specific date</note>
+    </interface>
+    <interface name="RequestLoggingMiddleware" kind="middleware" path="backend/app/middleware/logging_middleware.py" lines="new">
+      <signature>class RequestLoggingMiddleware(BaseHTTPMiddleware)</signature>
+      <note>New middleware - log all requests with timing and request_id</note>
+    </interface>
+    <interface name="request_id_var" kind="context variable" path="backend/app/core/logging_config.py" lines="new">
+      <signature>request_id_var = contextvars.ContextVar('request_id', default=None)</signature>
+      <note>Context variable for propagating request_id through call stack</note>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <paragraph>Backend tests use pytest with pytest-asyncio for async test support. Tests are organized in backend/tests/ with subdirectories for test_api/, test_services/, test_models/, and test_utils/. Use pytest fixtures defined in conftest.py for database sessions and mock objects. Test files follow pattern test_*.py with test functions prefixed with test_. Mock external services (AI APIs) in tests. Run tests with: python -m pytest backend/tests/ -v</paragraph>
+    </standards>
+    <locations>
+      <location>backend/tests/test_core/test_logging_config.py - New file for logging config tests</location>
+      <location>backend/tests/test_middleware/test_logging_middleware.py - New file for middleware tests</location>
+      <location>backend/tests/test_api/test_logs.py - New file for log retrieval API tests</location>
+      <location>backend/tests/test_core/test_metrics.py - New file for Prometheus metrics tests</location>
+      <location>frontend/ - Run npm run build and npm run lint for frontend validation</location>
+    </locations>
+    <ideas>
+      <testIdea acId="1">Test JSON log format includes all required fields (timestamp, level, message, module, request_id)</testIdea>
+      <testIdea acId="1">Test log file rotation triggers at 100MB threshold</testIdea>
+      <testIdea acId="1">Test LOG_LEVEL environment variable changes logging verbosity</testIdea>
+      <testIdea acId="2">Test request_id is generated as valid UUID for each request</testIdea>
+      <testIdea acId="2">Test request_id propagates to nested log calls via contextvars</testIdea>
+      <testIdea acId="2">Test response time is logged in milliseconds</testIdea>
+      <testIdea acId="4">Test sensitive fields (api_key, password) are masked in logs</testIdea>
+      <testIdea acId="4">Test log injection attempts are sanitized</testIdea>
+      <testIdea acId="5">Test GET /api/v1/logs returns filtered results by level</testIdea>
+      <testIdea acId="5">Test GET /api/v1/logs pagination works correctly</testIdea>
+      <testIdea acId="5">Test GET /api/v1/logs/download returns valid log file</testIdea>
+      <testIdea acId="6">Test GET /metrics returns valid Prometheus format</testIdea>
+      <testIdea acId="6">Test request counter increments on API calls</testIdea>
+      <testIdea acId="6">Test latency histogram records response times</testIdea>
+    </ideas>
+  </tests>
+</story-context>

@@ -36,8 +36,12 @@ from sqlalchemy.orm import Session
 
 from app.models.alert_rule import AlertRule, WebhookLog
 from app.models.event import Event
+from app.utils.encryption import decrypt_password, is_encrypted, mask_sensitive
 
 logger = logging.getLogger(__name__)
+
+# Header names that should be decrypted if encrypted
+SENSITIVE_HEADERS = ["authorization", "x-api-key", "api-key", "x-auth-token"]
 
 # Configuration constants
 WEBHOOK_TIMEOUT_SECONDS = 5.0
@@ -195,6 +199,40 @@ class WebhookService:
         # Add current timestamp
         timestamps.append(now)
         self._rate_limit_cache[rule_id] = timestamps
+
+    def _decrypt_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+        """
+        Decrypt sensitive header values if they are encrypted.
+
+        Args:
+            headers: Dictionary of header name -> value pairs
+
+        Returns:
+            Headers dictionary with sensitive values decrypted
+        """
+        if not headers:
+            return {}
+
+        decrypted = {}
+        for name, value in headers.items():
+            if not value:
+                decrypted[name] = value
+                continue
+
+            # Check if this is a sensitive header that might be encrypted
+            if name.lower() in SENSITIVE_HEADERS and is_encrypted(value):
+                try:
+                    decrypted_value = decrypt_password(value)
+                    decrypted[name] = decrypted_value
+                    logger.debug(f"Decrypted webhook header: {name}")
+                except ValueError:
+                    # If decryption fails, log error and use original
+                    logger.error(f"Failed to decrypt webhook header: {name}")
+                    decrypted[name] = value
+            else:
+                decrypted[name] = value
+
+        return decrypted
 
     def build_payload(self, event: Event, rule: AlertRule) -> Dict[str, Any]:
         """
@@ -446,7 +484,8 @@ class WebhookService:
             logger.warning(f"Webhook action missing URL for rule {rule.id}")
             return None
 
-        headers = webhook_config.get("headers", {})
+        raw_headers = webhook_config.get("headers", {})
+        headers = self._decrypt_headers(raw_headers)
         payload = self.build_payload(event, rule)
 
         try:

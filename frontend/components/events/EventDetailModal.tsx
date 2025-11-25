@@ -138,11 +138,12 @@ export function EventDetailModal({
   const confidenceLevel = getConfidenceLevel(event.confidence);
 
   // Determine image source
+  // thumbnail_path from DB is already full API path like "/api/v1/thumbnails/2025-11-25/uuid.jpg"
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   const imageSrc = event.thumbnail_base64
     ? `data:image/jpeg;base64,${event.thumbnail_base64}`
     : event.thumbnail_path
-    ? `${apiUrl}/api/v1/thumbnails/${event.thumbnail_path.replace(/^thumbnails\//, '')}`
+    ? `${apiUrl}${event.thumbnail_path}`
     : null;
 
   return (

@@ -8,6 +8,7 @@ import cv2
 import threading
 import time
 import logging
+import asyncio
 from typing import Dict, Optional, Any
 from datetime import datetime, timezone
 import numpy as np
@@ -21,6 +22,7 @@ except ImportError:
 from app.models.camera import Camera
 from app.services.motion_detection_service import motion_detection_service
 from app.core.database import get_db
+# Note: event_processor imports are done locally to avoid circular imports
 
 logger = logging.getLogger(__name__)
 
@@ -369,6 +371,33 @@ class CameraService:
                                 )
                                 if motion_event:
                                     logger.info(f"Motion event {motion_event.id} created for camera {camera.name}")
+
+                                    # Queue for AI processing (import locally to avoid circular import)
+                                    from app.services.event_processor import get_event_processor, ProcessingEvent
+                                    event_processor = get_event_processor()
+                                    if event_processor and event_processor.running:
+                                        processing_event = ProcessingEvent(
+                                            camera_id=camera_id,
+                                            camera_name=camera.name,
+                                            frame=frame.copy(),
+                                            timestamp=motion_event.timestamp,
+                                            detected_objects=["motion_detected"],
+                                            metadata={
+                                                "motion_event_id": motion_event.id,
+                                                "confidence": motion_event.confidence,
+                                                "algorithm": motion_event.algorithm_used,
+                                            }
+                                        )
+                                        # Queue from sync thread to async queue
+                                        try:
+                                            loop = asyncio.get_event_loop()
+                                            asyncio.run_coroutine_threadsafe(
+                                                event_processor.queue_event(processing_event),
+                                                loop
+                                            )
+                                            logger.debug(f"Motion event {motion_event.id} queued for AI processing")
+                                        except Exception as e:
+                                            logger.warning(f"Failed to queue motion event for AI: {e}")
                             finally:
                                 db.close()
 

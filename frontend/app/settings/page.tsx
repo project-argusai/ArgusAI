@@ -40,6 +40,7 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/settings/ConfirmDialog';
+import { BackupRestore } from '@/components/settings/BackupRestore';
 
 const DEFAULT_PROMPT = 'Describe what you see in this image in one concise sentence. Focus on objects, people, and actions.';
 
@@ -831,6 +832,9 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Backup & Restore Section (Story 6.4) */}
+              <BackupRestore />
             </TabsContent>
           </Tabs>
 

@@ -1,6 +1,7 @@
 /**
  * Root layout with global styles, providers, header navigation, and toast notifications
  * Wraps app with all context providers and TanStack Query
+ * Updated for Story 6.3 with authentication support
  */
 
 import type { Metadata } from "next";
@@ -11,9 +12,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { NotificationProvider } from "@/contexts/NotificationContext";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import { Toaster } from "@/components/ui/sonner";
-import { Header } from "@/components/layout/Header";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { MobileNav } from "@/components/layout/MobileNav";
+import { AppShell } from "@/components/layout/AppShell";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -58,14 +57,9 @@ export default function RootLayout({
             <SettingsProvider>
               <AuthProvider>
                 <NotificationProvider>
-                  <Header />
-                  <Sidebar />
-                  <main className="min-h-screen bg-background pt-16 pb-16 lg:pb-0 lg:pl-60 transition-all duration-300">
-                    <div className="container mx-auto">
-                      {children}
-                    </div>
-                  </main>
-                  <MobileNav />
+                  <AppShell>
+                    {children}
+                  </AppShell>
                   <Toaster />
                 </NotificationProvider>
               </AuthProvider>

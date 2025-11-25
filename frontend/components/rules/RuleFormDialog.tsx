@@ -75,32 +75,14 @@ const ruleFormSchema = z.object({
     }).optional().nullable(),
     days_of_week: z.array(z.number().min(1).max(7)).optional(),
     min_confidence: z.number().min(0).max(100).optional(),
-  }).refine(
-    (conditions) => {
-      // At least one condition must be set
-      return (
-        (conditions.object_types && conditions.object_types.length > 0) ||
-        (conditions.cameras && conditions.cameras.length > 0) ||
-        conditions.time_of_day ||
-        (conditions.days_of_week && conditions.days_of_week.length > 0 && conditions.days_of_week.length < 7) ||
-        (conditions.min_confidence !== undefined && conditions.min_confidence > 0)
-      );
-    },
-    { message: 'At least one condition must be set' }
-  ),
+  }),
   actions: z.object({
     dashboard_notification: z.boolean(),
     webhook: z.object({
-      url: z.string().url('Invalid URL').regex(/^https?:\/\//, 'URL must start with http:// or https://'),
-      headers: z.record(z.string(), z.string()).optional(),
-    }).optional().nullable(),
-  }).refine(
-    (actions) => {
-      // At least one action must be enabled
-      return actions.dashboard_notification || actions.webhook;
-    },
-    { message: 'At least one action must be enabled' }
-  ),
+      url: z.string().min(1, 'URL is required').url('Invalid URL'),
+      headers: z.record(z.string(), z.string()).nullable().optional(),
+    }).nullable().optional(),
+  }),
   cooldown_minutes: z.number().min(0).max(1440),
 });
 
@@ -217,7 +199,8 @@ export function RuleFormDialog({ open, onOpenChange, rule, onClose }: RuleFormDi
     const actions: IAlertRuleActions = {
       dashboard_notification: values.actions.dashboard_notification,
     };
-    if (values.actions.webhook) {
+    // Only include webhook if it has a valid URL
+    if (values.actions.webhook && values.actions.webhook.url) {
       actions.webhook = values.actions.webhook;
     }
 

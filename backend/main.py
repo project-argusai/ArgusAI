@@ -16,17 +16,20 @@ from app.core.database import engine, Base
 from app.core.logging_config import setup_logging, get_logger
 from app.core.metrics import init_metrics, get_metrics, get_content_type, update_system_metrics
 from app.middleware.logging_middleware import RequestLoggingMiddleware
+from app.middleware.auth_middleware import AuthMiddleware
 from app.api.v1.cameras import router as cameras_router, camera_service
 from app.api.v1.motion_events import router as motion_events_router
 from app.api.v1.ai import router as ai_router
 from app.api.v1.events import router as events_router
 from app.api.v1.metrics import router as metrics_router
 from app.api.v1.system import router as system_router, get_retention_policy_from_db
+from app.services.backup_service import get_backup_service
 from app.api.v1.alert_rules import router as alert_rules_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.websocket import router as websocket_router
 from app.api.v1.logs import router as logs_router
+from app.api.v1.auth import router as auth_router, ensure_admin_exists, limiter
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 
@@ -76,6 +79,65 @@ async def scheduled_cleanup_job():
         logger.error(f"Scheduled cleanup failed: {e}", exc_info=True)
 
 
+async def scheduled_backup_job():
+    """
+    Scheduled backup job that runs daily at 3:00 AM (configurable)
+
+    Creates automatic backups and maintains retention policy (keeps last N backups).
+    Only runs if automatic backups are enabled in system_settings.
+    """
+    try:
+        # Check if automatic backups are enabled
+        from app.core.database import SessionLocal
+        from app.models.system_setting import SystemSetting
+
+        db = SessionLocal()
+        try:
+            auto_backup_setting = db.query(SystemSetting).filter(
+                SystemSetting.key == "settings_auto_backup_enabled"
+            ).first()
+
+            # Skip if auto-backup is not enabled (default: disabled)
+            if not auto_backup_setting or auto_backup_setting.value.lower() not in ('true', '1', 'yes'):
+                logger.debug("Scheduled backup skipped (auto-backup not enabled)")
+                return
+
+            # Get retention count setting
+            retention_setting = db.query(SystemSetting).filter(
+                SystemSetting.key == "settings_backup_retention_count"
+            ).first()
+            keep_count = int(retention_setting.value) if retention_setting else 7
+
+        finally:
+            db.close()
+
+        logger.info("Starting scheduled automatic backup")
+
+        # Create backup
+        backup_service = get_backup_service()
+        result = await backup_service.create_backup()
+
+        if result.success:
+            logger.info(
+                f"Scheduled backup complete: {result.timestamp}",
+                extra={
+                    "event_type": "scheduled_backup_complete",
+                    "timestamp": result.timestamp,
+                    "size_bytes": result.size_bytes
+                }
+            )
+
+            # Cleanup old backups based on retention
+            deleted = backup_service.cleanup_old_backups(keep_count=keep_count)
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old backups (keeping {keep_count})")
+        else:
+            logger.error(f"Scheduled backup failed: {result.message}")
+
+    except Exception as e:
+        logger.error(f"Scheduled backup failed: {e}", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -104,6 +166,29 @@ async def lifespan(app: FastAPI):
         "Database initialized",
         extra={"event_type": "database_init", "status": "success"}
     )
+
+    # Ensure admin user exists (Story 6.3)
+    from app.core.database import get_db
+    setup_db = next(get_db())
+    try:
+        created, password = ensure_admin_exists(setup_db)
+        if created:
+            logger.info(
+                "Default admin user created - SAVE THIS PASSWORD",
+                extra={
+                    "event_type": "admin_setup",
+                    "username": "admin",
+                    "password": password,  # Only logged on first creation
+                }
+            )
+            print(f"\n{'='*60}")
+            print("INITIAL SETUP - SAVE THIS INFORMATION")
+            print(f"{'='*60}")
+            print(f"Username: admin")
+            print(f"Password: {password}")
+            print(f"{'='*60}\n")
+    finally:
+        setup_db.close()
 
     # Create thumbnails directory
     thumbnail_dir = os.path.join(os.path.dirname(__file__), 'data', 'thumbnails')
@@ -139,12 +224,21 @@ async def lifespan(app: FastAPI):
         replace_existing=True
     )
 
+    # Add automatic backup job (Story 6.4) - Daily at 3:00 AM
+    scheduler.add_job(
+        scheduled_backup_job,
+        trigger=CronTrigger(hour=3, minute=0),  # Daily at 3:00 AM
+        id="daily_backup",
+        name="Daily automatic backup (if enabled)",
+        replace_existing=True
+    )
+
     scheduler.start()
     logger.info(
         "Scheduler started",
         extra={
             "event_type": "scheduler_init",
-            "jobs": ["daily_cleanup", "system_metrics_update"]
+            "jobs": ["daily_cleanup", "system_metrics_update", "daily_backup"]
         }
     )
 
@@ -255,6 +349,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add rate limiter state (Story 6.3)
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -266,6 +366,10 @@ app.add_middleware(
 
 # Add request logging middleware (Story 6.2, AC: #2)
 app.add_middleware(RequestLoggingMiddleware)
+
+# Add authentication middleware (Story 6.3, AC: #6)
+# Note: Auth middleware runs after logging middleware (LIFO order)
+app.add_middleware(AuthMiddleware)
 
 # Register API routers
 # Note: Register motion_events before cameras to ensure proper route precedence
@@ -280,13 +384,14 @@ app.include_router(webhooks_router, prefix=settings.API_V1_PREFIX)  # Story 5.3
 app.include_router(notifications_router, prefix=settings.API_V1_PREFIX)  # Story 5.4
 app.include_router(websocket_router)  # Story 5.4 - WebSocket at /ws (no prefix)
 app.include_router(logs_router, prefix=settings.API_V1_PREFIX)  # Story 6.2 - Log retrieval
+app.include_router(auth_router, prefix=settings.API_V1_PREFIX)  # Story 6.3 - Authentication
 
 # Thumbnail serving endpoint (with CORS support)
 from fastapi.responses import FileResponse, Response as FastAPIResponse
 
 @app.get("/api/v1/thumbnails/{date}/{filename}")
 async def get_thumbnail(date: str, filename: str):
-    """Serve thumbnail images with CORS support"""
+    """Serve thumbnail images (CORS handled by middleware)"""
     thumbnail_dir = os.path.join(os.path.dirname(__file__), 'data', 'thumbnails')
     file_path = os.path.join(thumbnail_dir, date, filename)
 
@@ -297,7 +402,6 @@ async def get_thumbnail(date: str, filename: str):
             content=content,
             media_type="image/jpeg",
             headers={
-                "Access-Control-Allow-Origin": "*",
                 "Cache-Control": "public, max-age=86400"
             }
         )

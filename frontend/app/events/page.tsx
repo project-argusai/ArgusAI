@@ -143,14 +143,14 @@ export default function EventsPage() {
   const totalEvents = data?.pages[0]?.total_count ?? 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Page Header */}
         <div className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Events Timeline</h1>
-              <p className="mt-2 text-sm text-gray-600">
+              <h1 className="text-3xl font-bold tracking-tight">Events Timeline</h1>
+              <p className="mt-2 text-sm text-muted-foreground">
                 {totalEvents > 0
                   ? `Showing ${allEvents.length} of ${totalEvents} events`
                   : 'No events found'}
@@ -190,8 +190,8 @@ export default function EventsPage() {
         {/* Loading State */}
         {isLoading && (
           <div className="flex flex-col items-center justify-center py-12">
-            <Loader2 className="w-12 h-12 text-blue-600 animate-spin" />
-            <p className="mt-4 text-sm text-gray-600">Loading events...</p>
+            <Loader2 className="w-12 h-12 text-primary animate-spin" />
+            <p className="mt-4 text-sm text-muted-foreground">Loading events...</p>
           </div>
         )}
 
@@ -207,10 +207,10 @@ export default function EventsPage() {
 
         {/* Empty State */}
         {!isLoading && !isError && allEvents.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 bg-white rounded-lg border-2 border-dashed border-gray-300">
+          <div className="flex flex-col items-center justify-center py-16 bg-card rounded-lg border-2 border-dashed border-border">
             <div className="text-6xl mb-4">📹</div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">No events yet</h3>
-            <p className="text-sm text-gray-600 text-center max-w-md">
+            <h3 className="text-lg font-semibold mb-2">No events yet</h3>
+            <p className="text-sm text-muted-foreground text-center max-w-md">
               Once your cameras start detecting objects, events will appear here. Make sure your
               cameras are enabled and properly configured.
             </p>
@@ -231,14 +231,14 @@ export default function EventsPage() {
             {/* Loading More Indicator */}
             {isFetchingNextPage && (
               <div className="flex justify-center py-8">
-                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-                <span className="ml-2 text-sm text-gray-600">Loading more events...</span>
+                <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <span className="ml-2 text-sm text-muted-foreground">Loading more events...</span>
               </div>
             )}
 
             {/* End of Results */}
             {!hasNextPage && allEvents.length > 0 && (
-              <div className="text-center py-8 text-sm text-gray-500">
+              <div className="text-center py-8 text-sm text-muted-foreground">
                 You&apos;ve reached the end of the timeline
               </div>
             )}

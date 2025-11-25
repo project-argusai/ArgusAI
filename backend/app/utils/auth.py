@@ -1,12 +1,12 @@
 """Authentication utilities for password hashing and validation"""
-from passlib.context import CryptContext
+import bcrypt
 import re
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Configure bcrypt with cost factor 12
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+# Cost factor for bcrypt (12 is recommended for production)
+BCRYPT_ROUNDS = 12
 
 
 def hash_password(password: str) -> str:
@@ -24,7 +24,11 @@ def hash_password(password: str) -> str:
         >>> len(hashed)
         60
     """
-    return pwd_context.hash(password)
+    # Truncate password to 72 bytes (bcrypt limit)
+    password_bytes = password.encode('utf-8')[:72]
+    salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -46,7 +50,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         False
     """
     try:
-        return pwd_context.verify(plain_password, hashed_password)
+        # Truncate password to 72 bytes (bcrypt limit)
+        password_bytes = plain_password.encode('utf-8')[:72]
+        hash_bytes = hashed_password.encode('utf-8')
+        return bcrypt.checkpw(password_bytes, hash_bytes)
     except Exception as e:
         logger.warning(f"Password verification failed: {e}")
         return False

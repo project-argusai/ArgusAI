@@ -3,7 +3,7 @@
  *
  * Features:
  * - Real API authentication with backend
- * - User session management via HTTP-only cookies
+ * - User session management via localStorage token + HTTP-only cookies
  * - Auto-check authentication on mount
  * - Login/logout functionality
  */
@@ -11,7 +11,7 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import { apiClient, ApiError } from '@/lib/api-client';
+import { apiClient, ApiError, setAuthToken, clearAuthToken } from '@/lib/api-client';
 
 export interface User {
   id: string;
@@ -62,6 +62,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       const response = await apiClient.auth.login({ username, password });
+      // Store token for Authorization header (backup for cookie issues)
+      if (response.access_token) {
+        setAuthToken(response.access_token);
+      }
       setUser(response.user);
     } catch (error) {
       console.error('Login failed:', error);
@@ -75,10 +79,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       await apiClient.auth.logout();
+      clearAuthToken();
       setUser(null);
     } catch (error) {
       console.error('Logout failed:', error);
-      // Still clear user on client side even if backend fails
+      // Still clear user/token on client side even if backend fails
+      clearAuthToken();
       setUser(null);
       throw error;
     } finally {

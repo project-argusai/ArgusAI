@@ -4,13 +4,18 @@ System Settings API
 Endpoints for system-level configuration and monitoring:
     - Retention policy management (GET/PUT /retention)
     - Storage monitoring (GET /storage)
+    - Backup and restore (POST /backup, GET /backup/{timestamp}/download, POST /restore)
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
+from pathlib import Path
 import logging
+import tempfile
+import shutil
 
 from app.schemas.system import (
     RetentionPolicyUpdate,
@@ -20,6 +25,7 @@ from app.schemas.system import (
     SystemSettingsUpdate
 )
 from app.services.cleanup_service import get_cleanup_service
+from app.services.backup_service import get_backup_service, BackupResult, RestoreResult, BackupInfo, ValidationResult
 from app.core.database import get_db, SessionLocal
 from app.models.system_setting import SystemSetting
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
@@ -713,3 +719,499 @@ def get_decrypted_api_key(db: Session, provider: str) -> Optional[str]:
     else:
         # Return unencrypted value (legacy)
         return encrypted_value
+
+
+# ============================================================================
+# Backup and Restore API (Story 6.4)
+# ============================================================================
+
+
+class BackupResponse(BaseModel):
+    """Response from backup creation"""
+    success: bool = Field(..., description="Whether backup was successful")
+    timestamp: str = Field(..., description="Backup timestamp identifier")
+    size_bytes: int = Field(..., description="Backup file size in bytes")
+    download_url: str = Field(..., description="URL to download the backup")
+    message: str = Field(..., description="Status message")
+    database_size_bytes: int = Field(default=0, description="Database size in backup")
+    thumbnails_count: int = Field(default=0, description="Number of thumbnails in backup")
+    thumbnails_size_bytes: int = Field(default=0, description="Thumbnails size in backup")
+    settings_count: int = Field(default=0, description="Number of settings in backup")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "timestamp": "2025-01-15-14-30-00",
+                "size_bytes": 15728640,
+                "download_url": "/api/v1/system/backup/2025-01-15-14-30-00/download",
+                "message": "Backup created successfully",
+                "database_size_bytes": 10485760,
+                "thumbnails_count": 150,
+                "thumbnails_size_bytes": 5242880,
+                "settings_count": 15
+            }
+        }
+
+
+class RestoreResponse(BaseModel):
+    """Response from restore operation"""
+    success: bool = Field(..., description="Whether restore was successful")
+    message: str = Field(..., description="Status message")
+    events_restored: int = Field(default=0, description="Number of events restored")
+    settings_restored: int = Field(default=0, description="Number of settings restored")
+    thumbnails_restored: int = Field(default=0, description="Number of thumbnails restored")
+    warnings: List[str] = Field(default_factory=list, description="Any warnings during restore")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "message": "Restore completed successfully",
+                "events_restored": 1234,
+                "settings_restored": 15,
+                "thumbnails_restored": 150,
+                "warnings": []
+            }
+        }
+
+
+class BackupListItem(BaseModel):
+    """Information about an available backup"""
+    timestamp: str = Field(..., description="Backup timestamp identifier")
+    size_bytes: int = Field(..., description="Backup file size in bytes")
+    created_at: str = Field(..., description="ISO 8601 creation time")
+    app_version: str = Field(..., description="App version at backup time")
+    database_size_bytes: int = Field(default=0, description="Database size in backup")
+    thumbnails_count: int = Field(default=0, description="Number of thumbnails")
+    download_url: str = Field(..., description="URL to download")
+
+
+class BackupListResponse(BaseModel):
+    """Response listing available backups"""
+    backups: List[BackupListItem] = Field(..., description="List of available backups")
+    total_count: int = Field(..., description="Total number of backups")
+
+
+class ValidationResponse(BaseModel):
+    """Response from backup validation"""
+    valid: bool = Field(..., description="Whether backup is valid")
+    message: str = Field(..., description="Validation result message")
+    app_version: Optional[str] = Field(None, description="Backup app version")
+    backup_timestamp: Optional[str] = Field(None, description="Backup creation time")
+    warnings: List[str] = Field(default_factory=list, description="Validation warnings")
+
+
+@router.post("/backup", response_model=BackupResponse)
+async def create_backup():
+    """
+    Create a full system backup
+
+    Creates a ZIP archive containing:
+    - **database.db**: Complete SQLite database
+    - **thumbnails/**: All event thumbnail images
+    - **settings.json**: System settings (API keys excluded for security)
+    - **metadata.json**: Backup metadata (timestamp, version, file counts)
+
+    The backup can be downloaded using the `download_url` in the response.
+
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "timestamp": "2025-01-15-14-30-00",
+        "size_bytes": 15728640,
+        "download_url": "/api/v1/system/backup/2025-01-15-14-30-00/download",
+        "message": "Backup created successfully"
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Backup created successfully
+    - 507: Insufficient disk space
+    - 500: Internal server error
+    """
+    try:
+        backup_service = get_backup_service()
+        result = await backup_service.create_backup()
+
+        if not result.success:
+            # Check if it's a disk space issue
+            if "disk space" in result.message.lower():
+                raise HTTPException(
+                    status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+                    detail=result.message
+                )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result.message
+            )
+
+        return BackupResponse(
+            success=result.success,
+            timestamp=result.timestamp,
+            size_bytes=result.size_bytes,
+            download_url=result.download_url,
+            message=result.message,
+            database_size_bytes=result.database_size_bytes,
+            thumbnails_count=result.thumbnails_count,
+            thumbnails_size_bytes=result.thumbnails_size_bytes,
+            settings_count=result.settings_count
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating backup: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create backup: {str(e)}"
+        )
+
+
+@router.get("/backup/{timestamp}/download")
+async def download_backup(timestamp: str):
+    """
+    Download a backup file
+
+    Downloads the backup ZIP file for the specified timestamp.
+    The file is streamed to support large backups.
+
+    **Path Parameters:**
+    - `timestamp`: Backup timestamp from create_backup response (e.g., "2025-01-15-14-30-00")
+
+    **Response:**
+    - Content-Type: application/zip
+    - Content-Disposition: attachment; filename=liveobject-backup-{timestamp}.zip
+
+    **Status Codes:**
+    - 200: Backup file streamed
+    - 404: Backup not found
+    """
+    try:
+        backup_service = get_backup_service()
+        zip_path = backup_service.get_backup_path(timestamp)
+
+        if not zip_path:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Backup not found: {timestamp}"
+            )
+
+        filename = f"liveobject-backup-{timestamp}.zip"
+
+        return FileResponse(
+            path=zip_path,
+            media_type="application/zip",
+            filename=filename,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading backup: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download backup: {str(e)}"
+        )
+
+
+@router.get("/backup/list", response_model=BackupListResponse)
+async def list_backups():
+    """
+    List all available backups
+
+    Returns a list of all backup files with metadata, sorted by timestamp (newest first).
+
+    **Response:**
+    ```json
+    {
+        "backups": [
+            {
+                "timestamp": "2025-01-15-14-30-00",
+                "size_bytes": 15728640,
+                "created_at": "2025-01-15T14:30:00Z",
+                "app_version": "1.0.0",
+                "download_url": "/api/v1/system/backup/2025-01-15-14-30-00/download"
+            }
+        ],
+        "total_count": 1
+    }
+    ```
+
+    **Status Codes:**
+    - 200: List retrieved successfully
+    - 500: Internal server error
+    """
+    try:
+        backup_service = get_backup_service()
+        backups = backup_service.list_backups()
+
+        backup_items = [
+            BackupListItem(
+                timestamp=b.timestamp,
+                size_bytes=b.size_bytes,
+                created_at=b.created_at,
+                app_version=b.app_version,
+                database_size_bytes=b.database_size_bytes,
+                thumbnails_count=b.thumbnails_count,
+                download_url=b.download_url
+            )
+            for b in backups
+        ]
+
+        return BackupListResponse(
+            backups=backup_items,
+            total_count=len(backup_items)
+        )
+
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list backups: {str(e)}"
+        )
+
+
+@router.post("/backup/validate", response_model=ValidationResponse)
+async def validate_backup(file: UploadFile = File(...)):
+    """
+    Validate a backup file before restore
+
+    Checks the backup ZIP file for:
+    - Valid ZIP format
+    - Required files present (database.db, metadata.json)
+    - Metadata format and version compatibility
+
+    **Request:**
+    - Content-Type: multipart/form-data
+    - Field: file (ZIP file)
+
+    **Response:**
+    ```json
+    {
+        "valid": true,
+        "message": "Backup is valid",
+        "app_version": "1.0.0",
+        "backup_timestamp": "2025-01-15T14:30:00Z",
+        "warnings": ["Backup from version 0.9.0, current version is 1.0.0"]
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Validation result returned
+    - 400: Invalid file format
+    - 500: Internal server error
+    """
+    try:
+        # Check file type
+        if not file.filename or not file.filename.endswith('.zip'):
+            return ValidationResponse(
+                valid=False,
+                message="File must be a ZIP archive"
+            )
+
+        # Save to temp file for validation
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            backup_service = get_backup_service()
+            result = backup_service.validate_backup(tmp_path)
+
+            return ValidationResponse(
+                valid=result.valid,
+                message=result.message,
+                app_version=result.app_version,
+                backup_timestamp=result.backup_timestamp,
+                warnings=result.warnings or []
+            )
+        finally:
+            # Cleanup temp file
+            tmp_path.unlink(missing_ok=True)
+
+    except Exception as e:
+        logger.error(f"Error validating backup: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to validate backup: {str(e)}"
+        )
+
+
+@router.post("/restore", response_model=RestoreResponse)
+async def restore_from_backup(file: UploadFile = File(...)):
+    """
+    Restore system from a backup file
+
+    **WARNING: This operation will replace all existing data!**
+
+    Process:
+    1. Validates the backup file
+    2. Stops background tasks (camera capture, event processing)
+    3. Creates a backup of current database (for safety)
+    4. Replaces database, thumbnails, and settings
+    5. Restarts background tasks
+
+    **Request:**
+    - Content-Type: multipart/form-data
+    - Field: file (ZIP file)
+
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "message": "Restore completed successfully",
+        "events_restored": 1234,
+        "settings_restored": 15,
+        "thumbnails_restored": 150,
+        "warnings": []
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Restore completed successfully
+    - 400: Invalid backup file
+    - 500: Restore failed
+    """
+    try:
+        # Check file type
+        if not file.filename or not file.filename.endswith('.zip'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be a ZIP archive"
+            )
+
+        # Save to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+            content = await file.read()
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+
+        try:
+            backup_service = get_backup_service()
+
+            # Validate first
+            validation = backup_service.validate_backup(tmp_path)
+            if not validation.valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid backup: {validation.message}"
+                )
+
+            # Get callbacks for stopping/starting background tasks
+            # These are imported from main.py patterns but we'll handle in-process
+            async def stop_tasks():
+                """Stop background tasks for restore"""
+                # Import here to avoid circular imports
+                from app.api.v1.cameras import camera_service
+                from app.services.event_processor import shutdown_event_processor
+
+                try:
+                    camera_service.stop_all_cameras(timeout=5.0)
+                    await shutdown_event_processor(timeout=10.0)
+                except Exception as e:
+                    logger.warning(f"Error stopping tasks: {e}")
+
+            async def start_tasks():
+                """Restart background tasks after restore"""
+                from app.api.v1.cameras import camera_service
+                from app.services.event_processor import initialize_event_processor
+                from app.core.database import SessionLocal
+                from app.models.camera import Camera
+
+                try:
+                    await initialize_event_processor()
+
+                    # Restart enabled cameras
+                    db = SessionLocal()
+                    try:
+                        enabled_cameras = db.query(Camera).filter(Camera.is_enabled == True).all()
+                        for camera in enabled_cameras:
+                            camera_service.start_camera(camera)
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.warning(f"Error restarting tasks: {e}")
+
+            # Perform restore
+            result = await backup_service.restore_from_backup(
+                tmp_path,
+                stop_tasks_callback=stop_tasks,
+                start_tasks_callback=start_tasks
+            )
+
+            if not result.success:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=result.message
+                )
+
+            return RestoreResponse(
+                success=result.success,
+                message=result.message,
+                events_restored=result.events_restored,
+                settings_restored=result.settings_restored,
+                thumbnails_restored=result.thumbnails_restored,
+                warnings=result.warnings or []
+            )
+
+        finally:
+            # Cleanup temp file
+            tmp_path.unlink(missing_ok=True)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error restoring backup: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Restore failed: {str(e)}"
+        )
+
+
+@router.delete("/backup/{timestamp}")
+async def delete_backup(timestamp: str):
+    """
+    Delete a specific backup
+
+    Permanently removes the backup file for the specified timestamp.
+
+    **Path Parameters:**
+    - `timestamp`: Backup timestamp (e.g., "2025-01-15-14-30-00")
+
+    **Response:**
+    ```json
+    {
+        "message": "Backup deleted successfully"
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Backup deleted
+    - 404: Backup not found
+    """
+    try:
+        backup_service = get_backup_service()
+        deleted = backup_service.delete_backup(timestamp)
+
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Backup not found: {timestamp}"
+            )
+
+        return {"message": "Backup deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting backup: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete backup: {str(e)}"
+        )

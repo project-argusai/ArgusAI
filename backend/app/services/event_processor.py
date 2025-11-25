@@ -35,6 +35,7 @@ import os
 import json
 
 from app.models.camera import Camera
+from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService
@@ -577,7 +578,7 @@ class EventProcessor:
             # Step 2: Generate thumbnail from frame
             thumbnail_base64 = self._generate_thumbnail(event.frame)
 
-            # Step 3: Store event via POST /api/v1/events
+            # Step 3: Store event in database
             event_data = {
                 "camera_id": event.camera_id,
                 "timestamp": event.timestamp.isoformat(),
@@ -588,6 +589,7 @@ class EventProcessor:
                 "alert_triggered": False  # Will be set by alert evaluation (Epic 5)
             }
 
+            logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
             success = await self._store_event_with_retry(event_data, max_retries=3)
 
             if not success:
@@ -635,50 +637,102 @@ class EventProcessor:
         max_retries: int = 3
     ) -> bool:
         """
-        Store event via POST /api/v1/events with exponential backoff retry
-
-        Retry logic:
-            - Attempt 1: Immediate
-            - Attempt 2: Wait 2s
-            - Attempt 3: Wait 4s
-            - Attempt 4: Wait 8s
+        Store event directly to database (bypasses HTTP auth)
 
         Args:
-            event_data: Event payload for POST request
+            event_data: Event payload
             max_retries: Maximum number of retry attempts
 
         Returns:
             True if event stored successfully, False otherwise
         """
-        base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
-        url = f"{base_url}/api/v1/events"
+        import uuid
+        from datetime import datetime
 
         for attempt in range(max_retries + 1):
+            db = SessionLocal()
             try:
-                response = await self.http_client.post(
-                    url,
-                    json=event_data
+                # Parse timestamp if string
+                timestamp = event_data.get("timestamp")
+                if isinstance(timestamp, str):
+                    timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+
+                # Handle thumbnail - save to file if base64 provided
+                thumbnail_path = None
+                thumbnail_base64 = event_data.get("thumbnail_base64")
+                if thumbnail_base64:
+                    import base64
+
+                    # Strip data URI prefix if present (e.g., "data:image/jpeg;base64,")
+                    if thumbnail_base64.startswith('data:'):
+                        comma_idx = thumbnail_base64.find(',')
+                        if comma_idx != -1:
+                            thumbnail_base64 = thumbnail_base64[comma_idx + 1:]
+
+                    # Create thumbnails directory structure
+                    date_str = timestamp.strftime("%Y-%m-%d")
+                    thumbnail_dir = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                        "data", "thumbnails", date_str
+                    )
+                    os.makedirs(thumbnail_dir, exist_ok=True)
+
+                    # Save thumbnail
+                    event_id = str(uuid.uuid4())
+                    thumbnail_filename = f"{event_id}.jpg"
+                    thumbnail_full_path = os.path.join(thumbnail_dir, thumbnail_filename)
+
+                    with open(thumbnail_full_path, "wb") as f:
+                        f.write(base64.b64decode(thumbnail_base64))
+
+                    thumbnail_path = f"/api/v1/thumbnails/{date_str}/{thumbnail_filename}"
+                else:
+                    event_id = str(uuid.uuid4())
+
+                # Create event record
+                # Convert confidence from 0.0-1.0 to 0-100 integer
+                confidence_float = event_data.get("confidence", 0.0)
+                confidence_int = int(confidence_float * 100) if confidence_float <= 1.0 else int(confidence_float)
+
+                # Convert objects_detected list to JSON string
+                objects_detected = event_data.get("objects_detected", [])
+                if isinstance(objects_detected, list):
+                    objects_detected = json.dumps(objects_detected)
+
+                event = Event(
+                    id=event_id,
+                    camera_id=event_data["camera_id"],
+                    timestamp=timestamp,
+                    description=event_data.get("description", ""),
+                    confidence=confidence_int,
+                    objects_detected=objects_detected,
+                    thumbnail_path=thumbnail_path,
+                    alert_triggered=event_data.get("alert_triggered", False),
                 )
 
-                if response.status_code == 201:
-                    logger.debug(f"Event stored successfully (attempt {attempt + 1})")
-                    return True
-                else:
-                    logger.warning(
-                        f"Event storage returned status {response.status_code} (attempt {attempt + 1})",
-                        extra={"status_code": response.status_code, "response": response.text[:200]}
-                    )
+                db.add(event)
+                db.commit()
+
+                logger.info(
+                    f"Event {event_id} stored successfully",
+                    extra={"event_id": event_id, "camera_id": event_data["camera_id"]}
+                )
+                return True
 
             except Exception as e:
-                logger.warning(
+                db.rollback()
+                logger.error(
                     f"Event storage attempt {attempt + 1} failed: {e}",
+                    exc_info=True,
                     extra={"attempt": attempt + 1, "max_retries": max_retries}
                 )
 
+            finally:
+                db.close()
+
             # Retry with exponential backoff
             if attempt < max_retries:
-                wait_time = 2 ** attempt  # 2s, 4s, 8s
-                logger.debug(f"Retrying in {wait_time}s...")
+                wait_time = 2 ** attempt  # 1s, 2s, 4s
                 await asyncio.sleep(wait_time)
 
         logger.error(f"Event storage failed after {max_retries + 1} attempts")

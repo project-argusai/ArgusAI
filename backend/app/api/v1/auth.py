@@ -196,13 +196,16 @@ async def login(
     access_token = create_access_token(user.id, user.username)
 
     # Set HTTP-only cookie
+    # For local dev with different ports (3000 -> 8000), browser treats as cross-site
+    # samesite="none" requires secure=True, which Chrome allows for localhost
     response.set_cookie(
         key=COOKIE_NAME,
         value=access_token,
         max_age=COOKIE_MAX_AGE,
         httponly=True,
-        secure=not settings.DEBUG,  # Secure in production
-        samesite="lax",
+        secure=True,  # Required for samesite=none (Chrome allows for localhost)
+        samesite="none",  # Allow cross-origin requests
+        path="/",
     )
 
     logger.info(
@@ -230,8 +233,9 @@ async def logout(response: Response):
     response.delete_cookie(
         key=COOKIE_NAME,
         httponly=True,
-        secure=not settings.DEBUG,
-        samesite="lax",
+        secure=True,
+        samesite="none",
+        path="/",
     )
 
     logger.info(

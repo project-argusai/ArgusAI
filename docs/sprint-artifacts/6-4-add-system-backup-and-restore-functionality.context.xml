@@ -1,0 +1,435 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Story Context: 6-4-add-system-backup-and-restore-functionality
+  Generated: 2025-11-25
+
+  This context file provides all necessary information for implementing
+  Story 6.4: Add System Backup and Restore Functionality
+-->
+<story-context>
+  <metadata>
+    <story-key>6-4-add-system-backup-and-restore-functionality</story-key>
+    <story-title>Add System Backup and Restore Functionality</story-title>
+    <epic-id>6</epic-id>
+    <story-id>4</story-id>
+    <status>drafted</status>
+    <generated-date>2025-11-25</generated-date>
+  </metadata>
+
+  <story-summary>
+    <user-story>
+      As a **system administrator**,
+      I want **to backup and restore all system data**,
+      so that **I can recover from failures or migrate to a new server**.
+    </user-story>
+
+    <acceptance-criteria-count>10</acceptance-criteria-count>
+    <task-count>9</task-count>
+
+    <key-features>
+      <feature>Manual backup creation to downloadable ZIP archive</feature>
+      <feature>Backup contents: database, thumbnails, settings, metadata</feature>
+      <feature>Backup download via streaming response</feature>
+      <feature>Restore from uploaded backup ZIP</feature>
+      <feature>Restore validation (ZIP integrity, version check)</feature>
+      <feature>Automatic scheduled backups (optional)</feature>
+      <feature>UI components in Settings page</feature>
+      <feature>Error handling for disk space, corruption, version mismatch</feature>
+    </key-features>
+  </story-summary>
+
+  <architecture-context>
+    <database>
+      <type>SQLite</type>
+      <location>backend/data/app.db</location>
+      <description>Single-file database containing all application data</description>
+    </database>
+
+    <thumbnails>
+      <location>backend/data/thumbnails/</location>
+      <structure>Organized by date: thumbnails/{YYYY-MM}/{event-uuid}.jpg</structure>
+    </thumbnails>
+
+    <settings>
+      <storage>system_settings table in SQLite database</storage>
+      <key-value-format>key (string) -> value (string, may be encrypted)</key-value-format>
+    </settings>
+
+    <backend-framework>
+      <name>FastAPI</name>
+      <version>0.115.0</version>
+      <entry-point>backend/main.py</entry-point>
+    </backend-framework>
+
+    <frontend-framework>
+      <name>Next.js</name>
+      <version>15.x with App Router</version>
+      <settings-page>frontend/app/settings/page.tsx</settings-page>
+    </frontend-framework>
+
+    <existing-scheduler>
+      <library>APScheduler</library>
+      <usage>Daily cleanup at 2:00 AM, system metrics every minute</usage>
+      <location>backend/main.py - AsyncIOScheduler instance</location>
+    </existing-scheduler>
+  </architecture-context>
+
+  <existing-code-patterns>
+    <pattern name="API Router Pattern">
+      <description>FastAPI routers registered in main.py with prefix</description>
+      <example-file>backend/app/api/v1/system.py</example-file>
+      <usage>
+        - Create router with APIRouter(prefix="/system", tags=["system"])
+        - Register in main.py: app.include_router(router, prefix=settings.API_V1_PREFIX)
+      </usage>
+    </pattern>
+
+    <pattern name="Service Layer Pattern">
+      <description>Business logic in services/ directory</description>
+      <example-file>backend/app/services/cleanup_service.py</example-file>
+      <usage>
+        - Create service class with methods for operations
+        - Use singleton pattern with get_service_name() function
+        - Inject database session as parameter or use SessionLocal()
+      </usage>
+    </pattern>
+
+    <pattern name="Pydantic Schemas">
+      <description>Request/response schemas in schemas/ directory</description>
+      <example-file>backend/app/schemas/system.py</example-file>
+      <usage>
+        - BaseModel subclasses with Field() for validation
+        - Separate Create, Update, Response schemas as needed
+      </usage>
+    </pattern>
+
+    <pattern name="Frontend API Client">
+      <description>Typed API client wrapper in lib/api-client.ts</description>
+      <example>
+        - apiFetch&lt;T&gt;() for typed requests
+        - Namespace objects (apiClient.settings, apiClient.auth)
+        - credentials: 'include' for authenticated requests
+      </example>
+    </pattern>
+
+    <pattern name="Settings Page Sections">
+      <description>Tabbed interface with Cards for each section</description>
+      <example-file>frontend/app/settings/page.tsx</example-file>
+      <usage>
+        - Tabs component with TabsContent for each section
+        - Card with CardHeader and CardContent
+        - Form with react-hook-form + zod validation
+        - Button actions with loading states (Loader2 icon)
+      </usage>
+    </pattern>
+
+    <pattern name="Confirmation Dialog">
+      <description>Reusable confirmation modal for destructive actions</description>
+      <example-file>frontend/components/settings/ConfirmDialog.tsx</example-file>
+      <usage>
+        - ConfirmDialog component with title, description, onConfirm
+        - variant: 'destructive' for dangerous actions
+        - requireCheckbox for extra confirmation
+      </usage>
+    </pattern>
+
+    <pattern name="File Streaming Response">
+      <description>Large file downloads via StreamingResponse</description>
+      <usage>
+        from fastapi.responses import StreamingResponse, FileResponse
+        - Use FileResponse for static files
+        - Use StreamingResponse with generator for dynamic/large files
+        - Set Content-Disposition header for downloads
+      </usage>
+    </pattern>
+
+    <pattern name="File Upload Handling">
+      <description>Multipart file uploads in FastAPI</description>
+      <usage>
+        from fastapi import File, UploadFile
+        - async def endpoint(file: UploadFile = File(...))
+        - file.filename, file.content_type, await file.read()
+      </usage>
+    </pattern>
+  </existing-code-patterns>
+
+  <relevant-files>
+    <file purpose="System API (extend for backup endpoints)">
+      <path>backend/app/api/v1/system.py</path>
+      <description>
+        Existing system settings API with:
+        - GET/PUT /system/retention - Retention policy
+        - GET /system/storage - Storage statistics
+        - GET/PUT /system/settings - System settings CRUD
+        - POST /system/test-key - API key validation
+
+        Add backup/restore endpoints here:
+        - POST /system/backup - Trigger backup
+        - GET /system/backup/{timestamp}/download - Download backup
+        - POST /system/restore - Upload and restore
+        - GET /system/backup/list - List available backups (if auto-backup enabled)
+      </description>
+    </file>
+
+    <file purpose="Settings Page (add Backup section)">
+      <path>frontend/app/settings/page.tsx</path>
+      <description>
+        Existing settings page with tabs: General, AI Models, Motion, Data.
+        Add "Backup & Restore" section to Data tab or create new tab.
+
+        Current Data tab includes:
+        - Storage statistics display
+        - Data retention settings
+        - Export JSON/CSV buttons
+        - Delete All Data button
+
+        Add:
+        - "Backup Now" button
+        - "Restore from Backup" file upload
+        - Backup history list (if auto-backup enabled)
+      </description>
+    </file>
+
+    <file purpose="Cleanup Service (reference for file operations)">
+      <path>backend/app/services/cleanup_service.py</path>
+      <description>
+        Singleton service pattern for data management.
+        Reference for:
+        - get_storage_info() - Calculate directory sizes
+        - cleanup_old_events() - Delete files and database records
+        - Thumbnail directory path resolution
+      </description>
+    </file>
+
+    <file purpose="API Client (add backup methods)">
+      <path>frontend/lib/api-client.ts</path>
+      <description>
+        Typed API client. Add backup namespace with:
+        - backup.create(): Promise&lt;BackupResponse&gt;
+        - backup.download(timestamp: string): Promise&lt;Blob&gt;
+        - backup.restore(file: File): Promise&lt;RestoreResponse&gt;
+        - backup.list(): Promise&lt;BackupListResponse&gt;
+      </description>
+    </file>
+
+    <file purpose="Main Application (scheduler reference)">
+      <path>backend/main.py</path>
+      <description>
+        Application entry point with:
+        - AsyncIOScheduler for scheduled jobs
+        - scheduled_cleanup_job() pattern for daily tasks
+        - lifespan() context manager for startup/shutdown
+
+        Add scheduled backup job if automatic backups enabled.
+      </description>
+    </file>
+
+    <file purpose="Config (add backup settings)">
+      <path>backend/app/core/config.py</path>
+      <description>
+        Pydantic Settings class. Add:
+        - BACKUP_DIR: str = "data/backups"
+        - BACKUP_RETENTION_COUNT: int = 7
+        - AUTO_BACKUP_ENABLED: bool = False
+        - AUTO_BACKUP_HOUR: int = 3
+      </description>
+    </file>
+
+    <file purpose="Database (reference)">
+      <path>backend/app/core/database.py</path>
+      <description>
+        SQLAlchemy engine and session management.
+        Reference for database path and connection handling.
+      </description>
+    </file>
+  </relevant-files>
+
+  <implementation-guidance>
+    <section name="Backup Service">
+      <file-to-create>backend/app/services/backup_service.py</file-to-create>
+      <key-methods>
+        <method name="create_backup">
+          <steps>
+            1. Create temp directory: data/backups/backup-{timestamp}/
+            2. Copy database: shutil.copy2(app.db, backup_dir/database.db)
+            3. Copy thumbnails recursively: shutil.copytree()
+            4. Export settings to JSON: query SystemSetting, write to file
+            5. Create metadata.json with timestamp, version, file counts
+            6. Create ZIP archive using zipfile module
+            7. Delete temp directory
+            8. Return backup info (timestamp, size, download_url)
+          </steps>
+        </method>
+        <method name="restore_backup">
+          <steps>
+            1. Validate ZIP structure (required files exist)
+            2. Validate metadata (version compatibility)
+            3. Stop background tasks (camera capture, event processor)
+            4. Backup current database (data/app.db.backup-{timestamp})
+            5. Extract ZIP to temp directory
+            6. Replace database file
+            7. Clear and replace thumbnails
+            8. Import settings from JSON
+            9. Restart background tasks
+            10. Return restore status
+          </steps>
+        </method>
+      </key-methods>
+    </section>
+
+    <section name="API Endpoints">
+      <endpoint path="POST /api/v1/system/backup">
+        <description>Trigger backup creation</description>
+        <response>{"timestamp": "...", "size_bytes": ..., "download_url": "..."}</response>
+      </endpoint>
+      <endpoint path="GET /api/v1/system/backup/{timestamp}/download">
+        <description>Download backup ZIP file</description>
+        <response>StreamingResponse with ZIP file</response>
+        <headers>Content-Disposition: attachment; filename=...</headers>
+      </endpoint>
+      <endpoint path="POST /api/v1/system/restore">
+        <description>Restore from uploaded backup</description>
+        <request>multipart/form-data with file field</request>
+        <response>{"success": true, "events_restored": ..., "message": "..."}</response>
+      </endpoint>
+      <endpoint path="GET /api/v1/system/backup/list">
+        <description>List available backups</description>
+        <response>{"backups": [{"timestamp": ..., "size_bytes": ..., ...}]}</response>
+      </endpoint>
+    </section>
+
+    <section name="Frontend Components">
+      <component name="BackupRestore">
+        <location>frontend/components/settings/BackupRestore.tsx</location>
+        <features>
+          - "Backup Now" button with loading state
+          - Triggers download on success
+          - File input for restore
+          - Confirmation dialog before restore
+          - Progress/status display
+          - Backup history list (if available)
+        </features>
+      </component>
+    </section>
+
+    <section name="Background Task Management">
+      <description>
+        For restore operations, need to safely stop and restart:
+        - camera_service.stop_all_cameras()
+        - shutdown_event_processor()
+        - After restore:
+        - initialize_event_processor()
+        - Restart enabled cameras
+      </description>
+      <reference>See main.py lifespan() for startup/shutdown patterns</reference>
+    </section>
+  </implementation-guidance>
+
+  <testing-requirements>
+    <unit-tests>
+      <test-file>backend/tests/test_services/test_backup_service.py</test-file>
+      <test-cases>
+        - test_create_backup_success
+        - test_create_backup_creates_valid_zip
+        - test_backup_includes_database
+        - test_backup_includes_thumbnails
+        - test_backup_includes_settings
+        - test_backup_metadata_correct
+        - test_restore_validates_zip_structure
+        - test_restore_validates_version
+        - test_restore_replaces_database
+        - test_restore_replaces_thumbnails
+        - test_cleanup_old_backups
+      </test-cases>
+    </unit-tests>
+
+    <api-tests>
+      <test-file>backend/tests/test_api/test_system_backup.py</test-file>
+      <test-cases>
+        - test_create_backup_endpoint
+        - test_download_backup_endpoint
+        - test_download_nonexistent_backup_404
+        - test_restore_endpoint_valid_backup
+        - test_restore_endpoint_invalid_file
+        - test_restore_endpoint_corrupted_zip
+        - test_list_backups_endpoint
+      </test-cases>
+    </api-tests>
+  </testing-requirements>
+
+  <dependencies>
+    <existing>
+      <dependency>zipfile - Python standard library for ZIP operations</dependency>
+      <dependency>shutil - Python standard library for file operations</dependency>
+      <dependency>apscheduler - Already installed for scheduled tasks</dependency>
+    </existing>
+    <notes>No new dependencies required - use Python standard library</notes>
+  </dependencies>
+
+  <error-handling>
+    <error type="Insufficient Disk Space">
+      <check>Check available space before backup: shutil.disk_usage()</check>
+      <response>HTTP 507 Insufficient Storage with message</response>
+    </error>
+    <error type="Corrupted ZIP">
+      <check>zipfile.is_zipfile() and ZipFile.testzip()</check>
+      <response>HTTP 400 Bad Request: "Backup file is corrupted"</response>
+    </error>
+    <error type="Version Mismatch">
+      <check>Compare metadata.app_version with current APP_VERSION</check>
+      <response>Warning in response, allow with confirmation</response>
+    </error>
+    <error type="Database Locked">
+      <check>Try acquiring database lock before backup</check>
+      <response>HTTP 409 Conflict: "Database is in use"</response>
+    </error>
+  </error-handling>
+
+  <learnings-from-previous-stories>
+    <learning source="Story 6.3: Authentication">
+      <topic>Auth Middleware Pattern</topic>
+      <detail>
+        Auth middleware at backend/app/middleware/auth_middleware.py
+        automatically protects all new endpoints. No additional auth
+        code needed in backup endpoints.
+      </detail>
+    </learning>
+    <learning source="Story 6.3: Authentication">
+      <topic>Test Compatibility</topic>
+      <detail>
+        Auth middleware skips TestClient requests, so existing test
+        patterns work without modification.
+      </detail>
+    </learning>
+    <learning source="Story 6.2: Logging">
+      <topic>Structured Logging</topic>
+      <detail>
+        Use logger with extra={} dict for structured log entries.
+        Example: logger.info("Backup created", extra={"backup_size": size})
+      </detail>
+    </learning>
+    <learning source="Story 3.4: Cleanup">
+      <topic>Scheduler Pattern</topic>
+      <detail>
+        APScheduler already configured in main.py. Add new job with
+        scheduler.add_job() using CronTrigger for scheduled backups.
+      </detail>
+    </learning>
+  </learnings-from-previous-stories>
+
+  <completion-checklist>
+    <item>Backend: Create backup_service.py with create/restore/list methods</item>
+    <item>Backend: Add backup endpoints to system.py router</item>
+    <item>Backend: Add Pydantic schemas for backup requests/responses</item>
+    <item>Backend: Handle file streaming for downloads</item>
+    <item>Backend: Handle multipart upload for restore</item>
+    <item>Backend: Add scheduled backup job (optional feature)</item>
+    <item>Frontend: Add backup/restore section to settings page</item>
+    <item>Frontend: Add API client methods for backup operations</item>
+    <item>Frontend: Add confirmation dialogs for restore</item>
+    <item>Testing: Unit tests for backup service</item>
+    <item>Testing: API tests for endpoints</item>
+    <item>Testing: Frontend build passes</item>
+    <item>Testing: Frontend lint passes</item>
+  </completion-checklist>
+</story-context>

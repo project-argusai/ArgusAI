@@ -116,10 +116,10 @@ export function RuleTestResults({ ruleId }: RuleTestResultsProps) {
                     {matchingEvents.map((event) => (
                       <div
                         key={event.id}
-                        className="flex items-center justify-between p-2 rounded border bg-background"
+                        className="flex items-start justify-between p-2 rounded border bg-background gap-2"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm truncate">{event.description || 'No description'}</p>
+                          <p className="text-sm break-words">{event.description || 'No description'}</p>
                           <p className="text-xs text-muted-foreground">
                             {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
                           </p>

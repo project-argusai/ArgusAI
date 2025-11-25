@@ -35,12 +35,14 @@ export const EventCard = memo(function EventCard({ event, onClick }: EventCardPr
   const confidenceColorClass = getConfidenceColor(event.confidence);
 
   // Determine thumbnail source
+  // thumbnail_path from DB is already full API path like "/api/v1/thumbnails/2025-11-25/uuid.jpg"
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   const thumbnailSrc = event.thumbnail_base64
     ? `data:image/jpeg;base64,${event.thumbnail_base64}`
     : event.thumbnail_path
-    ? `${apiUrl}/api/v1/thumbnails/${event.thumbnail_path.replace(/^thumbnails\//, '')}`
+    ? `${apiUrl}${event.thumbnail_path}`
     : null;
+
 
   // Truncate description to 3 lines (~150 chars)
   const MAX_LENGTH = 150;
@@ -60,10 +62,15 @@ export const EventCard = memo(function EventCard({ event, onClick }: EventCardPr
           {thumbnailSrc && !imageError ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              key={thumbnailSrc}
               src={thumbnailSrc}
               alt="Event thumbnail"
               className="w-full h-full object-cover"
-              onError={() => setImageError(true)}
+              onError={(e) => {
+                console.error('Image load failed:', thumbnailSrc, e);
+                setImageError(true);
+              }}
+              onLoad={() => console.log('Image loaded successfully:', thumbnailSrc)}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-200">

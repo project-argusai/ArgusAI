@@ -54,9 +54,42 @@ import type {
   IMessageResponse,
   ISetupStatusResponse,
 } from '@/types/auth';
+import type {
+  IBackupResponse,
+  IRestoreResponse,
+  IBackupListResponse,
+  IValidationResponse,
+} from '@/types/backup';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const API_V1_PREFIX = '/api/v1';
+
+// Token storage key
+const AUTH_TOKEN_KEY = 'auth_token';
+
+/**
+ * Get stored auth token
+ */
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+/**
+ * Set auth token in localStorage
+ */
+export function setAuthToken(token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+/**
+ * Clear auth token from localStorage
+ */
+export function clearAuthToken(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(AUTH_TOKEN_KEY);
+}
 
 /**
  * Custom API error class
@@ -83,12 +116,22 @@ async function apiFetch<T>(
   const url = `${API_BASE_URL}${API_V1_PREFIX}${endpoint}`;
 
   try {
+    // Build headers with auth token if available
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      ...options?.headers,
+    };
+
+    const token = getAuthToken();
+    console.log('[API] Request to:', endpoint, 'Token present:', !!token);
+    if (token) {
+      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+    }
+
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers,
-      },
+      credentials: 'include',  // Also send cookies for JWT auth
+      headers,
     });
 
     // Parse response body
@@ -720,8 +763,15 @@ export const apiClient = {
      */
     getCurrentUser: async (): Promise<IUser> => {
       const url = `${API_BASE_URL}${API_V1_PREFIX}/auth/me`;
+      const headers: HeadersInit = {};
+      const token = getAuthToken();
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(url, {
         credentials: 'include',
+        headers,
       });
 
       const data = await response.json().catch(() => null);
@@ -741,9 +791,15 @@ export const apiClient = {
      */
     changePassword: async (passwordData: IChangePasswordRequest): Promise<IMessageResponse> => {
       const url = `${API_BASE_URL}${API_V1_PREFIX}/auth/change-password`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const token = getAuthToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(passwordData),
         credentials: 'include',
       });
@@ -774,6 +830,140 @@ export const apiClient = {
       }
 
       return data as ISetupStatusResponse;
+    },
+  },
+
+  /**
+   * Backup and Restore API (Story 6.4)
+   */
+  backup: {
+    /**
+     * Create a full system backup
+     * @returns Backup result with download URL
+     */
+    create: async (): Promise<IBackupResponse> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/system/backup`;
+      const response = await fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
+
+      return data as IBackupResponse;
+    },
+
+    /**
+     * Download a backup file
+     * @param timestamp Backup timestamp
+     * @returns Blob containing the ZIP file
+     */
+    download: async (timestamp: string): Promise<Blob> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/system/backup/${timestamp}/download`;
+      const response = await fetch(url, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new ApiError(`Failed to download backup: ${response.statusText}`, response.status);
+      }
+
+      return response.blob();
+    },
+
+    /**
+     * List all available backups
+     * @returns List of backups with metadata
+     */
+    list: async (): Promise<IBackupListResponse> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/system/backup/list`;
+      const response = await fetch(url, {
+        credentials: 'include',
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
+
+      return data as IBackupListResponse;
+    },
+
+    /**
+     * Validate a backup file before restore
+     * @param file ZIP file to validate
+     * @returns Validation result
+     */
+    validate: async (file: File): Promise<IValidationResponse> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/system/backup/validate`;
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
+
+      return data as IValidationResponse;
+    },
+
+    /**
+     * Restore from a backup file
+     * @param file ZIP file to restore from
+     * @returns Restore result
+     */
+    restore: async (file: File): Promise<IRestoreResponse> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/system/restore`;
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
+
+      return data as IRestoreResponse;
+    },
+
+    /**
+     * Delete a backup
+     * @param timestamp Backup timestamp
+     */
+    delete: async (timestamp: string): Promise<void> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/system/backup/${timestamp}`;
+      const response = await fetch(url, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
     },
   },
 };

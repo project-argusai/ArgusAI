@@ -23,6 +23,7 @@ from app.api.v1.ai import router as ai_router
 from app.api.v1.events import router as events_router
 from app.api.v1.metrics import router as metrics_router
 from app.api.v1.system import router as system_router, get_retention_policy_from_db
+from app.services.backup_service import get_backup_service
 from app.api.v1.alert_rules import router as alert_rules_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.notifications import router as notifications_router
@@ -76,6 +77,65 @@ async def scheduled_cleanup_job():
 
     except Exception as e:
         logger.error(f"Scheduled cleanup failed: {e}", exc_info=True)
+
+
+async def scheduled_backup_job():
+    """
+    Scheduled backup job that runs daily at 3:00 AM (configurable)
+
+    Creates automatic backups and maintains retention policy (keeps last N backups).
+    Only runs if automatic backups are enabled in system_settings.
+    """
+    try:
+        # Check if automatic backups are enabled
+        from app.core.database import SessionLocal
+        from app.models.system_setting import SystemSetting
+
+        db = SessionLocal()
+        try:
+            auto_backup_setting = db.query(SystemSetting).filter(
+                SystemSetting.key == "settings_auto_backup_enabled"
+            ).first()
+
+            # Skip if auto-backup is not enabled (default: disabled)
+            if not auto_backup_setting or auto_backup_setting.value.lower() not in ('true', '1', 'yes'):
+                logger.debug("Scheduled backup skipped (auto-backup not enabled)")
+                return
+
+            # Get retention count setting
+            retention_setting = db.query(SystemSetting).filter(
+                SystemSetting.key == "settings_backup_retention_count"
+            ).first()
+            keep_count = int(retention_setting.value) if retention_setting else 7
+
+        finally:
+            db.close()
+
+        logger.info("Starting scheduled automatic backup")
+
+        # Create backup
+        backup_service = get_backup_service()
+        result = await backup_service.create_backup()
+
+        if result.success:
+            logger.info(
+                f"Scheduled backup complete: {result.timestamp}",
+                extra={
+                    "event_type": "scheduled_backup_complete",
+                    "timestamp": result.timestamp,
+                    "size_bytes": result.size_bytes
+                }
+            )
+
+            # Cleanup old backups based on retention
+            deleted = backup_service.cleanup_old_backups(keep_count=keep_count)
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} old backups (keeping {keep_count})")
+        else:
+            logger.error(f"Scheduled backup failed: {result.message}")
+
+    except Exception as e:
+        logger.error(f"Scheduled backup failed: {e}", exc_info=True)
 
 
 @asynccontextmanager
@@ -164,12 +224,21 @@ async def lifespan(app: FastAPI):
         replace_existing=True
     )
 
+    # Add automatic backup job (Story 6.4) - Daily at 3:00 AM
+    scheduler.add_job(
+        scheduled_backup_job,
+        trigger=CronTrigger(hour=3, minute=0),  # Daily at 3:00 AM
+        id="daily_backup",
+        name="Daily automatic backup (if enabled)",
+        replace_existing=True
+    )
+
     scheduler.start()
     logger.info(
         "Scheduler started",
         extra={
             "event_type": "scheduler_init",
-            "jobs": ["daily_cleanup", "system_metrics_update"]
+            "jobs": ["daily_cleanup", "system_metrics_update", "daily_backup"]
         }
     )
 
@@ -322,7 +391,7 @@ from fastapi.responses import FileResponse, Response as FastAPIResponse
 
 @app.get("/api/v1/thumbnails/{date}/{filename}")
 async def get_thumbnail(date: str, filename: str):
-    """Serve thumbnail images with CORS support"""
+    """Serve thumbnail images (CORS handled by middleware)"""
     thumbnail_dir = os.path.join(os.path.dirname(__file__), 'data', 'thumbnails')
     file_path = os.path.join(thumbnail_dir, date, filename)
 
@@ -333,7 +402,6 @@ async def get_thumbnail(date: str, filename: str):
             content=content,
             media_type="image/jpeg",
             headers={
-                "Access-Control-Allow-Origin": "*",
                 "Cache-Control": "public, max-age=86400"
             }
         )

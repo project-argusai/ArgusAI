@@ -87,5 +87,5 @@ development_status:
   6-1-implement-api-key-encryption-and-management: done
   6-2-add-comprehensive-logging-and-monitoring: done
   6-3-implement-basic-user-authentication-phase-1-5: done
-  6-4-add-system-backup-and-restore-functionality: backlog
+  6-4-add-system-backup-and-restore-functionality: done
   epic-6-retrospective: optional

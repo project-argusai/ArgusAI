@@ -6,6 +6,14 @@ import { FlaskConical, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 import { apiClient, ApiError } from '@/lib/api-client';
+
+// Parse timestamp as UTC (backend stores UTC without timezone indicator)
+function parseUTCTimestamp(timestamp: string): Date {
+  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
+    ? timestamp
+    : timestamp.replace(' ', 'T') + 'Z';
+  return new Date(ts);
+}
 import type { IAlertRuleTestResponse } from '@/types/alert-rule';
 import type { IEvent } from '@/types/event';
 import { Button } from '@/components/ui/button';
@@ -121,7 +129,7 @@ export function RuleTestResults({ ruleId }: RuleTestResultsProps) {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm break-words">{event.description || 'No description'}</p>
                           <p className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
+                            {formatDistanceToNow(parseUTCTimestamp(event.timestamp), { addSuffix: true })}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 ml-2">

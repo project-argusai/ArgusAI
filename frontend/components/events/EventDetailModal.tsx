@@ -42,6 +42,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 
+// Parse timestamp as UTC (backend stores UTC without timezone indicator)
+function parseUTCTimestamp(timestamp: string): Date {
+  // If timestamp doesn't have timezone info, append 'Z' to interpret as UTC
+  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
+    ? timestamp
+    : timestamp.replace(' ', 'T') + 'Z';
+  return new Date(ts);
+}
+
 interface EventDetailModalProps {
   event: IEvent | null;
   open: boolean;
@@ -130,7 +139,8 @@ export function EventDetailModal({
     }
   };
 
-  const relativeTime = formatDistanceToNow(new Date(event.timestamp), {
+  const eventDate = parseUTCTimestamp(event.timestamp);
+  const relativeTime = formatDistanceToNow(eventDate, {
     addSuffix: true,
   });
 
@@ -157,7 +167,7 @@ export function EventDetailModal({
                 <DialogDescription className="mt-2">
                   <time
                     dateTime={event.timestamp}
-                    title={new Date(event.timestamp).toLocaleString()}
+                    title={eventDate.toLocaleString()}
                     className="text-sm font-medium"
                   >
                     {relativeTime}
@@ -237,7 +247,7 @@ export function EventDetailModal({
               <div>
                 <p className="text-sm font-medium text-gray-700">Captured</p>
                 <p className="text-sm text-gray-600">
-                  {new Date(event.timestamp).toLocaleString()}
+                  {eventDate.toLocaleString()}
                 </p>
               </div>
             </div>

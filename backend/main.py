@@ -246,6 +246,10 @@ async def lifespan(app: FastAPI):
     from app.core.database import get_db
     from app.models.camera import Camera
     from app.core.metrics import record_camera_status
+    import asyncio
+
+    # Set the main event loop for camera service (needed for thread-safe async calls)
+    camera_service.set_event_loop(asyncio.get_running_loop())
 
     db = next(get_db())
     try:

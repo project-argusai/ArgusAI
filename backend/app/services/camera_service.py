@@ -55,8 +55,17 @@ class CameraService:
         self._camera_status: Dict[str, dict] = {}
         self._latest_frames: Dict[str, np.ndarray] = {}  # Store latest frame per camera
         self._frame_lock = threading.Lock()  # Lock for frame access
+        self._main_event_loop: Optional[asyncio.AbstractEventLoop] = None  # Store main event loop for thread-safe async calls
 
         logger.info("CameraService initialized")
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Set the main event loop for thread-safe async calls.
+        Should be called from the main async context during app startup.
+        """
+        self._main_event_loop = loop
+        logger.info("Main event loop set for camera service")
 
     def start_camera(self, camera: Camera) -> bool:
         """
@@ -81,6 +90,17 @@ class CameraService:
             return False
 
         try:
+            # Capture the main event loop for thread-safe async calls
+            try:
+                self._main_event_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                # If no running loop, try to get the current loop
+                try:
+                    self._main_event_loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    logger.warning("No event loop available for async event processing")
+                    self._main_event_loop = None
+
             # Create stop event for this camera
             stop_event = threading.Event()
             self._stop_flags[camera_id] = stop_event
@@ -165,7 +185,8 @@ class CameraService:
             # Clean up resources
             if camera_id in self._active_captures:
                 cap = self._active_captures[camera_id]
-                cap.release()
+                if cap is not None:
+                    cap.release()
                 del self._active_captures[camera_id]
 
             # Remove from tracking
@@ -388,14 +409,16 @@ class CameraService:
                                                 "algorithm": motion_event.algorithm_used,
                                             }
                                         )
-                                        # Queue from sync thread to async queue
+                                        # Queue from sync thread to async queue using stored event loop
                                         try:
-                                            loop = asyncio.get_event_loop()
-                                            asyncio.run_coroutine_threadsafe(
-                                                event_processor.queue_event(processing_event),
-                                                loop
-                                            )
-                                            logger.debug(f"Motion event {motion_event.id} queued for AI processing")
+                                            if self._main_event_loop and self._main_event_loop.is_running():
+                                                asyncio.run_coroutine_threadsafe(
+                                                    event_processor.queue_event(processing_event),
+                                                    self._main_event_loop
+                                                )
+                                                logger.debug(f"Motion event {motion_event.id} queued for AI processing")
+                                            else:
+                                                logger.warning("Main event loop not available or not running, skipping AI processing")
                                         except Exception as e:
                                             logger.warning(f"Failed to queue motion event for AI: {e}")
                             finally:

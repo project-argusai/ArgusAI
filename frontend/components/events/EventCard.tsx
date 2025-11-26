@@ -24,11 +24,21 @@ const OBJECT_ICONS: Record<string, string> = {
   unknown: '❓',
 };
 
+// Parse timestamp as UTC (backend stores UTC without timezone indicator)
+function parseUTCTimestamp(timestamp: string): Date {
+  // If timestamp doesn't have timezone info, append 'Z' to interpret as UTC
+  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
+    ? timestamp
+    : timestamp.replace(' ', 'T') + 'Z';
+  return new Date(ts);
+}
+
 export const EventCard = memo(function EventCard({ event, onClick }: EventCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const relativeTime = formatDistanceToNow(new Date(event.timestamp), {
+  const eventDate = parseUTCTimestamp(event.timestamp);
+  const relativeTime = formatDistanceToNow(eventDate, {
     addSuffix: true,
   });
 
@@ -90,7 +100,7 @@ export const EventCard = memo(function EventCard({ event, onClick }: EventCardPr
             </div>
             <time
               dateTime={event.timestamp}
-              title={new Date(event.timestamp).toLocaleString()}
+              title={eventDate.toLocaleString()}
               className="font-medium"
             >
               {relativeTime}

@@ -14,6 +14,14 @@ import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { getConfidenceColor } from '@/types/event';
 
+// Parse timestamp as UTC (backend stores UTC without timezone indicator)
+function parseUTCTimestamp(timestamp: string): Date {
+  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
+    ? timestamp
+    : timestamp.replace(' ', 'T') + 'Z';
+  return new Date(ts);
+}
+
 export function RecentActivity() {
   const { data, isLoading, error } = useRecentEvents(5);
   const invalidateEvents = useInvalidateEvents();
@@ -122,7 +130,7 @@ export function RecentActivity() {
                   <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
                     <span className="flex items-center">
                       <Clock className="h-3 w-3 mr-1" />
-                      {formatDistanceToNow(new Date(event.timestamp), { addSuffix: true })}
+                      {formatDistanceToNow(parseUTCTimestamp(event.timestamp), { addSuffix: true })}
                     </span>
                     {event.objects_detected?.length > 0 && (
                       <span className="flex items-center gap-1">

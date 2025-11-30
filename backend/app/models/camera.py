@@ -1,5 +1,5 @@
 """Camera SQLAlchemy ORM model"""
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, CheckConstraint
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, CheckConstraint, ForeignKey
 from sqlalchemy.orm import validates, relationship
 from app.core.database import Base
 from app.utils.encryption import encrypt_password, decrypt_password
@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 class Camera(Base):
     """
-    Camera model representing RTSP or USB camera configuration
-    
+    Camera model representing RTSP, USB, or UniFi Protect camera configuration
+
     Attributes:
         id: UUID primary key
         name: User-friendly camera name (e.g., "Front Door")
@@ -30,6 +30,12 @@ class Camera(Base):
         motion_algorithm: Motion detection algorithm ('mog2', 'knn', 'frame_diff')
         detection_zones: JSON array of detection zone objects (nullable)
         detection_schedule: JSON object for detection schedule (nullable)
+        source_type: Camera source - 'rtsp', 'usb', or 'protect' (Phase 2)
+        protect_controller_id: Foreign key to protect_controllers (Phase 2)
+        protect_camera_id: Native Protect camera ID (Phase 2)
+        protect_camera_type: Protect camera type - 'camera' or 'doorbell' (Phase 2)
+        smart_detection_types: JSON array of smart detection types (Phase 2)
+        is_doorbell: Whether camera is a doorbell (Phase 2)
         created_at: Record creation timestamp (UTC)
         updated_at: Last modification timestamp (UTC)
     """
@@ -51,12 +57,20 @@ class Camera(Base):
     motion_algorithm = Column(String(20), default='mog2', nullable=False)
     detection_zones = Column(Text, nullable=True)  # JSON array of DetectionZone objects
     detection_schedule = Column(Text, nullable=True)  # JSON object: DetectionSchedule schema
+    # Phase 2: UniFi Protect integration columns
+    source_type = Column(String(20), default='rtsp', nullable=False)  # 'rtsp', 'usb', 'protect'
+    protect_controller_id = Column(String, ForeignKey('protect_controllers.id', ondelete='SET NULL'), nullable=True)
+    protect_camera_id = Column(String(100), nullable=True)  # Native Protect camera ID
+    protect_camera_type = Column(String(20), nullable=True)  # 'camera', 'doorbell'
+    smart_detection_types = Column(Text, nullable=True)  # JSON array: ["person", "vehicle", "package", "animal"]
+    is_doorbell = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     motion_events = relationship("MotionEvent", back_populates="camera", cascade="all, delete-orphan")
     events = relationship("Event", back_populates="camera", cascade="all, delete-orphan")
+    protect_controller = relationship("ProtectController", back_populates="cameras")
     
     __table_args__ = (
         CheckConstraint("type IN ('rtsp', 'usb')", name='check_camera_type'),

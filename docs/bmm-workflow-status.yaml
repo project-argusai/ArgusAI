@@ -23,19 +23,19 @@ field_type: "greenfield"
 workflow_path: "method-greenfield.yaml"
 workflow_status:
   # Phase 0: Discovery (Optional)
-  brainstorm-project: docs/bmm-brainstorming-session-2025-11-15.md  # agent: analyst
-  product-brief: docs/product-brief.md  # agent: analyst
+  brainstorm-project: docs/brainstorming-session-results-2025-11-30.md  # agent: analyst
+  product-brief: docs/product-brief-phase2-2025-11-30.md  # agent: analyst
 
   # Phase 1: Planning
-  prd: docs/prd/  # agent: pm (sharded into 11 focused documents)
+  prd: docs/PRD-phase2.md  # agent: pm
   validate-prd: optional  # agent: pm
   create-design: docs/ux-design-specification.md  # agent: ux-designer
 
   # Phase 2: Solutioning
-  create-architecture: docs/architecture.md  # agent: architect
+  create-architecture: docs/architecture.md  # agent: architect (Phase 2 additions: 2025-11-30)
   test-design: docs/test-design-system.md  # agent: tea
   validate-architecture: optional  # agent: architect
-  solutioning-gate-check: docs/bmm-readiness-assessment-2025-11-15.md  # agent: architect
+  solutioning-gate-check: docs/bmm-readiness-assessment-phase2-2025-11-30.md  # agent: architect
 
   # Phase 3: Implementation
   sprint-planning: docs/sprint-artifacts/sprint-status.yaml  # agent: sm

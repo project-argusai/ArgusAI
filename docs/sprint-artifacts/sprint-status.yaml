@@ -1,6 +1,6 @@
 # Sprint Status
-# Auto-generated from epics.md structure
-# Last updated: 2025-11-17
+# Auto-generated from epics.md and epics-phase2.md structure
+# Last updated: 2025-11-30
 
 # STATUS DEFINITIONS:
 # ==================
@@ -27,7 +27,7 @@
 # - SM typically drafts next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', SM reviews, then Dev moves to 'done'
 
-generated: 2025-11-17
+generated: 2025-11-30
 project: Live Object AI Classifier
 project_key: live-object-ai-classifier
 tracking_system: file-system
@@ -89,3 +89,59 @@ development_status:
   6-3-implement-basic-user-authentication-phase-1-5: done
   6-4-add-system-backup-and-restore-functionality: done
   epic-6-retrospective: optional
+
+  # ============================================================================
+  # PHASE 2: UniFi Protect Integration + xAI Grok Provider
+  # ============================================================================
+  # Source: docs/epics-phase2.md
+  # PRD: docs/PRD-phase2.md
+  # Architecture: docs/architecture.md (Phase 2 Additions)
+  # UX: docs/ux-design-specification.md (Section 10)
+
+  # Epic P2-1: UniFi Protect Controller Integration
+  epic-p2-1: backlog
+  p2-1-1-create-protect-controller-database-model-and-api-endpoints: done
+  p2-1-2-implement-controller-connection-validation-and-test-endpoint: backlog
+  p2-1-3-build-controller-configuration-ui-in-settings-page: backlog
+  p2-1-4-implement-websocket-connection-manager-with-auto-reconnect: backlog
+  p2-1-5-add-controller-edit-and-delete-functionality: backlog
+  epic-p2-1-retrospective: optional
+
+  # Epic P2-2: Camera Discovery & Configuration
+  epic-p2-2: backlog
+  p2-2-1-implement-camera-auto-discovery-from-protect-controller: backlog
+  p2-2-2-build-discovered-camera-list-ui-with-enable-disable: backlog
+  p2-2-3-implement-per-camera-event-type-filtering: backlog
+  p2-2-4-add-camera-status-sync-and-refresh-functionality: backlog
+  epic-p2-2-retrospective: optional
+
+  # Epic P2-3: Real-Time Event Processing
+  epic-p2-3: backlog
+  p2-3-1-implement-protect-event-listener-and-event-handler: backlog
+  p2-3-2-implement-snapshot-retrieval-from-protect-api: backlog
+  p2-3-3-integrate-protect-events-with-existing-ai-pipeline: backlog
+  p2-3-4-add-event-source-type-display-in-dashboard: backlog
+  epic-p2-3-retrospective: optional
+
+  # Epic P2-4: Doorbell & Multi-Camera Features
+  epic-p2-4: backlog
+  p2-4-1-implement-doorbell-ring-event-detection-and-handling: backlog
+  p2-4-2-build-doorbell-event-card-with-distinct-styling: backlog
+  p2-4-3-implement-multi-camera-event-correlation-service: backlog
+  p2-4-4-display-correlated-events-in-dashboard: backlog
+  epic-p2-4-retrospective: optional
+
+  # Epic P2-5: xAI Grok Provider
+  epic-p2-5: backlog
+  p2-5-1-implement-xai-grok-provider-in-ai-service: backlog
+  p2-5-2-build-grok-provider-configuration-ui: backlog
+  p2-5-3-add-grok-to-fallback-chain-and-test-integration: backlog
+  epic-p2-5-retrospective: optional
+
+  # Epic P2-6: Coexistence & Polish
+  epic-p2-6: backlog
+  p2-6-1-verify-rtsp-usb-camera-coexistence: backlog
+  p2-6-2-enhance-cameras-page-with-source-grouping: backlog
+  p2-6-3-implement-phase-2-error-handling-and-edge-cases: backlog
+  p2-6-4-phase-2-integration-testing-and-documentation: backlog
+  epic-p2-6-retrospective: optional

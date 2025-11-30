@@ -30,6 +30,7 @@ from app.api.v1.notifications import router as notifications_router
 from app.api.v1.websocket import router as websocket_router
 from app.api.v1.logs import router as logs_router
 from app.api.v1.auth import router as auth_router, ensure_admin_exists, limiter
+from app.api.v1.protect import router as protect_router  # Story P2-1.1: UniFi Protect
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 
@@ -389,6 +390,7 @@ app.include_router(notifications_router, prefix=settings.API_V1_PREFIX)  # Story
 app.include_router(websocket_router)  # Story 5.4 - WebSocket at /ws (no prefix)
 app.include_router(logs_router, prefix=settings.API_V1_PREFIX)  # Story 6.2 - Log retrieval
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)  # Story 6.3 - Authentication
+app.include_router(protect_router, prefix=settings.API_V1_PREFIX)  # Story P2-1.1 - UniFi Protect
 
 # Thumbnail serving endpoint (with CORS support)
 from fastapi.responses import FileResponse, Response as FastAPIResponse

@@ -1,0 +1,268 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P2-1</epicId>
+    <storyId>1.1</storyId>
+    <title>Create Protect Controller Database Model and API Endpoints</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-30</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-1-1-create-protect-controller-database-model-and-api-endpoints.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>database models and API endpoints for Protect controller management</iWant>
+    <soThat>the system can store and manage UniFi Protect controller connection settings securely</soThat>
+    <tasks>
+      <task id="1" name="Create ProtectController SQLAlchemy Model" acs="1,2">
+        <subtask>1.1 Create backend/app/models/protect_controller.py with all columns</subtask>
+        <subtask>1.2 Add relationship to Camera model</subtask>
+        <subtask>1.3 Implement password encryption/decryption using backend/app/utils/encryption.py</subtask>
+        <subtask>1.4 Export model in backend/app/models/__init__.py</subtask>
+      </task>
+      <task id="2" name="Extend Camera Model" acs="3,10">
+        <subtask>2.1 Add source_type column (TEXT DEFAULT 'rtsp', values: 'rtsp', 'usb', 'protect')</subtask>
+        <subtask>2.2 Add protect_controller_id foreign key column</subtask>
+        <subtask>2.3 Add protect_camera_id column (TEXT, nullable)</subtask>
+        <subtask>2.4 Add protect_camera_type column (TEXT, nullable)</subtask>
+        <subtask>2.5 Add smart_detection_types column (TEXT for JSON array)</subtask>
+        <subtask>2.6 Add is_doorbell column (BOOLEAN DEFAULT FALSE)</subtask>
+      </task>
+      <task id="3" name="Create Alembic Migration" acs="1,3,10">
+        <subtask>3.1 Generate migration script for protect_controllers table</subtask>
+        <subtask>3.2 Add camera table alterations in same migration</subtask>
+        <subtask>3.3 Create indexes: idx_cameras_protect_camera_id, idx_cameras_source_type</subtask>
+        <subtask>3.4 Test migration upgrade and downgrade</subtask>
+      </task>
+      <task id="4" name="Create Pydantic Schemas" acs="9">
+        <subtask>4.1 Create backend/app/schemas/protect.py</subtask>
+        <subtask>4.2 Define ProtectControllerCreate schema</subtask>
+        <subtask>4.3 Define ProtectControllerUpdate schema</subtask>
+        <subtask>4.4 Define ProtectControllerResponse schema</subtask>
+        <subtask>4.5 Define ProtectControllerList schema with meta</subtask>
+      </task>
+      <task id="5" name="Create API Router" acs="4,5,6,7,8,9">
+        <subtask>5.1 Create backend/app/api/v1/protect.py router</subtask>
+        <subtask>5.2 Implement POST /protect/controllers endpoint</subtask>
+        <subtask>5.3 Implement GET /protect/controllers endpoint</subtask>
+        <subtask>5.4 Implement GET /protect/controllers/{id} endpoint</subtask>
+        <subtask>5.5 Implement PUT /protect/controllers/{id} endpoint</subtask>
+        <subtask>5.6 Implement DELETE /protect/controllers/{id} endpoint</subtask>
+        <subtask>5.7 Register router in main.py</subtask>
+      </task>
+      <task id="6" name="Write Tests" acs="1,2,3,4,5,6,7,8,9,10">
+        <subtask>6.1 Create backend/tests/test_api/test_protect.py</subtask>
+        <subtask>6.2 Test ProtectController model creation with encryption</subtask>
+        <subtask>6.3 Test all CRUD endpoints</subtask>
+        <subtask>6.4 Test response format consistency</subtask>
+        <subtask>6.5 Test validation errors</subtask>
+      </task>
+      <task id="7" name="Verify Integration" acs="all">
+        <subtask>7.1 Run all migrations successfully</subtask>
+        <subtask>7.2 Run all tests pass</subtask>
+        <subtask>7.3 Manual API testing via Swagger UI</subtask>
+        <subtask>7.4 Verify existing camera functionality unaffected</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Database migration creates protect_controllers table with all required columns (id, name, host, port, username, password, verify_ssl, is_connected, last_connected_at, last_error, created_at, updated_at)</criterion>
+    <criterion id="AC2">Password field is encrypted using existing Fernet encryption before storage</criterion>
+    <criterion id="AC3">cameras table extended with Phase 2 columns (source_type, protect_controller_id, protect_camera_id, protect_camera_type, smart_detection_types, is_doorbell)</criterion>
+    <criterion id="AC4">POST /api/v1/protect/controllers creates new controller record</criterion>
+    <criterion id="AC5">GET /api/v1/protect/controllers returns list of all controllers</criterion>
+    <criterion id="AC6">GET /api/v1/protect/controllers/{id} returns single controller</criterion>
+    <criterion id="AC7">PUT /api/v1/protect/controllers/{id} updates controller</criterion>
+    <criterion id="AC8">DELETE /api/v1/protect/controllers/{id} removes controller</criterion>
+    <criterion id="AC9">All endpoints return consistent { data, meta } response format</criterion>
+    <criterion id="AC10">Indexes created on cameras.protect_camera_id and cameras.source_type</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Phase 2 Database Schema Additions</section>
+        <snippet>protect_controllers table schema with columns: id, name, host, port, username, password (Fernet encrypted), verify_ssl, is_connected, last_connected_at, last_error, created_at, updated_at</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Phase 2 API Contracts</section>
+        <snippet>UniFi Protect Controller endpoints: POST/GET/PUT/DELETE /protect/controllers with { data, meta } response format</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase2.md</path>
+        <title>Phase 2 Epic Breakdown</title>
+        <section>Story 1.1: Create Protect Controller Database Model and API Endpoints</section>
+        <snippet>Foundation story establishing database models and CRUD API for UniFi Protect controller management. FR1-FR3 covered.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase2.md</path>
+        <title>Phase 2 Product Requirements</title>
+        <section>FR1-FR3: Controller Management</section>
+        <snippet>FR1: Add controller by hostname/credentials. FR2: Validate connection before saving. FR3: Store credentials encrypted with Fernet.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <lines>13-122</lines>
+        <reason>Reference model pattern for SQLAlchemy ORM. Camera model shows password encryption pattern via @validates decorator and get_decrypted_password() method. New columns will be added here.</reason>
+      </file>
+      <file>
+        <path>backend/app/utils/encryption.py</path>
+        <kind>utility</kind>
+        <symbol>encrypt_password, decrypt_password, is_encrypted, mask_sensitive</symbol>
+        <lines>1-130</lines>
+        <reason>Existing Fernet encryption utilities to reuse for ProtectController password encryption. Use encrypt_password() and decrypt_password() functions.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/__init__.py</path>
+        <kind>module</kind>
+        <symbol>__all__</symbol>
+        <lines>1-11</lines>
+        <reason>Must add ProtectController to exports after creating the model.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/camera.py</path>
+        <kind>schema</kind>
+        <symbol>CameraCreate, CameraUpdate, CameraResponse</symbol>
+        <lines>1-202</lines>
+        <reason>Reference pattern for Pydantic schemas. Shows Base/Create/Update/Response pattern, field validators, model_config with from_attributes=True.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/cameras.py</path>
+        <kind>router</kind>
+        <symbol>router, create_camera, get_cameras</symbol>
+        <lines>1-100</lines>
+        <reason>Reference pattern for FastAPI router. Shows CRUD endpoints, dependency injection, response models, HTTPException handling.</reason>
+      </file>
+      <file>
+        <path>backend/app/core/database.py</path>
+        <kind>core</kind>
+        <symbol>Base, get_db, engine</symbol>
+        <lines>1-28</lines>
+        <reason>Database configuration. ProtectController model must inherit from Base. Use get_db for dependency injection.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entry</kind>
+        <symbol>app, routers</symbol>
+        <lines>20-32</lines>
+        <reason>Router registration pattern. Must import and register protect router here.</reason>
+      </file>
+      <file>
+        <path>backend/tests/conftest.py</path>
+        <kind>test</kind>
+        <symbol>db_session, temp_db_file</symbol>
+        <lines>1-60</lines>
+        <reason>Test fixtures for database testing. Use db_session fixture for model tests.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_cameras.py</path>
+        <kind>test</kind>
+        <symbol>TestCameraAPI, override_get_db</symbol>
+        <lines>1-80</lines>
+        <reason>Reference pattern for API endpoint tests. Shows TestClient setup, database override, cleanup fixture, mocking.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="pydantic" version=">=2.10.0">Data validation</package>
+        <package name="cryptography" version="41.0.7">Fernet encryption</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="httpx" version="0.25.2">Test client for FastAPI</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Backend Service Pattern: Services in backend/app/services/, API routers in backend/app/api/v1/, Models in backend/app/models/, Schemas in backend/app/schemas/</constraint>
+    <constraint type="naming">Backend: snake_case for files, functions, variables. Models: PascalCase for classes. Tables: snake_case plural. API routes: kebab-case.</constraint>
+    <constraint type="response">All API endpoints must return { data, meta } format where meta includes request_id and timestamp</constraint>
+    <constraint type="security">Password must be encrypted using Fernet before storage. Never expose plain password in API responses.</constraint>
+    <constraint type="encryption">Use existing encrypt_password() and decrypt_password() from backend/app/utils/encryption.py</constraint>
+    <constraint type="validation">Pydantic schemas must validate inputs. Use Field() for constraints. Use model_validator for cross-field validation.</constraint>
+    <constraint type="testing">All new code must have corresponding tests. Use pytest with fixtures from conftest.py.</constraint>
+    <constraint type="migration">Use Alembic for database migrations. Test both upgrade and downgrade paths.</constraint>
+    <constraint type="backwards">New camera columns must not break existing RTSP/USB camera functionality. Default source_type to 'rtsp'.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>POST /api/v1/protect/controllers</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /protect/controllers - Body: {name, host, port, username, password, verify_ssl} - Response: { data: ProtectController, meta: {...} }</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/protect/controllers</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /protect/controllers - Response: { data: ProtectController[], meta: {...} }</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/protect/controllers/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /protect/controllers/{id} - Response: { data: ProtectController, meta: {...} }</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>PUT /api/v1/protect/controllers/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /protect/controllers/{id} - Body: Partial {name?, host?, port?, username?, password?, verify_ssl?} - Response: { data: ProtectController, meta: {...} }</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>DELETE /api/v1/protect/controllers/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>DELETE /protect/controllers/{id} - Response: { data: { deleted: true }, meta: {...} }</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>encrypt_password</name>
+      <kind>function</kind>
+      <signature>encrypt_password(password: str) -> str - Returns encrypted string with 'encrypted:' prefix</signature>
+      <path>backend/app/utils/encryption.py</path>
+    </interface>
+    <interface>
+      <name>decrypt_password</name>
+      <kind>function</kind>
+      <signature>decrypt_password(encrypted_password: str) -> str - Returns plain text password</signature>
+      <path>backend/app/utils/encryption.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Use pytest with fixtures from conftest.py. API tests use FastAPI TestClient with database dependency override. Mock external services. Test happy paths and error cases. Each acceptance criterion should have at least one test verifying it. Use file-based SQLite for integration tests to avoid threading issues.</standards>
+    <locations>
+      <location>backend/tests/test_api/test_protect.py</location>
+      <location>backend/tests/test_models/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test that migration creates protect_controllers table with all columns and correct types</idea>
+      <idea ac="AC2">Test that password is encrypted when creating ProtectController model, and decryption works</idea>
+      <idea ac="AC3">Test that migration adds all new columns to cameras table without breaking existing data</idea>
+      <idea ac="AC4">Test POST /protect/controllers creates record and returns { data, meta } format</idea>
+      <idea ac="AC5">Test GET /protect/controllers returns list of all controllers in correct format</idea>
+      <idea ac="AC6">Test GET /protect/controllers/{id} returns single controller, 404 for invalid id</idea>
+      <idea ac="AC7">Test PUT /protect/controllers/{id} updates fields correctly, handles partial updates</idea>
+      <idea ac="AC8">Test DELETE /protect/controllers/{id} removes record, returns success response</idea>
+      <idea ac="AC9">Test all endpoints consistently return { data: ..., meta: { request_id, timestamp } } format</idea>
+      <idea ac="AC10">Test that indexes exist on cameras.protect_camera_id and cameras.source_type</idea>
+      <idea ac="validation">Test validation errors for missing required fields (name, host, username, password)</idea>
+      <idea ac="validation">Test validation errors for invalid host format</idea>
+      <idea ac="backwards">Test that existing RTSP/USB cameras still work after migration</idea>
+    </ideas>
+  </tests>
+</story-context>

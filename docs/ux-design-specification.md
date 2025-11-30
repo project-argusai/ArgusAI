@@ -659,6 +659,384 @@ module.exports = {
 
 ---
 
+## 10. Phase 2 UX Additions (UniFi Protect + xAI Grok)
+
+_Added 2025-11-30 for Phase 2 feature enhancements_
+
+### 10.1 Overview
+
+Phase 2 introduces native UniFi Protect integration and xAI Grok as an additional AI provider. These additions extend the existing UX without replacing it - all MVP patterns, colors, and components remain unchanged.
+
+**New UI Elements:**
+- UniFi Protect configuration section in Settings
+- Camera discovery and selection interface
+- Event type filtering per camera
+- Connection status indicators
+- xAI Grok provider configuration
+- Event source type indicator
+- Multi-camera event correlation display
+
+### 10.2 Settings Page: UniFi Protect Section
+
+**Location:** Settings page → New "UniFi Protect" tab/section
+
+**Layout:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ UniFi Protect Integration                                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│ Controller Connection                    [Status Indicator] │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ Host/IP:     [________________________]                     │
+│ Username:    [________________________]                     │
+│ Password:    [________________________]                     │
+│                                                             │
+│ [Test Connection]              [Save]  [Remove Controller]  │
+│                                                             │
+├─────────────────────────────────────────────────────────────┤
+│ Discovered Cameras (6 found)                    [Refresh]   │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☑ Front Door Camera              [Configure Filters ▼]  │ │
+│ │   Type: G4 Doorbell  •  Status: Online                  │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☑ Driveway Camera                [Configure Filters ▼]  │ │
+│ │   Type: G4 Pro  •  Status: Online                       │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────────────┐ │
+│ │ ☐ Backyard Camera                [Configure Filters ▼]  │ │
+│ │   Type: G3 Flex  •  Status: Online  (Disabled)          │ │
+│ └─────────────────────────────────────────────────────────┘ │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Components:**
+
+**UniFiControllerForm**
+- **Purpose:** Configure connection to UniFi Protect controller
+- **Fields:**
+  - Host/IP (text input, required) - placeholder: "192.168.1.1 or unifi.local"
+  - Username (text input, required)
+  - Password (password input, required)
+- **Actions:**
+  - Test Connection: Validates credentials, shows success/error
+  - Save: Stores encrypted credentials, initiates WebSocket connection
+  - Remove Controller: Confirms, then disconnects and clears settings
+- **States:**
+  - No controller: Empty form with "Connect your UniFi Protect controller"
+  - Connecting: Form disabled, spinner on Test/Save buttons
+  - Connected: Green status badge, form populated (password hidden)
+  - Connection error: Red status badge, error message displayed
+  - Disconnected: Yellow status badge, "Reconnecting..." message
+
+**ConnectionStatusIndicator**
+- **Purpose:** Show real-time connection state
+- **Variants:**
+  - Connected: Green dot + "Connected" text
+  - Connecting: Yellow dot + "Connecting..." text + spinner
+  - Disconnected: Red dot + "Disconnected" text
+  - Error: Red dot + "Connection Error" text + error details tooltip
+- **Behavior:** Updates in real-time via WebSocket status
+- **Accessibility:** Status changes announced via ARIA live region
+
+**DiscoveredCameraList**
+- **Purpose:** Display cameras found from controller with enable/disable toggles
+- **Content per camera:**
+  - Checkbox: Enable/disable for AI analysis
+  - Camera name (from Protect)
+  - Camera type badge (G4 Doorbell, G4 Pro, G3 Flex, etc.)
+  - Status indicator (Online/Offline)
+  - "Configure Filters" dropdown button
+- **States:**
+  - No cameras: "No cameras discovered. Check controller connection."
+  - Loading: Skeleton list with 3 placeholder items
+  - Populated: List of DiscoveredCameraCard components
+- **Actions:**
+  - Refresh: Re-fetch camera list from controller
+  - Enable/Disable: Toggle persists immediately
+- **Sorting:** Enabled cameras first, then alphabetical by name
+
+**DiscoveredCameraCard**
+- **Purpose:** Single camera row in discovered list
+- **Content:**
+  - Enable checkbox (left)
+  - Camera icon (based on type: doorbell icon, camera icon)
+  - Camera name (bold)
+  - Type badge (muted text)
+  - Status dot (green/red)
+  - Configure Filters button (right)
+- **States:**
+  - Enabled: Full opacity, checkbox checked
+  - Disabled: 50% opacity, checkbox unchecked, "(Disabled)" label
+  - Offline: Red status dot, "Offline" badge
+- **Accessibility:**
+  - Checkbox labeled with camera name
+  - Status announced when changed
+
+### 10.3 Event Type Filter Configuration
+
+**Location:** Dropdown/popover from "Configure Filters" button on each camera
+
+**Layout:**
+```
+┌─────────────────────────────────────┐
+│ Event Types to Analyze              │
+│ ─────────────────────────────────── │
+│ ☑ Person                            │
+│ ☑ Vehicle                           │
+│ ☑ Package                           │
+│ ☐ Animal                            │
+│ ☐ All Motion (ignores above)        │
+│ ─────────────────────────────────── │
+│ [Apply]                    [Cancel] │
+└─────────────────────────────────────┘
+```
+
+**EventTypeFilterPopover**
+- **Purpose:** Configure which Protect smart detection types trigger AI analysis
+- **Options:**
+  - Person (default: checked)
+  - Vehicle (default: checked)
+  - Package (default: checked)
+  - Animal (default: unchecked)
+  - All Motion (default: unchecked) - mutually exclusive, overrides others
+- **Behavior:**
+  - Checking "All Motion" disables and unchecks other options
+  - Unchecking "All Motion" re-enables other options
+  - Changes require Apply to save (not immediate)
+  - Cancel reverts to saved state
+- **Visual:**
+  - Checkbox list with labels
+  - "All Motion" has helper text: "Analyzes all motion, ignores smart detection types"
+- **Accessibility:**
+  - Fieldset with legend "Event Types to Analyze"
+  - Checkboxes properly labeled
+
+### 10.4 Settings Page: xAI Grok Provider
+
+**Location:** Settings page → AI Providers section (existing)
+
+**Addition to existing AI provider list:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ AI Providers                                                │
+├─────────────────────────────────────────────────────────────┤
+│ Fallback Order (drag to reorder):                           │
+│                                                             │
+│ 1. ⋮⋮ OpenAI GPT-4o mini        [Configured ✓]  [Edit]     │
+│ 2. ⋮⋮ Anthropic Claude 3 Haiku  [Configured ✓]  [Edit]     │
+│ 3. ⋮⋮ Google Gemini Flash       [Configured ✓]  [Edit]     │
+│ 4. ⋮⋮ xAI Grok                  [Not configured] [Setup]    │
+│                                                             │
+│ [+ Add Provider]                                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**GrokProviderConfig**
+- **Purpose:** Configure xAI Grok API access
+- **Fields:**
+  - API Key (password input, required)
+  - Model selection (dropdown): grok-4, grok-3
+- **Actions:**
+  - Test: Validates API key with test request
+  - Save: Stores encrypted, adds to fallback chain
+  - Remove: Removes from chain (with confirmation)
+- **States:**
+  - Not configured: "Setup" button, muted appearance
+  - Configured: "Configured ✓" badge, "Edit" button
+  - Testing: Spinner on test button
+  - Error: Red border, error message below field
+- **Drag handle:** Allows reordering position in fallback chain
+- **Follows same pattern as existing OpenAI/Claude/Gemini providers**
+
+### 10.5 Enhanced Event Display
+
+**EventCard Additions:**
+
+**Source Type Indicator**
+- **Location:** Top-right corner of event card, next to timestamp
+- **Variants:**
+  - UniFi Protect: Shield icon + "Protect" text (muted)
+  - RTSP: Camera icon + "RTSP" text (muted)
+  - USB: USB icon + "USB" text (muted)
+- **Purpose:** Users can identify which camera system captured the event
+- **Visual:** Small badge, subtle (doesn't compete with description)
+
+**Smart Detection Badge**
+- **Location:** Below AI description, alongside existing object badges
+- **Content:** Shows Protect's smart detection type that triggered event
+- **Variants:**
+  - Person: Blue badge with person icon
+  - Vehicle: Purple badge with car icon
+  - Package: Orange badge with box icon
+  - Animal: Green badge with paw icon
+  - Motion: Gray badge with motion icon
+- **Purpose:** Shows what Protect detected vs what AI described
+
+**Correlation Indicator**
+- **Location:** Bottom of event card (when correlated)
+- **Content:** "Also captured by: [Camera Name], [Camera Name]"
+- **Visual:** Link/button styling - clickable to navigate to related events
+- **Behavior:**
+  - Click camera name → Scrolls to/highlights that camera's event
+  - Correlated events share a visual connector (subtle background tint or left border)
+- **Icon:** Link chain icon to indicate correlation
+
+**Enhanced EventCard Layout:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ [Thumbnail]                                                 │
+│                                                             │
+│ Front Door Camera          2 min ago  •  🛡️ Protect        │
+│ ─────────────────────────────────────────────────────────── │
+│ "A delivery driver in a brown uniform is placing a         │
+│ package on the front porch. The package appears to be      │
+│ from Amazon based on the visible logo."                    │
+│                                                             │
+│ [👤 Person] [📦 Package]        Confidence: 94%            │
+│                                                             │
+│ 🔗 Also captured by: Driveway Camera                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 10.6 Cameras Page Enhancement
+
+**Location:** Existing Cameras page
+
+**Changes:**
+- **Camera source grouping:** Optional toggle to group by source (UniFi Protect / RTSP / USB)
+- **UniFi Protect cameras:** Show Protect-specific info (camera model, firmware)
+- **Status indicator:** Enhanced to show WebSocket connection status for Protect cameras
+- **"Add Camera" flow:** Now offers choice between "Manual (RTSP/USB)" and "UniFi Protect" (redirects to Settings)
+
+**Camera Grid Enhancement:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Cameras                                    [+ Add Camera ▼] │
+│                                                             │
+│ [All] [UniFi Protect (4)] [RTSP (1)] [USB (0)]             │
+│ ─────────────────────────────────────────────────────────── │
+│                                                             │
+│ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐            │
+│ │ [Preview]   │ │ [Preview]   │ │ [Preview]   │            │
+│ │             │ │             │ │             │            │
+│ │ Front Door  │ │ Driveway    │ │ Backyard    │            │
+│ │ 🛡️ Protect  │ │ 🛡️ Protect  │ │ 📹 RTSP     │            │
+│ │ ● Online    │ │ ● Online    │ │ ● Online    │            │
+│ └─────────────┘ └─────────────┘ └─────────────┘            │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 10.7 Doorbell-Specific UX
+
+**Doorbell Ring Event:**
+- **Distinct event type:** Doorbell icon instead of motion icon
+- **Notification priority:** Higher priority than motion events
+- **Event card styling:** Subtle accent border (cyan) to stand out
+- **Description prompt:** AI specifically asked "Who is at the door?"
+
+**Doorbell EventCard:**
+```
+┌─────────────────────────────────────────────────────────────┐
+│ 🔔 DOORBELL RING                           Just now         │
+├─────────────────────────────────────────────────────────────┤
+│ [Thumbnail]                                                 │
+│                                                             │
+│ Front Door Camera                          🛡️ Protect       │
+│ ─────────────────────────────────────────────────────────── │
+│ "A woman in her 30s wearing a blue jacket is standing at   │
+│ the front door. She appears to be holding a clipboard and  │
+│ may be a delivery person or solicitor."                    │
+│                                                             │
+│ [👤 Person]                             Confidence: 91%     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 10.8 User Journeys (Phase 2)
+
+**Journey: Set Up UniFi Protect Integration**
+
+**User Goal:** Connect UniFi Protect system to start using native integration
+
+**Flow:**
+1. **Entry:** User navigates to Settings → UniFi Protect section
+2. **Configure:** User enters controller IP, username, password
+3. **Test:** User clicks "Test Connection"
+   - Success: Green checkmark, camera count shown
+   - Error: Red X, specific error message (auth failed, host unreachable, etc.)
+4. **Save:** User clicks "Save" → Credentials stored encrypted
+5. **Discovery:** Camera list populates automatically
+6. **Select:** User enables desired cameras via checkboxes
+7. **Filter:** User optionally configures event type filters per camera
+8. **Complete:** Events begin flowing from enabled cameras
+
+**Key Design Decisions:**
+- Test before save (validate immediately)
+- Auto-discovery (no manual camera entry)
+- Sensible defaults (Person/Vehicle/Package checked by default)
+- Clear status indicators throughout
+
+**Journey: Configure xAI Grok**
+
+**User Goal:** Add Grok as an AI provider option
+
+**Flow:**
+1. **Entry:** User navigates to Settings → AI Providers
+2. **Add:** User clicks "Setup" next to xAI Grok (or "+ Add Provider")
+3. **Configure:** User enters API key, selects model
+4. **Test:** User clicks "Test" → Shows success/failure
+5. **Save:** User clicks "Save" → Added to fallback chain
+6. **Order:** User optionally drags to reorder position in chain
+
+**Key Design Decisions:**
+- Same pattern as existing AI providers (consistency)
+- Drag-to-reorder for fallback position (intuitive)
+- Test validates before committing
+
+### 10.9 Error States (Phase 2)
+
+**Controller Connection Errors:**
+- "Unable to connect to controller" → Check IP/hostname, ensure controller is online
+- "Authentication failed" → Check username/password, ensure user has API access
+- "Connection lost" → Yellow banner, auto-reconnect in progress
+- "Controller unreachable" → Red banner, manual retry option
+
+**Camera Discovery Errors:**
+- "No cameras found" → Check controller has cameras, user has camera permissions
+- "Camera offline" → Gray out camera, show "Offline" status
+
+**WebSocket Errors:**
+- "Real-time connection lost" → Yellow toast, auto-reconnect with backoff
+- "Reconnected" → Green toast (brief), resume normal operation
+
+**API Errors:**
+- "Grok API error" → Falls back to next provider, logs error
+- "Rate limit exceeded" → Queues request, retries after delay
+
+### 10.10 Phase 2 Component Summary
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| UniFiControllerForm | New | Controller connection config |
+| ConnectionStatusIndicator | New | Real-time connection state |
+| DiscoveredCameraList | New | Camera discovery display |
+| DiscoveredCameraCard | New | Single camera row |
+| EventTypeFilterPopover | New | Per-camera filter config |
+| GrokProviderConfig | New | xAI Grok API setup |
+| SourceTypeBadge | Enhancement | Event source indicator |
+| SmartDetectionBadge | Enhancement | Protect detection type |
+| CorrelationIndicator | Enhancement | Multi-camera event links |
+| DoorbellEventCard | Variant | Doorbell-specific styling |
+
+---
+
 ## Appendix
 
 ### Related Documents
@@ -680,6 +1058,7 @@ module.exports = {
 | Date | Version | Changes | Author |
 |------|---------|---------|--------|
 | 2025-11-17 | 1.0 | Initial UX Design Specification | Brent |
+| 2025-11-30 | 1.1 | Phase 2 additions: UniFi Protect integration UX, xAI Grok provider, event enhancements | Brent |
 
 ---
 

@@ -18,6 +18,12 @@ class EventCreate(BaseModel):
     thumbnail_path: Optional[str] = Field(None, max_length=500, description="Relative path to thumbnail image (filesystem mode)")
     thumbnail_base64: Optional[str] = Field(None, description="Base64-encoded JPEG thumbnail (database mode)")
     alert_triggered: bool = Field(default=False, description="Whether alert rules were triggered")
+    # Phase 2: UniFi Protect event source fields
+    source_type: Literal["rtsp", "usb", "protect"] = Field(default="rtsp", description="Event source type")
+    protect_event_id: Optional[str] = Field(None, max_length=100, description="UniFi Protect's native event ID")
+    smart_detection_type: Optional[Literal["person", "vehicle", "package", "animal", "motion"]] = Field(
+        None, description="Protect smart detection type"
+    )
 
     @field_validator('objects_detected')
     @classmethod
@@ -55,6 +61,10 @@ class EventResponse(BaseModel):
     thumbnail_path: Optional[str] = Field(None, description="Relative thumbnail path")
     thumbnail_base64: Optional[str] = Field(None, description="Base64-encoded thumbnail")
     alert_triggered: bool = Field(..., description="Whether alert was triggered")
+    # Phase 2: UniFi Protect event source fields
+    source_type: str = Field(default="rtsp", description="Event source type (rtsp, usb, protect)")
+    protect_event_id: Optional[str] = Field(None, description="UniFi Protect's native event ID")
+    smart_detection_type: Optional[str] = Field(None, description="Protect smart detection type")
     created_at: datetime = Field(..., description="Record creation timestamp (UTC)")
 
     @field_validator('objects_detected', mode='before')

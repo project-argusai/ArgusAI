@@ -1,0 +1,206 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P2-3</epicId>
+    <storyId>1</storyId>
+    <title>Implement Protect Event Listener and Event Handler</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-01</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-3-1-implement-protect-event-listener-and-event-handler.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend service</asA>
+    <iWant>to receive and process real-time events from the Protect WebSocket</iWant>
+    <soThat>motion detections trigger AI analysis immediately</soThat>
+    <tasks>
+      <task id="1" acs="2,3,4,11">Create ProtectEventHandler service
+        <subtask id="1.1">Create backend/app/services/protect_event_handler.py</subtask>
+        <subtask id="1.2">Define ProtectEventHandler class with initialization</subtask>
+        <subtask id="1.3">Implement handle_event(controller_id, event) method</subtask>
+        <subtask id="1.4">Parse event type from uiprotect WSMessage</subtask>
+        <subtask id="1.5">Look up camera by protect_camera_id</subtask>
+        <subtask id="1.6">Check camera.is_enabled and source_type</subtask>
+        <subtask id="1.7">Return early if camera not enabled</subtask>
+      </task>
+      <task id="2" acs="5,6,7,8">Implement event filtering logic
+        <subtask id="2.1">Load smart_detection_types from camera</subtask>
+        <subtask id="2.2">Implement _should_process_event method</subtask>
+        <subtask id="2.3">Handle all-motion mode</subtask>
+        <subtask id="2.4">Map Protect event types to filter types</subtask>
+        <subtask id="2.5">Return False if not in filters</subtask>
+      </task>
+      <task id="3" acs="9,10">Implement event deduplication
+        <subtask id="3.1">Create _last_event_times dict</subtask>
+        <subtask id="3.2">Implement _is_duplicate_event method</subtask>
+        <subtask id="3.3">Use configurable cooldown (60s default)</subtask>
+        <subtask id="3.4">Update last event time on pass</subtask>
+        <subtask id="3.5">Log cooldown skips</subtask>
+      </task>
+      <task id="4" acs="1">Wire handler to WebSocket listener
+        <subtask id="4.1">Update protect_service.py _websocket_listener</subtask>
+        <subtask id="4.2">Pass event to handler</subtask>
+        <subtask id="4.3">Ensure async non-blocking</subtask>
+        <subtask id="4.4">Handle exceptions gracefully</subtask>
+      </task>
+      <task id="5" acs="11,12">Add structured logging
+        <subtask id="5.1">Log event received</subtask>
+        <subtask id="5.2">Log filter decisions</subtask>
+        <subtask id="5.3">Log deduplication decisions</subtask>
+        <subtask id="5.4">No PII/credentials in logs</subtask>
+      </task>
+      <task id="6" acs="all">Testing
+        <subtask id="6.1">Unit tests for event parsing</subtask>
+        <subtask id="6.2">Unit tests for filter logic</subtask>
+        <subtask id="6.3">Unit tests for deduplication</subtask>
+        <subtask id="6.4">Unit tests for all-motion mode</subtask>
+        <subtask id="6.5">Integration test for event flow</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given WebSocket connection established, when motion/smart detection occurs on enabled camera, system receives event within 1 second</criterion>
+    <criterion id="AC2">Event handler identifies event types: motion, smart_detect_person, smart_detect_vehicle, smart_detect_package, smart_detect_animal, ring</criterion>
+    <criterion id="AC3">Event handler looks up camera by protect_camera_id and checks if enabled</criterion>
+    <criterion id="AC4">If camera not enabled, event discarded silently</criterion>
+    <criterion id="AC5">Event filtering loads camera's smart_detection_types configuration</criterion>
+    <criterion id="AC6">If event type matches configured types, event proceeds</criterion>
+    <criterion id="AC7">If event type not in configured types, event discarded silently</criterion>
+    <criterion id="AC8">"All Motion" config (empty array or ["motion"]) processes all event types</criterion>
+    <criterion id="AC9">Event deduplication tracks last event time per camera</criterion>
+    <criterion id="AC10">Cooldown logic (60s default) prevents duplicate events</criterion>
+    <criterion id="AC11">Events logged with camera name, event type, timestamp (no PII)</criterion>
+    <criterion id="AC12">Filter decisions logged (passed/filtered with reason)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase2.md</path>
+        <title>Phase 2 Epic Breakdown</title>
+        <section>Story 3.1: Implement Protect Event Listener and Event Handler</section>
+        <snippet>Receive real-time motion/smart detection events via WebSocket. Filter events based on per-camera configuration. Use uiprotect callback for WebSocket subscription.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Phase 2 Additions - UniFi Protect Integration</section>
+        <snippet>Event-driven architecture with WebSocket connection to Protect controller. Events flow through filtering, snapshot retrieval, then AI pipeline.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase2.md</path>
+        <title>Phase 2 PRD</title>
+        <section>FR16-FR17</section>
+        <snippet>FR16: System receives real-time motion/smart detection events via WebSocket. FR17: System filters events based on per-camera event type configuration.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p2-2-4-add-camera-status-sync-and-refresh-functionality.md</path>
+        <title>Previous Story P2-2.4</title>
+        <section>Completion Notes</section>
+        <snippet>WebSocket handler _handle_websocket_event exists at protect_service.py:903. Debounce pattern demonstrated. Camera status broadcast infrastructure ready.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/protect_service.py</path>
+        <kind>service</kind>
+        <symbol>ProtectService</symbol>
+        <lines>81-1100</lines>
+        <reason>Main service class for Protect integration. Contains _handle_websocket_event at line 903 which needs extension for motion events. WebSocket listener setup at _websocket_listener method.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/websocket_manager.py</path>
+        <kind>service</kind>
+        <symbol>WebSocketManager</symbol>
+        <lines>37-180</lines>
+        <reason>Broadcasts messages to frontend. Use broadcast() method for EVENT_RECEIVED notifications.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <lines>30-70</lines>
+        <reason>Camera model with smart_detection_types (line 65), is_enabled, source_type, protect_camera_id fields for filtering logic.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor</symbol>
+        <reason>Existing event processing pipeline. Story P2-3.3 will integrate with this. Reference for event structure.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_protect.py</path>
+        <kind>test</kind>
+        <symbol>TestProtect*</symbol>
+        <reason>Existing test patterns for Protect functionality. 104+ tests demonstrating mocking patterns for uiprotect.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework with WebSocket support</package>
+        <package name="uiprotect" version=">=6.0.0">UniFi Protect API client with WebSocket subscription</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for camera lookups</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing ProtectService patterns - singleton with _connections dict</constraint>
+    <constraint type="pattern">Use asyncio.create_task for non-blocking event processing</constraint>
+    <constraint type="pattern">All database queries use SessionLocal dependency injection</constraint>
+    <constraint type="logging">Structured logging via python-json-logger with event_type extra field</constraint>
+    <constraint type="security">No PII or credentials in logs - camera names OK, passwords never</constraint>
+    <constraint type="testing">All new code requires unit tests - follow test_protect.py patterns</constraint>
+    <constraint type="performance">Event handling must complete within 100ms (excluding AI processing)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>ProtectService._handle_websocket_event</name>
+      <kind>async method</kind>
+      <signature>async def _handle_websocket_event(self, controller_id: str, msg: WSMessage) -> None</signature>
+      <path>backend/app/services/protect_service.py:903</path>
+    </interface>
+    <interface>
+      <name>WebSocketManager.broadcast</name>
+      <kind>async method</kind>
+      <signature>async def broadcast(self, message: Dict[str, Any]) -> int</signature>
+      <path>backend/app/services/websocket_manager.py:82</path>
+    </interface>
+    <interface>
+      <name>Camera.smart_detection_types</name>
+      <kind>model field</kind>
+      <signature>Column(Text, nullable=True) - JSON array: ["person", "vehicle", "package", "animal"]</signature>
+      <path>backend/app/models/camera.py:65</path>
+    </interface>
+    <interface>
+      <name>uiprotect.subscribe_websocket</name>
+      <kind>library method</kind>
+      <signature>client.subscribe_websocket(callback=handler_func)</signature>
+      <path>uiprotect library</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio for async test support. Tests located in backend/tests/ following test_api/test_*.py naming. Mock external services (uiprotect) using unittest.mock. Follow existing patterns in test_protect.py which has 104+ tests. Use @pytest.mark.asyncio for async tests. Coverage required for all new code paths.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_protect.py</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2">Test event type parsing from mock WSMessage objects for all types (motion, smart_detect_*, ring)</idea>
+      <idea ac="3,4">Test camera lookup - enabled camera proceeds, disabled camera silently discarded</idea>
+      <idea ac="5,6,7">Test filter matching - person event with ["person"] filter passes, vehicle fails</idea>
+      <idea ac="8">Test all-motion mode - empty array or ["motion"] processes all event types</idea>
+      <idea ac="9,10">Test deduplication - events within 60s cooldown are skipped, after cooldown pass</idea>
+      <idea ac="11,12">Test log output contains expected fields without PII</idea>
+    </ideas>
+  </tests>
+</story-context>

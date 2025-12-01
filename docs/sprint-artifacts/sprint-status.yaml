@@ -1,6 +1,6 @@
 # Sprint Status
 # Auto-generated from epics.md and epics-phase2.md structure
-# Last updated: 2025-11-30
+# Last updated: 2025-12-01
 
 # STATUS DEFINITIONS:
 # ==================
@@ -27,7 +27,7 @@
 # - SM typically drafts next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', SM reviews, then Dev moves to 'done'
 
-generated: 2025-11-30
+generated: 2025-12-01
 project: Live Object AI Classifier
 project_key: live-object-ai-classifier
 tracking_system: file-system
@@ -111,15 +111,15 @@ development_status:
   epic-p2-2: backlog
   p2-2-1-implement-camera-auto-discovery-from-protect-controller: done
   p2-2-2-build-discovered-camera-list-ui-with-enable-disable: done
-  p2-2-3-implement-per-camera-event-type-filtering: in-progress
-  p2-2-4-add-camera-status-sync-and-refresh-functionality: in-progress
+  p2-2-3-implement-per-camera-event-type-filtering: done
+  p2-2-4-add-camera-status-sync-and-refresh-functionality: done
   epic-p2-2-retrospective: optional
 
   # Epic P2-3: Real-Time Event Processing
   epic-p2-3: backlog
-  p2-3-1-implement-protect-event-listener-and-event-handler: backlog
-  p2-3-2-implement-snapshot-retrieval-from-protect-api: backlog
-  p2-3-3-integrate-protect-events-with-existing-ai-pipeline: backlog
+  p2-3-1-implement-protect-event-listener-and-event-handler: done
+  p2-3-2-implement-snapshot-retrieval-from-protect-api: done
+  p2-3-3-integrate-protect-events-with-existing-ai-pipeline: done
   p2-3-4-add-event-source-type-display-in-dashboard: backlog
   epic-p2-3-retrospective: optional
 

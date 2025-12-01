@@ -164,6 +164,8 @@ export function DiscoveredCameraList({
     onSettled: () => {
       // Refetch to ensure consistency
       queryClient.invalidateQueries({ queryKey: ['protect-cameras', controllerId] });
+      // Also invalidate main cameras list so dashboard updates immediately
+      queryClient.invalidateQueries({ queryKey: ['cameras'] });
     },
   });
 
@@ -204,6 +206,8 @@ export function DiscoveredCameraList({
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['protect-cameras', controllerId] });
+      // Also invalidate main cameras list so dashboard updates immediately
+      queryClient.invalidateQueries({ queryKey: ['cameras'] });
     },
   });
 

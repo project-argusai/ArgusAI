@@ -68,7 +68,7 @@ def create_meta(count: int = None) -> MetaResponse:
 
 
 @router.post("/controllers", response_model=ProtectControllerSingleResponse, status_code=status.HTTP_201_CREATED)
-def create_controller(
+async def create_controller(
     controller_data: ProtectControllerCreate,
     db: Session = Depends(get_db)
 ):
@@ -110,6 +110,19 @@ def create_controller(
         db.refresh(controller)
 
         logger.info(f"Protect controller created: {controller.id} ({controller.name})")
+
+        # Auto-connect to the controller after creation
+        # This enables immediate camera discovery without manual connect step
+        protect_service = get_protect_service()
+        try:
+            await protect_service.connect(controller)
+            logger.info(f"Auto-connected to controller {controller.id} after creation")
+        except Exception as e:
+            # Log but don't fail the create - controller is saved, user can manually connect
+            logger.warning(f"Auto-connect failed for controller {controller.id}: {e}")
+
+        # Refresh to get updated connection status
+        db.refresh(controller)
 
         return ProtectControllerSingleResponse(
             data=ProtectControllerResponse.model_validate(controller),

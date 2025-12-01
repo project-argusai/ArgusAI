@@ -21,6 +21,7 @@ from uiprotect.exceptions import BadRequest, NotAuthorized, NvrError
 
 from app.core.database import SessionLocal
 from app.services.websocket_manager import get_websocket_manager
+from app.services.protect_event_handler import get_protect_event_handler
 
 if TYPE_CHECKING:
     from app.models.protect_controller import ProtectController
@@ -587,11 +588,16 @@ class ProtectService:
                     )
                     break
 
-                # Subscribe to WebSocket events (Story P2-2.4: camera status changes)
+                # Subscribe to WebSocket events (Story P2-2.4: camera status changes, Story P2-3.1: motion events)
                 def event_callback(msg):
                     # Handle camera status changes (Story P2-2.4 AC6)
                     asyncio.create_task(
                         self._handle_websocket_event(controller_id, msg)
+                    )
+                    # Handle motion/smart detection events (Story P2-3.1 AC1)
+                    event_handler = get_protect_event_handler()
+                    asyncio.create_task(
+                        event_handler.handle_event(controller_id, msg)
                     )
 
                 unsub = client.subscribe_websocket(event_callback)

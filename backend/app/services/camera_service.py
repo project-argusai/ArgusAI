@@ -84,6 +84,12 @@ class CameraService:
         """
         camera_id = camera.id
 
+        # Protect cameras use WebSocket events from Protect API, not frame capture
+        # They should not be started via camera_service
+        if hasattr(camera, 'source_type') and camera.source_type == 'protect':
+            logger.debug(f"Camera {camera_id} is a Protect camera - skipping capture thread (uses WebSocket events)")
+            return True  # Return True since Protect cameras are managed by protect_service
+
         # Check if already running
         if camera_id in self._capture_threads and self._capture_threads[camera_id].is_alive():
             logger.warning(f"Camera {camera_id} already running")

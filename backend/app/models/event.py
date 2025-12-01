@@ -23,6 +23,9 @@ class Event(Base):
         thumbnail_path: Optional file path to thumbnail (filesystem mode)
         thumbnail_base64: Optional base64-encoded thumbnail (database mode)
         alert_triggered: Whether alert rules were triggered (Epic 5)
+        source_type: Event source - 'rtsp', 'usb', or 'protect' (Phase 2)
+        protect_event_id: UniFi Protect's native event ID (Phase 2)
+        smart_detection_type: Protect smart detection type - person/vehicle/package/animal/motion (Phase 2)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -38,6 +41,10 @@ class Event(Base):
     thumbnail_base64 = Column(Text, nullable=True)  # Database mode: base64 JPEG
     alert_triggered = Column(Boolean, nullable=False, default=False)  # Epic 5 feature
     alert_rule_ids = Column(Text, nullable=True)  # JSON array of triggered rule UUIDs (Epic 5)
+    # Phase 2: UniFi Protect event source fields
+    source_type = Column(String(20), nullable=False, default='rtsp')  # 'rtsp', 'usb', 'protect'
+    protect_event_id = Column(String(100), nullable=True)  # Protect's native event ID (null for RTSP/USB)
+    smart_detection_type = Column(String(20), nullable=True)  # person/vehicle/package/animal/motion (null for RTSP/USB)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

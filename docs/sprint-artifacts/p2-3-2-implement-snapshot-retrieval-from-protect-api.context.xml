@@ -1,0 +1,214 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P2-3</epicId>
+    <storyId>2</storyId>
+    <title>Implement Snapshot Retrieval from Protect API</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-01</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-3-2-implement-snapshot-retrieval-from-protect-api.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend service</asA>
+    <iWant>to fetch a snapshot image when an event passes filtering</iWant>
+    <soThat>I can send it to the AI provider for description</soThat>
+    <tasks>
+      <task id="1" acs="1,2,3,4">Create snapshot retrieval service
+        <subtask id="1.1">Create backend/app/services/snapshot_service.py</subtask>
+        <subtask id="1.2">Define SnapshotService class with initialization</subtask>
+        <subtask id="1.3">Implement get_snapshot(controller_id, camera_id, timestamp) method</subtask>
+        <subtask id="1.4">Use uiprotect library: await camera.get_snapshot()</subtask>
+        <subtask id="1.5">Return JPEG bytes from Protect API</subtask>
+        <subtask id="1.6">Add timeout of 1 second for snapshot retrieval</subtask>
+      </task>
+      <task id="2" acs="4,5,6,7">Implement image processing
+        <subtask id="2.1">Add PIL/Pillow dependency if not present</subtask>
+        <subtask id="2.2">Implement _resize_for_ai(image_bytes, max_width=1920, max_height=1080)</subtask>
+        <subtask id="2.3">Implement _generate_thumbnail(image_bytes, width=320, height=180)</subtask>
+        <subtask id="2.4">Implement _to_base64(image_bytes)</subtask>
+        <subtask id="2.5">Save thumbnail to data/thumbnails/</subtask>
+        <subtask id="2.6">Return paths and base64 data</subtask>
+        <subtask id="2.7">Clean up full-size image after processing</subtask>
+      </task>
+      <task id="3" acs="8,9,10">Implement retry and error handling
+        <subtask id="3.1">Add retry logic with 500ms delay</subtask>
+        <subtask id="3.2">Maximum 2 attempts (initial + 1 retry)</subtask>
+        <subtask id="3.3">Log errors with camera name (no credentials)</subtask>
+        <subtask id="3.4">Track failure metrics: snapshot_failures_total</subtask>
+        <subtask id="3.5">Return None on failure (don't raise exception)</subtask>
+      </task>
+      <task id="4" acs="11">Implement concurrency limiting
+        <subtask id="4.1">Add asyncio.Semaphore per-controller (limit: 3)</subtask>
+        <subtask id="4.2">Store semaphores in _controller_semaphores dict</subtask>
+        <subtask id="4.3">Acquire semaphore before snapshot, release after</subtask>
+        <subtask id="4.4">Timeout on semaphore acquisition (5 seconds)</subtask>
+      </task>
+      <task id="5" acs="1">Wire snapshot service to event handler
+        <subtask id="5.1">Import SnapshotService in protect_event_handler.py</subtask>
+        <subtask id="5.2">Replace TODO comment with snapshot retrieval call</subtask>
+        <subtask id="5.3">Call snapshot_service.get_snapshot() after event passes filters</subtask>
+        <subtask id="5.4">Pass snapshot result to next stage (Story P2-3.3)</subtask>
+        <subtask id="5.5">Handle None response gracefully</subtask>
+      </task>
+      <task id="6" acs="all">Testing
+        <subtask id="6.1">Unit tests for snapshot retrieval with mock uiprotect</subtask>
+        <subtask id="6.2">Unit tests for image resizing and thumbnail</subtask>
+        <subtask id="6.3">Unit tests for base64 conversion</subtask>
+        <subtask id="6.4">Unit tests for retry logic</subtask>
+        <subtask id="6.5">Unit tests for concurrency limiting</subtask>
+        <subtask id="6.6">Integration test for full snapshot flow</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given event passed filtering, when event handler requests snapshot, system fetches from Protect API within 1 second (NFR4)</criterion>
+    <criterion id="AC2">Snapshot uses Protect API at event timestamp, or current snapshot if event-time unavailable</criterion>
+    <criterion id="AC3">Snapshot format is JPEG</criterion>
+    <criterion id="AC4">Full resolution retrieved (up to 4K), resized to max 1920x1080 for AI processing</criterion>
+    <criterion id="AC5">Snapshot converted to base64 for AI API submission</criterion>
+    <criterion id="AC6">Thumbnail (320x180) generated and stored for event record</criterion>
+    <criterion id="AC7">Full-size image cleaned up after processing</criterion>
+    <criterion id="AC8">If snapshot fails, retry once after 500ms</criterion>
+    <criterion id="AC9">If retry fails, log error and skip event (don't crash)</criterion>
+    <criterion id="AC10">Track snapshot failure rate for monitoring</criterion>
+    <criterion id="AC11">Concurrent snapshots limited to 3 per controller</criterion>
+    <criterion id="AC12">Snapshot retrieval completes within 1 second (NFR4)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase2.md</path>
+        <title>Phase 2 Epic Breakdown</title>
+        <section>Story 3.2: Implement Snapshot Retrieval from Protect API</section>
+        <snippet>Fetch snapshot from Protect API when event passes filtering. Use Protect API to get snapshot at event timestamp. Resize to max 1920x1080 for AI. Generate thumbnail 320x180. Retry once on failure.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Phase 2 Additions - UniFi Protect Integration</section>
+        <snippet>Event-driven architecture with WebSocket connection to Protect controller. Snapshot retrieval via uiprotect API. Events flow through filtering, snapshot retrieval, then AI pipeline.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase2.md</path>
+        <title>Phase 2 PRD</title>
+        <section>FR18</section>
+        <snippet>FR18: System fetches snapshot from Protect API when event passes filters. NFR4: Snapshot retrieval completes within 1 second.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p2-3-1-implement-protect-event-listener-and-event-handler.md</path>
+        <title>Previous Story P2-3.1</title>
+        <section>Completion Notes</section>
+        <snippet>ProtectEventHandler service created at protect_event_handler.py. handle_event() method processes events. TODO comment at line 201-202 marks integration point for snapshot retrieval.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/protect_event_handler.py</path>
+        <kind>service</kind>
+        <symbol>ProtectEventHandler</symbol>
+        <lines>86-221</lines>
+        <reason>Integration point for snapshot retrieval. handle_event() method has TODO at line 201-202 to call snapshot service after event passes filters.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/protect_service.py</path>
+        <kind>service</kind>
+        <symbol>ProtectService.get_camera_snapshot</symbol>
+        <lines>1458-1531</lines>
+        <reason>Existing snapshot method using uiprotect client. Can be extended or used as reference for SnapshotService implementation.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor, ProcessingEvent</symbol>
+        <lines>1-150</lines>
+        <reason>Existing event processing pipeline. Shows patterns for asyncio queue-based processing, metrics tracking, and frame handling.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService</symbol>
+        <reason>AI service that receives base64-encoded images. Story P2-3.3 will integrate snapshot with this service.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_protect.py</path>
+        <kind>test</kind>
+        <symbol>TestProtect*</symbol>
+        <reason>Existing test patterns for Protect functionality. 145+ tests demonstrating mocking patterns for uiprotect.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework</package>
+        <package name="uiprotect" version=">=6.0.0">UniFi Protect API client with get_camera_snapshot()</package>
+        <package name="pillow" version=">=10.0.0">Image processing library for resize and thumbnail generation</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for camera lookups</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing service patterns - singleton with get_snapshot_service()</constraint>
+    <constraint type="pattern">Use asyncio.Semaphore for per-controller concurrency limiting (max 3)</constraint>
+    <constraint type="pattern">All database queries use SessionLocal dependency injection</constraint>
+    <constraint type="logging">Structured logging via python-json-logger with event_type extra field</constraint>
+    <constraint type="security">No PII or credentials in logs - camera names OK, passwords never</constraint>
+    <constraint type="testing">All new code requires unit tests - follow test_protect.py patterns</constraint>
+    <constraint type="performance">Snapshot retrieval must complete within 1 second (NFR4)</constraint>
+    <constraint type="retry">Retry once after 500ms on failure, then return None</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>ProtectEventHandler.handle_event</name>
+      <kind>async method</kind>
+      <signature>async def handle_event(self, controller_id: str, msg: Any) -> bool</signature>
+      <path>backend/app/services/protect_event_handler.py:86</path>
+    </interface>
+    <interface>
+      <name>ProtectService.get_camera_snapshot</name>
+      <kind>async method</kind>
+      <signature>async def get_camera_snapshot(self, controller_id: str, protect_camera_id: str, width: int = 640, height: Optional[int] = None) -> Optional[bytes]</signature>
+      <path>backend/app/services/protect_service.py:1458</path>
+    </interface>
+    <interface>
+      <name>ProtectService._connections</name>
+      <kind>dict</kind>
+      <signature>Dict[str, ProtectApiClient] - Active controller connections</signature>
+      <path>backend/app/services/protect_service.py</path>
+    </interface>
+    <interface>
+      <name>uiprotect.get_camera_snapshot</name>
+      <kind>library method</kind>
+      <signature>await client.get_camera_snapshot(camera_id=str, width=int, height=int) -> bytes</signature>
+      <path>uiprotect library</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio for async test support. Tests located in backend/tests/ following test_api/test_*.py naming. Mock external services (uiprotect) using unittest.mock. Follow existing patterns in test_protect.py which has 145+ tests. Use @pytest.mark.asyncio for async tests. Coverage required for all new code paths.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_protect.py</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2,3">Test snapshot retrieval from mock uiprotect client with timestamp and without</idea>
+      <idea ac="4">Test image resizing from 4K to max 1920x1080 maintains aspect ratio</idea>
+      <idea ac="5">Test base64 conversion of JPEG bytes produces valid base64 string</idea>
+      <idea ac="6">Test thumbnail generation creates 320x180 JPEG and saves to correct path</idea>
+      <idea ac="7">Test full-size image cleanup after processing (memory not leaked)</idea>
+      <idea ac="8,9">Test retry logic - first failure triggers retry after 500ms, second failure returns None</idea>
+      <idea ac="10">Test failure metrics tracking increments on snapshot failure</idea>
+      <idea ac="11">Test semaphore limits concurrent snapshots to 3 per controller</idea>
+      <idea ac="12">Test snapshot retrieval completes within 1 second timeout</idea>
+    </ideas>
+  </tests>
+</story-context>

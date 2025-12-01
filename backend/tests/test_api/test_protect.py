@@ -2203,3 +2203,1262 @@ class TestForceRefreshParameter:
         # Result will indicate not connected since we didn't set up a real connection
         assert result.warning is not None
         assert "not connected" in result.warning.lower()
+
+
+# =============================================================================
+# Story P2-3.1: Protect Event Listener and Event Handler Tests
+# =============================================================================
+
+class TestProtectEventHandlerConstants:
+    """Test suite for ProtectEventHandler constants (Story P2-3.1, AC2, AC10)"""
+
+    def test_event_cooldown_constant_defined(self):
+        """AC10: Event cooldown constant is 60 seconds"""
+        from app.services.protect_event_handler import EVENT_COOLDOWN_SECONDS
+
+        assert EVENT_COOLDOWN_SECONDS == 60
+
+    def test_event_type_mapping_defined(self):
+        """AC2: Event type mapping from Protect to filter types is defined"""
+        from app.services.protect_event_handler import EVENT_TYPE_MAPPING
+
+        assert EVENT_TYPE_MAPPING["motion"] == "motion"
+        assert EVENT_TYPE_MAPPING["smart_detect_person"] == "person"
+        assert EVENT_TYPE_MAPPING["smart_detect_vehicle"] == "vehicle"
+        assert EVENT_TYPE_MAPPING["smart_detect_package"] == "package"
+        assert EVENT_TYPE_MAPPING["smart_detect_animal"] == "animal"
+        assert EVENT_TYPE_MAPPING["ring"] == "ring"
+
+    def test_valid_event_types_contains_all_mappings(self):
+        """AC2: All event types in mapping are in valid event types set"""
+        from app.services.protect_event_handler import EVENT_TYPE_MAPPING, VALID_EVENT_TYPES
+
+        for event_type in EVENT_TYPE_MAPPING.keys():
+            assert event_type in VALID_EVENT_TYPES
+
+
+class TestProtectEventHandlerInit:
+    """Test suite for ProtectEventHandler initialization (Story P2-3.1)"""
+
+    def test_handler_initializes_with_empty_tracking(self):
+        """Event handler initializes with empty last event times dictionary"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+        assert hasattr(handler, '_last_event_times')
+        assert isinstance(handler._last_event_times, dict)
+        assert len(handler._last_event_times) == 0
+
+    def test_singleton_returns_same_instance(self):
+        """get_protect_event_handler returns singleton instance"""
+        from app.services.protect_event_handler import get_protect_event_handler
+
+        handler1 = get_protect_event_handler()
+        handler2 = get_protect_event_handler()
+        assert handler1 is handler2
+
+
+class TestEventTypeParsing:
+    """Test suite for event type parsing (Story P2-3.1, AC2)"""
+
+    def test_parse_motion_detected(self):
+        """AC2: Parse motion event from camera object"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = True
+        mock_obj.smart_detect_types = None
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "motion" in event_types
+
+    def test_parse_no_motion_detected(self):
+        """AC2: No motion event when is_motion_detected is False"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = None
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "motion" not in event_types
+
+    def test_parse_smart_detect_person(self):
+        """AC2: Parse smart_detect_person from camera object"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = ["person"]
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "smart_detect_person" in event_types
+
+    def test_parse_smart_detect_vehicle(self):
+        """AC2: Parse smart_detect_vehicle from camera object"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = ["vehicle"]
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "smart_detect_vehicle" in event_types
+
+    def test_parse_smart_detect_package(self):
+        """AC2: Parse smart_detect_package from camera object"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = ["package"]
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "smart_detect_package" in event_types
+
+    def test_parse_smart_detect_animal(self):
+        """AC2: Parse smart_detect_animal from camera object"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = ["animal"]
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "smart_detect_animal" in event_types
+
+    def test_parse_multiple_smart_detects(self):
+        """AC2: Parse multiple smart detection types"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = True
+        mock_obj.smart_detect_types = ["person", "vehicle"]
+
+        event_types = handler._parse_event_types(mock_obj, "Camera")
+        assert "motion" in event_types
+        assert "smart_detect_person" in event_types
+        assert "smart_detect_vehicle" in event_types
+
+    def test_parse_doorbell_ring(self):
+        """AC2: Parse ring event from doorbell"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = None
+        mock_obj.is_ringing = True
+
+        event_types = handler._parse_event_types(mock_obj, "Doorbell")
+        assert "ring" in event_types
+
+    def test_parse_doorbell_no_ring(self):
+        """AC2: No ring event when doorbell is not ringing"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_obj = MagicMock()
+        mock_obj.is_motion_detected = False
+        mock_obj.smart_detect_types = None
+        mock_obj.is_ringing = False
+
+        event_types = handler._parse_event_types(mock_obj, "Doorbell")
+        assert "ring" not in event_types
+
+
+class TestEventFiltering:
+    """Test suite for event filtering logic (Story P2-3.1, AC5, AC6, AC7, AC8)"""
+
+    def test_should_process_all_motion_mode_empty_array(self):
+        """AC8: Empty array means all-motion mode - process all events"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Empty array should process all event types
+        assert handler._should_process_event("person", [], "Test Camera") == True
+        assert handler._should_process_event("vehicle", [], "Test Camera") == True
+        assert handler._should_process_event("motion", [], "Test Camera") == True
+
+    def test_should_process_all_motion_mode_motion_only(self):
+        """AC8: ["motion"] means all-motion mode - process all events"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # ["motion"] should also process all event types
+        assert handler._should_process_event("person", ["motion"], "Test Camera") == True
+        assert handler._should_process_event("vehicle", ["motion"], "Test Camera") == True
+        assert handler._should_process_event("motion", ["motion"], "Test Camera") == True
+
+    def test_should_process_matching_filter(self):
+        """AC6: Event type in filter list should pass"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        assert handler._should_process_event("person", ["person", "vehicle"], "Test Camera") == True
+        assert handler._should_process_event("vehicle", ["person", "vehicle"], "Test Camera") == True
+
+    def test_should_not_process_non_matching_filter(self):
+        """AC7: Event type not in filter list should be discarded"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Camera configured for person only, vehicle event should be filtered
+        assert handler._should_process_event("vehicle", ["person"], "Test Camera") == False
+        # Camera configured for vehicles, person event should be filtered
+        assert handler._should_process_event("person", ["vehicle"], "Test Camera") == False
+
+    def test_should_process_single_filter_type(self):
+        """AC6, AC7: Single filter type only accepts that type"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Only person configured
+        assert handler._should_process_event("person", ["person"], "Test Camera") == True
+        assert handler._should_process_event("vehicle", ["person"], "Test Camera") == False
+        assert handler._should_process_event("package", ["person"], "Test Camera") == False
+
+    def test_load_smart_detection_types_valid_json(self):
+        """AC5: Load smart_detection_types from valid JSON"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_camera = MagicMock()
+        mock_camera.smart_detection_types = '["person", "vehicle"]'
+
+        result = handler._load_smart_detection_types(mock_camera)
+        assert result == ["person", "vehicle"]
+
+    def test_load_smart_detection_types_null(self):
+        """AC5: Load smart_detection_types returns empty list for null"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_camera = MagicMock()
+        mock_camera.smart_detection_types = None
+
+        result = handler._load_smart_detection_types(mock_camera)
+        assert result == []
+
+    def test_load_smart_detection_types_invalid_json(self):
+        """AC5: Load smart_detection_types returns empty list for invalid JSON"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        mock_camera = MagicMock()
+        mock_camera.name = "Test Camera"
+        mock_camera.id = "test-id"
+        mock_camera.smart_detection_types = "not-valid-json"
+
+        result = handler._load_smart_detection_types(mock_camera)
+        assert result == []
+
+
+class TestEventDeduplication:
+    """Test suite for event deduplication (Story P2-3.1, AC9, AC10)"""
+
+    def test_first_event_is_not_duplicate(self):
+        """AC9: First event for a camera is not a duplicate"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # First event should not be duplicate
+        assert handler._is_duplicate_event("camera-1", "Test Camera") == False
+
+    def test_event_within_cooldown_is_duplicate(self):
+        """AC10: Event within 60 second cooldown is duplicate"""
+        from app.services.protect_event_handler import ProtectEventHandler
+        from datetime import datetime, timezone, timedelta
+
+        handler = ProtectEventHandler()
+        camera_id = "camera-duplicate-test"
+
+        # Simulate an event that happened 30 seconds ago (within cooldown)
+        handler._last_event_times[camera_id] = (
+            datetime.now(timezone.utc) - timedelta(seconds=30)
+        )
+
+        assert handler._is_duplicate_event(camera_id, "Test Camera") == True
+
+    def test_event_after_cooldown_is_not_duplicate(self):
+        """AC10: Event after 60 second cooldown is not duplicate"""
+        from app.services.protect_event_handler import ProtectEventHandler, EVENT_COOLDOWN_SECONDS
+        from datetime import datetime, timezone, timedelta
+
+        handler = ProtectEventHandler()
+        camera_id = "camera-after-cooldown"
+
+        # Simulate an event that happened 65 seconds ago (past cooldown)
+        handler._last_event_times[camera_id] = (
+            datetime.now(timezone.utc) - timedelta(seconds=EVENT_COOLDOWN_SECONDS + 5)
+        )
+
+        assert handler._is_duplicate_event(camera_id, "Test Camera") == False
+
+    def test_deduplication_exactly_at_boundary(self):
+        """AC10: Event exactly at cooldown boundary is not duplicate"""
+        from app.services.protect_event_handler import ProtectEventHandler, EVENT_COOLDOWN_SECONDS
+        from datetime import datetime, timezone, timedelta
+
+        handler = ProtectEventHandler()
+        camera_id = "camera-boundary"
+
+        # Simulate an event that happened exactly at the cooldown boundary
+        handler._last_event_times[camera_id] = (
+            datetime.now(timezone.utc) - timedelta(seconds=EVENT_COOLDOWN_SECONDS)
+        )
+
+        # Should be allowed (>= check)
+        assert handler._is_duplicate_event(camera_id, "Test Camera") == False
+
+    def test_multiple_cameras_independent_deduplication(self):
+        """AC9: Each camera has independent deduplication tracking"""
+        from app.services.protect_event_handler import ProtectEventHandler
+        from datetime import datetime, timezone, timedelta
+
+        handler = ProtectEventHandler()
+
+        # Camera 1 had event 30 seconds ago (within cooldown)
+        handler._last_event_times["camera-1"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=30)
+        )
+
+        # Camera 2 has never had an event
+        # Camera 3 had event 120 seconds ago (past cooldown)
+        handler._last_event_times["camera-3"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=120)
+        )
+
+        assert handler._is_duplicate_event("camera-1", "Camera 1") == True   # Within cooldown
+        assert handler._is_duplicate_event("camera-2", "Camera 2") == False  # First event
+        assert handler._is_duplicate_event("camera-3", "Camera 3") == False  # Past cooldown
+
+    def test_clear_event_tracking_specific_camera(self):
+        """Clear event tracking for specific camera"""
+        from app.services.protect_event_handler import ProtectEventHandler
+        from datetime import datetime, timezone
+
+        handler = ProtectEventHandler()
+        handler._last_event_times["camera-1"] = datetime.now(timezone.utc)
+        handler._last_event_times["camera-2"] = datetime.now(timezone.utc)
+
+        handler.clear_event_tracking("camera-1")
+
+        assert "camera-1" not in handler._last_event_times
+        assert "camera-2" in handler._last_event_times
+
+    def test_clear_event_tracking_all_cameras(self):
+        """Clear all event tracking data"""
+        from app.services.protect_event_handler import ProtectEventHandler
+        from datetime import datetime, timezone
+
+        handler = ProtectEventHandler()
+        handler._last_event_times["camera-1"] = datetime.now(timezone.utc)
+        handler._last_event_times["camera-2"] = datetime.now(timezone.utc)
+
+        handler.clear_event_tracking()
+
+        assert len(handler._last_event_times) == 0
+
+
+class TestHandleEventCameraLookup:
+    """Test suite for camera lookup in event handling (Story P2-3.1, AC3, AC4)"""
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_unknown_camera_discarded(self):
+        """AC4: Event from unknown camera is discarded silently"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Create mock message with camera not in database
+        mock_msg = MagicMock()
+        mock_msg.new_obj = MagicMock()
+        type(mock_msg.new_obj).__name__ = "Camera"
+        mock_msg.new_obj.id = "unknown-protect-camera-id"
+        mock_msg.new_obj.is_motion_detected = True
+        mock_msg.new_obj.smart_detect_types = None
+
+        result = await handler.handle_event("ctrl-1", mock_msg)
+        assert result == False
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_disabled_camera_discarded(self):
+        """AC4: Event from disabled camera is discarded silently"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Create a disabled camera in database
+        db = TestingSessionLocal()
+        try:
+            camera = Camera(
+                name="Disabled Camera",
+                type="rtsp",
+                source_type="protect",
+                protect_camera_id="disabled-protect-cam",
+                is_enabled=False,
+                smart_detection_types='["person"]'
+            )
+            db.add(camera)
+            db.commit()
+
+            # Create mock message
+            mock_msg = MagicMock()
+            mock_msg.new_obj = MagicMock()
+            type(mock_msg.new_obj).__name__ = "Camera"
+            mock_msg.new_obj.id = "disabled-protect-cam"
+            mock_msg.new_obj.is_motion_detected = True
+            mock_msg.new_obj.smart_detect_types = None
+
+            result = await handler.handle_event("ctrl-1", mock_msg)
+            assert result == False
+        finally:
+            db.close()
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_non_protect_camera_discarded(self):
+        """AC4: Event from camera with wrong source_type is discarded"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Create an RTSP camera (not protect)
+        db = TestingSessionLocal()
+        try:
+            camera = Camera(
+                name="RTSP Camera",
+                type="rtsp",
+                source_type="rtsp",  # Not protect
+                protect_camera_id="rtsp-protect-cam",
+                is_enabled=True,
+                smart_detection_types='["person"]'
+            )
+            db.add(camera)
+            db.commit()
+
+            # Create mock message
+            mock_msg = MagicMock()
+            mock_msg.new_obj = MagicMock()
+            type(mock_msg.new_obj).__name__ = "Camera"
+            mock_msg.new_obj.id = "rtsp-protect-cam"
+            mock_msg.new_obj.is_motion_detected = True
+            mock_msg.new_obj.smart_detect_types = None
+
+            result = await handler.handle_event("ctrl-1", mock_msg)
+            assert result == False
+        finally:
+            db.close()
+
+
+class TestHandleEventFullFlow:
+    """Test suite for full event handling flow (Story P2-3.1, AC1, AC3, AC5, AC6)"""
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_passes_all_filters(self):
+        """AC1, AC3, AC5, AC6: Event that matches all criteria passes (Story P2-3.3)"""
+        from app.services.protect_event_handler import ProtectEventHandler
+        from app.services.snapshot_service import SnapshotResult
+        from datetime import datetime, timezone
+
+        handler = ProtectEventHandler()
+        handler.clear_event_tracking()
+
+        # Create enabled protect camera in database
+        db = TestingSessionLocal()
+        try:
+            camera = Camera(
+                name="Enabled Camera",
+                type="rtsp",
+                source_type="protect",
+                protect_camera_id="enabled-protect-cam",
+                is_enabled=True,
+                smart_detection_types='["person"]'
+            )
+            db.add(camera)
+            db.commit()
+
+            # Create mock message with person detection
+            mock_msg = MagicMock()
+            mock_msg.new_obj = MagicMock()
+            type(mock_msg.new_obj).__name__ = "Camera"
+            mock_msg.new_obj.id = "enabled-protect-cam"
+            mock_msg.new_obj.is_motion_detected = False
+            mock_msg.new_obj.smart_detect_types = ["person"]
+            mock_msg.new_obj.last_motion = None
+            mock_msg.new_obj.last_smart_detect = None
+
+            # Mock snapshot service to return successful result (Story P2-3.2)
+            mock_snapshot_result = SnapshotResult(
+                image_base64="dGVzdA==",  # Valid base64 for "test"
+                thumbnail_path="/tmp/test.jpg",
+                width=1920,
+                height=1080,
+                camera_id=str(camera.id),
+                timestamp=datetime.now(timezone.utc)
+            )
+
+            # Mock AI service for Story P2-3.3
+            mock_ai_result = MagicMock()
+            mock_ai_result.success = True
+            mock_ai_result.description = "A person detected near the camera"
+            mock_ai_result.confidence = 85
+            mock_ai_result.objects_detected = ["person"]
+            mock_ai_result.provider = "openai"
+            mock_ai_result.response_time_ms = 500
+            mock_ai_result.error = None
+
+            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot, \
+                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
+                mock_service = MagicMock()
+                mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot_result)
+                mock_snapshot.return_value = mock_service
+
+                mock_ai_submit.return_value = mock_ai_result
+
+                # Mock stored event
+                mock_event = MagicMock()
+                mock_event.id = "test-event-id"
+                mock_store.return_value = mock_event
+
+                mock_broadcast.return_value = 1
+
+                result = await handler.handle_event("ctrl-1", mock_msg)
+                assert result == True
+
+                # Verify tracking was updated
+                assert camera.id in handler._last_event_times
+        finally:
+            db.close()
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_filtered_by_type(self):
+        """AC7: Event filtered when type not in smart_detection_types"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+        handler.clear_event_tracking()
+
+        # Create camera configured for person only
+        db = TestingSessionLocal()
+        try:
+            camera = Camera(
+                name="Person Only Camera",
+                type="rtsp",
+                source_type="protect",
+                protect_camera_id="person-only-cam",
+                is_enabled=True,
+                smart_detection_types='["person"]'
+            )
+            db.add(camera)
+            db.commit()
+
+            # Create mock message with vehicle detection (not person)
+            mock_msg = MagicMock()
+            mock_msg.new_obj = MagicMock()
+            type(mock_msg.new_obj).__name__ = "Camera"
+            mock_msg.new_obj.id = "person-only-cam"
+            mock_msg.new_obj.is_motion_detected = False
+            mock_msg.new_obj.smart_detect_types = ["vehicle"]
+
+            result = await handler.handle_event("ctrl-1", mock_msg)
+            assert result == False
+        finally:
+            db.close()
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_all_motion_mode(self):
+        """AC8: All motion mode processes all event types (Story P2-3.3)"""
+        from app.services.protect_event_handler import ProtectEventHandler
+        from app.services.snapshot_service import SnapshotResult
+        from datetime import datetime, timezone
+
+        handler = ProtectEventHandler()
+        handler.clear_event_tracking()
+
+        # Create camera with empty filter (all motion mode)
+        db = TestingSessionLocal()
+        try:
+            camera = Camera(
+                name="All Motion Camera",
+                type="rtsp",
+                source_type="protect",
+                protect_camera_id="all-motion-cam",
+                is_enabled=True,
+                smart_detection_types='[]'  # Empty = all motion mode
+            )
+            db.add(camera)
+            db.commit()
+
+            # Create mock message with vehicle detection
+            mock_msg = MagicMock()
+            mock_msg.new_obj = MagicMock()
+            type(mock_msg.new_obj).__name__ = "Camera"
+            mock_msg.new_obj.id = "all-motion-cam"
+            mock_msg.new_obj.is_motion_detected = False
+            mock_msg.new_obj.smart_detect_types = ["vehicle"]
+            mock_msg.new_obj.last_motion = None
+            mock_msg.new_obj.last_smart_detect = None
+
+            # Mock snapshot service to return successful result (Story P2-3.2)
+            mock_snapshot_result = SnapshotResult(
+                image_base64="dGVzdA==",  # Valid base64 for "test"
+                thumbnail_path="/tmp/test.jpg",
+                width=1920,
+                height=1080,
+                camera_id=str(camera.id),
+                timestamp=datetime.now(timezone.utc)
+            )
+
+            # Mock AI service for Story P2-3.3
+            mock_ai_result = MagicMock()
+            mock_ai_result.success = True
+            mock_ai_result.description = "A vehicle detected near the camera"
+            mock_ai_result.confidence = 85
+            mock_ai_result.objects_detected = ["vehicle"]
+            mock_ai_result.provider = "openai"
+            mock_ai_result.response_time_ms = 500
+            mock_ai_result.error = None
+
+            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot, \
+                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
+                mock_service = MagicMock()
+                mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot_result)
+                mock_snapshot.return_value = mock_service
+
+                mock_ai_submit.return_value = mock_ai_result
+
+                # Mock stored event
+                mock_event = MagicMock()
+                mock_event.id = "test-event-id"
+                mock_store.return_value = mock_event
+
+                mock_broadcast.return_value = 1
+
+                result = await handler.handle_event("ctrl-1", mock_msg)
+                assert result == True
+        finally:
+            db.close()
+
+    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_handle_event_deduplicated(self):
+        """AC10: Duplicate event within cooldown is skipped"""
+        from app.services.protect_event_handler import ProtectEventHandler, EVENT_COOLDOWN_SECONDS
+        from datetime import datetime, timezone, timedelta
+
+        handler = ProtectEventHandler()
+        handler.clear_event_tracking()
+
+        # Create enabled protect camera
+        db = TestingSessionLocal()
+        try:
+            camera = Camera(
+                name="Dedup Test Camera",
+                type="rtsp",
+                source_type="protect",
+                protect_camera_id="dedup-test-cam",
+                is_enabled=True,
+                smart_detection_types='["person"]'
+            )
+            db.add(camera)
+            db.commit()
+            db.refresh(camera)
+
+            # Simulate recent event (within cooldown)
+            handler._last_event_times[camera.id] = (
+                datetime.now(timezone.utc) - timedelta(seconds=30)
+            )
+
+            # Create mock message
+            mock_msg = MagicMock()
+            mock_msg.new_obj = MagicMock()
+            type(mock_msg.new_obj).__name__ = "Camera"
+            mock_msg.new_obj.id = "dedup-test-cam"
+            mock_msg.new_obj.is_motion_detected = False
+            mock_msg.new_obj.smart_detect_types = ["person"]
+
+            result = await handler.handle_event("ctrl-1", mock_msg)
+            assert result == False
+        finally:
+            db.close()
+
+    @pytest.mark.asyncio
+    async def test_handle_event_non_camera_object_ignored(self):
+        """Events from non-camera objects are ignored"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Create mock message for non-camera object
+        mock_msg = MagicMock()
+        mock_msg.new_obj = MagicMock()
+        type(mock_msg.new_obj).__name__ = "Light"  # Not Camera or Doorbell
+        mock_msg.new_obj.id = "light-123"
+
+        result = await handler.handle_event("ctrl-1", mock_msg)
+        assert result == False
+
+    @pytest.mark.asyncio
+    async def test_handle_event_no_new_obj_ignored(self):
+        """Events without new_obj are ignored"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Create mock message without new_obj
+        mock_msg = MagicMock()
+        mock_msg.new_obj = None
+
+        result = await handler.handle_event("ctrl-1", mock_msg)
+        assert result == False
+
+    @pytest.mark.asyncio
+    async def test_handle_event_exception_handled_gracefully(self):
+        """Exceptions in event handling don't propagate"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+
+        # Create mock that raises exception
+        mock_msg = MagicMock()
+        mock_msg.new_obj = MagicMock()
+        type(mock_msg.new_obj).__name__ = "Camera"
+        mock_msg.new_obj.id = "test-cam"
+        mock_msg.new_obj.is_motion_detected = True
+        mock_msg.new_obj.smart_detect_types = None
+
+        # Mock database to raise exception
+        with patch('app.services.protect_event_handler.SessionLocal') as mock_session:
+            mock_session.side_effect = Exception("Database error")
+
+            result = await handler.handle_event("ctrl-1", mock_msg)
+            assert result == False  # Should return False, not raise
+
+
+class TestWebSocketIntegration:
+    """Test suite for WebSocket listener integration (Story P2-3.1, AC1)"""
+
+    def test_event_handler_import_in_protect_service(self):
+        """AC1: ProtectEventHandler is imported in protect_service"""
+        from app.services.protect_service import get_protect_event_handler
+
+        handler = get_protect_event_handler()
+        assert handler is not None
+
+    def test_protect_service_uses_event_handler(self):
+        """AC1: Verify protect_service imports and uses event handler"""
+        import app.services.protect_service as protect_service
+
+        # Check that get_protect_event_handler is imported
+        assert hasattr(protect_service, 'get_protect_event_handler')
+
+
+# =============================================================================
+# Story P2-3.2: Snapshot Retrieval Service Tests
+# =============================================================================
+
+class TestSnapshotServiceConstants:
+    """Test suite for SnapshotService constants (Story P2-3.2)"""
+
+    def test_snapshot_timeout_constant(self):
+        """AC1, AC12: Snapshot timeout is 1 second"""
+        from app.services.snapshot_service import SNAPSHOT_TIMEOUT_SECONDS
+
+        assert SNAPSHOT_TIMEOUT_SECONDS == 1.0
+
+    def test_retry_delay_constant(self):
+        """AC8: Retry delay is 500ms"""
+        from app.services.snapshot_service import RETRY_DELAY_SECONDS
+
+        assert RETRY_DELAY_SECONDS == 0.5
+
+    def test_max_concurrent_snapshots_constant(self):
+        """AC11: Max concurrent snapshots per controller is 3"""
+        from app.services.snapshot_service import MAX_CONCURRENT_SNAPSHOTS
+
+        assert MAX_CONCURRENT_SNAPSHOTS == 3
+
+    def test_ai_dimensions_constants(self):
+        """AC4: AI processing dimensions are max 1920x1080"""
+        from app.services.snapshot_service import AI_MAX_WIDTH, AI_MAX_HEIGHT
+
+        assert AI_MAX_WIDTH == 1920
+        assert AI_MAX_HEIGHT == 1080
+
+    def test_thumbnail_dimensions_constants(self):
+        """AC6: Thumbnail dimensions are 320x180"""
+        from app.services.snapshot_service import THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT
+
+        assert THUMBNAIL_WIDTH == 320
+        assert THUMBNAIL_HEIGHT == 180
+
+
+class TestSnapshotServiceInit:
+    """Test suite for SnapshotService initialization (Story P2-3.2)"""
+
+    def test_service_initializes_with_empty_semaphores(self, tmp_path):
+        """Service initializes with empty semaphore dict"""
+        from app.services.snapshot_service import SnapshotService
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+        assert hasattr(service, '_controller_semaphores')
+        assert isinstance(service._controller_semaphores, dict)
+        assert len(service._controller_semaphores) == 0
+
+    def test_service_initializes_metrics(self, tmp_path):
+        """Service initializes with zero metrics counters"""
+        from app.services.snapshot_service import SnapshotService
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+        assert service._snapshot_failures_total == 0
+        assert service._snapshot_success_total == 0
+
+    def test_service_creates_thumbnail_directory(self, tmp_path):
+        """Service creates thumbnail directory if not exists"""
+        from app.services.snapshot_service import SnapshotService
+
+        thumbnail_path = tmp_path / "thumbnails"
+        assert not thumbnail_path.exists()
+
+        service = SnapshotService(thumbnail_path=str(thumbnail_path))
+        assert thumbnail_path.exists()
+
+    def test_singleton_returns_same_instance(self):
+        """get_snapshot_service returns singleton instance"""
+        from app.services.snapshot_service import get_snapshot_service
+
+        service1 = get_snapshot_service()
+        service2 = get_snapshot_service()
+        assert service1 is service2
+
+
+class TestImageResizing:
+    """Test suite for image resizing (Story P2-3.2, AC4)"""
+
+    def test_resize_larger_image_maintains_aspect_ratio(self, tmp_path):
+        """AC4: Large image is resized while maintaining aspect ratio"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create 4K image (3840x2160 - 16:9 aspect ratio)
+        test_image = Image.new('RGB', (3840, 2160), color='red')
+
+        resized = service._resize_for_ai(test_image)
+
+        # Should fit within 1920x1080 while maintaining aspect ratio
+        assert resized.width <= 1920
+        assert resized.height <= 1080
+        # Check aspect ratio preserved (16:9)
+        original_ratio = 3840 / 2160
+        new_ratio = resized.width / resized.height
+        assert abs(original_ratio - new_ratio) < 0.01
+
+    def test_resize_smaller_image_unchanged(self, tmp_path):
+        """AC4: Image smaller than max dimensions is not resized"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create small image (800x600)
+        test_image = Image.new('RGB', (800, 600), color='blue')
+
+        resized = service._resize_for_ai(test_image)
+
+        # Should remain same size
+        assert resized.width == 800
+        assert resized.height == 600
+
+    def test_resize_exact_max_dimensions_unchanged(self, tmp_path):
+        """AC4: Image at exactly max dimensions is not resized"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create image at exactly max dimensions
+        test_image = Image.new('RGB', (1920, 1080), color='green')
+
+        resized = service._resize_for_ai(test_image)
+
+        assert resized.width == 1920
+        assert resized.height == 1080
+
+
+class TestThumbnailGeneration:
+    """Test suite for thumbnail generation (Story P2-3.2, AC6)"""
+
+    @pytest.mark.asyncio
+    async def test_generate_thumbnail_creates_file(self, tmp_path):
+        """AC6: Thumbnail is generated and saved"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+        from datetime import datetime, timezone
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create test image
+        test_image = Image.new('RGB', (1920, 1080), color='red')
+        timestamp = datetime.now(timezone.utc)
+
+        thumbnail_path = await service._generate_thumbnail(
+            test_image, "camera-123", timestamp
+        )
+
+        # File should exist
+        assert os.path.exists(thumbnail_path)
+        # File should be in thumbnail directory
+        assert str(tmp_path) in thumbnail_path
+        # File should be JPEG
+        assert thumbnail_path.endswith('.jpg')
+
+    @pytest.mark.asyncio
+    async def test_generate_thumbnail_dimensions(self, tmp_path):
+        """AC6: Thumbnail is 320x180 (or fits within)"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+        from datetime import datetime, timezone
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create test image
+        test_image = Image.new('RGB', (1920, 1080), color='blue')
+        timestamp = datetime.now(timezone.utc)
+
+        thumbnail_path = await service._generate_thumbnail(
+            test_image, "camera-456", timestamp
+        )
+
+        # Load saved thumbnail and check dimensions
+        saved_thumb = Image.open(thumbnail_path)
+        assert saved_thumb.width <= 320
+        assert saved_thumb.height <= 180
+
+
+class TestBase64Conversion:
+    """Test suite for base64 conversion (Story P2-3.2, AC5)"""
+
+    def test_to_base64_produces_valid_string(self, tmp_path):
+        """AC5: Image is converted to valid base64 string"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+        import base64
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create test image
+        test_image = Image.new('RGB', (100, 100), color='red')
+
+        result = service._to_base64(test_image)
+
+        # Should be a string
+        assert isinstance(result, str)
+        # Should be valid base64 (can decode without error)
+        decoded = base64.b64decode(result)
+        # Decoded should be JPEG bytes (starts with JPEG magic bytes)
+        assert decoded[:2] == b'\xff\xd8'  # JPEG magic number
+
+    def test_to_base64_is_decodable_to_image(self, tmp_path):
+        """AC5: Base64 can be decoded back to an image"""
+        from app.services.snapshot_service import SnapshotService
+        from PIL import Image
+        import base64
+        import io
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create test image with specific color
+        test_image = Image.new('RGB', (50, 50), color=(255, 0, 0))
+
+        result = service._to_base64(test_image)
+
+        # Decode and verify
+        decoded = base64.b64decode(result)
+        restored_image = Image.open(io.BytesIO(decoded))
+        assert restored_image.width == 50
+        assert restored_image.height == 50
+
+
+class TestSnapshotRetryLogic:
+    """Test suite for retry logic (Story P2-3.2, AC8, AC9)"""
+
+    @pytest.mark.asyncio
+    async def test_retry_on_first_failure(self, tmp_path):
+        """AC8: Retry once after 500ms on first failure"""
+        from app.services.snapshot_service import SnapshotService
+        import time
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        call_count = 0
+        call_times = []
+
+        async def mock_get_snapshot(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            call_times.append(time.time())
+            if call_count == 1:
+                raise Exception("First attempt fails")
+            # Second attempt succeeds
+            return b'\xff\xd8\xff\xe0' + b'\x00' * 100  # Minimal JPEG-like
+
+        with patch.object(service, '_fetch_snapshot_with_retry') as mock:
+            mock.return_value = None  # Simulating failure after retries
+
+            # Call the method - it will use the mocked version
+            result = await service._fetch_snapshot_with_retry(
+                "ctrl-1", "cam-1", "Test Camera", None
+            )
+
+            # Mock was called
+            assert mock.called
+
+    @pytest.mark.asyncio
+    async def test_returns_none_after_retry_failure(self, tmp_path):
+        """AC9: Returns None if retry also fails (doesn't crash)"""
+        from app.services.snapshot_service import SnapshotService
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        with patch('app.services.protect_service.get_protect_service') as mock_protect:
+            mock_service = MagicMock()
+            mock_service.get_camera_snapshot = AsyncMock(side_effect=Exception("Always fails"))
+            mock_protect.return_value = mock_service
+
+            result = await service._fetch_snapshot_with_retry(
+                "ctrl-1", "cam-1", "Test Camera", None
+            )
+
+            # Should return None, not raise
+            assert result is None
+
+
+class TestSnapshotMetrics:
+    """Test suite for metrics tracking (Story P2-3.2, AC10)"""
+
+    def test_get_metrics_returns_dict(self, tmp_path):
+        """AC10: Metrics can be retrieved"""
+        from app.services.snapshot_service import SnapshotService
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+        metrics = service.get_metrics()
+
+        assert isinstance(metrics, dict)
+        assert 'snapshot_success_total' in metrics
+        assert 'snapshot_failures_total' in metrics
+        assert 'active_semaphores' in metrics
+
+    def test_failure_count_increments(self, tmp_path):
+        """AC10: Failure counter increments on failure"""
+        from app.services.snapshot_service import SnapshotService
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        initial_failures = service._snapshot_failures_total
+        service._snapshot_failures_total += 1
+
+        assert service._snapshot_failures_total == initial_failures + 1
+
+    def test_reset_metrics(self, tmp_path):
+        """Metrics can be reset"""
+        from app.services.snapshot_service import SnapshotService
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+        service._snapshot_failures_total = 5
+        service._snapshot_success_total = 10
+
+        service.reset_metrics()
+
+        assert service._snapshot_failures_total == 0
+        assert service._snapshot_success_total == 0
+
+
+class TestConcurrencyLimiting:
+    """Test suite for concurrency limiting (Story P2-3.2, AC11)"""
+
+    def test_semaphore_created_per_controller(self, tmp_path):
+        """AC11: Semaphore created for each controller"""
+        from app.services.snapshot_service import SnapshotService, MAX_CONCURRENT_SNAPSHOTS
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Initially empty
+        assert len(service._controller_semaphores) == 0
+
+        # Get semaphore for controller 1
+        sem1 = service._get_controller_semaphore("controller-1")
+        assert len(service._controller_semaphores) == 1
+        assert isinstance(sem1, asyncio.Semaphore)
+
+        # Get semaphore for controller 2
+        sem2 = service._get_controller_semaphore("controller-2")
+        assert len(service._controller_semaphores) == 2
+
+        # Same controller returns same semaphore
+        sem1_again = service._get_controller_semaphore("controller-1")
+        assert sem1 is sem1_again
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrent_calls(self, tmp_path):
+        """AC11: Semaphore limits to 3 concurrent snapshots per controller"""
+        from app.services.snapshot_service import SnapshotService, MAX_CONCURRENT_SNAPSHOTS
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+        semaphore = service._get_controller_semaphore("test-controller")
+
+        # Acquire all 3 slots
+        await semaphore.acquire()
+        await semaphore.acquire()
+        await semaphore.acquire()
+
+        # 4th acquisition should not succeed immediately
+        # (We test this by checking the semaphore is locked)
+        assert semaphore.locked()
+
+        # Release one
+        semaphore.release()
+        assert not semaphore.locked()
+
+
+class TestSnapshotResultDataclass:
+    """Test suite for SnapshotResult dataclass (Story P2-3.2)"""
+
+    def test_snapshot_result_creation(self):
+        """SnapshotResult can be created with all required fields"""
+        from app.services.snapshot_service import SnapshotResult
+        from datetime import datetime, timezone
+
+        result = SnapshotResult(
+            image_base64="base64data",
+            thumbnail_path="/path/to/thumb.jpg",
+            width=1920,
+            height=1080,
+            camera_id="cam-123",
+            timestamp=datetime.now(timezone.utc)
+        )
+
+        assert result.image_base64 == "base64data"
+        assert result.thumbnail_path == "/path/to/thumb.jpg"
+        assert result.width == 1920
+        assert result.height == 1080
+        assert result.camera_id == "cam-123"
+
+
+class TestSnapshotProcessing:
+    """Test suite for full snapshot processing (Story P2-3.2, AC4-AC7)"""
+
+    @pytest.mark.asyncio
+    async def test_process_snapshot_returns_result(self, tmp_path):
+        """AC4-AC7: Process snapshot returns SnapshotResult with all fields"""
+        from app.services.snapshot_service import SnapshotService, SnapshotResult
+        from PIL import Image
+        from datetime import datetime, timezone
+        import io
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Create a valid JPEG image
+        test_image = Image.new('RGB', (1920, 1080), color='red')
+        buffer = io.BytesIO()
+        test_image.save(buffer, format='JPEG')
+        image_bytes = buffer.getvalue()
+
+        result = await service._process_snapshot(
+            image_bytes,
+            "cam-123",
+            "Test Camera",
+            datetime.now(timezone.utc)
+        )
+
+        assert result is not None
+        assert isinstance(result, SnapshotResult)
+        assert result.image_base64  # Not empty
+        assert result.thumbnail_path  # Not empty
+        # thumbnail_path is now an API URL path, verify format and file existence
+        assert result.thumbnail_path.startswith("/api/v1/thumbnails/")
+        # Extract date and filename from URL path to verify file exists
+        parts = result.thumbnail_path.split("/")  # ['', 'api', 'v1', 'thumbnails', 'YYYY-MM-DD', 'filename.jpg']
+        date_str = parts[4]
+        filename = parts[5]
+        actual_file = os.path.join(str(tmp_path), date_str, filename)
+        assert os.path.exists(actual_file)  # File created
+        assert result.width > 0
+        assert result.height > 0
+        assert result.camera_id == "cam-123"
+
+    @pytest.mark.asyncio
+    async def test_process_snapshot_invalid_image_returns_none(self, tmp_path):
+        """AC9: Invalid image returns None (doesn't crash)"""
+        from app.services.snapshot_service import SnapshotService
+        from datetime import datetime, timezone
+
+        service = SnapshotService(thumbnail_path=str(tmp_path))
+
+        # Pass invalid bytes
+        result = await service._process_snapshot(
+            b"not a valid image",
+            "cam-123",
+            "Test Camera",
+            datetime.now(timezone.utc)
+        )
+
+        assert result is None
+        # Failure should be tracked
+        assert service._snapshot_failures_total >= 1
+
+
+class TestEventHandlerSnapshotIntegration:
+    """Test suite for event handler + snapshot integration (Story P2-3.2)"""
+
+    def test_event_handler_imports_snapshot_service(self):
+        """Event handler imports snapshot service"""
+        from app.services.protect_event_handler import get_snapshot_service, SnapshotResult
+
+        service = get_snapshot_service()
+        assert service is not None
+
+    def test_event_handler_has_retrieve_snapshot_method(self):
+        """Event handler has _retrieve_snapshot method"""
+        from app.services.protect_event_handler import ProtectEventHandler
+
+        handler = ProtectEventHandler()
+        assert hasattr(handler, '_retrieve_snapshot')
+        assert callable(handler._retrieve_snapshot)

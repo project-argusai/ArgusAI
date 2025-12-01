@@ -193,3 +193,97 @@ class ProtectConnectionResponse(BaseModel):
 
     data: ProtectConnectionStatusData
     meta: MetaResponse
+
+
+# Story P2-2.1: Camera Discovery Schemas
+
+class ProtectDiscoveredCamera(BaseModel):
+    """Schema for a camera discovered from a Protect controller (AC2, AC5)"""
+
+    protect_camera_id: str = Field(..., description="Native Protect camera ID")
+    name: str = Field(..., description="Camera name from Protect")
+    type: str = Field(..., description="Camera type: 'camera' or 'doorbell'")
+    model: str = Field(..., description="Camera model (e.g., 'G4 Doorbell Pro', 'G4 Pro')")
+    is_online: bool = Field(..., description="Whether camera is currently online")
+    is_doorbell: bool = Field(..., description="Whether camera is a doorbell")
+    is_enabled_for_ai: bool = Field(default=False, description="Whether camera is enabled for AI processing")
+    smart_detection_capabilities: List[str] = Field(
+        default_factory=list,
+        description="Smart detection types (e.g., ['person', 'vehicle', 'package'])"
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "protect_camera_id": "abc123def456",
+                    "name": "Front Door",
+                    "type": "doorbell",
+                    "model": "G4 Doorbell Pro",
+                    "is_online": True,
+                    "is_doorbell": True,
+                    "is_enabled_for_ai": False,
+                    "smart_detection_capabilities": ["person", "vehicle", "package"]
+                }
+            ]
+        }
+    }
+
+
+class ProtectCameraDiscoveryMeta(BaseModel):
+    """Meta response for camera discovery (AC6)"""
+
+    request_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique request identifier")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Response timestamp")
+    count: int = Field(..., description="Number of cameras discovered")
+    controller_id: str = Field(..., description="Controller ID that was queried")
+    cached: bool = Field(..., description="Whether results were returned from cache")
+    cached_at: Optional[datetime] = Field(None, description="When results were cached (if cached)")
+    warning: Optional[str] = Field(None, description="Warning message if any issues occurred")
+
+
+class ProtectCamerasResponse(BaseModel):
+    """Camera discovery response with meta (AC5, AC6)"""
+
+    data: List[ProtectDiscoveredCamera]
+    meta: ProtectCameraDiscoveryMeta
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "data": [
+                        {
+                            "protect_camera_id": "abc123def456",
+                            "name": "Front Door",
+                            "type": "doorbell",
+                            "model": "G4 Doorbell Pro",
+                            "is_online": True,
+                            "is_doorbell": True,
+                            "is_enabled_for_ai": True,
+                            "smart_detection_capabilities": ["person", "vehicle", "package"]
+                        },
+                        {
+                            "protect_camera_id": "xyz789ghi012",
+                            "name": "Backyard",
+                            "type": "camera",
+                            "model": "G4 Pro",
+                            "is_online": True,
+                            "is_doorbell": False,
+                            "is_enabled_for_ai": False,
+                            "smart_detection_capabilities": ["person", "vehicle"]
+                        }
+                    ],
+                    "meta": {
+                        "request_id": "550e8400-e29b-41d4-a716-446655440000",
+                        "timestamp": "2025-11-30T10:30:00Z",
+                        "count": 2,
+                        "controller_id": "660e8400-e29b-41d4-a716-446655440001",
+                        "cached": False,
+                        "cached_at": None,
+                        "warning": None
+                    }
+                }
+            ]
+        }
+    }

@@ -1154,5 +1154,41 @@ export const apiClient = {
         method: 'DELETE',
       });
     },
+
+    /**
+     * Discover cameras from a connected Protect controller (Story P2-2.1)
+     * Results are cached for 60 seconds
+     * @param controllerId Controller UUID
+     * @param forceRefresh If true, bypass cache and fetch fresh data
+     */
+    discoverCameras: async (controllerId: string, forceRefresh: boolean = false): Promise<{
+      data: ProtectDiscoveredCamera[];
+      meta: {
+        request_id: string;
+        timestamp: string;
+        count: number;
+        controller_id: string;
+        cached: boolean;
+        cached_at: string | null;
+        warning: string | null;
+      };
+    }> => {
+      const params = forceRefresh ? '?force_refresh=true' : '';
+      return apiFetch(`/protect/controllers/${controllerId}/cameras${params}`);
+    },
   },
 };
+
+// Story P2-2.1: Camera Discovery Types
+
+/** Discovered camera from Protect controller */
+export interface ProtectDiscoveredCamera {
+  protect_camera_id: string;
+  name: string;
+  type: 'camera' | 'doorbell';
+  model: string;
+  is_online: boolean;
+  is_doorbell: boolean;
+  is_enabled_for_ai: boolean;
+  smart_detection_capabilities: string[];
+}

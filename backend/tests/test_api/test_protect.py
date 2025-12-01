@@ -1272,3 +1272,314 @@ class TestResponseFormat:
         assert "timestamp" in data["meta"]
         assert "controller_id" in data["data"]
         assert "status" in data["data"]
+
+
+# =============================================================================
+# Story P2-2.1: Camera Discovery Tests
+# =============================================================================
+
+class TestCameraDiscoveryEndpoint:
+    """Test suite for GET /protect/controllers/{id}/cameras endpoint (Story P2-2.1)"""
+
+    def test_discover_cameras_controller_not_found(self):
+        """AC5: Discovery endpoint returns 404 for non-existent controller"""
+        response = client.get("/api/v1/protect/controllers/nonexistent-id/cameras")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"]
+
+    def test_discover_cameras_response_format(self):
+        """AC5, AC6: Discovery response has correct format with meta"""
+        # Create controller first
+        create_response = client.post("/api/v1/protect/controllers", json={
+            "name": "Discovery Format Test",
+            "host": "192.168.1.100",
+            "port": 443,
+            "username": "admin",
+            "password": "testpass",
+            "verify_ssl": False
+        })
+        controller_id = create_response.json()["data"]["id"]
+
+        # Call discover cameras (will return empty without connection)
+        response = client.get(f"/api/v1/protect/controllers/{controller_id}/cameras")
+
+        # Should either return 200 with empty list or 503 if not connected
+        assert response.status_code in [200, 503]
+
+        if response.status_code == 200:
+            data = response.json()
+            assert "data" in data
+            assert "meta" in data
+            assert isinstance(data["data"], list)
+            assert "count" in data["meta"]
+            assert "controller_id" in data["meta"]
+            assert "cached" in data["meta"]
+            assert data["meta"]["controller_id"] == controller_id
+
+
+class TestCameraDiscoveryService:
+    """Test suite for ProtectService.discover_cameras method (Story P2-2.1)"""
+
+    def test_camera_cache_initialized(self):
+        """AC4: Service initializes camera cache"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+        assert hasattr(service, '_camera_cache')
+        assert isinstance(service._camera_cache, dict)
+
+    def test_cache_ttl_constant_defined(self):
+        """AC4: Cache TTL constant is 60 seconds"""
+        from app.services.protect_service import CAMERA_CACHE_TTL_SECONDS
+
+        assert CAMERA_CACHE_TTL_SECONDS == 60
+
+    @pytest.mark.asyncio
+    async def test_discover_cameras_not_connected_no_cache(self):
+        """AC8: Discovery returns empty list with warning when not connected"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+        result = await service.discover_cameras("test-controller-id")
+
+        assert result.cameras == []
+        assert result.cached == False
+        assert result.warning is not None
+        assert "not connected" in result.warning.lower()
+
+    @pytest.mark.asyncio
+    async def test_clear_camera_cache_specific(self):
+        """Test clearing cache for specific controller"""
+        from app.services.protect_service import ProtectService, DiscoveredCamera
+        from datetime import datetime, timezone
+
+        service = ProtectService()
+
+        # Manually add cache entry
+        test_cameras = [DiscoveredCamera(
+            protect_camera_id="test-cam-1",
+            name="Test Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            smart_detection_capabilities=["person"]
+        )]
+        service._camera_cache["controller-1"] = (test_cameras, datetime.now(timezone.utc))
+        service._camera_cache["controller-2"] = (test_cameras, datetime.now(timezone.utc))
+
+        # Clear specific controller
+        service.clear_camera_cache("controller-1")
+
+        assert "controller-1" not in service._camera_cache
+        assert "controller-2" in service._camera_cache
+
+    @pytest.mark.asyncio
+    async def test_clear_camera_cache_all(self):
+        """Test clearing all camera caches"""
+        from app.services.protect_service import ProtectService, DiscoveredCamera
+        from datetime import datetime, timezone
+
+        service = ProtectService()
+
+        # Manually add cache entries
+        test_cameras = [DiscoveredCamera(
+            protect_camera_id="test-cam-1",
+            name="Test Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            smart_detection_capabilities=[]
+        )]
+        service._camera_cache["controller-1"] = (test_cameras, datetime.now(timezone.utc))
+        service._camera_cache["controller-2"] = (test_cameras, datetime.now(timezone.utc))
+
+        # Clear all
+        service.clear_camera_cache()
+
+        assert len(service._camera_cache) == 0
+
+
+class TestDoorbellDetection:
+    """Test suite for doorbell camera detection (Story P2-2.1, AC10)"""
+
+    def test_doorbell_detection_by_type(self):
+        """AC10: Doorbell detected from type containing 'doorbell'"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        # Create mock camera with doorbell type
+        mock_camera = MagicMock()
+        mock_camera.type = "UVC G4 Doorbell Pro"
+        mock_camera.model = "G4 Doorbell Pro"
+
+        assert service._is_doorbell_camera(mock_camera) == True
+
+    def test_doorbell_detection_by_model(self):
+        """AC10: Doorbell detected from model containing 'doorbell'"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        mock_camera = MagicMock()
+        mock_camera.type = "camera"
+        mock_camera.model = "G4 Doorbell"
+
+        assert service._is_doorbell_camera(mock_camera) == True
+
+    def test_doorbell_detection_by_feature_flag_chime(self):
+        """AC10: Doorbell detected from has_chime feature flag"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        mock_camera = MagicMock()
+        mock_camera.type = "camera"
+        mock_camera.model = "G4 Camera"
+        mock_camera.feature_flags = MagicMock()
+        mock_camera.feature_flags.has_chime = True
+
+        assert service._is_doorbell_camera(mock_camera) == True
+
+    def test_non_doorbell_camera(self):
+        """AC10: Regular camera not detected as doorbell"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        mock_camera = MagicMock()
+        mock_camera.type = "camera"
+        mock_camera.model = "G4 Pro"
+        mock_camera.feature_flags = None
+
+        assert service._is_doorbell_camera(mock_camera) == False
+
+
+class TestSmartDetectionCapabilities:
+    """Test suite for smart detection capability extraction (Story P2-2.1, AC2)"""
+
+    def test_extract_smart_detect_types(self):
+        """AC2: Extract smart detection capabilities from camera"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        mock_camera = MagicMock()
+        mock_camera.smart_detect_types = ["person", "vehicle", "package"]
+        mock_camera.feature_flags = None
+
+        capabilities = service._get_smart_detection_capabilities(mock_camera)
+
+        assert "person" in capabilities
+        assert "vehicle" in capabilities
+        assert "package" in capabilities
+
+    def test_extract_from_feature_flags(self):
+        """AC2: Extract capabilities from feature flags when smart_detect_types missing"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        mock_camera = MagicMock()
+        mock_camera.smart_detect_types = None
+        mock_camera.feature_flags = MagicMock()
+        mock_camera.feature_flags.can_detect_person = True
+        mock_camera.feature_flags.can_detect_vehicle = True
+        mock_camera.feature_flags.has_smart_detect = False
+
+        capabilities = service._get_smart_detection_capabilities(mock_camera)
+
+        assert "person" in capabilities
+        assert "vehicle" in capabilities
+
+    def test_no_smart_detection(self):
+        """AC2: Return empty list for cameras without smart detection"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        mock_camera = MagicMock()
+        mock_camera.smart_detect_types = None
+        mock_camera.feature_flags = None
+
+        capabilities = service._get_smart_detection_capabilities(mock_camera)
+
+        assert capabilities == []
+
+
+class TestCameraDiscoverySchemas:
+    """Test suite for camera discovery Pydantic schemas (Story P2-2.1)"""
+
+    def test_protect_discovered_camera_schema(self):
+        """AC2, AC5: ProtectDiscoveredCamera schema validates correctly"""
+        from app.schemas.protect import ProtectDiscoveredCamera
+
+        camera = ProtectDiscoveredCamera(
+            protect_camera_id="abc123",
+            name="Front Door",
+            type="doorbell",
+            model="G4 Doorbell Pro",
+            is_online=True,
+            is_doorbell=True,
+            is_enabled_for_ai=False,
+            smart_detection_capabilities=["person", "vehicle"]
+        )
+
+        assert camera.protect_camera_id == "abc123"
+        assert camera.name == "Front Door"
+        assert camera.type == "doorbell"
+        assert camera.is_doorbell == True
+        assert camera.is_enabled_for_ai == False
+        assert "person" in camera.smart_detection_capabilities
+
+    def test_protect_camera_discovery_meta_schema(self):
+        """AC6: ProtectCameraDiscoveryMeta schema includes required fields"""
+        from app.schemas.protect import ProtectCameraDiscoveryMeta
+
+        meta = ProtectCameraDiscoveryMeta(
+            count=5,
+            controller_id="controller-123",
+            cached=True,
+            cached_at=None,
+            warning=None
+        )
+
+        assert meta.count == 5
+        assert meta.controller_id == "controller-123"
+        assert meta.cached == True
+
+    def test_protect_cameras_response_schema(self):
+        """AC5, AC6: ProtectCamerasResponse schema structure"""
+        from app.schemas.protect import (
+            ProtectCamerasResponse,
+            ProtectDiscoveredCamera,
+            ProtectCameraDiscoveryMeta
+        )
+
+        camera = ProtectDiscoveredCamera(
+            protect_camera_id="cam-1",
+            name="Test Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            is_enabled_for_ai=True,
+            smart_detection_capabilities=[]
+        )
+
+        response = ProtectCamerasResponse(
+            data=[camera],
+            meta=ProtectCameraDiscoveryMeta(
+                count=1,
+                controller_id="ctrl-1",
+                cached=False,
+                cached_at=None,
+                warning=None
+            )
+        )
+
+        assert len(response.data) == 1
+        assert response.meta.count == 1
+        assert response.meta.controller_id == "ctrl-1"

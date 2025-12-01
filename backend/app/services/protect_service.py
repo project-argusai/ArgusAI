@@ -11,8 +11,8 @@ Provides functionality to:
 import asyncio
 import ssl
 import logging
-from typing import Optional, Dict, Any, TYPE_CHECKING
-from dataclasses import dataclass
+from typing import Optional, Dict, Any, List, Tuple, TYPE_CHECKING
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import aiohttp
@@ -35,6 +35,31 @@ BACKOFF_DELAYS = [1, 2, 4, 8, 16, 30]  # max 30 seconds
 
 # WebSocket message type for connection status (AC6)
 PROTECT_CONNECTION_STATUS = "PROTECT_CONNECTION_STATUS"
+
+# Camera discovery cache TTL in seconds (Story P2-2.1 AC4)
+CAMERA_CACHE_TTL_SECONDS = 60
+
+
+@dataclass
+class DiscoveredCamera:
+    """Represents a camera discovered from a Protect controller (Story P2-2.1)"""
+    protect_camera_id: str
+    name: str
+    type: str  # "camera" or "doorbell"
+    model: str
+    is_online: bool
+    is_doorbell: bool
+    smart_detection_capabilities: List[str] = field(default_factory=list)
+    is_enabled_for_ai: bool = False  # Set during cross-reference with cameras table
+
+
+@dataclass
+class CameraDiscoveryResult:
+    """Result of camera discovery operation (Story P2-2.1)"""
+    cameras: List[DiscoveredCamera]
+    cached: bool
+    cached_at: Optional[datetime] = None
+    warning: Optional[str] = None
 
 
 @dataclass
@@ -75,6 +100,8 @@ class ProtectService:
         self._listener_tasks: Dict[str, asyncio.Task] = {}
         # Shutdown signal for graceful cleanup
         self._shutdown_event = asyncio.Event()
+        # Camera discovery cache: controller_id -> (cameras, cached_at) (Story P2-2.1 AC4)
+        self._camera_cache: Dict[str, Tuple[List[DiscoveredCamera], datetime]] = {}
 
     async def test_connection(
         self,
@@ -884,6 +911,362 @@ class ProtectService:
         for controller_id in set(list(self._connections.keys()) + list(self._listener_tasks.keys())):
             statuses[controller_id] = self.get_connection_status(controller_id)
         return statuses
+
+    # =========================================================================
+    # Camera Discovery Methods (Story P2-2.1)
+    # =========================================================================
+
+    async def discover_cameras(
+        self,
+        controller_id: str,
+        force_refresh: bool = False
+    ) -> CameraDiscoveryResult:
+        """
+        Discover cameras from a connected Protect controller (Story P2-2.1).
+
+        Fetches all cameras from the controller, extracts metadata including
+        doorbell identification and smart detection capabilities. Results are
+        cached for 60 seconds to avoid repeated API calls.
+
+        Args:
+            controller_id: UUID of the controller to discover cameras from
+            force_refresh: If True, bypass cache and fetch fresh data
+
+        Returns:
+            CameraDiscoveryResult with discovered cameras and cache status
+
+        Note:
+            - Must complete within 10 seconds (NFR1/AC1)
+            - Results are NOT auto-saved to cameras table (AC3)
+            - Cache TTL is 60 seconds (AC4)
+            - On failure, returns cached results if available (AC8)
+        """
+        logger.info(
+            "Starting camera discovery",
+            extra={
+                "event_type": "protect_camera_discovery_start",
+                "controller_id": controller_id,
+                "force_refresh": force_refresh
+            }
+        )
+
+        # Check cache first (AC4)
+        if not force_refresh and controller_id in self._camera_cache:
+            cached_cameras, cached_at = self._camera_cache[controller_id]
+            cache_age = (datetime.now(timezone.utc) - cached_at).total_seconds()
+
+            if cache_age < CAMERA_CACHE_TTL_SECONDS:
+                logger.info(
+                    "Returning cached camera discovery results",
+                    extra={
+                        "event_type": "protect_camera_discovery_cache_hit",
+                        "controller_id": controller_id,
+                        "cache_age_seconds": cache_age,
+                        "camera_count": len(cached_cameras)
+                    }
+                )
+                return CameraDiscoveryResult(
+                    cameras=cached_cameras,
+                    cached=True,
+                    cached_at=cached_at
+                )
+
+        # Check if controller is connected
+        client = self._connections.get(controller_id)
+        if not client:
+            logger.warning(
+                "Controller not connected for camera discovery",
+                extra={
+                    "event_type": "protect_camera_discovery_not_connected",
+                    "controller_id": controller_id
+                }
+            )
+
+            # Return cached results if available (AC8)
+            if controller_id in self._camera_cache:
+                cached_cameras, cached_at = self._camera_cache[controller_id]
+                logger.info(
+                    "Returning stale cached results due to disconnected controller",
+                    extra={
+                        "event_type": "protect_camera_discovery_stale_cache",
+                        "controller_id": controller_id,
+                        "camera_count": len(cached_cameras)
+                    }
+                )
+                return CameraDiscoveryResult(
+                    cameras=cached_cameras,
+                    cached=True,
+                    cached_at=cached_at,
+                    warning="Controller not connected - returning cached results"
+                )
+
+            # No cache available
+            return CameraDiscoveryResult(
+                cameras=[],
+                cached=False,
+                warning="Controller not connected and no cached results available"
+            )
+
+        # Fetch cameras from controller
+        try:
+            cameras = await self._fetch_cameras_from_client(client, controller_id)
+
+            # Cache results (AC4)
+            cached_at = datetime.now(timezone.utc)
+            self._camera_cache[controller_id] = (cameras, cached_at)
+
+            logger.info(
+                "Camera discovery completed successfully",
+                extra={
+                    "event_type": "protect_camera_discovery_success",
+                    "controller_id": controller_id,
+                    "camera_count": len(cameras),
+                    "doorbell_count": sum(1 for c in cameras if c.is_doorbell)
+                }
+            )
+
+            return CameraDiscoveryResult(
+                cameras=cameras,
+                cached=False,
+                cached_at=cached_at
+            )
+
+        except Exception as e:
+            # Log discovery failure (AC9)
+            logger.error(
+                "Camera discovery failed",
+                extra={
+                    "event_type": "protect_camera_discovery_error",
+                    "controller_id": controller_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+
+            # Return cached results if available (AC8)
+            if controller_id in self._camera_cache:
+                cached_cameras, cached_at = self._camera_cache[controller_id]
+                logger.info(
+                    "Returning stale cached results due to discovery error",
+                    extra={
+                        "event_type": "protect_camera_discovery_fallback_cache",
+                        "controller_id": controller_id,
+                        "camera_count": len(cached_cameras)
+                    }
+                )
+                return CameraDiscoveryResult(
+                    cameras=cached_cameras,
+                    cached=True,
+                    cached_at=cached_at,
+                    warning=f"Discovery failed ({type(e).__name__}) - returning cached results"
+                )
+
+            # No cache available
+            return CameraDiscoveryResult(
+                cameras=[],
+                cached=False,
+                warning=f"Discovery failed: {type(e).__name__}"
+            )
+
+    async def _fetch_cameras_from_client(
+        self,
+        client: ProtectApiClient,
+        controller_id: str
+    ) -> List[DiscoveredCamera]:
+        """
+        Fetch and transform cameras from a connected Protect client (AC1, AC2, AC10).
+
+        Extracts camera properties and determines doorbell status from type/model.
+        Must complete within 10 seconds timeout (AC1/NFR1).
+
+        Args:
+            client: Connected ProtectApiClient instance
+            controller_id: Controller UUID for logging
+
+        Returns:
+            List of DiscoveredCamera instances
+        """
+        cameras: List[DiscoveredCamera] = []
+
+        # Use client.bootstrap which should already be populated from connect()
+        if not client.bootstrap or not client.bootstrap.cameras:
+            logger.warning(
+                "No cameras found in bootstrap data",
+                extra={
+                    "event_type": "protect_camera_fetch_empty",
+                    "controller_id": controller_id
+                }
+            )
+            return cameras
+
+        # Process each camera from bootstrap (AC2)
+        for camera in client.bootstrap.cameras.values():
+            try:
+                # Extract camera ID (AC2)
+                protect_camera_id = str(camera.id)
+
+                # Extract name (AC2)
+                name = camera.name or f"Camera {protect_camera_id[:8]}"
+
+                # Get model name (AC2)
+                model = str(camera.type) if camera.type else "Unknown"
+
+                # Determine if camera is online (AC2)
+                is_online = camera.is_connected if hasattr(camera, 'is_connected') else True
+
+                # Determine if doorbell (AC10)
+                is_doorbell = self._is_doorbell_camera(camera)
+
+                # Determine camera type based on doorbell status
+                camera_type = "doorbell" if is_doorbell else "camera"
+
+                # Extract smart detection capabilities (AC2)
+                smart_detection_capabilities = self._get_smart_detection_capabilities(camera)
+
+                discovered = DiscoveredCamera(
+                    protect_camera_id=protect_camera_id,
+                    name=name,
+                    type=camera_type,
+                    model=model,
+                    is_online=is_online,
+                    is_doorbell=is_doorbell,
+                    smart_detection_capabilities=smart_detection_capabilities,
+                    is_enabled_for_ai=False  # Will be set during cross-reference
+                )
+
+                cameras.append(discovered)
+
+                logger.debug(
+                    f"Discovered camera: {name}",
+                    extra={
+                        "event_type": "protect_camera_discovered",
+                        "controller_id": controller_id,
+                        "protect_camera_id": protect_camera_id,
+                        "model": model,
+                        "is_doorbell": is_doorbell,
+                        "smart_detection": smart_detection_capabilities
+                    }
+                )
+
+            except Exception as e:
+                # Handle variations in camera capabilities gracefully (1.6)
+                logger.warning(
+                    f"Error processing camera: {e}",
+                    extra={
+                        "event_type": "protect_camera_process_error",
+                        "controller_id": controller_id,
+                        "error_type": type(e).__name__
+                    }
+                )
+                continue
+
+        return cameras
+
+    def _is_doorbell_camera(self, camera: Any) -> bool:
+        """
+        Determine if a camera is a doorbell based on type and feature flags (AC10).
+
+        Checks multiple indicators:
+        - Camera type string contains "doorbell"
+        - Camera model string contains "doorbell"
+        - Feature flags indicate doorbell capability
+
+        Args:
+            camera: Camera object from uiprotect
+
+        Returns:
+            True if camera is identified as a doorbell
+        """
+        # Check camera type
+        camera_type = str(getattr(camera, 'type', '')).lower()
+        if 'doorbell' in camera_type:
+            return True
+
+        # Check model name
+        model = str(getattr(camera, 'model', '')).lower()
+        if 'doorbell' in model:
+            return True
+
+        # Check feature flags for doorbell capability
+        feature_flags = getattr(camera, 'feature_flags', None)
+        if feature_flags:
+            # Check for has_chime or is_doorbell flag
+            if getattr(feature_flags, 'has_chime', False):
+                return True
+            if getattr(feature_flags, 'is_doorbell', False):
+                return True
+
+        return False
+
+    def _get_smart_detection_capabilities(self, camera: Any) -> List[str]:
+        """
+        Extract smart detection capabilities from camera (AC2).
+
+        Looks for smart_detect_types or similar attributes that indicate
+        what types of objects the camera can detect (person, vehicle, package, etc.)
+
+        Args:
+            camera: Camera object from uiprotect
+
+        Returns:
+            List of detection type strings (e.g., ["person", "vehicle", "package"])
+        """
+        capabilities: List[str] = []
+
+        # Check for smart_detect_types attribute
+        smart_detect_types = getattr(camera, 'smart_detect_types', None)
+        if smart_detect_types:
+            if isinstance(smart_detect_types, (list, tuple)):
+                capabilities.extend([str(t).lower() for t in smart_detect_types])
+            elif hasattr(smart_detect_types, '__iter__'):
+                capabilities.extend([str(t).lower() for t in smart_detect_types])
+
+        # Check feature flags for smart detection
+        feature_flags = getattr(camera, 'feature_flags', None)
+        if feature_flags:
+            # Check individual detection capabilities
+            if getattr(feature_flags, 'can_detect_person', False) and 'person' not in capabilities:
+                capabilities.append('person')
+            if getattr(feature_flags, 'can_detect_vehicle', False) and 'vehicle' not in capabilities:
+                capabilities.append('vehicle')
+            if getattr(feature_flags, 'has_smart_detect', False) and not capabilities:
+                # Generic smart detection without specific types
+                capabilities.append('motion')
+
+        # Deduplicate while preserving order
+        seen = set()
+        unique_capabilities = []
+        for cap in capabilities:
+            if cap not in seen:
+                seen.add(cap)
+                unique_capabilities.append(cap)
+
+        return unique_capabilities
+
+    def clear_camera_cache(self, controller_id: Optional[str] = None) -> None:
+        """
+        Clear camera discovery cache.
+
+        Args:
+            controller_id: If provided, clear cache for specific controller.
+                          If None, clear all cache entries.
+        """
+        if controller_id:
+            if controller_id in self._camera_cache:
+                del self._camera_cache[controller_id]
+                logger.debug(
+                    "Cleared camera cache for controller",
+                    extra={
+                        "event_type": "protect_camera_cache_cleared",
+                        "controller_id": controller_id
+                    }
+                )
+        else:
+            self._camera_cache.clear()
+            logger.debug(
+                "Cleared all camera caches",
+                extra={"event_type": "protect_camera_cache_cleared_all"}
+            )
 
 
 # Singleton instance for the service

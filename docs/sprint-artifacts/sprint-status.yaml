@@ -109,7 +109,7 @@ development_status:
 
   # Epic P2-2: Camera Discovery & Configuration
   epic-p2-2: backlog
-  p2-2-1-implement-camera-auto-discovery-from-protect-controller: ready-for-dev
+  p2-2-1-implement-camera-auto-discovery-from-protect-controller: done
   p2-2-2-build-discovered-camera-list-ui-with-enable-disable: backlog
   p2-2-3-implement-per-camera-event-type-filtering: backlog
   p2-2-4-add-camera-status-sync-and-refresh-functionality: backlog

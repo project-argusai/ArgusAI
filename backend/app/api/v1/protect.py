@@ -11,6 +11,7 @@ Provides REST API for Protect controller configuration management:
 - POST /protect/controllers/{id}/test - Test connection with existing controller (Story P2-1.2)
 - POST /protect/controllers/{id}/connect - Connect to controller (Story P2-1.4)
 - POST /protect/controllers/{id}/disconnect - Disconnect from controller (Story P2-1.4)
+- GET /protect/controllers/{id}/cameras - Discover cameras from controller (Story P2-2.1)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -34,6 +35,9 @@ from app.schemas.protect import (
     ProtectTestResponse,
     ProtectConnectionStatusData,
     ProtectConnectionResponse,
+    ProtectDiscoveredCamera,
+    ProtectCameraDiscoveryMeta,
+    ProtectCamerasResponse,
     MetaResponse,
 )
 from app.services.protect_service import get_protect_service
@@ -624,3 +628,133 @@ async def disconnect_controller(controller_id: str, db: Session = Depends(get_db
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Disconnect failed: {type(e).__name__}"
         )
+
+
+# Story P2-2.1: Camera Discovery Endpoint
+
+@router.get("/controllers/{controller_id}/cameras", response_model=ProtectCamerasResponse)
+async def discover_cameras(
+    controller_id: str,
+    force_refresh: bool = False,
+    db: Session = Depends(get_db)
+):
+    """
+    Discover cameras from a connected UniFi Protect controller (Story P2-2.1).
+
+    Returns a list of all cameras available on the specified controller,
+    including metadata like type, model, online status, and smart detection
+    capabilities. Results are cached for 60 seconds.
+
+    Args:
+        controller_id: Controller UUID
+        force_refresh: If True, bypass cache and fetch fresh data
+        db: Database session (for cross-referencing enabled cameras)
+
+    Returns:
+        Camera list with { data: [...], meta } format where meta includes:
+        - count: Number of cameras discovered
+        - controller_id: The queried controller ID
+        - cached: Whether results came from cache
+        - cached_at: Cache timestamp (if cached)
+        - warning: Warning message if any issues occurred
+
+    Note:
+        - Results are NOT auto-saved to cameras table (AC3)
+        - is_enabled_for_ai is true for cameras already in the cameras table
+        - Cache TTL is 60 seconds (AC4)
+        - On discovery failure, cached results returned if available (AC8)
+
+    Raises:
+        404: Controller not found
+        503: Controller not connected and no cached results available
+    """
+    # Verify controller exists
+    controller = db.query(ProtectController).filter(ProtectController.id == controller_id).first()
+
+    if not controller:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Controller with id '{controller_id}' not found"
+        )
+
+    logger.info(
+        f"Camera discovery requested for controller {controller_id}",
+        extra={
+            "event_type": "protect_camera_discovery_api_start",
+            "controller_id": controller_id,
+            "force_refresh": force_refresh
+        }
+    )
+
+    protect_service = get_protect_service()
+
+    # Discover cameras using the service
+    result = await protect_service.discover_cameras(controller_id, force_refresh=force_refresh)
+
+    # Cross-reference with cameras table to set is_enabled_for_ai (AC7, Task 4)
+    enabled_camera_ids = set()
+    if result.cameras:
+        # Query cameras table for existing Protect cameras linked to this controller
+        existing_cameras = db.query(Camera.protect_camera_id).filter(
+            Camera.protect_controller_id == controller_id,
+            Camera.protect_camera_id.isnot(None)
+        ).all()
+        enabled_camera_ids = {c.protect_camera_id for c in existing_cameras}
+
+        logger.debug(
+            f"Found {len(enabled_camera_ids)} enabled cameras for controller {controller_id}",
+            extra={
+                "event_type": "protect_camera_discovery_cross_reference",
+                "controller_id": controller_id,
+                "enabled_count": len(enabled_camera_ids)
+            }
+        )
+
+    # Transform to response schema with is_enabled_for_ai set
+    response_cameras = []
+    for camera in result.cameras:
+        # Set is_enabled_for_ai based on cross-reference (AC7)
+        is_enabled = camera.protect_camera_id in enabled_camera_ids
+
+        response_cameras.append(ProtectDiscoveredCamera(
+            protect_camera_id=camera.protect_camera_id,
+            name=camera.name,
+            type=camera.type,
+            model=camera.model,
+            is_online=camera.is_online,
+            is_doorbell=camera.is_doorbell,
+            is_enabled_for_ai=is_enabled,
+            smart_detection_capabilities=camera.smart_detection_capabilities
+        ))
+
+    # Check if we should return 503 (no cameras and no cache due to not connected)
+    if not result.cameras and result.warning and "not connected" in result.warning.lower():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=result.warning
+        )
+
+    # Build response with meta (AC6)
+    response = ProtectCamerasResponse(
+        data=response_cameras,
+        meta=ProtectCameraDiscoveryMeta(
+            count=len(response_cameras),
+            controller_id=controller_id,
+            cached=result.cached,
+            cached_at=result.cached_at,
+            warning=result.warning
+        )
+    )
+
+    logger.info(
+        f"Camera discovery completed for controller {controller_id}",
+        extra={
+            "event_type": "protect_camera_discovery_api_complete",
+            "controller_id": controller_id,
+            "camera_count": len(response_cameras),
+            "cached": result.cached,
+            "has_warning": result.warning is not None
+        }
+    )
+
+    return response

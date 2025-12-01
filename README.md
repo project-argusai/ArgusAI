@@ -8,7 +8,8 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **UniFi Protect Integration** (Phase 2) - Native WebSocket connection for real-time events
   - Auto-discovery of cameras from Protect controller
   - Smart detection filtering (Person/Vehicle/Package/Animal)
-  - Doorbell ring notifications
+  - Doorbell ring event detection with distinct styling
+  - Multi-camera event correlation across cameras
   - Real-time camera status sync
 - **RTSP IP Cameras** - Connect to any RTSP-compatible camera
 - **USB/Webcam Support** - Use local cameras for testing or monitoring
@@ -26,7 +27,9 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 
 ### Event Management
 - **Persistent Storage**: Events stored with thumbnails and AI descriptions
-- **Search & Filter**: Find events by description, camera, date, or object type
+- **Search & Filter**: Find events by description, camera, date, object type, or source type
+- **Event Source Display**: Visual badges showing RTSP/USB/Protect source for each event
+- **Multi-Camera Correlation**: View related events captured across multiple cameras simultaneously
 - **Data Retention**: Configurable automatic cleanup policies
 - **Export**: Download events as CSV or JSON
 
@@ -179,6 +182,7 @@ live-object-ai-classifier/
 │   │       ├── protect_service.py     # UniFi Protect integration
 │   │       ├── ai_service.py          # Multi-provider AI
 │   │       ├── event_processor.py     # Event pipeline
+│   │       ├── correlation_service.py # Multi-camera correlation
 │   │       └── alert_engine.py        # Rule evaluation
 │   ├── alembic/             # Database migrations
 │   └── tests/               # 444 tests
@@ -272,7 +276,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## Roadmap
 
-### Completed (MVP + Phase 2.1-2.2)
+### Completed (MVP + Phase 2.1-2.4)
 - ✅ RTSP/USB camera support with motion detection
 - ✅ Multi-provider AI descriptions (OpenAI, Claude, Gemini)
 - ✅ Event storage with search and retention
@@ -281,10 +285,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - ✅ UniFi Protect controller integration
 - ✅ Camera auto-discovery and smart detection filtering
 - ✅ Real-time camera status sync
+- ✅ Event source type display (RTSP/USB/Protect badges)
+- ✅ Doorbell ring event detection and distinct styling
+- ✅ Multi-camera event correlation service
+- ✅ Correlated events display in dashboard (link indicators, related events section)
 
-### In Progress (Phase 2.3-2.6)
-- 🔄 Doorbell ring notifications
-- 🔄 Multi-camera event correlation
+### In Progress (Phase 2.5-2.6)
 - 🔄 xAI Grok provider integration
 
 ### Planned

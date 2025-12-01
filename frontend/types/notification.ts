@@ -72,10 +72,24 @@ export interface IWebSocketNewEvent {
 }
 
 /**
+ * WebSocket camera status change message payload (Story P2-2.4)
+ */
+export interface IWebSocketCameraStatusChange {
+  type: 'CAMERA_STATUS_CHANGED';
+  data: {
+    controller_id: string;
+    camera_id: string;
+    is_online: boolean;
+  };
+  timestamp: string;
+}
+
+/**
  * WebSocket message types
  */
 export type WebSocketMessage =
   | IWebSocketNotification
   | IWebSocketNewEvent
+  | IWebSocketCameraStatusChange
   | { type: 'ping' | 'pong' }
   | { type: 'ALERT_TRIGGERED'; data: { event: Record<string, unknown>; rule: Record<string, unknown> }; timestamp: string };

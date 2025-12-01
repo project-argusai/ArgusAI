@@ -14,6 +14,7 @@ Provides REST API for Protect controller configuration management:
 - GET /protect/controllers/{id}/cameras - Discover cameras from controller (Story P2-2.1)
 - POST /protect/controllers/{id}/cameras/{camera_id}/enable - Enable camera for AI (Story P2-2.2)
 - POST /protect/controllers/{id}/cameras/{camera_id}/disable - Disable camera for AI (Story P2-2.2)
+- PUT /protect/controllers/{id}/cameras/{camera_id}/filters - Update camera filters (Story P2-2.3)
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -45,6 +46,9 @@ from app.schemas.protect import (
     ProtectCameraEnableResponse,
     ProtectCameraDisableData,
     ProtectCameraDisableResponse,
+    ProtectCameraFiltersRequest,
+    ProtectCameraFiltersData,
+    ProtectCameraFiltersResponse,
     MetaResponse,
 )
 from app.services.protect_service import get_protect_service
@@ -698,30 +702,59 @@ async def discover_cameras(
     # Discover cameras using the service
     result = await protect_service.discover_cameras(controller_id, force_refresh=force_refresh)
 
-    # Cross-reference with cameras table to set is_enabled_for_ai (AC7, Task 4)
-    enabled_camera_ids = set()
+    # Cross-reference with cameras table to set is_enabled_for_ai, smart_detection_types, and is_new
+    # Story P2-2.3: Also include configured filters for enabled cameras
+    # Story P2-2.4 AC11: Mark cameras as "new" if they've never been in our database
+    import json as json_lib
+
+    enabled_cameras_map = {}  # protect_camera_id -> Camera record
+    known_camera_ids = set()  # All protect_camera_ids we've ever seen (enabled or not)
+
     if result.cameras:
         # Query cameras table for existing Protect cameras linked to this controller
-        existing_cameras = db.query(Camera.protect_camera_id).filter(
+        # First get enabled cameras for filters
+        existing_cameras = db.query(Camera).filter(
+            Camera.protect_controller_id == controller_id,
+            Camera.protect_camera_id.isnot(None),
+            Camera.is_enabled == True
+        ).all()
+        enabled_cameras_map = {c.protect_camera_id: c for c in existing_cameras}
+
+        # Query ALL cameras that have ever been added for this controller (AC11)
+        # This includes both enabled and disabled cameras to determine "is_new"
+        all_known_cameras = db.query(Camera.protect_camera_id).filter(
             Camera.protect_controller_id == controller_id,
             Camera.protect_camera_id.isnot(None)
         ).all()
-        enabled_camera_ids = {c.protect_camera_id for c in existing_cameras}
+        known_camera_ids = {c.protect_camera_id for c in all_known_cameras}
 
         logger.debug(
-            f"Found {len(enabled_camera_ids)} enabled cameras for controller {controller_id}",
+            f"Found {len(enabled_cameras_map)} enabled cameras, {len(known_camera_ids)} known cameras for controller {controller_id}",
             extra={
                 "event_type": "protect_camera_discovery_cross_reference",
                 "controller_id": controller_id,
-                "enabled_count": len(enabled_camera_ids)
+                "enabled_count": len(enabled_cameras_map),
+                "known_count": len(known_camera_ids)
             }
         )
 
-    # Transform to response schema with is_enabled_for_ai set
+    # Transform to response schema with is_enabled_for_ai, smart_detection_types, and is_new set
     response_cameras = []
     for camera in result.cameras:
         # Set is_enabled_for_ai based on cross-reference (AC7)
-        is_enabled = camera.protect_camera_id in enabled_camera_ids
+        camera_record = enabled_cameras_map.get(camera.protect_camera_id)
+        is_enabled = camera_record is not None
+
+        # Story P2-2.3: Include smart_detection_types for enabled cameras
+        smart_detection_types = None
+        if camera_record and camera_record.smart_detection_types:
+            try:
+                smart_detection_types = json_lib.loads(camera_record.smart_detection_types)
+            except (json_lib.JSONDecodeError, TypeError):
+                smart_detection_types = None
+
+        # Story P2-2.4 AC11: Mark as "new" if never been in database
+        is_new = camera.protect_camera_id not in known_camera_ids
 
         response_cameras.append(ProtectDiscoveredCamera(
             protect_camera_id=camera.protect_camera_id,
@@ -731,7 +764,9 @@ async def discover_cameras(
             is_online=camera.is_online,
             is_doorbell=camera.is_doorbell,
             is_enabled_for_ai=is_enabled,
-            smart_detection_capabilities=camera.smart_detection_capabilities
+            smart_detection_capabilities=camera.smart_detection_capabilities,
+            smart_detection_types=smart_detection_types,
+            is_new=is_new
         ))
 
     # Check if we should return 503 (no cameras and no cache due to not connected)
@@ -987,6 +1022,98 @@ async def disable_camera(
         data=ProtectCameraDisableData(
             protect_camera_id=camera_id,
             is_enabled_for_ai=False
+        ),
+        meta=create_meta()
+    )
+
+
+@router.put(
+    "/controllers/{controller_id}/cameras/{camera_id}/filters",
+    response_model=ProtectCameraFiltersResponse
+)
+async def update_camera_filters(
+    controller_id: str,
+    camera_id: str,
+    request: ProtectCameraFiltersRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Update camera event type filters (Story P2-2.3, AC6, AC7)
+
+    Updates the smart_detection_types for an enabled camera.
+    Settings persist across app restarts.
+
+    Args:
+        controller_id: The controller UUID
+        camera_id: The Protect camera ID (protect_camera_id)
+        request: The filter configuration
+        db: Database session
+
+    Returns:
+        ProtectCameraFiltersResponse with updated camera data and meta
+
+    Raises:
+        404: Controller or camera not found
+        422: Invalid filter types
+    """
+    logger.info(
+        f"Updating filters for camera {camera_id} on controller {controller_id}",
+        extra={
+            "event_type": "protect_camera_filters_update_start",
+            "controller_id": controller_id,
+            "protect_camera_id": camera_id,
+            "filters": request.smart_detection_types
+        }
+    )
+
+    # Verify controller exists
+    controller = db.query(ProtectController).filter(ProtectController.id == controller_id).first()
+    if not controller:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Controller with id '{controller_id}' not found"
+        )
+
+    # Find camera in database
+    camera = db.query(Camera).filter(
+        Camera.protect_controller_id == controller_id,
+        Camera.protect_camera_id == camera_id
+    ).first()
+
+    if not camera:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera with id '{camera_id}' not found or not enabled"
+        )
+
+    # Update smart_detection_types (AC6 - persist in database)
+    import json
+    camera.smart_detection_types = json.dumps(request.smart_detection_types)
+    db.commit()
+    db.refresh(camera)
+
+    logger.info(
+        f"Updated filters for camera {camera_id}",
+        extra={
+            "event_type": "protect_camera_filters_update_complete",
+            "controller_id": controller_id,
+            "protect_camera_id": camera_id,
+            "camera_id": camera.id,
+            "smart_detection_types": request.smart_detection_types
+        }
+    )
+
+    # Clear discovery cache to reflect updated filters
+    protect_service = get_protect_service()
+    protect_service.clear_camera_cache(controller_id)
+
+    # Build response (AC7)
+    return ProtectCameraFiltersResponse(
+        data=ProtectCameraFiltersData(
+            protect_camera_id=camera_id,
+            name=camera.name,
+            smart_detection_types=request.smart_detection_types,
+            is_enabled_for_ai=camera.is_enabled
         ),
         meta=create_meta()
     )

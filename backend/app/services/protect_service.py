@@ -36,6 +36,12 @@ BACKOFF_DELAYS = [1, 2, 4, 8, 16, 30]  # max 30 seconds
 # WebSocket message type for connection status (AC6)
 PROTECT_CONNECTION_STATUS = "PROTECT_CONNECTION_STATUS"
 
+# WebSocket message type for camera status changes (Story P2-2.4 AC6, AC7)
+CAMERA_STATUS_CHANGED = "CAMERA_STATUS_CHANGED"
+
+# Camera status change debounce in seconds (Story P2-2.4 AC12)
+CAMERA_STATUS_DEBOUNCE_SECONDS = 5
+
 # Camera discovery cache TTL in seconds (Story P2-2.1 AC4)
 CAMERA_CACHE_TTL_SECONDS = 60
 
@@ -102,6 +108,10 @@ class ProtectService:
         self._shutdown_event = asyncio.Event()
         # Camera discovery cache: controller_id -> (cameras, cached_at) (Story P2-2.1 AC4)
         self._camera_cache: Dict[str, Tuple[List[DiscoveredCamera], datetime]] = {}
+        # Camera status debounce tracking: camera_id -> last_broadcast_time (Story P2-2.4 AC12)
+        self._camera_status_broadcast_times: Dict[str, datetime] = {}
+        # Track last known camera status to detect changes: camera_id -> is_online (Story P2-2.4)
+        self._last_camera_status: Dict[str, bool] = {}
 
     async def test_connection(
         self,
@@ -577,11 +587,12 @@ class ProtectService:
                     )
                     break
 
-                # Subscribe to WebSocket events
+                # Subscribe to WebSocket events (Story P2-2.4: camera status changes)
                 def event_callback(msg):
-                    # Event handling will be implemented in Story P2-3.1
-                    # For now, just acknowledge receipt
-                    pass
+                    # Handle camera status changes (Story P2-2.4 AC6)
+                    asyncio.create_task(
+                        self._handle_websocket_event(controller_id, msg)
+                    )
 
                 unsub = client.subscribe_websocket(event_callback)
 
@@ -884,6 +895,172 @@ class ProtectService:
 
         websocket_manager = get_websocket_manager()
         await websocket_manager.broadcast(message)
+
+    # =========================================================================
+    # Camera Status Event Handling (Story P2-2.4)
+    # =========================================================================
+
+    async def _handle_websocket_event(
+        self,
+        controller_id: str,
+        msg: Any
+    ) -> None:
+        """
+        Handle WebSocket events from uiprotect (Story P2-2.4 AC6).
+
+        Processes camera status change events and broadcasts to frontend
+        with debouncing to prevent UI thrashing.
+
+        Args:
+            controller_id: Controller UUID
+            msg: WebSocket message from uiprotect
+        """
+        try:
+            # Extract event type from message
+            # uiprotect WSSubscriptionMessage has action and new_obj attributes
+            action = getattr(msg, 'action', None)
+            new_obj = getattr(msg, 'new_obj', None)
+
+            if not new_obj:
+                return
+
+            # Check if this is a camera update event
+            # uiprotect model types: Camera, Doorbell, etc.
+            model_type = type(new_obj).__name__
+            if model_type not in ('Camera', 'Doorbell'):
+                return
+
+            # Extract camera ID
+            camera_id = str(getattr(new_obj, 'id', ''))
+            if not camera_id:
+                return
+
+            # Check if status changed (is_connected attribute indicates online status)
+            is_online = getattr(new_obj, 'is_connected', None)
+            if is_online is None:
+                # Try alternative attribute names
+                is_online = getattr(new_obj, 'is_online', None)
+                if is_online is None:
+                    return
+
+            # Check if status actually changed from last known state
+            last_status = self._last_camera_status.get(camera_id)
+            if last_status == is_online:
+                # No change detected
+                return
+
+            # Status changed - check debounce (AC12)
+            if not self._should_broadcast_camera_status(camera_id):
+                logger.debug(
+                    "Camera status change debounced",
+                    extra={
+                        "event_type": "protect_camera_status_debounced",
+                        "controller_id": controller_id,
+                        "camera_id": camera_id,
+                        "is_online": is_online
+                    }
+                )
+                return
+
+            # Update last known status
+            self._last_camera_status[camera_id] = is_online
+
+            # Broadcast status change to frontend (AC6, AC7)
+            await self._broadcast_camera_status_change(
+                controller_id=controller_id,
+                camera_id=camera_id,
+                is_online=is_online
+            )
+
+            # Update debounce tracking
+            self._camera_status_broadcast_times[camera_id] = datetime.now(timezone.utc)
+
+            logger.info(
+                f"Camera status changed: {'online' if is_online else 'offline'}",
+                extra={
+                    "event_type": "protect_camera_status_changed",
+                    "controller_id": controller_id,
+                    "camera_id": camera_id,
+                    "is_online": is_online
+                }
+            )
+
+        except Exception as e:
+            logger.warning(
+                f"Error handling WebSocket event: {e}",
+                extra={
+                    "event_type": "protect_websocket_event_error",
+                    "controller_id": controller_id,
+                    "error_type": type(e).__name__
+                }
+            )
+
+    def _should_broadcast_camera_status(self, camera_id: str) -> bool:
+        """
+        Check if camera status change should be broadcast based on debounce (Story P2-2.4 AC12).
+
+        Prevents broadcasting more than once per CAMERA_STATUS_DEBOUNCE_SECONDS (5 seconds)
+        per camera to avoid UI thrashing from rapid status changes.
+
+        Args:
+            camera_id: Camera ID to check
+
+        Returns:
+            True if broadcast should proceed, False if debounced
+        """
+        last_broadcast = self._camera_status_broadcast_times.get(camera_id)
+        if last_broadcast is None:
+            return True
+
+        elapsed = (datetime.now(timezone.utc) - last_broadcast).total_seconds()
+        return elapsed >= CAMERA_STATUS_DEBOUNCE_SECONDS
+
+    async def _broadcast_camera_status_change(
+        self,
+        controller_id: str,
+        camera_id: str,
+        is_online: bool
+    ) -> None:
+        """
+        Broadcast camera status change to frontend via WebSocket (Story P2-2.4 AC6, AC7).
+
+        Message format (AC7):
+        {
+            "type": "CAMERA_STATUS_CHANGED",
+            "data": {
+                "controller_id": "uuid",
+                "camera_id": "protect_camera_id",
+                "is_online": true/false
+            },
+            "timestamp": "ISO8601"  // Added by WebSocketManager
+        }
+
+        Args:
+            controller_id: Controller UUID
+            camera_id: Protect camera ID
+            is_online: New online status
+        """
+        message = {
+            "type": CAMERA_STATUS_CHANGED,
+            "data": {
+                "controller_id": controller_id,
+                "camera_id": camera_id,
+                "is_online": is_online
+            }
+        }
+
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.broadcast(message)
+
+        logger.debug(
+            "Broadcast camera status change",
+            extra={
+                "event_type": "protect_camera_status_broadcast",
+                "controller_id": controller_id,
+                "camera_id": camera_id,
+                "is_online": is_online
+            }
+        )
 
     def get_connection_status(self, controller_id: str) -> Dict[str, Any]:
         """
@@ -1267,6 +1444,85 @@ class ProtectService:
                 "Cleared all camera caches",
                 extra={"event_type": "protect_camera_cache_cleared_all"}
             )
+
+    # =========================================================================
+    # Camera Snapshot Methods
+    # =========================================================================
+
+    async def get_camera_snapshot(
+        self,
+        controller_id: str,
+        protect_camera_id: str,
+        width: int = 640,
+        height: Optional[int] = None
+    ) -> Optional[bytes]:
+        """
+        Get a snapshot image from a Protect camera.
+
+        Args:
+            controller_id: UUID of the controller
+            protect_camera_id: Native Protect camera ID
+            width: Desired image width (default 640)
+            height: Desired image height (None = auto based on aspect ratio)
+
+        Returns:
+            JPEG image bytes, or None if snapshot unavailable
+
+        Raises:
+            ValueError: If controller is not connected
+        """
+        client = self._connections.get(controller_id)
+        if not client:
+            logger.warning(
+                "Cannot get snapshot - controller not connected",
+                extra={
+                    "event_type": "protect_snapshot_not_connected",
+                    "controller_id": controller_id,
+                    "camera_id": protect_camera_id
+                }
+            )
+            raise ValueError(f"Controller {controller_id} is not connected")
+
+        try:
+            snapshot_bytes = await client.get_camera_snapshot(
+                camera_id=protect_camera_id,
+                width=width,
+                height=height
+            )
+
+            if snapshot_bytes:
+                logger.debug(
+                    "Got camera snapshot",
+                    extra={
+                        "event_type": "protect_snapshot_success",
+                        "controller_id": controller_id,
+                        "camera_id": protect_camera_id,
+                        "size_bytes": len(snapshot_bytes)
+                    }
+                )
+            else:
+                logger.warning(
+                    "Snapshot returned empty",
+                    extra={
+                        "event_type": "protect_snapshot_empty",
+                        "controller_id": controller_id,
+                        "camera_id": protect_camera_id
+                    }
+                )
+
+            return snapshot_bytes
+
+        except Exception as e:
+            logger.error(
+                f"Failed to get camera snapshot: {e}",
+                extra={
+                    "event_type": "protect_snapshot_error",
+                    "controller_id": controller_id,
+                    "camera_id": protect_camera_id,
+                    "error_type": type(e).__name__
+                }
+            )
+            return None
 
 
 # Singleton instance for the service

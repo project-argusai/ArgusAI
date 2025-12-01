@@ -1715,3 +1715,491 @@ class TestCameraEnableDisableSchemas:
 
         assert response.data.is_enabled_for_ai == False
         assert response.meta is not None
+
+
+# Story P2-2.3: Camera Filter Tests
+
+class TestCameraFiltersSchemas:
+    """Test camera filter schemas (Story P2-2.3)"""
+
+    def test_filters_request_valid_types(self):
+        """Test valid filter types are accepted"""
+        from app.schemas.protect import ProtectCameraFiltersRequest
+
+        request = ProtectCameraFiltersRequest(
+            smart_detection_types=["person", "vehicle", "package"]
+        )
+        assert request.smart_detection_types == ["person", "vehicle", "package"]
+
+    def test_filters_request_all_motion(self):
+        """Test 'motion' filter type is accepted for all motion mode"""
+        from app.schemas.protect import ProtectCameraFiltersRequest
+
+        request = ProtectCameraFiltersRequest(
+            smart_detection_types=["motion"]
+        )
+        assert request.smart_detection_types == ["motion"]
+
+    def test_filters_request_animal_type(self):
+        """Test 'animal' filter type is accepted"""
+        from app.schemas.protect import ProtectCameraFiltersRequest
+
+        request = ProtectCameraFiltersRequest(
+            smart_detection_types=["person", "animal"]
+        )
+        assert request.smart_detection_types == ["person", "animal"]
+
+    def test_filters_request_invalid_type_rejected(self):
+        """Test invalid filter types are rejected (AC7)"""
+        from app.schemas.protect import ProtectCameraFiltersRequest
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError) as exc_info:
+            ProtectCameraFiltersRequest(
+                smart_detection_types=["person", "invalid_type"]
+            )
+
+        error = exc_info.value
+        assert "invalid_type" in str(error)
+
+    def test_filters_response_schema(self):
+        """Test ProtectCameraFiltersResponse schema"""
+        from app.schemas.protect import ProtectCameraFiltersResponse, ProtectCameraFiltersData, MetaResponse
+
+        response = ProtectCameraFiltersResponse(
+            data=ProtectCameraFiltersData(
+                protect_camera_id="protect-1",
+                name="Test Camera",
+                smart_detection_types=["person", "vehicle"],
+                is_enabled_for_ai=True
+            ),
+            meta=MetaResponse()
+        )
+
+        assert response.data.protect_camera_id == "protect-1"
+        assert response.data.smart_detection_types == ["person", "vehicle"]
+        assert response.data.is_enabled_for_ai == True
+        assert response.meta is not None
+
+
+class TestCameraFiltersEndpoint:
+    """Test camera filters PUT endpoint (Story P2-2.3)"""
+
+    def test_update_filters_controller_not_found(self):
+        """Test 404 when controller doesn't exist"""
+        response = client.put(
+            "/api/v1/protect/controllers/nonexistent-id/cameras/cam-1/filters",
+            json={"smart_detection_types": ["person", "vehicle"]}
+        )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_update_filters_camera_not_enabled(self):
+        """Test 404 when camera is not enabled for AI (AC6)"""
+        db = TestingSessionLocal()
+        try:
+            # Create controller
+            controller = ProtectController(
+                name="Test Controller Filters",
+                host="192.168.1.100",
+                port=443,
+                username="admin",
+                password="test123",
+                verify_ssl=False
+            )
+            db.add(controller)
+            db.commit()
+            controller_id = str(controller.id)
+
+            # Try to update filters for non-existent camera
+            response = client.put(
+                f"/api/v1/protect/controllers/{controller_id}/cameras/nonexistent-cam/filters",
+                json={"smart_detection_types": ["person", "vehicle"]}
+            )
+            assert response.status_code == 404
+            assert "not found" in response.json()["detail"].lower()
+        finally:
+            db.close()
+
+    def test_update_filters_validation_error(self):
+        """Test validation error for invalid filter types (AC7)"""
+        db = TestingSessionLocal()
+        try:
+            # Create controller
+            controller = ProtectController(
+                name="Test Controller Validation",
+                host="192.168.1.101",
+                port=443,
+                username="admin",
+                password="test123",
+                verify_ssl=False
+            )
+            db.add(controller)
+            db.commit()
+            controller_id = str(controller.id)
+
+            response = client.put(
+                f"/api/v1/protect/controllers/{controller_id}/cameras/cam-1/filters",
+                json={"smart_detection_types": ["invalid_type"]}
+            )
+            assert response.status_code == 422  # Validation error
+        finally:
+            db.close()
+
+
+class TestDiscoveredCameraSchemaWithFilters:
+    """Test ProtectDiscoveredCamera schema includes filters (Story P2-2.3)"""
+
+    def test_schema_includes_smart_detection_types(self):
+        """Test smart_detection_types field exists in response schema"""
+        from app.schemas.protect import ProtectDiscoveredCamera
+
+        camera = ProtectDiscoveredCamera(
+            protect_camera_id="protect-1",
+            name="Test Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            is_enabled_for_ai=True,
+            smart_detection_capabilities=["person", "vehicle"],
+            smart_detection_types=["person", "vehicle", "package"]
+        )
+
+        assert camera.smart_detection_types == ["person", "vehicle", "package"]
+
+    def test_schema_smart_detection_types_optional(self):
+        """Test smart_detection_types is optional (null for disabled cameras)"""
+        from app.schemas.protect import ProtectDiscoveredCamera
+
+        camera = ProtectDiscoveredCamera(
+            protect_camera_id="protect-1",
+            name="Test Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            is_enabled_for_ai=False,
+            smart_detection_capabilities=["person", "vehicle"],
+            smart_detection_types=None
+        )
+
+        assert camera.smart_detection_types is None
+
+
+# =============================================================================
+# Story P2-2.4: Camera Status Sync and Refresh Functionality Tests
+# =============================================================================
+
+class TestCameraStatusDebounce:
+    """Test suite for camera status debounce logic (Story P2-2.4, AC12)"""
+
+    def test_debounce_constant_defined(self):
+        """AC12: Camera status debounce constant is 5 seconds"""
+        from app.services.protect_service import CAMERA_STATUS_DEBOUNCE_SECONDS
+
+        assert CAMERA_STATUS_DEBOUNCE_SECONDS == 5
+
+    def test_camera_status_changed_constant_defined(self):
+        """AC7: CAMERA_STATUS_CHANGED message type is defined"""
+        from app.services.protect_service import CAMERA_STATUS_CHANGED
+
+        assert CAMERA_STATUS_CHANGED == "CAMERA_STATUS_CHANGED"
+
+    def test_should_broadcast_first_time(self):
+        """AC12: First status broadcast should always be allowed"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        # First broadcast should be allowed
+        assert service._should_broadcast_camera_status("camera-1") == True
+
+    def test_should_broadcast_after_debounce_period(self):
+        """AC12: Broadcast allowed after 5 second debounce"""
+        from app.services.protect_service import ProtectService, CAMERA_STATUS_DEBOUNCE_SECONDS
+        from datetime import datetime, timezone, timedelta
+
+        service = ProtectService()
+        camera_id = "camera-debounce-test"
+
+        # Simulate a broadcast that happened 6 seconds ago (past debounce)
+        service._camera_status_broadcast_times[camera_id] = (
+            datetime.now(timezone.utc) - timedelta(seconds=CAMERA_STATUS_DEBOUNCE_SECONDS + 1)
+        )
+
+        # Should be allowed
+        assert service._should_broadcast_camera_status(camera_id) == True
+
+    def test_should_not_broadcast_during_debounce(self):
+        """AC12: Broadcast blocked within 5 second debounce window"""
+        from app.services.protect_service import ProtectService, CAMERA_STATUS_DEBOUNCE_SECONDS
+        from datetime import datetime, timezone, timedelta
+
+        service = ProtectService()
+        camera_id = "camera-debounce-block"
+
+        # Simulate a broadcast that happened 2 seconds ago (within debounce)
+        service._camera_status_broadcast_times[camera_id] = (
+            datetime.now(timezone.utc) - timedelta(seconds=2)
+        )
+
+        # Should be blocked
+        assert service._should_broadcast_camera_status(camera_id) == False
+
+    def test_debounce_exactly_at_boundary(self):
+        """AC12: Broadcast allowed exactly at 5 second mark"""
+        from app.services.protect_service import ProtectService, CAMERA_STATUS_DEBOUNCE_SECONDS
+        from datetime import datetime, timezone, timedelta
+
+        service = ProtectService()
+        camera_id = "camera-boundary"
+
+        # Simulate a broadcast that happened exactly at the boundary
+        service._camera_status_broadcast_times[camera_id] = (
+            datetime.now(timezone.utc) - timedelta(seconds=CAMERA_STATUS_DEBOUNCE_SECONDS)
+        )
+
+        # Should be allowed (>= check)
+        assert service._should_broadcast_camera_status(camera_id) == True
+
+    def test_multiple_cameras_independent_debounce(self):
+        """AC12: Each camera has independent debounce tracking"""
+        from app.services.protect_service import ProtectService
+        from datetime import datetime, timezone, timedelta
+
+        service = ProtectService()
+
+        # Camera 1 was broadcast 2 seconds ago (debounced)
+        service._camera_status_broadcast_times["camera-1"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=2)
+        )
+
+        # Camera 2 has never broadcast
+        # Camera 3 was broadcast 10 seconds ago
+
+        service._camera_status_broadcast_times["camera-3"] = (
+            datetime.now(timezone.utc) - timedelta(seconds=10)
+        )
+
+        assert service._should_broadcast_camera_status("camera-1") == False
+        assert service._should_broadcast_camera_status("camera-2") == True  # Never broadcast
+        assert service._should_broadcast_camera_status("camera-3") == True  # Past debounce
+
+
+class TestCameraStatusChangedMessage:
+    """Test suite for CAMERA_STATUS_CHANGED WebSocket message (Story P2-2.4, AC6, AC7)"""
+
+    @patch('app.services.protect_service.get_websocket_manager')
+    @pytest.mark.asyncio
+    async def test_broadcast_camera_status_change_format(self, mock_get_ws_manager):
+        """AC7: Verify correct message format for camera status change"""
+        from app.services.protect_service import ProtectService, CAMERA_STATUS_CHANGED
+
+        mock_ws_manager = MagicMock()
+        mock_ws_manager.broadcast = AsyncMock(return_value=1)
+        mock_get_ws_manager.return_value = mock_ws_manager
+
+        service = ProtectService()
+        await service._broadcast_camera_status_change(
+            controller_id="ctrl-123",
+            camera_id="cam-456",
+            is_online=True
+        )
+
+        mock_ws_manager.broadcast.assert_called_once()
+        call_args = mock_ws_manager.broadcast.call_args[0][0]
+
+        # Verify message format (AC7)
+        assert call_args["type"] == CAMERA_STATUS_CHANGED
+        assert "data" in call_args
+        assert call_args["data"]["controller_id"] == "ctrl-123"
+        assert call_args["data"]["camera_id"] == "cam-456"
+        assert call_args["data"]["is_online"] == True
+
+    @patch('app.services.protect_service.get_websocket_manager')
+    @pytest.mark.asyncio
+    async def test_broadcast_offline_status(self, mock_get_ws_manager):
+        """AC7: Verify offline status broadcasts correctly"""
+        from app.services.protect_service import ProtectService
+
+        mock_ws_manager = MagicMock()
+        mock_ws_manager.broadcast = AsyncMock(return_value=1)
+        mock_get_ws_manager.return_value = mock_ws_manager
+
+        service = ProtectService()
+        await service._broadcast_camera_status_change(
+            controller_id="ctrl-123",
+            camera_id="cam-789",
+            is_online=False
+        )
+
+        call_args = mock_ws_manager.broadcast.call_args[0][0]
+        assert call_args["data"]["is_online"] == False
+
+
+class TestHandleWebSocketEvent:
+    """Test suite for WebSocket event handling (Story P2-2.4, AC6)"""
+
+    @patch('app.services.protect_service.get_websocket_manager')
+    @pytest.mark.asyncio
+    async def test_handle_camera_status_change(self, mock_get_ws_manager):
+        """AC6: Camera status change event triggers broadcast"""
+        from app.services.protect_service import ProtectService
+
+        mock_ws_manager = MagicMock()
+        mock_ws_manager.broadcast = AsyncMock(return_value=1)
+        mock_get_ws_manager.return_value = mock_ws_manager
+
+        service = ProtectService()
+
+        # Create mock WebSocket message
+        mock_msg = MagicMock()
+        mock_msg.action = "update"
+        mock_msg.new_obj = MagicMock()
+        mock_msg.new_obj.__class__.__name__ = "Camera"
+        type(mock_msg.new_obj).__name__ = "Camera"
+        mock_msg.new_obj.id = "protect-cam-123"
+        mock_msg.new_obj.is_connected = True
+
+        # Process the event
+        await service._handle_websocket_event("ctrl-1", mock_msg)
+
+        # Verify broadcast was called
+        mock_ws_manager.broadcast.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_event_non_camera_ignored(self):
+        """AC6: Non-camera events are ignored"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+
+        # Create mock WebSocket message for non-camera object
+        mock_msg = MagicMock()
+        mock_msg.action = "update"
+        mock_msg.new_obj = MagicMock()
+        type(mock_msg.new_obj).__name__ = "Light"  # Not Camera or Doorbell
+        mock_msg.new_obj.id = "light-123"
+
+        # Process should not raise error and should return early
+        await service._handle_websocket_event("ctrl-1", mock_msg)
+
+    @pytest.mark.asyncio
+    async def test_handle_event_no_status_change_ignored(self):
+        """AC6: Events without status change are not broadcast"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+        camera_id = "cam-no-change"
+
+        # Set up last known status
+        service._last_camera_status[camera_id] = True
+
+        # Create mock event with same status
+        mock_msg = MagicMock()
+        mock_msg.action = "update"
+        mock_msg.new_obj = MagicMock()
+        type(mock_msg.new_obj).__name__ = "Camera"
+        mock_msg.new_obj.id = camera_id
+        mock_msg.new_obj.is_connected = True  # Same as last known
+
+        # Patch broadcast to track calls
+        with patch.object(service, '_broadcast_camera_status_change', new_callable=AsyncMock) as mock_broadcast:
+            await service._handle_websocket_event("ctrl-1", mock_msg)
+
+            # Should not broadcast since status didn't change
+            mock_broadcast.assert_not_called()
+
+
+class TestDiscoveredCameraNewBadge:
+    """Test suite for newly discovered camera 'New' badge (Story P2-2.4, AC11)"""
+
+    def test_schema_includes_is_new_field(self):
+        """AC11: ProtectDiscoveredCamera schema includes is_new field"""
+        from app.schemas.protect import ProtectDiscoveredCamera
+
+        camera = ProtectDiscoveredCamera(
+            protect_camera_id="protect-1",
+            name="New Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            is_enabled_for_ai=False,
+            smart_detection_capabilities=["person"],
+            is_new=True
+        )
+
+        assert camera.is_new == True
+
+    def test_schema_is_new_defaults_to_false(self):
+        """AC11: is_new field defaults to False"""
+        from app.schemas.protect import ProtectDiscoveredCamera
+
+        camera = ProtectDiscoveredCamera(
+            protect_camera_id="protect-1",
+            name="Existing Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            is_enabled_for_ai=False,
+            smart_detection_capabilities=["person"]
+        )
+
+        assert camera.is_new == False
+
+
+class TestCameraStatusServiceDictionaries:
+    """Test suite for camera status tracking dictionaries (Story P2-2.4)"""
+
+    def test_camera_status_broadcast_times_initialized(self):
+        """Service initializes camera status broadcast times dictionary"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+        assert hasattr(service, '_camera_status_broadcast_times')
+        assert isinstance(service._camera_status_broadcast_times, dict)
+
+    def test_last_camera_status_initialized(self):
+        """Service initializes last camera status dictionary"""
+        from app.services.protect_service import ProtectService
+
+        service = ProtectService()
+        assert hasattr(service, '_last_camera_status')
+        assert isinstance(service._last_camera_status, dict)
+
+
+class TestForceRefreshParameter:
+    """Test suite for force_refresh parameter (Story P2-2.4, AC2, AC3)"""
+
+    @patch('app.services.protect_service.SessionLocal', TestingSessionLocal)
+    @pytest.mark.asyncio
+    async def test_discover_cameras_force_refresh_clears_cache(self):
+        """AC3: force_refresh=True should bypass cache"""
+        from app.services.protect_service import ProtectService, DiscoveredCamera
+        from datetime import datetime, timezone
+
+        service = ProtectService()
+        controller_id = "test-controller"
+
+        # Pre-populate cache
+        cached_cameras = [DiscoveredCamera(
+            protect_camera_id="cached-cam",
+            name="Cached Camera",
+            type="camera",
+            model="G4 Pro",
+            is_online=True,
+            is_doorbell=False,
+            smart_detection_capabilities=["person"]
+        )]
+        service._camera_cache[controller_id] = (cached_cameras, datetime.now(timezone.utc))
+
+        # Call discover_cameras with force_refresh=True (not connected, but should still clear cache)
+        result = await service.discover_cameras(controller_id, force_refresh=True)
+
+        # Cache should be cleared even if not connected
+        # Result will indicate not connected since we didn't set up a real connection
+        assert result.warning is not None
+        assert "not connected" in result.warning.lower()

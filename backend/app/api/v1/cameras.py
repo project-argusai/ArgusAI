@@ -34,6 +34,7 @@ from app.services.camera_service import CameraService
 from app.services.motion_detection_service import motion_detection_service
 from app.services.detection_zone_manager import detection_zone_manager
 from app.services.event_processor import get_event_processor, ProcessingEvent
+from app.services.protect_service import get_protect_service
 
 logger = logging.getLogger(__name__)
 
@@ -1252,12 +1253,15 @@ def get_camera_schedule_status(
 # ============================================================================
 
 @router.get("/{camera_id}/preview")
-def get_camera_preview(
+async def get_camera_preview(
     camera_id: str,
     db: Session = Depends(get_db)
 ):
     """
     Get current camera preview frame as base64-encoded JPEG
+
+    Supports both RTSP/USB cameras (via camera_service) and Protect cameras
+    (via protect_service snapshot API).
 
     Args:
         camera_id: UUID of camera
@@ -1291,48 +1295,13 @@ def get_camera_preview(
                 detail=f"Camera {camera_id} is disabled"
             )
 
-        # Get camera status from service
-        camera_status = camera_service.get_camera_status(camera_id)
-
-        if not camera_status or camera_status.get('status') != 'connected':
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Camera {camera_id} is not currently running"
-            )
-
-        # Get latest frame from camera service
-        latest_frame = camera_service.get_latest_frame(camera_id)
-
-        if latest_frame is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No frame available from camera"
-            )
-
-        # Resize to preview size (640x480 or maintain aspect ratio)
-        height, width = latest_frame.shape[:2]
-        preview_width = 640
-        aspect_ratio = width / height
-        preview_height = int(preview_width / aspect_ratio)
-
-        preview_frame = cv2.resize(latest_frame, (preview_width, preview_height))
-
-        # Encode as JPEG
-        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
-        ret, buffer = cv2.imencode('.jpg', preview_frame, encode_param)
-
-        if not ret:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to encode preview image"
-            )
-
-        # Convert to base64
-        preview_b64 = base64.b64encode(buffer).decode('utf-8')
-
-        return {
-            "thumbnail_base64": preview_b64
-        }
+        # Route to appropriate service based on source_type
+        if camera.source_type == 'protect':
+            # Protect camera - use protect_service snapshot
+            return await _get_protect_camera_preview(camera)
+        else:
+            # RTSP/USB camera - use camera_service
+            return _get_rtsp_camera_preview(camera_id)
 
     except HTTPException:
         raise
@@ -1342,6 +1311,97 @@ def get_camera_preview(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get camera preview: {str(e)}"
         )
+
+
+async def _get_protect_camera_preview(camera: Camera) -> dict:
+    """Get preview for a Protect camera via snapshot API."""
+    if not camera.protect_controller_id or not camera.protect_camera_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Camera is missing Protect controller or camera ID"
+        )
+
+    protect_service = get_protect_service()
+
+    # Check if controller is connected
+    conn_status = protect_service.get_connection_status(str(camera.protect_controller_id))
+    if not conn_status.get('connected'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Protect controller is not connected"
+        )
+
+    try:
+        snapshot_bytes = await protect_service.get_camera_snapshot(
+            controller_id=str(camera.protect_controller_id),
+            protect_camera_id=camera.protect_camera_id,
+            width=640
+        )
+
+        if not snapshot_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No snapshot available from camera"
+            )
+
+        # Convert to base64
+        preview_b64 = base64.b64encode(snapshot_bytes).decode('utf-8')
+
+        return {
+            "thumbnail_base64": preview_b64
+        }
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+def _get_rtsp_camera_preview(camera_id: str) -> dict:
+    """Get preview for an RTSP/USB camera via camera_service."""
+    # Get camera status from service
+    cam_status = camera_service.get_camera_status(camera_id)
+
+    if not cam_status or cam_status.get('status') != 'connected':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Camera {camera_id} is not currently running"
+        )
+
+    # Get latest frame from camera service
+    latest_frame = camera_service.get_latest_frame(camera_id)
+
+    if latest_frame is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No frame available from camera"
+        )
+
+    # Resize to preview size (640x480 or maintain aspect ratio)
+    height, width = latest_frame.shape[:2]
+    preview_width = 640
+    aspect_ratio = width / height
+    preview_height = int(preview_width / aspect_ratio)
+
+    preview_frame = cv2.resize(latest_frame, (preview_width, preview_height))
+
+    # Encode as JPEG
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+    ret, buffer = cv2.imencode('.jpg', preview_frame, encode_param)
+
+    if not ret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to encode preview image"
+        )
+
+    # Convert to base64
+    preview_b64 = base64.b64encode(buffer).decode('utf-8')
+
+    return {
+        "thumbnail_base64": preview_b64
+    }
 
 
 @router.post("/{camera_id}/analyze")

@@ -209,7 +209,15 @@ class ProtectDiscoveredCamera(BaseModel):
     is_enabled_for_ai: bool = Field(default=False, description="Whether camera is enabled for AI processing")
     smart_detection_capabilities: List[str] = Field(
         default_factory=list,
-        description="Smart detection types (e.g., ['person', 'vehicle', 'package'])"
+        description="Smart detection types the camera supports (e.g., ['person', 'vehicle', 'package'])"
+    )
+    smart_detection_types: Optional[List[str]] = Field(
+        default=None,
+        description="Configured filter types for enabled cameras (Story P2-2.3)"
+    )
+    is_new: bool = Field(
+        default=False,
+        description="Whether this camera was newly discovered (not in database) (Story P2-2.4 AC11)"
     )
 
     model_config = {
@@ -223,7 +231,21 @@ class ProtectDiscoveredCamera(BaseModel):
                     "is_online": True,
                     "is_doorbell": True,
                     "is_enabled_for_ai": False,
-                    "smart_detection_capabilities": ["person", "vehicle", "package"]
+                    "smart_detection_capabilities": ["person", "vehicle", "package"],
+                    "smart_detection_types": None,
+                    "is_new": True
+                },
+                {
+                    "protect_camera_id": "xyz789",
+                    "name": "Driveway",
+                    "type": "camera",
+                    "model": "G4 Pro",
+                    "is_online": True,
+                    "is_doorbell": False,
+                    "is_enabled_for_ai": True,
+                    "smart_detection_capabilities": ["person", "vehicle"],
+                    "smart_detection_types": ["person", "vehicle", "package"],
+                    "is_new": False
                 }
             ]
         }
@@ -339,4 +361,60 @@ class ProtectCameraDisableResponse(BaseModel):
     """Response for camera disable endpoint (AC7)"""
 
     data: ProtectCameraDisableData
+    meta: MetaResponse
+
+
+# Story P2-2.3: Camera Filter Schemas
+
+# Allowed filter values for validation
+ALLOWED_FILTER_TYPES = {"person", "vehicle", "package", "animal", "motion"}
+
+
+class ProtectCameraFiltersRequest(BaseModel):
+    """Request body for updating camera filters (Story P2-2.3, AC7)"""
+
+    smart_detection_types: List[str] = Field(
+        ...,
+        description="Smart detection types to filter. Use ['motion'] for all motion mode."
+    )
+
+    @field_validator('smart_detection_types')
+    @classmethod
+    def validate_filter_types(cls, v: List[str]) -> List[str]:
+        """Validate that all filter types are in the allowed list (AC7)"""
+        invalid_types = set(v) - ALLOWED_FILTER_TYPES
+        if invalid_types:
+            raise ValueError(
+                f"Invalid filter types: {invalid_types}. "
+                f"Allowed types: {ALLOWED_FILTER_TYPES}"
+            )
+        return v
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "smart_detection_types": ["person", "vehicle", "package"]
+                },
+                {
+                    "smart_detection_types": ["motion"]
+                }
+            ]
+        }
+    }
+
+
+class ProtectCameraFiltersData(BaseModel):
+    """Data returned when camera filters are updated (Story P2-2.3, AC7)"""
+
+    protect_camera_id: str = Field(..., description="Native Protect camera ID")
+    name: str = Field(..., description="Camera name")
+    smart_detection_types: List[str] = Field(..., description="Updated smart detection types")
+    is_enabled_for_ai: bool = Field(..., description="Whether camera is enabled for AI analysis")
+
+
+class ProtectCameraFiltersResponse(BaseModel):
+    """Response for camera filters endpoint (Story P2-2.3, AC7)"""
+
+    data: ProtectCameraFiltersData
     meta: MetaResponse

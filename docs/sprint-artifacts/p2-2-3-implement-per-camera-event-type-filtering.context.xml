@@ -1,0 +1,255 @@
+<story-context id="p2-2-3-implement-per-camera-event-type-filtering" v="1.0">
+  <metadata>
+    <epicId>P2-2</epicId>
+    <storyId>2.3</storyId>
+    <title>Implement Per-Camera Event Type Filtering</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-30</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-2-3-implement-per-camera-event-type-filtering.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to configure which event types each camera should analyze</iWant>
+    <soThat>I can reduce noise by filtering out unwanted detections</soThat>
+    <tasks>
+      <task id="1" acs="1,2,3,4,5,10">Create EventTypeFilter component
+        <subtask id="1.1">Create frontend/components/protect/EventTypeFilter.tsx</subtask>
+        <subtask id="1.2">Implement popover trigger from "Configure Filters" button</subtask>
+        <subtask id="1.3">Add checkbox for Person (default: checked)</subtask>
+        <subtask id="1.4">Add checkbox for Vehicle (default: checked)</subtask>
+        <subtask id="1.5">Add checkbox for Package (default: checked)</subtask>
+        <subtask id="1.6">Add checkbox for Animal (default: unchecked)</subtask>
+        <subtask id="1.7">Add checkbox for "All Motion" with mutual exclusivity logic</subtask>
+        <subtask id="1.8">Add helper text for "All Motion" option</subtask>
+        <subtask id="1.9">Implement "Apply" button to save changes</subtask>
+        <subtask id="1.10">Implement "Cancel" button to revert unsaved changes</subtask>
+        <subtask id="1.11">Add loading state while saving</subtask>
+      </task>
+      <task id="2" acs="3,4">Implement mutual exclusivity for "All Motion"
+        <subtask id="2.1">When "All Motion" checked, disable and uncheck Person/Vehicle/Package/Animal</subtask>
+        <subtask id="2.2">When "All Motion" unchecked, re-enable other checkboxes</subtask>
+        <subtask id="2.3">Visually indicate disabled state when "All Motion" is active</subtask>
+      </task>
+      <task id="3" acs="6,7">Create filter update API endpoint
+        <subtask id="3.1">Create PUT /protect/controllers/{id}/cameras/{camera_id}/filters endpoint</subtask>
+        <subtask id="3.2">Add Pydantic schema ProtectCameraFiltersRequest</subtask>
+        <subtask id="3.3">Add Pydantic schema ProtectCameraFiltersResponse</subtask>
+        <subtask id="3.4">Update Camera.smart_detection_types JSON field</subtask>
+        <subtask id="3.5">Return updated camera with { data, meta } format</subtask>
+        <subtask id="3.6">Validate smart_detection_types values in allowed list</subtask>
+      </task>
+      <task id="4" acs="7">Add frontend API client method
+        <subtask id="4.1">Add updateCameraFilters(controllerId, cameraId, filters) method</subtask>
+        <subtask id="4.2">Add TypeScript interface ProtectCameraFiltersData</subtask>
+        <subtask id="4.3">Create TanStack Query mutation with optimistic update</subtask>
+      </task>
+      <task id="5" acs="8,9">Update DiscoveredCameraCard with filter display
+        <subtask id="5.1">Add filter badge/text display showing active filter count</subtask>
+        <subtask id="5.2">Wire "Configure Filters" button to open EventTypeFilter popover</subtask>
+        <subtask id="5.3">Disable "Configure Filters" button when camera is not enabled</subtask>
+        <subtask id="5.4">Update display when filters are changed</subtask>
+      </task>
+      <task id="6" acs="1">Integrate EventTypeFilter with DiscoveredCameraList
+        <subtask id="6.1">Pass current camera filters to EventTypeFilter component</subtask>
+        <subtask id="6.2">Handle filter save success callback to update UI</subtask>
+        <subtask id="6.3">Invalidate camera query cache after filter update</subtask>
+      </task>
+      <task id="7" acs="all">Testing
+        <subtask id="7.1">Write unit tests for EventTypeFilter state management</subtask>
+        <subtask id="7.2">Write unit tests for "All Motion" mutual exclusivity</subtask>
+        <subtask id="7.3">Write API tests for filters endpoint</subtask>
+        <subtask id="7.4">Write integration tests for filter persistence</subtask>
+        <subtask id="7.5">Verify UI states visually</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" verification="UI test">Given I have an enabled Protect camera, when I click "Configure Filters" on that camera, then I see an event type filter popover/dropdown</criterion>
+    <criterion id="AC2" verification="UI test">Filter options include: Person (checkbox, default: checked), Vehicle (checkbox, default: checked), Package (checkbox, default: checked), Animal (checkbox, default: unchecked), All Motion (checkbox, default: unchecked)</criterion>
+    <criterion id="AC3" verification="Unit test">When "All Motion" is checked, it disables and unchecks other options with helper text "Analyzes all motion events, ignores smart detection filtering"</criterion>
+    <criterion id="AC4" verification="Unit test">When "All Motion" is unchecked, other options are re-enabled</criterion>
+    <criterion id="AC5" verification="Unit test">Changes are saved on "Apply" button click; "Cancel" reverts to saved state</criterion>
+    <criterion id="AC6" verification="API test">Settings stored in cameras.smart_detection_types as JSON array and persist across app restarts</criterion>
+    <criterion id="AC7" verification="API test">API endpoint PUT /protect/controllers/{id}/cameras/{camera_id}/filters accepts { smart_detection_types: ["person", "vehicle"] } body and returns updated camera record</criterion>
+    <criterion id="AC8" verification="Visual inspection">Visual feedback shows active filters as badge count or inline text on camera card (e.g., "3 filters" or "Person, Vehicle, Package")</criterion>
+    <criterion id="AC9" verification="UI test">"Configure Filters" button is disabled/hidden when camera is not enabled</criterion>
+    <criterion id="AC10" verification="Visual inspection">Loading state shown while saving filter changes</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase2.md</path>
+        <title>Phase 2 Epics</title>
+        <section>Story 2.3: Implement Per-Camera Event Type Filtering</section>
+        <snippet>Full acceptance criteria for event type filtering including filter options, "All Motion" behavior, persistence, and API endpoint specifications.</snippet>
+      </doc>
+      <doc>
+        <path>docs/ux-design-specification.md</path>
+        <title>UX Design Specification</title>
+        <section>Section 10.3 Event Type Filter Configuration</section>
+        <snippet>Wireframe showing filter popover layout with checkboxes for Person, Vehicle, Package, Animal, and All Motion options with Apply/Cancel buttons.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase2.md</path>
+        <title>Phase 2 PRD</title>
+        <section>FR11-FR13</section>
+        <snippet>Functional requirements for per-camera event filtering, "All Motion" mode, and settings persistence across app restarts.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p2-2-2-build-discovered-camera-list-ui-with-enable-disable.md</path>
+        <title>Previous Story P2-2.2</title>
+        <section>Dev Agent Record</section>
+        <snippet>Established patterns for API client mutations, optimistic updates, toast notifications, and component exports. DiscoveredCameraCard has placeholder "Configure Filters" button.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/components/protect/DiscoveredCameraCard.tsx</path>
+        <kind>component</kind>
+        <symbol>DiscoveredCameraCard</symbol>
+        <lines>1-119</lines>
+        <reason>Contains "Configure Filters" button placeholder (lines 105-114) that needs to be wired to EventTypeFilter popover. Must modify to add filter badge display.</reason>
+      </file>
+      <file>
+        <path>frontend/components/protect/DiscoveredCameraList.tsx</path>
+        <kind>component</kind>
+        <symbol>DiscoveredCameraList</symbol>
+        <lines>75-170</lines>
+        <reason>Contains TanStack Query pattern for mutations with optimistic updates. Follow same pattern for filter update mutation.</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api-client</kind>
+        <symbol>apiClient.protect.enableCamera, apiClient.protect.disableCamera</symbol>
+        <lines>1187-1217</lines>
+        <reason>Pattern for API client methods. Add updateCameraFilters() following same structure.</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>interface</kind>
+        <symbol>ProtectCameraEnableData</symbol>
+        <lines>1238-1244</lines>
+        <reason>Contains smart_detection_types field. Model ProtectCameraFiltersData interface similarly.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/protect.py</path>
+        <kind>api-endpoints</kind>
+        <symbol>enable_camera, disable_camera</symbol>
+        <lines>772-992</lines>
+        <reason>Patterns for Protect camera endpoints. Add filters endpoint following same structure with { data, meta } response.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/protect.py</path>
+        <kind>schemas</kind>
+        <symbol>ProtectCameraEnableRequest, ProtectCameraEnableResponse</symbol>
+        <lines>294-342</lines>
+        <reason>Patterns for Pydantic schemas. Add ProtectCameraFiltersRequest and ProtectCameraFiltersResponse.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera.smart_detection_types</symbol>
+        <lines>65</lines>
+        <reason>JSON column storing filter array. Update via PUT endpoint.</reason>
+      </file>
+      <file>
+        <path>frontend/components/protect/index.ts</path>
+        <kind>exports</kind>
+        <symbol>Component exports</symbol>
+        <lines>1-12</lines>
+        <reason>Add export for new EventTypeFilter component.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_protect.py</path>
+        <kind>tests</kind>
+        <symbol>Test patterns</symbol>
+        <lines>1-50</lines>
+        <reason>Test patterns for Protect API endpoints. Add filter endpoint tests following same structure.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package name="@radix-ui/react-popover" version="needs-install" note="Run: npx shadcn@latest add popover" />
+        <package name="@radix-ui/react-checkbox" version="^1.3.3" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="sonner" version="^2.0.7" />
+        <package name="lucide-react" version="^0.553.0" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="==0.115.0" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Use { data, meta } response format for all API endpoints</constraint>
+    <constraint source="architecture">Use TanStack Query for server state management with optimistic updates</constraint>
+    <constraint source="architecture">Use shadcn/ui components (Popover, Checkbox, Button)</constraint>
+    <constraint source="architecture">Use sonner for toast notifications</constraint>
+    <constraint source="dev-notes">Filter values must be from allowed list: person, vehicle, package, animal, motion</constraint>
+    <constraint source="dev-notes">Empty array or ["motion"] means "All Motion" mode</constraint>
+    <constraint source="dev-notes">Default filters for new cameras: ["person", "vehicle", "package"]</constraint>
+    <constraint source="ux-spec">Follow wireframe layout from Section 10.3</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>PUT /protect/controllers/{id}/cameras/{camera_id}/filters</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /api/v1/protect/controllers/{controller_id}/cameras/{camera_id}/filters
+Body: { smart_detection_types: string[] }
+Response: { data: { protect_camera_id, name, smart_detection_types, is_enabled_for_ai }, meta: { request_id, timestamp } }</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>updateCameraFilters</name>
+      <kind>API client method</kind>
+      <signature>updateCameraFilters(controllerId: string, cameraId: string, filters: { smart_detection_types: string[] }): Promise&lt;{ data: ProtectCameraFiltersData; meta: { request_id: string; timestamp: string } }&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+    <interface>
+      <name>EventTypeFilter</name>
+      <kind>React component</kind>
+      <signature>interface EventTypeFilterProps {
+  camera: ProtectDiscoveredCamera;
+  controllerId: string;
+  onSave?: () => void;
+  onCancel?: () => void;
+}</signature>
+      <path>frontend/components/protect/EventTypeFilter.tsx</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Tests in backend/tests/test_api/test_protect.py.
+      Frontend: Visual verification for UI states. Unit tests follow existing patterns if testing infrastructure exists.
+      API tests verify endpoint behavior, response format, and error handling.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_protect.py</location>
+      <location>frontend/components/protect/ (visual verification)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test popover opens when "Configure Filters" clicked on enabled camera</idea>
+      <idea ac="AC2">Verify all checkbox options present with correct default states</idea>
+      <idea ac="AC3,AC4">Test "All Motion" mutual exclusivity - checking disables others, unchecking re-enables</idea>
+      <idea ac="AC5">Test Apply saves changes, Cancel reverts to previous state</idea>
+      <idea ac="AC6">Test filter persistence - update via API, verify persists in database</idea>
+      <idea ac="AC7">Test PUT /filters endpoint with valid/invalid payloads</idea>
+      <idea ac="AC7">Test 404 for non-existent controller or camera</idea>
+      <idea ac="AC7">Test validation rejects invalid filter values</idea>
+      <idea ac="AC8">Verify filter badge/text updates when filters change</idea>
+      <idea ac="AC9">Test "Configure Filters" button disabled when camera not enabled</idea>
+      <idea ac="AC10">Verify loading state displayed while saving</idea>
+    </ideas>
+  </tests>
+</story-context>

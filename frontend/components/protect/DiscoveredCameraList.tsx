@@ -1,6 +1,8 @@
 /**
  * Discovered Camera List Component
  * Story P2-2.2: Build Discovered Camera List UI with Enable/Disable
+ * Story P2-2.3: Per-Camera Event Type Filtering integration
+ * Story P2-2.4: Real-time camera status sync via WebSocket
  *
  * Displays all cameras discovered from a connected UniFi Protect controller with:
  * - Header with camera count and refresh button
@@ -8,6 +10,8 @@
  * - Empty state for no cameras / disconnected controller
  * - Responsive grid layout (1 column mobile, 2 columns tablet/desktop)
  * - Sorted list: enabled cameras first, then alphabetical by name
+ * - Filter badge and popover for each enabled camera
+ * - Real-time status updates via WebSocket (Story P2-2.4)
  *
  * AC1: "Discovered Cameras (N found)" section with camera list
  * AC3: Sorted list with enabled cameras first
@@ -18,7 +22,7 @@
 
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, Camera, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -27,6 +31,7 @@ import { apiClient, type ProtectDiscoveredCamera } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DiscoveredCameraCard } from './DiscoveredCameraCard';
+import { useWebSocket, type CameraStatusChangeData } from '@/lib/hooks/useWebSocket';
 
 export interface DiscoveredCameraListProps {
   controllerId: string;
@@ -75,10 +80,43 @@ export function DiscoveredCameraList({
 }: DiscoveredCameraListProps) {
   const queryClient = useQueryClient();
 
+  // Handle camera status change from WebSocket (Story P2-2.4 AC1, AC8)
+  const handleCameraStatusChange = useCallback(
+    (data: CameraStatusChangeData) => {
+      // Only process status changes for this controller
+      if (data.controller_id !== controllerId) {
+        return;
+      }
+
+      // Update TanStack Query cache for specific camera without full refetch (AC8)
+      queryClient.setQueryData(
+        ['protect-cameras', controllerId],
+        (old: { data: ProtectDiscoveredCamera[]; meta: unknown } | undefined) => {
+          if (!old) return old;
+          return {
+            ...old,
+            data: old.data.map((cam) =>
+              cam.protect_camera_id === data.camera_id
+                ? { ...cam, is_online: data.is_online }
+                : cam
+            ),
+          };
+        }
+      );
+    },
+    [controllerId, queryClient]
+  );
+
+  // Connect to WebSocket for real-time camera status updates (Story P2-2.4 AC1)
+  useWebSocket({
+    onCameraStatusChange: handleCameraStatusChange,
+    autoConnect: isControllerConnected,
+  });
+
   // Fetch discovered cameras with 60-second stale time (matching backend cache)
   const camerasQuery = useQuery({
     queryKey: ['protect-cameras', controllerId],
-    queryFn: () => apiClient.protect.discoverCameras(controllerId),
+    queryFn: () => apiClient.protect.discoverCameras(controllerId, false),
     enabled: isControllerConnected && !!controllerId,
     staleTime: 60 * 1000, // 60 seconds to match backend cache
     refetchOnWindowFocus: false,
@@ -178,11 +216,22 @@ export function DiscoveredCameraList({
     }
   };
 
-  // Handle refresh button click
+  // Refresh mutation for force refresh with success/error toasts (Story P2-2.4 AC2, AC4, AC5)
+  const refreshMutation = useMutation({
+    mutationFn: () => apiClient.protect.discoverCameras(controllerId, true), // force_refresh=true (AC3.3)
+    onSuccess: (data) => {
+      // Update query cache with fresh data
+      queryClient.setQueryData(['protect-cameras', controllerId], data);
+      toast.success('Cameras refreshed'); // AC4
+    },
+    onError: () => {
+      toast.error('Failed to refresh cameras'); // AC5
+    },
+  });
+
+  // Handle refresh button click (AC2)
   const handleRefresh = () => {
-    // Force refresh bypasses backend cache
-    queryClient.invalidateQueries({ queryKey: ['protect-cameras', controllerId] });
-    toast.info('Refreshing camera list...');
+    refreshMutation.mutate();
   };
 
   // Sort cameras (AC3)
@@ -193,7 +242,7 @@ export function DiscoveredCameraList({
 
   const cameraCount = camerasQuery.data?.meta?.count ?? 0;
   const isLoading = camerasQuery.isLoading;
-  const isRefetching = camerasQuery.isRefetching;
+  const isRefetching = camerasQuery.isRefetching || refreshMutation.isPending; // AC3
 
   // Disconnected state (AC10)
   if (!isControllerConnected) {
@@ -282,6 +331,8 @@ export function DiscoveredCameraList({
           <DiscoveredCameraCard
             key={camera.protect_camera_id}
             camera={camera}
+            controllerId={controllerId}
+            currentFilters={camera.smart_detection_types ?? undefined}
             onToggleEnabled={handleToggleEnabled}
             isToggling={
               enableMutation.isPending || disableMutation.isPending

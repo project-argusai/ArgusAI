@@ -1215,6 +1215,27 @@ export const apiClient = {
         method: 'POST',
       });
     },
+
+    /**
+     * Update camera event type filters (Story P2-2.3)
+     * Updates smart_detection_types for an enabled camera
+     * @param controllerId Controller UUID
+     * @param cameraId Protect camera ID
+     * @param filters The filter configuration
+     */
+    updateCameraFilters: async (
+      controllerId: string,
+      cameraId: string,
+      filters: { smart_detection_types: string[] }
+    ): Promise<{
+      data: ProtectCameraFiltersData;
+      meta: { request_id: string; timestamp: string };
+    }> => {
+      return apiFetch(`/protect/controllers/${controllerId}/cameras/${cameraId}/filters`, {
+        method: 'PUT',
+        body: JSON.stringify(filters),
+      });
+    },
   },
 };
 
@@ -1230,6 +1251,10 @@ export interface ProtectDiscoveredCamera {
   is_doorbell: boolean;
   is_enabled_for_ai: boolean;
   smart_detection_capabilities: string[];
+  /** Configured filter types for enabled cameras (Story P2-2.3) */
+  smart_detection_types?: string[] | null;
+  /** Whether this camera was newly discovered (not in database) (Story P2-2.4 AC11) */
+  is_new?: boolean;
 }
 
 // Story P2-2.2: Camera Enable/Disable Types
@@ -1246,5 +1271,15 @@ export interface ProtectCameraEnableData {
 /** Response data when camera is disabled */
 export interface ProtectCameraDisableData {
   protect_camera_id: string;
+  is_enabled_for_ai: boolean;
+}
+
+// Story P2-2.3: Camera Filters Types
+
+/** Response data when camera filters are updated */
+export interface ProtectCameraFiltersData {
+  protect_camera_id: string;
+  name: string;
+  smart_detection_types: string[];
   is_enabled_for_ai: boolean;
 }

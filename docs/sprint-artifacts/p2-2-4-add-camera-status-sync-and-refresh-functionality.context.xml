@@ -1,0 +1,247 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P2-2</epicId>
+    <storyId>4</storyId>
+    <title>Add Camera Status Sync and Refresh Functionality</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-11-30</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-2-4-add-camera-status-sync-and-refresh-functionality.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>camera online/offline status to update in real-time and to manually refresh the camera list</iWant>
+    <soThat>I can see current camera availability without page reloads</soThat>
+    <tasks>
+      <task id="1" acs="6,7,12">
+        <title>Implement backend camera status change handler</title>
+        <subtasks>
+          <subtask>1.1 Add handler for ws_camera_update events in protect_event_handler.py</subtask>
+          <subtask>1.2 Extract camera ID and online/offline status from event</subtask>
+          <subtask>1.3 Create CAMERA_STATUS_CHANGED WebSocket message type constant</subtask>
+          <subtask>1.4 Broadcast status change to frontend via existing WebSocket infrastructure</subtask>
+          <subtask>1.5 Implement debounce logic (max 1 update per 5 seconds per camera)</subtask>
+          <subtask>1.6 Add timestamp tracking for last status broadcast per camera</subtask>
+        </subtasks>
+      </task>
+      <task id="2" acs="1,8">
+        <title>Update frontend WebSocket handler for camera status</title>
+        <subtasks>
+          <subtask>2.1 Add CAMERA_STATUS_CHANGED message handler in useWebSocket hook or context</subtask>
+          <subtask>2.2 Update TanStack Query cache for specific camera when status received</subtask>
+          <subtask>2.3 Use setQueryData to update individual camera is_online field</subtask>
+          <subtask>2.4 Avoid full refetch - only update the changed camera</subtask>
+        </subtasks>
+      </task>
+      <task id="3" acs="2,3,4,5">
+        <title>Enhance refresh button functionality</title>
+        <subtasks>
+          <subtask>3.1 Add isRefetching state from TanStack Query to Refresh button</subtask>
+          <subtask>3.2 Show loading spinner when isRefetching is true</subtask>
+          <subtask>3.3 Add force_refresh query parameter to bypass backend cache</subtask>
+          <subtask>3.4 Show success toast "Cameras refreshed" on successful refresh</subtask>
+          <subtask>3.5 Show error toast on refresh failure</subtask>
+        </subtasks>
+      </task>
+      <task id="4" acs="9,10">
+        <title>Update offline camera UI states</title>
+        <subtasks>
+          <subtask>4.1 Ensure offline cameras remain visible in list (not filtered out)</subtask>
+          <subtask>4.2 Verify red status indicator shows for offline cameras</subtask>
+          <subtask>4.3 Add tooltip component to offline cameras with explanatory text</subtask>
+          <subtask>4.4 Use shadcn/ui Tooltip component for hover message</subtask>
+        </subtasks>
+      </task>
+      <task id="5" acs="11">
+        <title>Implement new camera detection</title>
+        <subtasks>
+          <subtask>5.1 Compare discovery results with existing enabled cameras in database</subtask>
+          <subtask>5.2 Mark cameras not in database as isNew: true in response</subtask>
+          <subtask>5.3 Add "New" badge styling to DiscoveredCameraCard</subtask>
+          <subtask>5.4 Clear "New" badge when camera is enabled</subtask>
+        </subtasks>
+      </task>
+      <task id="6" acs="all">
+        <title>Testing</title>
+        <subtasks>
+          <subtask>6.1 Write unit tests for debounce logic</subtask>
+          <subtask>6.2 Write WebSocket message tests for status change format</subtask>
+          <subtask>6.3 Write unit tests for cache update logic</subtask>
+          <subtask>6.4 Verify visual states manually</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given I'm viewing the discovered cameras list, when a camera goes online or offline in Protect, then the status indicator updates within 30 seconds</criterion>
+    <criterion id="AC2">Given I'm viewing the discovered cameras list, when I click "Refresh" button in the header, then a new discovery request is triggered</criterion>
+    <criterion id="AC3">When refresh is triggered, loading spinner shows on the Refresh button</criterion>
+    <criterion id="AC4">When refresh completes successfully, toast shows "Cameras refreshed"</criterion>
+    <criterion id="AC5">When refresh fails, toast shows appropriate error message</criterion>
+    <criterion id="AC6">Backend broadcasts CAMERA_STATUS_CHANGED WebSocket message when camera status changes</criterion>
+    <criterion id="AC7">Message format: { type: "CAMERA_STATUS_CHANGED", data: { controller_id, camera_id, is_online, timestamp } }</criterion>
+    <criterion id="AC8">Frontend updates individual camera status without full list refresh when receiving status message</criterion>
+    <criterion id="AC9">Offline cameras remain visible in list (not hidden) with red status indicator</criterion>
+    <criterion id="AC10">Offline cameras show tooltip: "Camera is offline in UniFi Protect"</criterion>
+    <criterion id="AC11">If Protect has new cameras not in our list, show "New" badge on refresh</criterion>
+    <criterion id="AC12">Rapid status changes debounced to max 1 update per 5 seconds per camera</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase2.md</path>
+        <title>Phase 2 Epic Breakdown</title>
+        <section>Story 2.4: Add Camera Status Sync and Refresh Functionality</section>
+        <snippet>Lines 529-567 define the story with acceptance criteria for real-time camera status updates within 30 seconds, manual refresh functionality, WebSocket status broadcasting, and new camera detection badges.</snippet>
+      </doc>
+      <doc>
+        <path>docs/ux-design-specification.md</path>
+        <title>UX Design Specification</title>
+        <section>Section 10.2 - Camera List Wireframes</section>
+        <snippet>Defines camera list UI patterns including status indicators (green/red dots), refresh button placement in header, and tooltip styling for offline cameras.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Documentation</title>
+        <section>Phase 2 WebSocket Communication</section>
+        <snippet>Describes WebSocket message format with { type, data, timestamp } structure and PROTECT_CONNECTION_STATUS constant pattern for status broadcasts.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p2-2-3-implement-per-camera-event-type-filtering.md</path>
+        <title>Previous Story - Per-Camera Event Type Filtering</title>
+        <section>Dev Notes</section>
+        <snippet>Documents TanStack Query optimistic update patterns at DiscoveredCameraList.tsx:90-130, toast notification patterns, and API response format conventions.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>backend/app/services/protect_service.py</path>
+        <kind>service</kind>
+        <symbol>ProtectService</symbol>
+        <lines>1-200</lines>
+        <reason>Main service for Protect controller operations. Contains _connections dict, _camera_cache, and PROTECT_CONNECTION_STATUS constant. Add camera status handler and debounce logic here.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/websocket_manager.py</path>
+        <kind>service</kind>
+        <symbol>WebSocketManager</symbol>
+        <lines>1-182</lines>
+        <reason>WebSocket broadcast infrastructure. Use broadcast() method to send CAMERA_STATUS_CHANGED messages. Global singleton at websocket_manager.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/hooks/useWebSocket.ts</path>
+        <kind>hook</kind>
+        <symbol>useWebSocket</symbol>
+        <lines>1-247</lines>
+        <reason>WebSocket hook with message handlers. Add onCameraStatusChange callback alongside existing onNotification, onAlert, onNewEvent handlers. Follow existing pattern at lines 106-117.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/protect/DiscoveredCameraList.tsx</path>
+        <kind>component</kind>
+        <symbol>DiscoveredCameraList</symbol>
+        <lines>1-296</lines>
+        <reason>Main camera list component with existing refresh handler at lines 184-188 and isRefetching state at line 198. Modify handleRefresh for force_refresh and add WebSocket integration.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/protect/DiscoveredCameraCard.tsx</path>
+        <kind>component</kind>
+        <symbol>DiscoveredCameraCard</symbol>
+        <lines>1-138</lines>
+        <reason>Individual camera card component. Status indicator at lines 112-125 (green/red dot). Add Tooltip for offline cameras and "New" badge for newly discovered cameras.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/contexts/NotificationContext.tsx</path>
+        <kind>context</kind>
+        <symbol>NotificationProvider</symbol>
+        <lines>1-100</lines>
+        <reason>Example of WebSocket integration with TanStack Query. Shows pattern for handling WebSocket messages and updating query cache. Reference for camera status implementation.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/protect.py</path>
+        <kind>router</kind>
+        <symbol>discover_cameras</symbol>
+        <reason>Camera discovery endpoint. Add force_refresh query parameter to bypass cache and return isNew flag for cameras not yet in database.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/protect.py</path>
+        <kind>schema</kind>
+        <symbol>ProtectDiscoveredCamera</symbol>
+        <reason>Camera response schema. May need to add is_new: Optional[bool] field for new camera detection feature.</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <backend>
+        <package name="fastapi" version="0.115.0">Web framework with WebSocket support</package>
+        <package name="uiprotect" version=">=6.0.0">UniFi Protect API client - subscribe to camera status events</package>
+        <package name="asyncio" version="stdlib">For debounce timing and async operations</package>
+      </backend>
+      <frontend>
+        <package name="@tanstack/react-query" version="5.90.10">Query cache management with setQueryData for optimistic updates</package>
+        <package name="@radix-ui/react-tooltip" version="1.2.8">Tooltip component for offline camera message</package>
+        <package name="sonner" version="2.0.7">Toast notifications for refresh success/error</package>
+        <package name="lucide-react" version="0.553.0">Icons including RefreshCw for refresh button</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>WebSocket messages must follow format: { type: string, data: object, timestamp: ISO8601 }</constraint>
+    <constraint>Use existing WebSocketManager.broadcast() method - do not create new broadcast mechanisms</constraint>
+    <constraint>Camera status updates must be debounced to max 1 per 5 seconds per camera to prevent UI thrashing</constraint>
+    <constraint>Offline cameras must remain visible in list - do not filter them out</constraint>
+    <constraint>Use TanStack Query setQueryData for cache updates - avoid full refetch on status change</constraint>
+    <constraint>Follow existing { data, meta } API response format for all endpoints</constraint>
+    <constraint>Toast notifications use sonner library - success/error/info variants</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>CAMERA_STATUS_CHANGED WebSocket Message</name>
+      <kind>WebSocket message</kind>
+      <signature>{ type: "CAMERA_STATUS_CHANGED", data: { controller_id: string, camera_id: string, is_online: boolean }, timestamp: string }</signature>
+      <path>backend/app/services/protect_service.py</path>
+    </interface>
+    <interface>
+      <name>discover_cameras with force_refresh</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/protect/controllers/{controller_id}/cameras?force_refresh=true</signature>
+      <path>backend/app/api/v1/protect.py</path>
+    </interface>
+    <interface>
+      <name>useWebSocket onCameraStatusChange callback</name>
+      <kind>React hook callback</kind>
+      <signature>onCameraStatusChange?: (data: { controller_id: string, camera_id: string, is_online: boolean }) => void</signature>
+      <path>frontend/lib/hooks/useWebSocket.ts</path>
+    </interface>
+    <interface>
+      <name>WebSocketManager.broadcast</name>
+      <kind>Python method</kind>
+      <signature>async def broadcast(self, message: Dict[str, Any]) -> int</signature>
+      <path>backend/app/services/websocket_manager.py:82</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests. Test files in backend/tests/ following test_*.py naming.
+      Frontend tests not currently implemented but TanStack Query provides testing utilities for cache manipulation.
+      All API tests should verify { data, meta } response format.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_protect.py</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC6,AC7">Test CAMERA_STATUS_CHANGED message is broadcast when camera goes online/offline</idea>
+      <idea ac="AC12">Test debounce logic prevents more than 1 status broadcast per 5 seconds per camera</idea>
+      <idea ac="AC3,AC4,AC5">Test force_refresh parameter bypasses cache and returns fresh data</idea>
+      <idea ac="AC11">Test is_new flag is set for cameras not in database</idea>
+      <idea ac="AC8">Test frontend cache update only modifies specific camera, not full list</idea>
+    </ideas>
+  </tests>
+</story-context>

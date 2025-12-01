@@ -118,8 +118,8 @@ development_status:
   # Epic P2-3: Real-Time Event Processing
   epic-p2-3: backlog
   p2-3-1-implement-protect-event-listener-and-event-handler: done
-  p2-3-2-implement-snapshot-retrieval-from-protect-api: review
-  p2-3-3-integrate-protect-events-with-existing-ai-pipeline: backlog
+  p2-3-2-implement-snapshot-retrieval-from-protect-api: done
+  p2-3-3-integrate-protect-events-with-existing-ai-pipeline: done
   p2-3-4-add-event-source-type-display-in-dashboard: backlog
   epic-p2-3-retrospective: optional
 

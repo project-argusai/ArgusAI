@@ -1,0 +1,264 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P2-3</epicId>
+    <storyId>3</storyId>
+    <title>Integrate Protect Events with Existing AI Pipeline</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-01</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-3-3-integrate-protect-events-with-existing-ai-pipeline.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend service</asA>
+    <iWant>Protect events to flow through the same AI pipeline as RTSP events</iWant>
+    <soThat>all events receive AI descriptions consistently</soThat>
+    <tasks>
+      <task id="1" title="Extend Event model for Protect source">
+        <subtask id="1.1">Add source_type column to Event model (TEXT DEFAULT 'rtsp', values: 'rtsp', 'usb', 'protect')</subtask>
+        <subtask id="1.2">Add protect_event_id column (TEXT NULL, Protect's native event ID)</subtask>
+        <subtask id="1.3">Add smart_detection_type column (TEXT NULL, values: person/vehicle/package/animal/motion)</subtask>
+        <subtask id="1.4">Create Alembic migration for schema changes</subtask>
+        <subtask id="1.5">Update EventCreate/EventResponse Pydantic schemas</subtask>
+        <ac>5, 6, 7</ac>
+      </task>
+      <task id="2" title="Create Protect event submission service">
+        <subtask id="2.1">Create _submit_to_ai_pipeline() method in protect_event_handler.py</subtask>
+        <subtask id="2.2">Accept SnapshotResult, Camera, and event_type parameters</subtask>
+        <subtask id="2.3">Load AI service with get_ai_service() and ensure API keys loaded</subtask>
+        <subtask id="2.4">Call AIService.generate_description() with base64 image from SnapshotResult</subtask>
+        <subtask id="2.5">Pass context: camera.name, timestamp, detected_objects=[event_type]</subtask>
+        <subtask id="2.6">Track processing time from snapshot retrieval to AI result</subtask>
+        <subtask id="2.7">Return AIResult for event creation</subtask>
+        <ac>1, 2, 3, 10, 11</ac>
+      </task>
+      <task id="3" title="Implement event storage for Protect events">
+        <subtask id="3.1">Create _store_protect_event() method in protect_event_handler.py</subtask>
+        <subtask id="3.2">Accept AIResult, SnapshotResult, Camera, event_type, protect_event_id</subtask>
+        <subtask id="3.3">Create Event record with source_type='protect'</subtask>
+        <subtask id="3.4">Set protect_event_id from Protect WebSocket message</subtask>
+        <subtask id="3.5">Set smart_detection_type from event_type</subtask>
+        <subtask id="3.6">Store description, confidence, objects_detected from AIResult</subtask>
+        <subtask id="3.7">Store thumbnail_path from SnapshotResult</subtask>
+        <subtask id="3.8">Commit to database and return Event</subtask>
+        <ac>5, 6, 7, 8, 9</ac>
+      </task>
+      <task id="4" title="Wire full pipeline in event handler">
+        <subtask id="4.1">Replace TODO comment in handle_event() with AI pipeline call</subtask>
+        <subtask id="4.2">After snapshot retrieval, call _submit_to_ai_pipeline()</subtask>
+        <subtask id="4.3">If AI succeeds, call _store_protect_event()</subtask>
+        <subtask id="4.4">Track total processing_time_ms from event received to stored</subtask>
+        <subtask id="4.5">Log processing time and compare to NFR2 (2 second target)</subtask>
+        <ac>1, 10, 12</ac>
+      </task>
+      <task id="5" title="Implement WebSocket broadcast">
+        <subtask id="5.1">Import WebSocket manager from existing websocket_manager.py</subtask>
+        <subtask id="5.2">After event stored, broadcast EVENT_CREATED message</subtask>
+        <subtask id="5.3">Include full event details: id, camera_id, timestamp, description, thumbnail_path, source_type, smart_detection_type</subtask>
+        <subtask id="5.4">Use existing broadcast format for consistency with RTSP events</subtask>
+        <ac>12</ac>
+      </task>
+      <task id="6" title="Testing">
+        <subtask id="6.1">Unit tests for Event model new columns</subtask>
+        <subtask id="6.2">Unit tests for _submit_to_ai_pipeline() with mock AIService</subtask>
+        <subtask id="6.3">Unit tests for _store_protect_event() with database</subtask>
+        <subtask id="6.4">Integration test for full pipeline: event -> snapshot -> AI -> stored event</subtask>
+        <subtask id="6.5">Performance test verifying &lt;2 second end-to-end latency</subtask>
+        <subtask id="6.6">Regression test: RTSP events still work (existing tests pass)</subtask>
+        <subtask id="6.7">Unit test for WebSocket broadcast on event creation</subtask>
+        <ac>all</ac>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given a snapshot has been retrieved from Protect, when the event handler submits it for AI analysis, then the existing AI service processes it using configured providers</criterion>
+    <criterion id="AC2">AI submission uses existing AIService.generate_description() method with base64-encoded image</criterion>
+    <criterion id="AC3">AI submission includes context: camera name, event type (person/vehicle/package/animal/motion)</criterion>
+    <criterion id="AC4">AI provider fallback chain works: OpenAI -> Claude -> Gemini (existing behavior)</criterion>
+    <criterion id="AC5">Event record is created in events table with source_type: 'protect'</criterion>
+    <criterion id="AC6">Event record includes protect_event_id (Protect's native event ID)</criterion>
+    <criterion id="AC7">Event record includes smart_detection_type (person/vehicle/package/animal/motion)</criterion>
+    <criterion id="AC8">Event stores AI description, confidence, objects_detected from AIResult</criterion>
+    <criterion id="AC9">Event stores thumbnail_path from SnapshotResult</criterion>
+    <criterion id="AC10">End-to-end latency from Protect detection to stored event is tracked (NFR2: &lt;2 seconds target)</criterion>
+    <criterion id="AC11">Processing time is logged as processing_time_ms</criterion>
+    <criterion id="AC12">WebSocket broadcasts EVENT_CREATED to frontend with all event details</criterion>
+    <criterion id="AC13">Existing RTSP/USB event flow remains unaffected</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/PRD-phase2.md" relevance="high">Phase 2 PRD - FR-P2-03.3 event integration requirements, NFR2 latency target &lt;2s</doc>
+      <doc path="docs/architecture.md#section-16" relevance="high">Phase 2 Architecture - Event processing pipeline, AI pipeline integration</doc>
+      <doc path="docs/epics-phase2.md#story-p2-3-3" relevance="high">Epic P2-3 - Story 3.3 details, acceptance criteria, task breakdown</doc>
+      <doc path="docs/ux-design-specification.md" relevance="medium">UX Design - Event display patterns for frontend consistency</doc>
+    </docs>
+    <code>
+      <file path="backend/app/models/event.py" role="modify" relevance="critical">
+        Event SQLAlchemy model - add source_type, protect_event_id, smart_detection_type columns
+        Current columns: id, camera_id, timestamp, description, confidence, objects_detected, thumbnail_path, thumbnail_base64, alert_triggered, alert_rule_ids, created_at
+        Needs: source_type (TEXT DEFAULT 'rtsp'), protect_event_id (TEXT NULL), smart_detection_type (TEXT NULL)
+      </file>
+      <file path="backend/app/schemas/event.py" role="modify" relevance="high">
+        Pydantic schemas - update EventCreate and EventResponse with new fields
+        EventCreate needs: source_type?, protect_event_id?, smart_detection_type?
+        EventResponse needs: source_type, protect_event_id?, smart_detection_type?
+      </file>
+      <file path="backend/app/services/protect_event_handler.py" role="modify" relevance="critical">
+        Main modification target - add _submit_to_ai_pipeline() and _store_protect_event() methods
+        Current: handle_event() with TODO at line 211 for AI pipeline
+        EVENT_TYPE_MAPPING at line 54 maps Protect types to filter types
+        Needs: Import AIService, WebSocketManager, add AI submission + storage methods
+      </file>
+      <file path="backend/app/services/ai_service.py" role="reference" relevance="critical">
+        AIService.generate_description(frame, camera_name, timestamp, detected_objects, sla_timeout_ms=5000)
+        Returns: AIResult(description, confidence, objects_detected, provider, tokens_used, response_time_ms, cost_estimate, success, error)
+        Provider fallback: OpenAI -> Claude -> Gemini
+        NOTE: generate_description expects np.ndarray frame, NOT base64 string
+        SnapshotResult has image_base64 - need to convert base64 -> numpy array for AIService
+      </file>
+      <file path="backend/app/services/snapshot_service.py" role="reference" relevance="high">
+        SnapshotResult dataclass: image_base64, thumbnail_path, width, height, camera_id, timestamp
+        get_snapshot_service() singleton for accessing service
+      </file>
+      <file path="backend/app/services/websocket_manager.py" role="reference" relevance="high">
+        WebSocketManager.broadcast(message: Dict) - returns int (clients notified)
+        Message format: {"type": str, "data": dict, "timestamp": auto-added}
+        Use type "EVENT_CREATED" for new events
+        get_websocket_manager() returns global singleton
+      </file>
+      <file path="backend/app/services/event_processor.py" role="reference" relevance="medium">
+        Reference for RTSP event processing pattern
+        _process_event() shows AI call pattern (lines 528-632)
+        _store_event_with_retry() shows database storage pattern (lines 634-739)
+        NOTE: Uses thumbnail_base64 -> saves to file with thumbnail_path pattern
+      </file>
+      <file path="backend/alembic/versions/" role="create" relevance="high">
+        New migration file needed for Event model schema changes
+        Pattern: YYYYMMDD_HHMM_add_protect_fields_to_events.py
+      </file>
+    </code>
+    <dependencies>
+      <dependency name="pillow" version=">=10.0.0" purpose="Image processing for base64 -> numpy conversion">
+        from PIL import Image; import io; image = Image.open(io.BytesIO(base64.b64decode(image_base64)))
+        Convert to numpy: import numpy as np; frame = np.array(image)
+      </dependency>
+      <dependency name="numpy" version="implicit" purpose="Array format for AIService.generate_description()">
+        AIService expects np.ndarray in BGR format (OpenCV convention)
+        PIL loads as RGB, so need to convert: frame = frame[:, :, ::-1] for RGB->BGR
+      </dependency>
+      <dependency name="sqlalchemy" version=">=2.0.36" purpose="Event model and database operations"/>
+      <dependency name="alembic" version=">=1.14.0" purpose="Database migrations"/>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="performance">NFR2: End-to-end latency from Protect detection to stored event must be &lt;2 seconds target</constraint>
+    <constraint type="compatibility">AC13: Existing RTSP/USB event flow must remain unaffected - regression tests must pass</constraint>
+    <constraint type="data-format">AIService.generate_description() expects np.ndarray frame, not base64 - must convert SnapshotResult.image_base64</constraint>
+    <constraint type="database">source_type must default to 'rtsp' to maintain backward compatibility with existing events</constraint>
+    <constraint type="threading">protect_event_handler.py runs in asyncio context - use SessionLocal() for database access (same as line 127)</constraint>
+    <constraint type="websocket">WebSocket broadcast must include all fields needed by frontend: id, camera_id, timestamp, description, thumbnail_path, source_type, smart_detection_type</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AIService.generate_description" file="backend/app/services/ai_service.py" line="563">
+      <signature>
+        async def generate_description(
+            self,
+            frame: np.ndarray,           # OpenCV frame (BGR format)
+            camera_name: str,            # For context prompt
+            timestamp: Optional[str],    # ISO 8601, default: now
+            detected_objects: Optional[List[str]],  # Motion detection hints
+            sla_timeout_ms: int = 5000   # Default 5s SLA
+        ) -> AIResult
+      </signature>
+      <returns>AIResult with: description, confidence (0-100), objects_detected, provider, tokens_used, response_time_ms, cost_estimate, success, error</returns>
+      <note>Frame must be numpy array - need to decode SnapshotResult.image_base64 first</note>
+    </interface>
+    <interface name="WebSocketManager.broadcast" file="backend/app/services/websocket_manager.py" line="82">
+      <signature>async def broadcast(self, message: Dict[str, Any]) -> int</signature>
+      <message_format>{"type": "EVENT_CREATED", "data": {...event fields...}}</message_format>
+      <note>Timestamp auto-added by broadcast(). Returns count of clients notified.</note>
+    </interface>
+    <interface name="SnapshotResult" file="backend/app/services/snapshot_service.py" line="67">
+      <dataclass>
+        image_base64: str      # Base64-encoded JPEG for AI API
+        thumbnail_path: str    # Path to saved thumbnail file
+        width: int             # Final image width
+        height: int            # Final image height
+        camera_id: str         # Camera UUID
+        timestamp: datetime    # When snapshot was taken
+      </dataclass>
+    </interface>
+    <interface name="Event model" file="backend/app/models/event.py" line="9">
+      <columns_existing>id, camera_id, timestamp, description, confidence, objects_detected (JSON string), thumbnail_path, thumbnail_base64, alert_triggered, alert_rule_ids, created_at</columns_existing>
+      <columns_to_add>
+        source_type: TEXT DEFAULT 'rtsp' (values: 'rtsp', 'usb', 'protect')
+        protect_event_id: TEXT NULL (Protect's native event ID)
+        smart_detection_type: TEXT NULL (values: person, vehicle, package, animal, motion)
+      </columns_to_add>
+    </interface>
+    <interface name="EVENT_TYPE_MAPPING" file="backend/app/services/protect_event_handler.py" line="54">
+      <mapping>
+        "motion" -> "motion"
+        "smart_detect_person" -> "person"
+        "smart_detect_vehicle" -> "vehicle"
+        "smart_detect_package" -> "package"
+        "smart_detect_animal" -> "animal"
+        "ring" -> "ring"
+      </mapping>
+      <usage>Use mapped type as smart_detection_type and detected_objects</usage>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>pytest + pytest-asyncio for async tests</standard>
+      <standard>File-based SQLite test database (tempfile.mkstemp pattern)</standard>
+      <standard>Database cleanup fixture with autouse=True</standard>
+      <standard>AsyncMock for mocking async services (AIService)</standard>
+      <standard>TestClient from FastAPI for HTTP assertions</standard>
+      <standard>Coverage threshold: aim for 80%+ on new code</standard>
+    </standards>
+    <locations>
+      <location path="backend/tests/test_api/test_protect.py">Existing Protect integration tests - add event pipeline tests here</location>
+      <location path="backend/tests/test_services/test_event_processor.py">Reference for AI service mocking patterns</location>
+      <location path="backend/tests/test_services/test_ai_service.py">AIService test patterns</location>
+      <location path="backend/tests/test_models/">Model unit tests - add test_event_protect_fields.py</location>
+    </locations>
+    <ideas>
+      <test_case id="TC1" ac="AC1,AC2,AC3">
+        Test _submit_to_ai_pipeline() calls AIService.generate_description with correct params
+        Mock AIService, verify base64->frame conversion, camera_name, detected_objects=[event_type]
+      </test_case>
+      <test_case id="TC2" ac="AC5,AC6,AC7">
+        Test _store_protect_event() creates Event with source_type='protect', protect_event_id, smart_detection_type
+        Use test database, verify all fields stored correctly
+      </test_case>
+      <test_case id="TC3" ac="AC8,AC9">
+        Test event stores AIResult fields (description, confidence, objects_detected) and SnapshotResult.thumbnail_path
+      </test_case>
+      <test_case id="TC4" ac="AC10,AC11">
+        Performance test: measure end-to-end latency from handle_event() call to stored event
+        Mock AIService to return quickly, verify processing_time_ms logged and &lt;2s
+      </test_case>
+      <test_case id="TC5" ac="AC12">
+        Test WebSocket broadcast after event storage
+        Mock websocket_manager, verify broadcast() called with EVENT_CREATED and all fields
+      </test_case>
+      <test_case id="TC6" ac="AC4">
+        Test AI provider fallback preserved - mock AIService to verify fallback behavior
+      </test_case>
+      <test_case id="TC7" ac="AC13">
+        Regression test - run existing RTSP event tests, verify they still pass
+        Test Event model backward compatibility with existing records (no source_type)
+      </test_case>
+      <test_case id="TC8" ac="schema">
+        Test Alembic migration - up and down migrations work correctly
+        Verify default values applied to existing events
+      </test_case>
+    </ideas>
+  </tests>
+</story-context>

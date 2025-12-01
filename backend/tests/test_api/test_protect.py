@@ -2685,7 +2685,7 @@ class TestHandleEventFullFlow:
     @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
     @pytest.mark.asyncio
     async def test_handle_event_passes_all_filters(self):
-        """AC1, AC3, AC5, AC6: Event that matches all criteria passes"""
+        """AC1, AC3, AC5, AC6: Event that matches all criteria passes (Story P2-3.3)"""
         from app.services.protect_event_handler import ProtectEventHandler
         from app.services.snapshot_service import SnapshotResult
         from datetime import datetime, timezone
@@ -2714,20 +2714,45 @@ class TestHandleEventFullFlow:
             mock_msg.new_obj.id = "enabled-protect-cam"
             mock_msg.new_obj.is_motion_detected = False
             mock_msg.new_obj.smart_detect_types = ["person"]
+            mock_msg.new_obj.last_motion = None
+            mock_msg.new_obj.last_smart_detect = None
 
             # Mock snapshot service to return successful result (Story P2-3.2)
             mock_snapshot_result = SnapshotResult(
-                image_base64="test_base64",
+                image_base64="dGVzdA==",  # Valid base64 for "test"
                 thumbnail_path="/tmp/test.jpg",
                 width=1920,
                 height=1080,
                 camera_id=str(camera.id),
                 timestamp=datetime.now(timezone.utc)
             )
-            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot:
+
+            # Mock AI service for Story P2-3.3
+            mock_ai_result = MagicMock()
+            mock_ai_result.success = True
+            mock_ai_result.description = "A person detected near the camera"
+            mock_ai_result.confidence = 85
+            mock_ai_result.objects_detected = ["person"]
+            mock_ai_result.provider = "openai"
+            mock_ai_result.response_time_ms = 500
+            mock_ai_result.error = None
+
+            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot, \
+                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
                 mock_service = MagicMock()
                 mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot_result)
                 mock_snapshot.return_value = mock_service
+
+                mock_ai_submit.return_value = mock_ai_result
+
+                # Mock stored event
+                mock_event = MagicMock()
+                mock_event.id = "test-event-id"
+                mock_store.return_value = mock_event
+
+                mock_broadcast.return_value = 1
 
                 result = await handler.handle_event("ctrl-1", mock_msg)
                 assert result == True
@@ -2776,7 +2801,7 @@ class TestHandleEventFullFlow:
     @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
     @pytest.mark.asyncio
     async def test_handle_event_all_motion_mode(self):
-        """AC8: All motion mode processes all event types"""
+        """AC8: All motion mode processes all event types (Story P2-3.3)"""
         from app.services.protect_event_handler import ProtectEventHandler
         from app.services.snapshot_service import SnapshotResult
         from datetime import datetime, timezone
@@ -2805,20 +2830,45 @@ class TestHandleEventFullFlow:
             mock_msg.new_obj.id = "all-motion-cam"
             mock_msg.new_obj.is_motion_detected = False
             mock_msg.new_obj.smart_detect_types = ["vehicle"]
+            mock_msg.new_obj.last_motion = None
+            mock_msg.new_obj.last_smart_detect = None
 
             # Mock snapshot service to return successful result (Story P2-3.2)
             mock_snapshot_result = SnapshotResult(
-                image_base64="test_base64",
+                image_base64="dGVzdA==",  # Valid base64 for "test"
                 thumbnail_path="/tmp/test.jpg",
                 width=1920,
                 height=1080,
                 camera_id=str(camera.id),
                 timestamp=datetime.now(timezone.utc)
             )
-            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot:
+
+            # Mock AI service for Story P2-3.3
+            mock_ai_result = MagicMock()
+            mock_ai_result.success = True
+            mock_ai_result.description = "A vehicle detected near the camera"
+            mock_ai_result.confidence = 85
+            mock_ai_result.objects_detected = ["vehicle"]
+            mock_ai_result.provider = "openai"
+            mock_ai_result.response_time_ms = 500
+            mock_ai_result.error = None
+
+            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot, \
+                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
                 mock_service = MagicMock()
                 mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot_result)
                 mock_snapshot.return_value = mock_service
+
+                mock_ai_submit.return_value = mock_ai_result
+
+                # Mock stored event
+                mock_event = MagicMock()
+                mock_event.id = "test-event-id"
+                mock_store.return_value = mock_event
+
+                mock_broadcast.return_value = 1
 
                 result = await handler.handle_event("ctrl-1", mock_msg)
                 assert result == True

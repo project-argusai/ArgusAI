@@ -1,9 +1,10 @@
 """
-UniFi Protect Event Handler Service (Story P2-3.1)
+UniFi Protect Event Handler Service (Story P2-3.1, P2-3.3)
 
 Handles real-time motion/smart detection events from Protect WebSocket.
 Implements event filtering based on per-camera configuration and
-deduplication with cooldown logic.
+deduplication with cooldown logic. Submits events to AI pipeline and
+stores results in database.
 
 Event Flow:
     uiprotect WebSocket Event
@@ -22,22 +23,34 @@ Event Flow:
             ↓ (if not matching → discard)
     6. Check deduplication cooldown
             ↓ (if duplicate → discard)
-    7. Pass to next stage (snapshot retrieval - Story P2-3.2)
+    7. Retrieve snapshot (Story P2-3.2)
+            ↓
+    8. Submit to AI pipeline (Story P2-3.3)
+            ↓
+    9. Store event in database (Story P2-3.3)
+            ↓
+    10. Broadcast EVENT_CREATED via WebSocket (Story P2-3.3)
 """
 import asyncio
+import base64
+import io
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 
+import numpy as np
+from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.models.camera import Camera
+from app.models.event import Event
 from app.services.snapshot_service import get_snapshot_service, SnapshotResult
 
 if TYPE_CHECKING:
-    pass
+    from app.services.ai_service import AIResult
 
 logger = logging.getLogger(__name__)
 
@@ -208,11 +221,71 @@ class ProtectEventHandler:
                         event_type
                     )
 
-                    # TODO: Story P2-3.3 - Pass snapshot to AI pipeline
-                    # if snapshot_result:
-                    #     await self._submit_to_ai_pipeline(snapshot_result, camera, event_type)
+                    if not snapshot_result:
+                        return False
 
-                    return snapshot_result is not None
+                    # Story P2-3.3: Submit to AI pipeline
+                    # Extract protect_event_id from WebSocket message
+                    protect_event_id = self._extract_protect_event_id(msg)
+
+                    # Track total processing time (AC10, AC11)
+                    pipeline_start = time.time()
+
+                    ai_result = await self._submit_to_ai_pipeline(
+                        snapshot_result,
+                        camera,
+                        filter_type  # Use mapped type (person, vehicle, etc.)
+                    )
+
+                    if not ai_result or not ai_result.success:
+                        logger.warning(
+                            f"AI pipeline failed for camera '{camera.name}'",
+                            extra={
+                                "event_type": "protect_ai_failed",
+                                "camera_id": camera.id,
+                                "error": ai_result.error if ai_result else "No result"
+                            }
+                        )
+                        return False
+
+                    # Story P2-3.3: Store event in database
+                    stored_event = await self._store_protect_event(
+                        db,
+                        ai_result,
+                        snapshot_result,
+                        camera,
+                        filter_type,
+                        protect_event_id
+                    )
+
+                    if not stored_event:
+                        return False
+
+                    # Track and log processing time (AC10, AC11)
+                    processing_time_ms = int((time.time() - pipeline_start) * 1000)
+                    if processing_time_ms > 2000:  # NFR2: 2 second target
+                        logger.warning(
+                            f"Processing time {processing_time_ms}ms exceeds 2s target for camera '{camera.name}'",
+                            extra={
+                                "event_type": "protect_latency_warning",
+                                "camera_id": camera.id,
+                                "processing_time_ms": processing_time_ms
+                            }
+                        )
+                    else:
+                        logger.info(
+                            f"Event processed in {processing_time_ms}ms for camera '{camera.name}'",
+                            extra={
+                                "event_type": "protect_event_processed",
+                                "camera_id": camera.id,
+                                "processing_time_ms": processing_time_ms
+                            }
+                        )
+
+                    # Story P2-3.3: Broadcast EVENT_CREATED via WebSocket (AC12)
+                    await self._broadcast_event_created(stored_event, camera)
+
+                    return True
 
                 return False
 
@@ -511,6 +584,250 @@ class ProtectEventHandler:
             self._last_event_times.pop(camera_id, None)
         else:
             self._last_event_times.clear()
+
+    def _extract_protect_event_id(self, msg: Any) -> Optional[str]:
+        """
+        Extract Protect's native event ID from WebSocket message (Story P2-3.3 AC6).
+
+        Args:
+            msg: WebSocket message from uiprotect
+
+        Returns:
+            Protect event ID string or None if not available
+        """
+        try:
+            new_obj = getattr(msg, 'new_obj', None)
+            if new_obj:
+                # Try to get last_motion event ID
+                last_motion = getattr(new_obj, 'last_motion', None)
+                if last_motion:
+                    event_id = getattr(last_motion, 'id', None)
+                    if event_id:
+                        return str(event_id)
+
+                # Fallback to last_smart_detect
+                last_smart = getattr(new_obj, 'last_smart_detect', None)
+                if last_smart:
+                    event_id = getattr(last_smart, 'id', None)
+                    if event_id:
+                        return str(event_id)
+
+            return None
+        except Exception:
+            return None
+
+    async def _submit_to_ai_pipeline(
+        self,
+        snapshot_result: SnapshotResult,
+        camera: Camera,
+        event_type: str
+    ) -> Optional["AIResult"]:
+        """
+        Submit snapshot to AI pipeline for description generation (Story P2-3.3 AC1-3).
+
+        Converts base64 image to numpy array and calls AIService.generate_description().
+
+        Args:
+            snapshot_result: Snapshot with base64-encoded image
+            camera: Camera that captured the event
+            event_type: Detection type (person, vehicle, etc.)
+
+        Returns:
+            AIResult with description, or None on failure
+        """
+        try:
+            # Lazy import to avoid circular imports (same pattern as snapshot_service)
+            from app.services.ai_service import ai_service
+
+            # Convert base64 to numpy array (BGR format for OpenCV/AI)
+            # (AC2: Use existing AIService.generate_description with image)
+            image_bytes = base64.b64decode(snapshot_result.image_base64)
+            image = Image.open(io.BytesIO(image_bytes))
+
+            # Convert PIL to numpy array and then RGB->BGR for OpenCV convention
+            frame_rgb = np.array(image)
+            if len(frame_rgb.shape) == 3 and frame_rgb.shape[2] == 3:
+                frame_bgr = frame_rgb[:, :, ::-1]  # RGB to BGR
+            else:
+                frame_bgr = frame_rgb
+
+            # Call AI service (AC1, AC2, AC3)
+            # detected_objects provides context about what was detected
+            result = await ai_service.generate_description(
+                frame=frame_bgr,
+                camera_name=camera.name,
+                timestamp=snapshot_result.timestamp.isoformat(),
+                detected_objects=[event_type],  # AC3: Include event type
+                sla_timeout_ms=5000  # 5s SLA target
+            )
+
+            logger.info(
+                f"AI description generated for camera '{camera.name}': {result.description[:50]}...",
+                extra={
+                    "event_type": "protect_ai_success",
+                    "camera_id": camera.id,
+                    "ai_provider": result.provider,
+                    "confidence": result.confidence,
+                    "response_time_ms": result.response_time_ms
+                }
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"AI pipeline error for camera '{camera.name}': {e}",
+                extra={
+                    "event_type": "protect_ai_error",
+                    "camera_id": camera.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            return None
+
+    async def _store_protect_event(
+        self,
+        db: Session,
+        ai_result: "AIResult",
+        snapshot_result: SnapshotResult,
+        camera: Camera,
+        event_type: str,
+        protect_event_id: Optional[str]
+    ) -> Optional[Event]:
+        """
+        Store Protect event in database (Story P2-3.3 AC5-9).
+
+        Creates Event record with source_type='protect' and all AI/snapshot fields.
+
+        Args:
+            db: Database session
+            ai_result: AI description result
+            snapshot_result: Snapshot with thumbnail path
+            camera: Camera that captured the event
+            event_type: Detection type (person, vehicle, etc.)
+            protect_event_id: Protect's native event ID
+
+        Returns:
+            Stored Event model or None on failure
+        """
+        try:
+            # Create Event record (AC5-9)
+            event = Event(
+                camera_id=camera.id,
+                timestamp=snapshot_result.timestamp,
+                description=ai_result.description,  # AC8
+                confidence=ai_result.confidence,  # AC8
+                objects_detected=json.dumps(ai_result.objects_detected),  # AC8
+                thumbnail_path=snapshot_result.thumbnail_path,  # AC9
+                thumbnail_base64=None,  # We use filesystem storage
+                alert_triggered=False,  # Will be evaluated by alert engine
+                source_type='protect',  # AC5
+                protect_event_id=protect_event_id,  # AC6
+                smart_detection_type=event_type  # AC7
+            )
+
+            db.add(event)
+            db.commit()
+            db.refresh(event)
+
+            logger.info(
+                f"Protect event stored: {event.id} for camera '{camera.name}'",
+                extra={
+                    "event_type": "protect_event_stored",
+                    "event_id": event.id,
+                    "camera_id": camera.id,
+                    "source_type": event.source_type,
+                    "smart_detection_type": event.smart_detection_type
+                }
+            )
+
+            return event
+
+        except Exception as e:
+            logger.error(
+                f"Database error storing event for camera '{camera.name}': {e}",
+                extra={
+                    "event_type": "protect_event_store_error",
+                    "camera_id": camera.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            db.rollback()
+            return None
+
+    async def _broadcast_event_created(
+        self,
+        event: Event,
+        camera: Camera
+    ) -> int:
+        """
+        Broadcast EVENT_CREATED message via WebSocket (Story P2-3.3 AC12).
+
+        Broadcasts event details to all connected frontend clients.
+
+        Args:
+            event: Stored Event model
+            camera: Camera that captured the event
+
+        Returns:
+            Number of clients notified
+        """
+        try:
+            # Lazy import to avoid circular imports
+            from app.services.websocket_manager import get_websocket_manager
+
+            websocket_manager = get_websocket_manager()
+
+            # Parse objects_detected from JSON string
+            try:
+                objects_detected = json.loads(event.objects_detected)
+            except (json.JSONDecodeError, TypeError):
+                objects_detected = []
+
+            # Broadcast EVENT_CREATED with all event details (AC12)
+            message = {
+                "type": "EVENT_CREATED",
+                "data": {
+                    "id": event.id,
+                    "camera_id": event.camera_id,
+                    "camera_name": camera.name,
+                    "timestamp": event.timestamp.isoformat(),
+                    "description": event.description,
+                    "confidence": event.confidence,
+                    "objects_detected": objects_detected,
+                    "thumbnail_path": event.thumbnail_path,
+                    "source_type": event.source_type,
+                    "smart_detection_type": event.smart_detection_type,
+                    "protect_event_id": event.protect_event_id
+                }
+            }
+
+            clients_notified = await websocket_manager.broadcast(message)
+
+            logger.debug(
+                f"EVENT_CREATED broadcast: {clients_notified} clients notified",
+                extra={
+                    "event_type": "protect_event_broadcast",
+                    "event_id": event.id,
+                    "clients_notified": clients_notified
+                }
+            )
+
+            return clients_notified
+
+        except Exception as e:
+            logger.warning(
+                f"WebSocket broadcast error: {e}",
+                extra={
+                    "event_type": "protect_broadcast_error",
+                    "event_id": event.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            return 0
 
 
 # Global singleton instance

@@ -1554,8 +1554,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
             controller_id=camera.protect_controller_id,
             protect_camera_id=camera.protect_camera_id,
             camera_id=camera_id,
-            camera_name=camera.name,
-            event_type="manual_trigger"
+            camera_name=camera.name
         )
     except Exception as e:
         logger.error(f"Failed to get snapshot for Protect camera {camera_id}: {e}")

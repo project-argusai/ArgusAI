@@ -1529,6 +1529,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
     from app.services.protect_event_handler import get_protect_event_handler
 
     camera_id = str(camera.id)
+    logger.info(f"Starting manual analysis for Protect camera {camera_id} ({camera.name})")
 
     # Validate Protect camera has required fields
     if not camera.protect_controller_id or not camera.protect_camera_id:
@@ -1540,6 +1541,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
     # Check if controller is connected
     protect_service = get_protect_service()
     controller_status = protect_service.get_connection_status(camera.protect_controller_id)
+    logger.debug(f"Controller status for {camera.protect_controller_id}: {controller_status}")
 
     if not controller_status.get('connected'):
         raise HTTPException(
@@ -1550,14 +1552,16 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
     # Get snapshot from Protect API
     snapshot_service = get_snapshot_service()
     try:
+        logger.debug(f"Requesting snapshot for camera {camera.protect_camera_id}")
         snapshot_result = await snapshot_service.get_snapshot(
             controller_id=camera.protect_controller_id,
             protect_camera_id=camera.protect_camera_id,
             camera_id=camera_id,
             camera_name=camera.name
         )
+        logger.debug(f"Snapshot result: {snapshot_result is not None}")
     except Exception as e:
-        logger.error(f"Failed to get snapshot for Protect camera {camera_id}: {e}")
+        logger.error(f"Failed to get snapshot for Protect camera {camera_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to get camera snapshot: {str(e)}"
@@ -1574,27 +1578,50 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
     event_handler = get_protect_event_handler()
 
     # Submit to AI pipeline
-    ai_result = await event_handler._submit_to_ai_pipeline(
-        snapshot_result=snapshot_result,
-        camera=camera,
-        event_type="manual_trigger"
-    )
-
-    if not ai_result or not ai_result.success:
+    try:
+        logger.debug(f"Submitting to AI pipeline for camera {camera_id}")
+        ai_result = await event_handler._submit_to_ai_pipeline(
+            snapshot_result=snapshot_result,
+            camera=camera,
+            event_type="manual_trigger"
+        )
+        logger.debug(f"AI result: success={ai_result.success if ai_result else 'None'}")
+    except Exception as e:
+        logger.error(f"AI pipeline exception for camera {camera_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI analysis failed: {ai_result.error if ai_result else 'No result'}"
+            detail=f"AI analysis exception: {str(e)}"
+        )
+
+    if not ai_result:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AI analysis failed: No result returned"
+        )
+
+    if not ai_result.success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"AI analysis failed: {ai_result.error}"
         )
 
     # Store the event
-    stored_event = await event_handler._store_protect_event(
-        db=db,
-        ai_result=ai_result,
-        snapshot_result=snapshot_result,
-        camera=camera,
-        event_type="manual_trigger",
-        protect_event_id=None  # Manual trigger has no Protect event ID
-    )
+    try:
+        logger.debug(f"Storing event for camera {camera_id}")
+        stored_event = await event_handler._store_protect_event(
+            db=db,
+            ai_result=ai_result,
+            snapshot_result=snapshot_result,
+            camera=camera,
+            event_type="manual_trigger",
+            protect_event_id=None  # Manual trigger has no Protect event ID
+        )
+    except Exception as e:
+        logger.error(f"Failed to store event for camera {camera_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to store analysis result: {str(e)}"
+        )
 
     if not stored_event:
         raise HTTPException(
@@ -1603,7 +1630,11 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
         )
 
     # Broadcast event
-    await event_handler._broadcast_event_created(stored_event, camera)
+    try:
+        await event_handler._broadcast_event_created(stored_event, camera)
+    except Exception as e:
+        logger.warning(f"Failed to broadcast event {stored_event.id}: {e}")
+        # Don't fail the request if broadcast fails
 
     logger.info(f"Manual analysis completed for Protect camera {camera_id} ({camera.name})")
 

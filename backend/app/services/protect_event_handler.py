@@ -137,6 +137,21 @@ class ProtectEventHandler:
             if not protect_camera_id:
                 return False
 
+            # Debug: Log raw motion/smart detection state for troubleshooting
+            is_motion = getattr(new_obj, 'is_motion_currently_detected', None)
+            active_smart = getattr(new_obj, 'active_smart_detect_types', None)
+            logger.debug(
+                f"WebSocket update for {model_type} {protect_camera_id[:8]}...: "
+                f"motion={is_motion}, smart_detect={active_smart}",
+                extra={
+                    "event_type": "protect_ws_update",
+                    "model_type": model_type,
+                    "protect_camera_id": protect_camera_id,
+                    "is_motion_currently_detected": is_motion,
+                    "active_smart_detect_types": str(active_smart) if active_smart else None
+                }
+            )
+
             # Parse event types from the message (AC2)
             event_types = self._parse_event_types(new_obj, model_type)
             if not event_types:
@@ -345,17 +360,21 @@ class ProtectEventHandler:
         event_types = []
 
         # Check for motion detection
-        is_motion_detected = getattr(obj, 'is_motion_detected', False)
+        # uiprotect uses 'is_motion_currently_detected' (not 'is_motion_detected')
+        is_motion_detected = getattr(obj, 'is_motion_currently_detected', False)
         if is_motion_detected:
             event_types.append("motion")
 
         # Check for smart detection types
-        # uiprotect provides smart_detect_types as a list of detected types
-        smart_detect_types = getattr(obj, 'smart_detect_types', None)
+        # uiprotect uses 'active_smart_detect_types' (not 'smart_detect_types')
+        # This returns a list of SmartDetectObjectType enums when smart detection is active
+        smart_detect_types = getattr(obj, 'active_smart_detect_types', None)
         if smart_detect_types:
             for detect_type in smart_detect_types:
+                # SmartDetectObjectType enum has .value attribute (e.g., 'person', 'vehicle')
+                detect_value = getattr(detect_type, 'value', str(detect_type)).lower()
                 # Convert to our event type format
-                event_key = f"smart_detect_{detect_type.lower()}"
+                event_key = f"smart_detect_{detect_value}"
                 if event_key in VALID_EVENT_TYPES:
                     event_types.append(event_key)
 

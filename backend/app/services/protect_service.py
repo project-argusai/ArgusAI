@@ -1385,7 +1385,7 @@ class ProtectService:
         """
         Extract smart detection capabilities from camera (AC2).
 
-        Looks for smart_detect_types or similar attributes that indicate
+        Uses can_detect_* properties from uiprotect Camera object to determine
         what types of objects the camera can detect (person, vehicle, package, etc.)
 
         Args:
@@ -1396,18 +1396,20 @@ class ProtectService:
         """
         capabilities: List[str] = []
 
-        # Check for smart_detect_types attribute
-        smart_detect_types = getattr(camera, 'smart_detect_types', None)
-        if smart_detect_types:
-            if isinstance(smart_detect_types, (list, tuple)):
-                capabilities.extend([str(t).lower() for t in smart_detect_types])
-            elif hasattr(smart_detect_types, '__iter__'):
-                capabilities.extend([str(t).lower() for t in smart_detect_types])
+        # Check can_detect_* properties (uiprotect Camera properties)
+        if getattr(camera, 'can_detect_person', False):
+            capabilities.append('person')
+        if getattr(camera, 'can_detect_vehicle', False):
+            capabilities.append('vehicle')
+        if getattr(camera, 'can_detect_package', False):
+            capabilities.append('package')
+        if getattr(camera, 'can_detect_animal', False):
+            capabilities.append('animal')
 
-        # Check feature flags for smart detection
+        # Check feature flags for smart detection (fallback)
         feature_flags = getattr(camera, 'feature_flags', None)
         if feature_flags:
-            # Check individual detection capabilities
+            # Check individual detection capabilities from feature flags
             if getattr(feature_flags, 'can_detect_person', False) and 'person' not in capabilities:
                 capabilities.append('person')
             if getattr(feature_flags, 'can_detect_vehicle', False) and 'vehicle' not in capabilities:
@@ -1416,15 +1418,7 @@ class ProtectService:
                 # Generic smart detection without specific types
                 capabilities.append('motion')
 
-        # Deduplicate while preserving order
-        seen = set()
-        unique_capabilities = []
-        for cap in capabilities:
-            if cap not in seen:
-                seen.add(cap)
-                unique_capabilities.append(cap)
-
-        return unique_capabilities
+        return capabilities
 
     def clear_camera_cache(self, controller_id: Optional[str] = None) -> None:
         """

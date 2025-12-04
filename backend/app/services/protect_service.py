@@ -279,12 +279,13 @@ class ProtectService:
                 extra={
                     "event_type": "protect_connection_test_error",
                     "host": host,
-                    "error_type": type(e).__name__
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
                 }
             )
             return ConnectionTestResult(
                 success=False,
-                message=f"Connection failed: {type(e).__name__}",
+                message=f"Connection failed: {type(e).__name__}: {str(e)}",
                 error_type="nvr_error"
             )
 
@@ -307,7 +308,7 @@ class ProtectService:
             # Always close the client connection
             if client:
                 try:
-                    await client.close()
+                    await client.close_session()
                 except Exception:
                     pass  # Ignore errors during cleanup
 
@@ -433,7 +434,7 @@ class ProtectService:
             return False
 
         except (BadRequest, NvrError) as e:
-            error_msg = f"Controller error: {type(e).__name__}"
+            error_msg = f"Controller error: {type(e).__name__}: {str(e)}"
             await self._handle_connection_error(controller_id, error_msg, "nvr_error")
             return False
 
@@ -490,7 +491,7 @@ class ProtectService:
         if controller_id in self._connections:
             client = self._connections.pop(controller_id)
             try:
-                await client.close()
+                await client.close_session()
             except Exception:
                 pass  # Ignore errors during cleanup
 
@@ -649,7 +650,7 @@ class ProtectService:
                 if controller_id in self._connections:
                     old_client = self._connections.pop(controller_id)
                     try:
-                        await old_client.close()
+                        await old_client.close_session()
                     except Exception:
                         pass
 

@@ -1602,9 +1602,13 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
         )
 
     if not ai_result.success:
+        error_msg = ai_result.error or "Unknown error"
+        # Provide user-friendly message for common cases
+        if "no configured providers" in error_msg.lower() or "all providers failed" in error_msg.lower():
+            error_msg = "No AI providers configured. Please add an API key in Settings → AI Providers."
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"AI analysis failed: {ai_result.error}"
+            detail=f"AI analysis failed: {error_msg}"
         )
 
     # Store the event

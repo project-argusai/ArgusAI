@@ -1,0 +1,160 @@
+<story-context id="p2-6-2-enhance-cameras-page-with-source-grouping" v="1.0">
+  <metadata>
+    <epicId>P2-6</epicId>
+    <storyId>2</storyId>
+    <title>Enhance Cameras Page with Source Grouping</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-6-2-enhance-cameras-page-with-source-grouping.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to see all my cameras organized by source type</iWant>
+    <soThat>I can manage different camera systems effectively</soThat>
+    <tasks>
+      <task id="1" name="Add Source Type Tab Filter">
+        <subtask>1.1 Create SourceTypeFilter component with tabs for All/Protect/RTSP/USB</subtask>
+        <subtask>1.2 Calculate camera counts per source type from API response</subtask>
+        <subtask>1.3 Implement filter state management with URL query param sync</subtask>
+        <subtask>1.4 Filter camera list based on selected tab</subtask>
+        <subtask>1.5 Add tests for filter component and state management</subtask>
+      </task>
+      <task id="2" name="Update Camera Cards with Source Badge">
+        <subtask>2.1 Create SourceTypeBadge component (or reuse from events)</subtask>
+        <subtask>2.2 Add source badge to CameraCard component</subtask>
+        <subtask>2.3 Display Protect camera model info if available</subtask>
+        <subtask>2.4 Show WebSocket connection status for Protect cameras</subtask>
+        <subtask>2.5 Disable RTSP URL editing for Protect cameras</subtask>
+      </task>
+      <task id="3" name="Enhance Add Camera Flow">
+        <subtask>3.1 Convert "Add Camera" button to dropdown with options</subtask>
+        <subtask>3.2 Implement "UniFi Protect" option that redirects to settings</subtask>
+        <subtask>3.3 Implement "Manual (RTSP/USB)" option that opens existing form</subtask>
+        <subtask>3.4 Add tests for dropdown behavior and navigation</subtask>
+      </task>
+      <task id="4" name="Add Protect Camera Configure Link">
+        <subtask>4.1 Add "Configure" button/link to Protect camera cards</subtask>
+        <subtask>4.2 Implement navigation to Settings → UniFi Protect section</subtask>
+        <subtask>4.3 Add test for configure link functionality</subtask>
+      </task>
+      <task id="5" name="Responsive Layout Improvements">
+        <subtask>5.1 Implement horizontal scroll for tab filter on mobile</subtask>
+        <subtask>5.2 Verify camera grid responsive breakpoints (1/2/3 columns)</subtask>
+        <subtask>5.3 Manual testing across viewport sizes</subtask>
+      </task>
+      <task id="6" name="Testing and Documentation">
+        <subtask>6.1 Write unit tests for new components</subtask>
+        <subtask>6.2 Write integration tests for filter and navigation</subtask>
+        <subtask>6.3 Run full frontend build to verify no errors</subtask>
+        <subtask>6.4 Update story with dev notes</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Tab filter displays "[All] [UniFi Protect (N)] [RTSP (N)] [USB (N)]" with camera counts</criterion>
+    <criterion id="AC2">Clicking tab filters cameras list to selected source type</criterion>
+    <criterion id="AC3">Camera cards show source type badge (shield for Protect, camera for RTSP, USB icon)</criterion>
+    <criterion id="AC4">Protect cameras show additional info (model name if available)</criterion>
+    <criterion id="AC5">"Add Camera" dropdown offers "Manual (RTSP/USB)" vs "UniFi Protect" options</criterion>
+    <criterion id="AC6">Selecting "UniFi Protect" redirects to Settings → UniFi Protect section</criterion>
+    <criterion id="AC7">Selecting "Manual" opens existing RTSP/USB camera form</criterion>
+    <criterion id="AC8">Protect camera cards show status reflecting WebSocket connection</criterion>
+    <criterion id="AC9">Protect camera "Configure" links to Settings → UniFi Protect section</criterion>
+    <criterion id="AC10">Protect cameras cannot edit RTSP URL (managed by Protect)</criterion>
+    <criterion id="AC11">Tab filter uses horizontal scroll on mobile (less than 640px)</criterion>
+    <criterion id="AC12">Camera grid adapts to screen size (1/2/3 columns)</criterion>
+    <criterion id="AC13">Active filter persists in URL query param (?source=protect)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase2.md" title="Phase 2 Epic Breakdown" section="Story 6.2: Enhance Cameras Page with Source Grouping">
+        Story 6.2 specifies camera page enhancements with source grouping, tab filtering, and enhanced Add Camera flow.
+      </doc>
+      <doc path="docs/ux-design-specification.md" title="UX Design Specification" section="10.6 Cameras Page Enhancement">
+        Camera grid enhancement wireframe with tab filter [All] [UniFi Protect (4)] [RTSP (1)] [USB (0)], source badges on cards, and Add Camera dropdown.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="Phase 2 Additions">
+        Multi-source camera architecture with source_type field (rtsp, usb, protect) and Protect-specific fields.
+      </doc>
+    </docs>
+    <code>
+      <file path="frontend/app/cameras/page.tsx" kind="page" symbol="CamerasPage" lines="1-147" reason="Main cameras page to enhance with tab filter and Add Camera dropdown"/>
+      <file path="frontend/components/cameras/CameraPreview.tsx" kind="component" symbol="CameraPreview" lines="1-97" reason="Camera card component to add source badge and Protect-specific info"/>
+      <file path="frontend/components/cameras/CameraStatus.tsx" kind="component" symbol="CameraStatus" reason="Existing status component to potentially extend for Protect WebSocket status"/>
+      <file path="frontend/components/events/SourceTypeBadge.tsx" kind="component" symbol="SourceTypeBadge" lines="1-41" reason="Existing badge component that can be reused for camera cards"/>
+      <file path="frontend/hooks/useCameras.ts" kind="hook" symbol="useCameras" lines="1-90" reason="Camera list hook - may need enhancement for source_type filtering"/>
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="cameras.list" lines="178-186" reason="API client for camera list - needs source_type filter support"/>
+      <file path="frontend/types/camera.ts" kind="type" symbol="ICamera, CameraType" lines="1-134" reason="Camera type definitions - need source_type field added"/>
+      <file path="backend/app/models/camera.py" kind="model" symbol="Camera" lines="1-136" reason="Backend Camera model with source_type and Protect fields"/>
+    </code>
+    <dependencies>
+      <node>
+        <package name="next" version="16.0.3"/>
+        <package name="react" version="19.2.0"/>
+        <package name="@tanstack/react-query" version="^5.90.10"/>
+        <package name="@radix-ui/react-tabs" version="^1.1.13"/>
+        <package name="@radix-ui/react-dropdown-menu" version="^2.1.16"/>
+        <package name="lucide-react" version="^0.553.0"/>
+        <package name="typescript" version="^5"/>
+        <package name="tailwindcss" version="^4"/>
+      </node>
+      <python>
+        <package name="fastapi" version="0.115.0"/>
+        <package name="sqlalchemy" version=">=2.0.36"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="frontend-only">This is a frontend-only story - no backend API changes required</constraint>
+    <constraint type="pattern">Follow existing component patterns in frontend/components/cameras/</constraint>
+    <constraint type="pattern">Use shadcn/ui components from frontend/components/ui/</constraint>
+    <constraint type="pattern">Use TanStack Query for data fetching and caching</constraint>
+    <constraint type="pattern">Follow existing routing patterns in frontend/app/</constraint>
+    <constraint type="responsive">Support mobile-first responsive design with Tailwind breakpoints</constraint>
+    <constraint type="reuse">Reuse existing SourceTypeBadge from events components if possible</constraint>
+    <constraint type="testing">Frontend tests are optional but recommended - focus on build success</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/cameras" kind="REST endpoint">
+      <signature>GET /api/v1/cameras?is_enabled={boolean}</signature>
+      <path>backend/app/api/v1/cameras.py</path>
+      <note>Currently supports is_enabled filter. Source_type filtering can be done client-side from existing response.</note>
+    </interface>
+    <interface name="ICamera" kind="TypeScript interface">
+      <signature>interface ICamera { id, name, type, source_type?, ... }</signature>
+      <path>frontend/types/camera.ts:55</path>
+      <note>Need to add source_type field to match backend model</note>
+    </interface>
+    <interface name="useCameras" kind="React hook">
+      <signature>useCameras(options?: { is_enabled?, autoFetch? }): { cameras, loading, error, refresh }</signature>
+      <path>frontend/hooks/useCameras.ts:46</path>
+    </interface>
+    <interface name="SourceTypeBadge" kind="React component">
+      <signature>SourceTypeBadge({ sourceType: 'protect' | 'rtsp' | 'usb' })</signature>
+      <path>frontend/components/events/SourceTypeBadge.tsx:24</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend testing with Jest and React Testing Library is available but optional. Focus on TypeScript compilation success via npm run build. Use existing component test patterns if adding tests. Test files typically co-located with components or in __tests__ directory.
+    </standards>
+    <locations>
+      <location>frontend/components/__tests__/ (if exists)</location>
+      <location>frontend/**/*.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1,AC2">Test SourceTypeFilter renders tabs with correct counts and updates filter state on click</idea>
+      <idea ac="AC3">Test CameraPreview renders SourceTypeBadge with correct source type</idea>
+      <idea ac="AC5,AC6,AC7">Test AddCameraDropdown renders options and handles navigation correctly</idea>
+      <idea ac="AC13">Test URL query param sync for filter state persistence</idea>
+      <idea ac="all">Run npm run build to verify TypeScript compilation succeeds</idea>
+    </ideas>
+  </tests>
+</story-context>

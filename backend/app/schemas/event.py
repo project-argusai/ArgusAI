@@ -83,6 +83,8 @@ class EventResponse(BaseModel):
     # Story P2-4.4: Multi-camera event correlation
     correlation_group_id: Optional[str] = Field(None, description="UUID linking correlated events across cameras")
     correlated_events: Optional[List["CorrelatedEventResponse"]] = Field(None, description="Related events from same correlation group")
+    # Story P2-5.3: AI provider tracking
+    provider_used: Optional[str] = Field(None, description="AI provider that generated description (openai/grok/claude/gemini)")
 
     @field_validator('objects_detected', mode='before')
     @classmethod

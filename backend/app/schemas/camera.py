@@ -127,6 +127,14 @@ class CameraResponse(CameraBase):
     created_at: datetime
     updated_at: datetime
 
+    # Phase 2: Source type and Protect integration fields
+    source_type: Optional[Literal['rtsp', 'usb', 'protect']] = Field(None, description="Camera source: rtsp, usb, or protect")
+    protect_controller_id: Optional[str] = Field(None, description="UniFi Protect controller ID")
+    protect_camera_id: Optional[str] = Field(None, description="Camera ID in Protect system")
+    protect_camera_type: Optional[str] = Field(None, description="Protect camera model type")
+    smart_detection_types: Optional[Any] = Field(None, description="Enabled smart detection types")
+    is_doorbell: Optional[bool] = Field(None, description="Whether camera is a doorbell")
+
     # Note: password field is intentionally omitted (write-only field)
 
     @field_validator('detection_zones', mode='before')

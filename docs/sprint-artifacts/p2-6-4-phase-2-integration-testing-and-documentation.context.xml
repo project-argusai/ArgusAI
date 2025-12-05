@@ -1,0 +1,205 @@
+<story-context id="p2-6-4-phase-2-integration-testing-and-documentation" v="1.0">
+  <metadata>
+    <epicId>P2-6</epicId>
+    <storyId>4</storyId>
+    <title>Phase 2 Integration Testing and Documentation</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-6-4-phase-2-integration-testing-and-documentation.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer and user</asA>
+    <iWant>comprehensive testing and documentation for Phase 2 features</iWant>
+    <soThat>the release is production-ready and users can self-serve</soThat>
+    <tasks>
+      <task id="1" name="Create Integration Test Suite">
+        <subtask>1.1 Create test_protect_controller.py - Controller lifecycle tests</subtask>
+        <subtask>1.2 Create test_protect_cameras.py - Camera discovery and enable/disable</subtask>
+        <subtask>1.3 Create test_protect_events.py - Event flow from Protect to dashboard</subtask>
+        <subtask>1.4 Create test_doorbell.py - Doorbell ring detection tests</subtask>
+        <subtask>1.5 Create test_correlation.py - Multi-camera correlation tests</subtask>
+        <subtask>1.6 Create test_grok_provider.py - Grok configuration and fallback</subtask>
+        <subtask>1.7 Create test_coexistence.py - RTSP/Protect coexistence</subtask>
+      </task>
+      <task id="2" name="Create Performance Test Suite">
+        <subtask>2.1 Create test_nfr_performance.py - All NFR performance tests</subtask>
+        <subtask>2.2 Test camera discovery timing (less than 10 seconds)</subtask>
+        <subtask>2.3 Test event processing latency (less than 2 seconds)</subtask>
+        <subtask>2.4 Test WebSocket reconnect timing (less than 5 seconds)</subtask>
+        <subtask>2.5 Test snapshot retrieval timing (less than 1 second)</subtask>
+      </task>
+      <task id="3" name="Update README Documentation">
+        <subtask>3.1 Add UniFi Protect Integration section</subtask>
+        <subtask>3.2 Add xAI Grok provider section</subtask>
+        <subtask>3.3 Update feature list with Phase 2 capabilities</subtask>
+        <subtask>3.4 Add setup instructions for Protect controller</subtask>
+      </task>
+      <task id="4" name="Update CLAUDE.md">
+        <subtask>4.1 Add Phase 2 API endpoints documentation</subtask>
+        <subtask>4.2 Add new services documentation (ProtectService, ProtectEventListener)</subtask>
+        <subtask>4.3 Update architecture section with Phase 2 components</subtask>
+        <subtask>4.4 Add new database models (protect_controller, event.description_retry_needed)</subtask>
+      </task>
+      <task id="5" name="Add Settings Page Help Text">
+        <subtask>5.1 Add tooltips/help text for UniFi Protect configuration fields</subtask>
+        <subtask>5.2 Add contextual help for camera event type filtering</subtask>
+        <subtask>5.3 Add help text for Grok provider configuration</subtask>
+      </task>
+      <task id="6" name="Create Troubleshooting Guide">
+        <subtask>6.1 Create docs/troubleshooting-protect.md</subtask>
+        <subtask>6.2 Document common connection issues and solutions</subtask>
+        <subtask>6.3 Document camera discovery issues</subtask>
+        <subtask>6.4 Document WebSocket connection issues</subtask>
+      </task>
+      <task id="7" name="Release Verification">
+        <subtask>7.1 Run full integration test suite and document results</subtask>
+        <subtask>7.2 Run performance test suite and verify NFR targets</subtask>
+        <subtask>7.3 Verify no critical bugs in bug tracker / test results</subtask>
+        <subtask>7.4 Complete documentation checklist verification</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Integration tests cover controller connection lifecycle (connect, reconnect, disconnect)</criterion>
+    <criterion id="AC2">Integration tests cover camera discovery and enable/disable</criterion>
+    <criterion id="AC3">Integration tests cover event flow from Protect to dashboard</criterion>
+    <criterion id="AC4">Integration tests cover doorbell ring detection and display</criterion>
+    <criterion id="AC5">Integration tests cover multi-camera correlation</criterion>
+    <criterion id="AC6">Integration tests cover Grok provider configuration and fallback</criterion>
+    <criterion id="AC7">Integration tests cover RTSP/Protect coexistence</criterion>
+    <criterion id="AC8">Performance test: Camera discovery less than 10 seconds (NFR1)</criterion>
+    <criterion id="AC9">Performance test: Event latency less than 2 seconds (NFR2)</criterion>
+    <criterion id="AC10">Performance test: WebSocket reconnect less than 5 seconds (NFR3)</criterion>
+    <criterion id="AC11">Performance test: Snapshot retrieval less than 1 second (NFR4)</criterion>
+    <criterion id="AC12">README updated with Phase 2 features</criterion>
+    <criterion id="AC13">CLAUDE.md updated with new endpoints and services</criterion>
+    <criterion id="AC14">Settings page help text for UniFi Protect section</criterion>
+    <criterion id="AC15">Troubleshooting guide for common Protect issues</criterion>
+    <criterion id="AC16">Release checklist: All acceptance criteria verified</criterion>
+    <criterion id="AC17">Release checklist: No critical bugs</criterion>
+    <criterion id="AC18">Release checklist: Performance targets met</criterion>
+    <criterion id="AC19">Release checklist: Documentation complete</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase2.md" title="Phase 2 Epic Breakdown" section="Story 6.4">
+        Story 6.4 specifies integration tests for all Phase 2 critical paths, performance tests for NFR1-NFR4, and documentation updates including README, CLAUDE.md, and troubleshooting guide.
+      </doc>
+      <doc path="docs/PRD-phase2.md" title="PRD Phase 2" section="NFR1-NFR4">
+        NFR1: Camera discovery less than 10 seconds. NFR2: Event latency less than 2 seconds. NFR3: WebSocket reconnect less than 5 seconds. NFR4: Snapshot retrieval less than 1 second.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="Testing Strategy">
+        Backend uses pytest with pytest-asyncio. Tests organized in test_api/, test_services/, test_integration/, test_models/, test_utils/.
+      </doc>
+      <doc path="CLAUDE.md" title="Claude MD" section="Build and Test Commands">
+        pytest tests/ -v for all tests. pytest tests/ --cov=app --cov-report=html for coverage.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/protect_service.py" kind="service" symbol="ProtectService" reason="Main service to test for controller lifecycle, camera discovery, WebSocket connection"/>
+      <file path="backend/app/services/protect_event_handler.py" kind="service" symbol="ProtectEventHandler" reason="Event handling service to test for event flow and doorbell detection"/>
+      <file path="backend/app/services/ai_service.py" kind="service" symbol="AIService" reason="AI service with Grok provider to test fallback chain"/>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor" reason="Event processor to test event latency and correlation"/>
+      <file path="backend/app/api/v1/protect.py" kind="router" symbol="protect_router" reason="API endpoints to test for controller and camera operations"/>
+      <file path="backend/tests/test_integration/test_coexistence.py" kind="test" symbol="TestCoexistence" reason="Existing integration test - follow patterns for new tests"/>
+      <file path="backend/tests/test_api/test_protect.py" kind="test" symbol="TestProtectControllerAPI" reason="Existing API tests - follow patterns for integration tests"/>
+      <file path="backend/tests/test_services/test_ai_service.py" kind="test" symbol="TestAIService" reason="Existing service tests - follow patterns for Grok provider tests"/>
+      <file path="backend/tests/conftest.py" kind="fixture" symbol="fixtures" reason="Test fixtures and configuration to reuse"/>
+      <file path="README.md" kind="doc" symbol="README" reason="Documentation to update with Phase 2 features"/>
+    </code>
+
+    <interfaces>
+      <interface name="ProtectService" kind="class" path="backend/app/services/protect_service.py">
+        discover_cameras(controller_id, force_refresh) - Camera discovery
+        connect_controller(controller_id) - Controller connection
+        disconnect_controller(controller_id) - Controller disconnection
+        get_snapshot(camera_id, event_id) - Snapshot retrieval
+      </interface>
+      <interface name="ProtectEventHandler" kind="class" path="backend/app/services/protect_event_handler.py">
+        handle_event(event_data) - Process incoming Protect event
+        parse_event_type(raw_event) - Parse smart detection types
+        is_doorbell_ring(event) - Check for doorbell ring
+      </interface>
+      <interface name="AIService" kind="class" path="backend/app/services/ai_service.py">
+        generate_description(frame, camera_name, timestamp, detected_objects) - AI description with fallback
+        _try_provider(provider, image_base64, prompt) - Individual provider call
+      </interface>
+      <interface name="EventCorrelationService" kind="class" path="backend/app/services/event_processor.py">
+        correlate_events(event, time_window) - Multi-camera correlation
+      </interface>
+    </interfaces>
+
+    <dependencies>
+      <python>
+        <package name="pytest" version=">=7.0"/>
+        <package name="pytest-asyncio" version=">=0.21"/>
+        <package name="pytest-cov" version=">=4.0"/>
+        <package name="httpx" version=">=0.24" note="For async HTTP testing"/>
+        <package name="uiprotect" version=">=4.0" note="UniFi Protect API"/>
+        <package name="openai" version=">=1.0"/>
+        <package name="anthropic" version=">=0.18"/>
+        <package name="google-generativeai" version=">=0.3"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Tests must use pytest-asyncio for async service tests</constraint>
+    <constraint source="architecture">Integration tests go in backend/tests/test_integration/</constraint>
+    <constraint source="architecture">Performance tests should use pytest markers for selective running</constraint>
+    <constraint source="PRD">NFR1: Camera discovery must complete in less than 10 seconds</constraint>
+    <constraint source="PRD">NFR2: Event processing latency must be less than 2 seconds</constraint>
+    <constraint source="PRD">NFR3: WebSocket reconnection must complete in less than 5 seconds</constraint>
+    <constraint source="PRD">NFR4: Snapshot retrieval must complete in less than 1 second</constraint>
+    <constraint source="CLAUDE.md">Documentation updates should follow existing patterns in README.md and CLAUDE.md</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests. Tests are organized by type: test_api/ for API endpoint tests, test_services/ for service unit tests, test_integration/ for integration tests, test_models/ for ORM tests. Coverage reports generated with pytest-cov. Follow existing patterns in test_coexistence.py for new integration tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_integration/</location>
+      <location>backend/tests/test_api/</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test controller connect, verify is_connected=True, disconnect, verify cleanup</idea>
+      <idea ac="AC2">Test discover_cameras returns expected cameras, test enable/disable toggles is_enabled_for_ai</idea>
+      <idea ac="AC3">Test event from WebSocket triggers AI description and appears in events API</idea>
+      <idea ac="AC4">Test doorbell ring event sets is_doorbell_ring=True and distinct styling</idea>
+      <idea ac="AC5">Test events within time window get same correlation_group_id</idea>
+      <idea ac="AC6">Test Grok provider configuration and fallback when Grok fails</idea>
+      <idea ac="AC7">Test RTSP and Protect cameras both active, both producing events</idea>
+      <idea ac="AC8-11">Use time.time() to measure operation duration, assert less than NFR threshold</idea>
+    </ideas>
+  </tests>
+
+  <previousStoryLearnings>
+    <source>docs/sprint-artifacts/p2-6-3-implement-phase-2-error-handling-and-edge-cases.md</source>
+    <status>done</status>
+    <newFiles>
+      <file>frontend/components/protect/ConnectionErrorBanner.tsx</file>
+      <file>frontend/components/common/ErrorBoundary.tsx</file>
+      <file>frontend/lib/hooks/useWebSocketWithNotifications.ts</file>
+      <file>backend/alembic/versions/016_add_description_retry_needed_to_events.py</file>
+    </newFiles>
+    <modifiedFiles>
+      <file>frontend/components/protect/DiscoveredCameraList.tsx</file>
+      <file>frontend/app/settings/page.tsx</file>
+      <file>backend/app/models/event.py</file>
+      <file>backend/app/services/event_processor.py</file>
+    </modifiedFiles>
+    <patterns>
+      <pattern>Error banners: Yellow for recoverable, red for user action required</pattern>
+      <pattern>Toast notifications via sonner library</pattern>
+      <pattern>WebSocket reconnect with exponential backoff (1s, 2s, 4s, 8s, 16s, 30s cap)</pattern>
+    </patterns>
+    <testingNotes>545 backend tests passed. Frontend TypeScript build verified. Test coverage for error scenarios was deferred - consider adding in this story.</testingNotes>
+  </previousStoryLearnings>
+</story-context>

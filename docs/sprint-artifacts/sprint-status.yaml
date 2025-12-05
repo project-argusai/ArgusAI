@@ -1,6 +1,6 @@
 # Sprint Status
 # Auto-generated from epics.md and epics-phase2.md structure
-# Last updated: 2025-12-01
+# Last updated: 2025-12-04
 
 # STATUS DEFINITIONS:
 # ==================
@@ -124,24 +124,24 @@ development_status:
   epic-p2-3-retrospective: optional
 
   # Epic P2-4: Doorbell & Multi-Camera Features
-  epic-p2-4: backlog
+  epic-p2-4: done
   p2-4-1-implement-doorbell-ring-event-detection-and-handling: done
   p2-4-2-build-doorbell-event-card-with-distinct-styling: done
   p2-4-3-implement-multi-camera-event-correlation-service: done
-  p2-4-4-display-correlated-events-in-dashboard: review
+  p2-4-4-display-correlated-events-in-dashboard: done
   epic-p2-4-retrospective: optional
 
   # Epic P2-5: xAI Grok Provider
   epic-p2-5: backlog
-  p2-5-1-implement-xai-grok-provider-in-ai-service: backlog
-  p2-5-2-build-grok-provider-configuration-ui: backlog
-  p2-5-3-add-grok-to-fallback-chain-and-test-integration: backlog
+  p2-5-1-implement-xai-grok-provider-in-ai-service: done
+  p2-5-2-build-grok-provider-configuration-ui: done
+  p2-5-3-add-grok-to-fallback-chain-and-test-integration: done
   epic-p2-5-retrospective: optional
 
   # Epic P2-6: Coexistence & Polish
-  epic-p2-6: backlog
-  p2-6-1-verify-rtsp-usb-camera-coexistence: backlog
-  p2-6-2-enhance-cameras-page-with-source-grouping: backlog
-  p2-6-3-implement-phase-2-error-handling-and-edge-cases: backlog
-  p2-6-4-phase-2-integration-testing-and-documentation: backlog
+  epic-p2-6: done
+  p2-6-1-verify-rtsp-usb-camera-coexistence: done
+  p2-6-2-enhance-cameras-page-with-source-grouping: done
+  p2-6-3-implement-phase-2-error-handling-and-edge-cases: done
+  p2-6-4-phase-2-integration-testing-and-documentation: done
   epic-p2-6-retrospective: optional

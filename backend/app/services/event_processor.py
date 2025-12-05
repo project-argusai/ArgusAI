@@ -535,6 +535,9 @@ class EventProcessor:
             3. (Stub) Evaluate alert rules
             4. (Stub) WebSocket broadcast
 
+        Story P2-6.3 AC13: If all AI providers fail, store event without description
+        and flag for retry.
+
         Args:
             event: ProcessingEvent to process
             worker_id: Worker identifier for logging
@@ -554,16 +557,41 @@ class EventProcessor:
                 sla_timeout_ms=5000
             )
 
+            # Step 2: Generate thumbnail from frame
+            thumbnail_base64 = self._generate_thumbnail(event.frame)
+
+            # Story P2-6.3 AC13: If all AI providers fail, store event without description
+            # and flag for retry instead of failing completely
             if not ai_result.success:
-                logger.error(
-                    f"AI service failed for camera {event.camera_name}",
+                logger.warning(
+                    f"All AI providers failed for camera {event.camera_name}, storing event for retry",
                     extra={
                         "camera_id": event.camera_id,
-                        "error": "AI generation failed"
+                        "error": "All AI providers down"
                     }
                 )
                 self.metrics.increment_error("ai_service_failed")
-                return False
+
+                # Store event without description, flagged for retry (AC13)
+                event_data = {
+                    "camera_id": event.camera_id,
+                    "timestamp": event.timestamp.isoformat(),
+                    "description": "[AI description pending - providers unavailable]",
+                    "confidence": 0,  # 0 confidence indicates no AI analysis
+                    "objects_detected": event.detected_objects,
+                    "thumbnail_base64": thumbnail_base64,
+                    "alert_triggered": False,
+                    "provider_used": None,
+                    "description_retry_needed": True  # Flag for retry (AC13)
+                }
+
+                success = await self._store_event_with_retry(event_data, max_retries=3)
+                if success:
+                    logger.info(
+                        f"Event stored for retry: camera {event.camera_name}",
+                        extra={"camera_id": event.camera_id, "description_retry_needed": True}
+                    )
+                return success
 
             logger.debug(
                 f"Worker {worker_id}: AI description generated",
@@ -575,9 +603,6 @@ class EventProcessor:
                 }
             )
 
-            # Step 2: Generate thumbnail from frame
-            thumbnail_base64 = self._generate_thumbnail(event.frame)
-
             # Step 3: Store event in database
             event_data = {
                 "camera_id": event.camera_id,
@@ -586,7 +611,9 @@ class EventProcessor:
                 "confidence": ai_result.confidence,
                 "objects_detected": ai_result.objects_detected,
                 "thumbnail_base64": thumbnail_base64,
-                "alert_triggered": False  # Will be set by alert evaluation (Epic 5)
+                "alert_triggered": False,  # Will be set by alert evaluation (Epic 5)
+                "provider_used": ai_result.provider,  # Story P2-5.3: Track AI provider
+                "description_retry_needed": False  # Successfully processed
             }
 
             logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
@@ -708,6 +735,8 @@ class EventProcessor:
                     objects_detected=objects_detected,
                     thumbnail_path=thumbnail_path,
                     alert_triggered=event_data.get("alert_triggered", False),
+                    provider_used=event_data.get("provider_used"),  # Story P2-5.3: AI provider tracking
+                    description_retry_needed=event_data.get("description_retry_needed", False),  # Story P2-6.3 AC13
                 )
 
                 db.add(event)

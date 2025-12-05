@@ -137,6 +137,26 @@ class ProtectEventHandler:
             if not protect_camera_id:
                 return False
 
+            # Debug: Log raw motion/smart detection state for troubleshooting
+            is_motion = getattr(new_obj, 'is_motion_currently_detected', None)
+            is_smart_detected = getattr(new_obj, 'is_smart_detected', None)
+            last_smart_event_ids = getattr(new_obj, 'last_smart_detect_event_ids', None)
+            active_smart_types = getattr(new_obj, 'active_smart_detect_types', None)
+            logger.debug(
+                f"WebSocket update for {model_type} {protect_camera_id[:8]}...: "
+                f"motion={is_motion}, is_smart_detected={is_smart_detected}, "
+                f"last_smart_event_ids={last_smart_event_ids}, active_types={active_smart_types}",
+                extra={
+                    "event_type": "protect_ws_update",
+                    "model_type": model_type,
+                    "protect_camera_id": protect_camera_id,
+                    "is_motion_currently_detected": is_motion,
+                    "is_smart_detected": is_smart_detected,
+                    "last_smart_detect_event_ids": str(last_smart_event_ids) if last_smart_event_ids else None,
+                    "active_smart_detect_types": str(active_smart_types) if active_smart_types else None
+                }
+            )
+
             # Parse event types from the message (AC2)
             event_types = self._parse_event_types(new_obj, model_type)
             if not event_types:
@@ -345,19 +365,37 @@ class ProtectEventHandler:
         event_types = []
 
         # Check for motion detection
-        is_motion_detected = getattr(obj, 'is_motion_detected', False)
+        # uiprotect uses 'is_motion_currently_detected' (not 'is_motion_detected')
+        is_motion_detected = getattr(obj, 'is_motion_currently_detected', False)
         if is_motion_detected:
             event_types.append("motion")
 
         # Check for smart detection types
-        # uiprotect provides smart_detect_types as a list of detected types
-        smart_detect_types = getattr(obj, 'smart_detect_types', None)
-        if smart_detect_types:
-            for detect_type in smart_detect_types:
-                # Convert to our event type format
-                event_key = f"smart_detect_{detect_type.lower()}"
-                if event_key in VALID_EVENT_TYPES:
-                    event_types.append(event_key)
+        # IMPORTANT: 'active_smart_detect_types' returns CONFIGURED types, not currently detected types.
+        # We must check 'is_smart_detected' (bool) FIRST to confirm a detection is active,
+        # then use 'last_smart_detect_event_ids' to determine WHICH type(s) triggered the detection.
+        # If last_smart_detect_event_ids is empty but is_smart_detected is True, we fall back to
+        # using 'active_smart_detect_types' as those are the types that could have triggered.
+        is_smart_detected = getattr(obj, 'is_smart_detected', False)
+        if is_smart_detected:
+            # First try to get specific detection types from event IDs
+            last_smart_event_ids = getattr(obj, 'last_smart_detect_event_ids', {})
+            if last_smart_event_ids:
+                # We have specific detection types
+                for detect_type in last_smart_event_ids.keys():
+                    detect_value = getattr(detect_type, 'value', str(detect_type)).lower()
+                    event_key = f"smart_detect_{detect_value}"
+                    if event_key in VALID_EVENT_TYPES:
+                        event_types.append(event_key)
+            else:
+                # Fallback: use active_smart_detect_types when is_smart_detected is True
+                # This means a smart detection occurred but we don't know the specific type
+                active_types = getattr(obj, 'active_smart_detect_types', set())
+                for detect_type in active_types:
+                    detect_value = getattr(detect_type, 'value', str(detect_type)).lower()
+                    event_key = f"smart_detect_{detect_value}"
+                    if event_key in VALID_EVENT_TYPES:
+                        event_types.append(event_key)
 
         # Check for doorbell ring (specific to doorbells)
         if model_type == 'Doorbell':
@@ -769,7 +807,8 @@ class ProtectEventHandler:
                 source_type='protect',  # AC5
                 protect_event_id=protect_event_id,  # AC6
                 smart_detection_type=event_type,  # AC7 (will be 'ring' for doorbell events)
-                is_doorbell_ring=is_doorbell_ring  # Story P2-4.1 AC3, AC5
+                is_doorbell_ring=is_doorbell_ring,  # Story P2-4.1 AC3, AC5
+                provider_used=ai_result.provider  # Story P2-5.3: AI provider tracking
             )
 
             db.add(event)

@@ -3,8 +3,9 @@ AI Vision Service for generating natural language descriptions from camera frame
 
 Supports multiple AI providers with automatic fallback:
 - Primary: OpenAI GPT-4o mini (vision capable)
-- Secondary: Anthropic Claude 3 Haiku
-- Tertiary: Google Gemini Flash
+- Secondary: xAI Grok (vision capable, OpenAI-compatible API)
+- Tertiary: Anthropic Claude 3 Haiku
+- Quaternary: Google Gemini Flash
 
 Features:
 - Multi-provider fallback for reliability
@@ -43,6 +44,7 @@ logger = logging.getLogger(__name__)
 class AIProvider(Enum):
     """Supported AI vision providers"""
     OPENAI = "openai"
+    GROK = "grok"
     CLAUDE = "claude"
     GEMINI = "gemini"
 
@@ -112,17 +114,20 @@ class AIProviderBase(ABC):
             camera_name: Name of the camera
             timestamp: ISO 8601 timestamp
             detected_objects: List of detected object types
-            custom_prompt: Optional custom prompt to use instead of default context (Story P2-4.1)
+            custom_prompt: Optional custom prompt to override the base description instruction
+                          (from Settings → AI Provider Configuration → Description prompt,
+                           or from Story P2-4.1 doorbell ring events)
         """
-        # Story P2-4.1: Use custom prompt if provided (e.g., for doorbell ring events)
-        if custom_prompt:
-            context = f"\nContext: Camera '{camera_name}' at {timestamp}.\n{custom_prompt}"
-            return context
-
+        # Build camera context
         context = f"\nContext: Camera '{camera_name}' at {timestamp}."
         if detected_objects:
             context += f" Motion detected: {', '.join(detected_objects)}."
-        return self.user_prompt_template + context
+
+        # Use custom prompt if provided (from Settings description_prompt or doorbell ring)
+        # Otherwise use the default user_prompt_template
+        base_prompt = custom_prompt if custom_prompt else self.user_prompt_template
+
+        return base_prompt + context
 
     def _extract_objects(self, description: str) -> List[str]:
         """Extract object types from description text"""
@@ -486,12 +491,179 @@ class GeminiProvider(AIProviderBase):
             )
 
 
+class GrokProvider(AIProviderBase):
+    """xAI Grok vision provider (OpenAI-compatible API)"""
+
+    def __init__(self, api_key: str):
+        super().__init__(api_key)
+        # Use OpenAI client with xAI base URL
+        self.client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.x.ai/v1"
+        )
+        self.model = "grok-2-vision-1212"
+        self.cost_per_1k_input_tokens = 0.00010  # Approximate (similar to GPT-4o mini)
+        self.cost_per_1k_output_tokens = 0.00040
+
+    async def generate_description(
+        self,
+        image_base64: str,
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str],
+        custom_prompt: Optional[str] = None
+    ) -> AIResult:
+        """Generate description using xAI Grok Vision API"""
+        start_time = time.time()
+
+        try:
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt)
+
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens=300,
+                timeout=30.0  # 30-second timeout for Grok
+            )
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            description = response.choices[0].message.content.strip()
+
+            # Extract usage stats
+            tokens_used = response.usage.total_tokens if response.usage else 0
+            input_tokens = response.usage.prompt_tokens if response.usage else 0
+            output_tokens = response.usage.completion_tokens if response.usage else 0
+
+            # Calculate cost
+            cost = (
+                (input_tokens / 1000 * self.cost_per_1k_input_tokens) +
+                (output_tokens / 1000 * self.cost_per_1k_output_tokens)
+            )
+
+            # Generate confidence score
+            confidence = self._calculate_confidence(description, tokens_used)
+
+            # Extract objects from description
+            objects = self._extract_objects(description)
+
+            logger.info(
+                "Grok API call successful",
+                extra={
+                    "event_type": "ai_api_success",
+                    "provider": "grok",
+                    "model": self.model,
+                    "response_time_ms": elapsed_ms,
+                    "tokens_used": tokens_used,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": cost,
+                    "confidence": confidence,
+                }
+            )
+
+            # Record metrics
+            try:
+                from app.core.metrics import record_ai_api_call
+                record_ai_api_call(
+                    provider="grok",
+                    model=self.model,
+                    status="success",
+                    duration_seconds=elapsed_ms / 1000,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=cost
+                )
+            except ImportError:
+                pass
+
+            return AIResult(
+                description=description,
+                confidence=confidence,
+                objects_detected=objects,
+                provider=AIProvider.GROK.value,
+                tokens_used=tokens_used,
+                response_time_ms=elapsed_ms,
+                cost_estimate=cost,
+                success=True
+            )
+
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(
+                "Grok API call failed",
+                extra={
+                    "event_type": "ai_api_error",
+                    "provider": "grok",
+                    "model": self.model,
+                    "response_time_ms": elapsed_ms,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+
+            # Record error metrics
+            try:
+                from app.core.metrics import record_ai_api_call
+                record_ai_api_call(
+                    provider="grok",
+                    model=self.model,
+                    status="error",
+                    duration_seconds=elapsed_ms / 1000
+                )
+            except ImportError:
+                pass
+
+            return AIResult(
+                description="",
+                confidence=0,
+                objects_detected=[],
+                provider=AIProvider.GROK.value,
+                tokens_used=0,
+                response_time_ms=elapsed_ms,
+                cost_estimate=0.0,
+                success=False,
+                error=str(e)
+            )
+
+    def _calculate_confidence(self, description: str, tokens_used: int) -> int:
+        """Calculate confidence score based on response quality"""
+        confidence = 70  # Base confidence
+
+        # Longer descriptions are more confident
+        if tokens_used > 100:
+            confidence += 10
+        elif tokens_used > 50:
+            confidence += 5
+
+        # Contains specific details
+        if any(word in description.lower() for word in ['wearing', 'holding', 'standing', 'walking']):
+            confidence += 10
+
+        # Cap at 100
+        return min(confidence, 100)
+
+
 class AIService:
     """Main AI service with multi-provider fallback and usage tracking"""
 
     def __init__(self):
         self.providers: Dict[AIProvider, Optional[AIProviderBase]] = {}
         self.db: Optional[Session] = None  # Database session for usage tracking
+        self.description_prompt: Optional[str] = None  # Custom description prompt from settings
 
     async def load_api_keys_from_db(self, db: Session):
         """
@@ -505,32 +677,48 @@ class AIService:
 
         Expected database keys:
             - ai_api_key_openai: encrypted:... (OpenAI GPT-4o mini)
+            - ai_api_key_grok: encrypted:... (xAI Grok)
             - ai_api_key_claude: encrypted:... (Anthropic Claude 3 Haiku)
             - ai_api_key_gemini: encrypted:... (Google Gemini Flash)
         """
         logger.info("Loading AI provider API keys from database...")
 
         try:
-            # Query all AI API key settings
+            # Query all AI API key settings and description prompt
             settings = db.query(SystemSetting).filter(
                 SystemSetting.key.in_([
                     'ai_api_key_openai',
+                    'ai_api_key_grok',
                     'ai_api_key_claude',
-                    'ai_api_key_gemini'
+                    'ai_api_key_gemini',
+                    'settings_description_prompt'  # Custom description prompt from AI Provider Configuration
                 ])
             ).all()
 
             # Build key mapping
             keys = {setting.key: setting.value for setting in settings}
 
+            # Load custom description prompt if configured
+            if 'settings_description_prompt' in keys and keys['settings_description_prompt']:
+                self.description_prompt = keys['settings_description_prompt']
+                logger.info(f"Custom description prompt loaded: '{self.description_prompt[:50]}...'")
+            else:
+                self.description_prompt = None
+                logger.info("Using default description prompt")
+
             # Decrypt and configure each provider
             openai_key = None
+            grok_key = None
             claude_key = None
             gemini_key = None
 
             if 'ai_api_key_openai' in keys:
                 openai_key = decrypt_password(keys['ai_api_key_openai'])
                 logger.info("OpenAI API key loaded from database")
+
+            if 'ai_api_key_grok' in keys:
+                grok_key = decrypt_password(keys['ai_api_key_grok'])
+                logger.info("Grok API key loaded from database")
 
             if 'ai_api_key_claude' in keys:
                 claude_key = decrypt_password(keys['ai_api_key_claude'])
@@ -543,6 +731,7 @@ class AIService:
             # Configure providers with decrypted keys
             self.configure_providers(
                 openai_key=openai_key,
+                grok_key=grok_key,
                 claude_key=claude_key,
                 gemini_key=gemini_key
             )
@@ -559,6 +748,7 @@ class AIService:
     def configure_providers(
         self,
         openai_key: Optional[str] = None,
+        grok_key: Optional[str] = None,
         claude_key: Optional[str] = None,
         gemini_key: Optional[str] = None
     ):
@@ -570,12 +760,17 @@ class AIService:
 
         Args:
             openai_key: OpenAI API key (plaintext)
+            grok_key: xAI Grok API key (plaintext)
             claude_key: Anthropic API key (plaintext)
             gemini_key: Google API key (plaintext)
         """
         if openai_key:
             self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key)
             logger.info("OpenAI provider configured")
+
+        if grok_key:
+            self.providers[AIProvider.GROK] = GrokProvider(grok_key)
+            logger.info("Grok provider configured")
 
         if claude_key:
             self.providers[AIProvider.CLAUDE] = ClaudeProvider(claude_key)
@@ -584,6 +779,51 @@ class AIService:
         if gemini_key:
             self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key)
             logger.info("Gemini provider configured")
+
+    def _get_provider_order(self) -> List[AIProvider]:
+        """
+        Get provider order from database settings or return default order.
+        (Story P2-5.2: Configurable provider fallback chain)
+
+        Returns:
+            List of AIProvider enums in configured order
+        """
+        default_order = [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
+
+        if self.db is None:
+            return default_order
+
+        try:
+            import json
+            order_setting = self.db.query(SystemSetting).filter(
+                SystemSetting.key == "ai_provider_order"
+            ).first()
+
+            if order_setting and order_setting.value:
+                try:
+                    order_list = json.loads(order_setting.value)
+                    # Convert string names to AIProvider enums
+                    provider_map = {
+                        "openai": AIProvider.OPENAI,
+                        "grok": AIProvider.GROK,
+                        "anthropic": AIProvider.CLAUDE,
+                        "google": AIProvider.GEMINI,
+                    }
+                    provider_order = []
+                    for name in order_list:
+                        if name in provider_map:
+                            provider_order.append(provider_map[name])
+                    # If we got a valid order, use it
+                    if provider_order:
+                        logger.debug(f"Using configured provider order: {[p.value for p in provider_order]}")
+                        return provider_order
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Invalid provider order in settings: {e}, using default")
+
+            return default_order
+        except Exception as e:
+            logger.warning(f"Failed to load provider order from database: {e}, using default")
+            return default_order
 
     async def generate_description(
         self,
@@ -618,12 +858,35 @@ class AIService:
         if detected_objects is None:
             detected_objects = []
 
+        # Use custom prompt from settings if no explicit custom_prompt provided
+        # This allows the AI Provider Configuration "Description prompt" setting to be used
+        effective_prompt = custom_prompt
+        if effective_prompt is None and self.description_prompt:
+            effective_prompt = self.description_prompt
+            logger.debug(f"Using description prompt from settings: '{effective_prompt[:50]}...'")
+
         # Preprocess image
         image_base64 = self._preprocess_image(frame)
 
-        # Try providers in order: OpenAI → Claude → Gemini
-        provider_order = [AIProvider.OPENAI, AIProvider.CLAUDE, AIProvider.GEMINI]
+        # Get provider order from database settings or use default (Story P2-5.2)
+        provider_order = self._get_provider_order()
         last_error = None
+
+        # Check if any providers are actually configured (Story P2-5.3: clearer error message)
+        configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
+        if not configured_providers:
+            logger.error("No AI providers configured - cannot generate description")
+            return AIResult(
+                description="No AI providers configured",
+                confidence=0,
+                objects_detected=detected_objects or ['unknown'],
+                provider="none",
+                tokens_used=0,
+                response_time_ms=0,
+                cost_estimate=0.0,
+                success=False,
+                error="No AI providers configured. Please add an API key in Settings."
+            )
 
         for provider_enum in provider_order:
             # Check SLA timeout before trying next provider
@@ -653,14 +916,15 @@ class AIService:
 
             logger.info(f"Attempting {provider_enum.value}... (elapsed: {elapsed_ms}ms)")
 
-            # Try with exponential backoff for rate limits
+            # Try with provider-specific backoff for rate limits
             result = await self._try_with_backoff(
                 provider,
                 image_base64,
                 camera_name,
                 timestamp,
                 detected_objects,
-                custom_prompt=custom_prompt
+                custom_prompt=effective_prompt,
+                provider_type=provider_enum
             )
 
             # Track usage
@@ -757,10 +1021,21 @@ class AIService:
         timestamp: str,
         detected_objects: List[str],
         max_retries: int = 3,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        provider_type: Optional[AIProvider] = None
     ) -> AIResult:
-        """Try API call with exponential backoff for rate limits"""
-        delays = [2, 4, 8]  # Exponential backoff delays (seconds)
+        """Try API call with backoff for rate limits.
+
+        Uses provider-specific retry configuration:
+        - Grok: 2 retries with 0.5s delay (per Story P2-5.1 AC6)
+        - Others: 3 retries with 2/4/8s exponential backoff
+        """
+        # Provider-specific retry configuration
+        if provider_type == AIProvider.GROK:
+            delays = [0.5, 0.5]  # 2 retries, 500ms each (AC6)
+            max_retries = 2
+        else:
+            delays = [2, 4, 8]  # Exponential backoff delays (seconds)
 
         for attempt in range(max_retries):
             result = await provider.generate_description(
@@ -771,12 +1046,20 @@ class AIService:
                 custom_prompt=custom_prompt
             )
 
-            # Check if rate limited (429)
-            if result.error and '429' in str(result.error):
+            # Check if rate limited (429) or transient error (500/503)
+            is_retryable = (
+                result.error and
+                (
+                    '429' in str(result.error) or
+                    '500' in str(result.error) or
+                    '503' in str(result.error)
+                )
+            )
+            if is_retryable:
                 if attempt < max_retries - 1:
-                    delay = delays[attempt]
+                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
                     logger.warning(
-                        f"Rate limited, waiting {delay}s before retry {attempt + 2}/{max_retries}"
+                        f"Retryable error, waiting {delay}s before retry {attempt + 2}/{max_retries}"
                     )
                     await asyncio.sleep(delay)
                     continue
@@ -889,7 +1172,7 @@ class AIService:
 
             # Provider breakdown
             providers = {}
-            for provider_enum in [AIProvider.OPENAI, AIProvider.CLAUDE, AIProvider.GEMINI]:
+            for provider_enum in [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]:
                 provider_records = [r for r in records if r.provider == provider_enum.value]
                 if provider_records:
                     providers[provider_enum.value] = {

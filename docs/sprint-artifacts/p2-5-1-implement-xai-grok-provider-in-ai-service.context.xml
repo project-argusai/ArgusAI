@@ -1,0 +1,171 @@
+<story-context id="p2-5-1" v="1.0">
+  <metadata>
+    <epicId>P2-5</epicId>
+    <storyId>1</storyId>
+    <title>Implement xAI Grok Provider in AI Service</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-04</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-5-1-implement-xai-grok-provider-in-ai-service.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>to add xAI Grok as an AI provider option</iWant>
+    <soThat>users can choose Grok for event descriptions</soThat>
+    <tasks>
+      <task id="1" title="Add Grok Provider Configuration" acs="4,8">
+        <subtask id="1.1">Add `grok` to AIService.PROVIDERS list in backend/app/services/ai_service.py</subtask>
+        <subtask id="1.2">Add `ai_api_key_grok` to settings/config for encrypted key storage</subtask>
+        <subtask id="1.3">Add Grok provider to system settings schema for API key management</subtask>
+      </task>
+      <task id="2" title="Implement Grok API Client" acs="1,2,3">
+        <subtask id="2.1">Create `_call_grok()` method in AIService following existing provider patterns</subtask>
+        <subtask id="2.2">Use AsyncOpenAI client with base_url="https://api.x.ai/v1"</subtask>
+        <subtask id="2.3">Configure model as grok-2-vision-1212 (vision-capable)</subtask>
+        <subtask id="2.4">Format request with base64-encoded image in messages array</subtask>
+        <subtask id="2.5">Parse response to extract description text</subtask>
+      </task>
+      <task id="3" title="Implement Retry and Fallback Logic" acs="5,6">
+        <subtask id="3.1">Add retry logic: 2 retries with 500ms delay between attempts</subtask>
+        <subtask id="3.2">Implement 30-second default timeout for Grok requests</subtask>
+        <subtask id="3.3">On final failure, ensure fallback to next provider within 2 seconds</subtask>
+        <subtask id="3.4">Handle Grok-specific errors: rate limits (429), model unavailable, auth errors</subtask>
+      </task>
+      <task id="4" title="Usage Tracking" acs="7">
+        <subtask id="4.1">Log Grok API calls to ai_usage table</subtask>
+        <subtask id="4.2">Track: provider='grok', tokens_used, response_time_ms, success boolean</subtask>
+        <subtask id="4.3">Track failure reasons for monitoring/debugging</subtask>
+      </task>
+      <task id="5" title="Testing" acs="all">
+        <subtask id="5.1">Unit test: _call_grok() with mocked API responses</subtask>
+        <subtask id="5.2">Unit test: Retry logic triggers on transient failures</subtask>
+        <subtask id="5.3">Unit test: Fallback to next provider on Grok failure</subtask>
+        <subtask id="5.4">Unit test: Usage tracking records correct data</subtask>
+        <subtask id="5.5">Integration test: Grok in fallback chain (mocked)</subtask>
+        <subtask id="5.6">Manual test: Configure Grok API key and verify description generation</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Grok provider follows same interface as existing providers (OpenAI/Claude/Gemini) with `_call_grok()` method</criterion>
+    <criterion id="AC2">Uses OpenAI-compatible API at https://api.x.ai/v1 with model grok-2-vision-1212</criterion>
+    <criterion id="AC3">Supports base64-encoded images in messages for vision analysis</criterion>
+    <criterion id="AC4">API key stored encrypted using existing ai_api_key_grok pattern</criterion>
+    <criterion id="AC5">If Grok fails, falls back to next provider within 2 seconds (NFR7)</criterion>
+    <criterion id="AC6">Retry logic: 2 retries with 500ms delay before falling back</criterion>
+    <criterion id="AC7">Usage tracked in ai_usage table with tokens_used, response_time_ms, success/failure</criterion>
+    <criterion id="AC8">Provider added to AIService.PROVIDERS list</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase2.md" title="Phase 2 Epics" section="Epic P2-5: xAI Grok Provider">
+        Story P2-5.1 acceptance criteria and task breakdown for implementing Grok as AI provider.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="AI Service">
+        Multi-provider fallback architecture with OpenAI, Claude, Gemini pattern.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/ai_service.py" kind="service" lines="1-927" reason="Primary file to modify - contains AIService class, AIProvider enum, provider implementations (OpenAIProvider, ClaudeProvider, GeminiProvider), and fallback chain logic">
+        <symbol name="AIProvider" kind="enum" lines="43-47">Enum for supported providers - add GROK here</symbol>
+        <symbol name="AIProviderBase" kind="class" lines="64-146">Abstract base class all providers inherit from</symbol>
+        <symbol name="OpenAIProvider" kind="class" lines="149-310">Reference implementation using AsyncOpenAI client - Grok will use similar pattern with different base_url</symbol>
+        <symbol name="ClaudeProvider" kind="class" lines="312-408">Anthropic provider for reference</symbol>
+        <symbol name="GeminiProvider" kind="class" lines="411-486">Google provider for reference</symbol>
+        <symbol name="AIService" kind="class" lines="489-926">Main service class - modify configure_providers(), load_api_keys_from_db(), provider_order list</symbol>
+        <symbol name="AIService.configure_providers" kind="method" lines="559-586">Add grok_key parameter and GrokProvider initialization</symbol>
+        <symbol name="AIService.load_api_keys_from_db" kind="method" lines="496-557">Add ai_api_key_grok to query and decryption</symbol>
+        <symbol name="AIService._try_with_backoff" kind="method" lines="752-788">Existing retry logic - review for Grok-specific adjustments</symbol>
+        <symbol name="AIService._track_usage" kind="method" lines="790-828">Usage tracking - already generic, will work for Grok</symbol>
+      </file>
+
+      <file path="backend/app/models/ai_usage.py" kind="model" lines="1-29" reason="AIUsage model for tracking - provider field accepts string, already supports adding 'grok'">
+        <symbol name="AIUsage" kind="class" lines="6-28">SQLAlchemy model with provider, success, tokens_used, response_time_ms, cost_estimate, error fields</symbol>
+      </file>
+
+      <file path="backend/app/models/system_setting.py" kind="model" reason="SystemSetting model for storing encrypted API keys">
+        <symbol name="SystemSetting" kind="class">Key-value store for ai_api_key_* settings</symbol>
+      </file>
+
+      <file path="backend/app/utils/encryption.py" kind="utility" reason="decrypt_password function for API key decryption">
+        <symbol name="decrypt_password" kind="function">Decrypts encrypted: prefixed values using Fernet</symbol>
+      </file>
+
+      <file path="backend/tests/test_services/test_ai_service.py" kind="test" lines="1-576" reason="Existing AI service tests - add GrokProvider tests following same patterns">
+        <symbol name="TestOpenAIProvider" kind="class" lines="87-158">Reference test class for provider unit tests</symbol>
+        <symbol name="TestClaudeProvider" kind="class" lines="161-188">Reference test class</symbol>
+        <symbol name="TestGeminiProvider" kind="class" lines="191-222">Reference test class</symbol>
+        <symbol name="TestAIServiceFallback" kind="class" lines="225-316">Fallback chain tests - add Grok to chain</symbol>
+        <symbol name="TestUsageTracking" kind="class" lines="319-425">Usage tracking tests</symbol>
+        <symbol name="TestExponentialBackoff" kind="class" lines="428-477">Retry logic tests</symbol>
+        <symbol name="TestEncryptedAPIKeyLoading" kind="class" lines="480-575">API key loading tests - add grok key test</symbol>
+      </file>
+
+      <file path="backend/tests/test_api/test_ai.py" kind="test" reason="API endpoint tests for AI describe endpoint">
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="openai" version=">=1.54.0" note="AsyncOpenAI client - Grok uses OpenAI-compatible API, reuse this client with different base_url"/>
+        <package name="anthropic" version=">=0.39.0" note="Existing Anthropic SDK"/>
+        <package name="google-generativeai" version=">=0.8.0" note="Existing Gemini SDK"/>
+        <package name="pillow" version=">=10.0.0" note="Image processing"/>
+        <package name="cryptography" version="==41.0.7" note="Fernet encryption for API keys"/>
+        <package name="pytest" version="==7.4.3" note="Testing framework"/>
+        <package name="pytest-asyncio" version="==0.21.1" note="Async test support"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Follow existing provider pattern: inherit from AIProviderBase, implement generate_description() method</constraint>
+    <constraint source="architecture">Use existing fallback chain logic in AIService.generate_description()</constraint>
+    <constraint source="architecture">API keys must be encrypted with 'encrypted:' prefix and stored in system_settings table</constraint>
+    <constraint source="NFR7">Provider fallback must complete within 2 seconds of failure</constraint>
+    <constraint source="story">Retry logic: 2 retries with 500ms delay (not the existing 3 retries with 2/4/8s exponential backoff)</constraint>
+    <constraint source="story">30-second timeout for Grok requests specifically</constraint>
+    <constraint source="pattern">Use AsyncOpenAI client with base_url override - no new dependencies needed</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GrokProvider" kind="class">
+      <signature>class GrokProvider(AIProviderBase)</signature>
+      <method>async def generate_description(self, image_base64: str, camera_name: str, timestamp: str, detected_objects: List[str], custom_prompt: Optional[str] = None) -> AIResult</method>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface name="xAI Grok API" kind="REST">
+      <endpoint>POST https://api.x.ai/v1/chat/completions</endpoint>
+      <model>grok-2-vision-1212</model>
+      <auth>Bearer token (x-api-key header)</auth>
+      <format>OpenAI-compatible request/response format</format>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests use pytest with pytest-asyncio for async support. Mock external API calls using unittest.mock.AsyncMock and patch.
+      Each provider has dedicated test class (TestOpenAIProvider, TestClaudeProvider, etc.).
+      Test coverage includes: successful generation, API error handling, object extraction, retry logic, fallback chain, usage tracking.
+      Use fixtures for sample frames (np.ndarray) and service instances.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_api/test_ai.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">TestGrokProvider class with test_successful_description_generation - mock AsyncOpenAI response</idea>
+      <idea ac="AC2">Test that GrokProvider uses base_url="https://api.x.ai/v1" and model="grok-2-vision-1212"</idea>
+      <idea ac="AC3">Test image_url format in messages array matches OpenAI pattern</idea>
+      <idea ac="AC4">test_load_api_keys_with_grok - verify ai_api_key_grok is loaded and decrypted</idea>
+      <idea ac="AC5">TestAIServiceFallback: add test_fallback_from_grok_to_next_provider</idea>
+      <idea ac="AC6">TestGrokRetry: verify 2 retries with 500ms delay (different from existing 3 retries)</idea>
+      <idea ac="AC7">test_grok_usage_tracking - verify AIUsage record with provider='grok'</idea>
+      <idea ac="AC8">test_grok_in_provider_order - verify GROK appears in fallback chain</idea>
+    </ideas>
+  </tests>
+</story-context>

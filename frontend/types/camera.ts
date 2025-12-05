@@ -4,9 +4,14 @@
  */
 
 /**
- * Camera type literal
+ * Camera type literal (legacy field)
  */
 export type CameraType = 'rtsp' | 'usb';
+
+/**
+ * Camera source type (Phase 2: includes protect)
+ */
+export type CameraSourceType = 'rtsp' | 'usb' | 'protect';
 
 /**
  * Motion sensitivity levels
@@ -67,6 +72,13 @@ export interface ICamera {
   motion_algorithm: MotionAlgorithm;
   detection_zones?: IDetectionZone[] | null; // Optional array of detection zones (max 10)
   detection_schedule?: IDetectionSchedule | null; // Optional detection schedule configuration
+  // Phase 2: UniFi Protect integration fields
+  source_type: CameraSourceType; // 'rtsp', 'usb', or 'protect'
+  protect_controller_id?: string | null; // Foreign key to protect_controllers
+  protect_camera_id?: string | null; // Native Protect camera ID
+  protect_camera_type?: string | null; // Protect camera type/model (e.g., "G4 Doorbell Pro")
+  smart_detection_types?: string[] | null; // JSON array: ["person", "vehicle", "package", "animal"]
+  is_doorbell?: boolean; // Whether camera is a doorbell
   created_at: string; // ISO 8601 datetime
   updated_at: string; // ISO 8601 datetime
 }

@@ -28,6 +28,7 @@ class Event(Base):
         smart_detection_type: Protect smart detection type - person/vehicle/package/animal/motion (Phase 2)
         correlation_group_id: UUID linking correlated multi-camera events (Story P2-4.3)
         correlated_event_ids: JSON array of related event UUIDs (Story P2-4.3)
+        provider_used: AI provider that generated the description - openai/grok/claude/gemini (Story P2-5.3)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -51,6 +52,10 @@ class Event(Base):
     # Story P2-4.3: Multi-camera event correlation
     correlation_group_id = Column(String, nullable=True, index=True)  # UUID linking correlated events
     correlated_event_ids = Column(Text, nullable=True)  # JSON array: ["uuid1", "uuid2", ...]
+    # Story P2-5.3: AI provider tracking
+    provider_used = Column(String(20), nullable=True)  # openai/grok/claude/gemini (null for legacy events)
+    # Story P2-6.3: Flag for events that need AI description retry
+    description_retry_needed = Column(Boolean, nullable=False, default=False)  # True if all AI providers failed (AC13)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

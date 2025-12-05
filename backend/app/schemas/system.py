@@ -207,11 +207,18 @@ class SystemSettingsUpdate(BaseModel):
     date_format: Optional[Literal["MM/DD/YYYY", "DD/MM/YYYY", "YYYY-MM-DD"]] = None
     time_format: Optional[Literal["12h", "24h"]] = None
 
-    # AI Models
+    # AI Models (legacy)
     primary_model: Optional[Literal["gpt-4o-mini", "claude-3-haiku", "gemini-flash"]] = None
     primary_api_key: Optional[str] = None
     fallback_model: Optional[Literal["gpt-4o-mini", "claude-3-haiku", "gemini-flash"]] = None
     description_prompt: Optional[str] = None
+
+    # AI Provider API Keys (Story P2-5.2, P2-5.3)
+    ai_api_key_openai: Optional[str] = None
+    ai_api_key_grok: Optional[str] = None
+    ai_api_key_claude: Optional[str] = None
+    ai_api_key_gemini: Optional[str] = None
+    ai_provider_order: Optional[str] = None  # JSON array of provider order
 
     # Motion Detection
     motion_sensitivity: Optional[int] = Field(None, ge=0, le=100)

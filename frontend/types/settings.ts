@@ -43,7 +43,7 @@ export interface StorageStats {
   total_mb: number;
 }
 
-export type AIProvider = 'openai' | 'anthropic' | 'google';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'grok';
 
 export interface AIKeyTestRequest {
   provider: AIProvider;
@@ -64,3 +64,19 @@ export interface DeleteDataResponse {
   deleted_count: number;
   success: boolean;
 }
+
+/**
+ * AI Provider Configuration for multi-provider management
+ */
+export interface AIProviderConfig {
+  id: AIProvider;
+  name: string;
+  description: string;
+  isConfigured: boolean;
+  model?: string;
+}
+
+/**
+ * AI Provider order for fallback chain configuration
+ */
+export type AIProviderOrder = AIProvider[];

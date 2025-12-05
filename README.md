@@ -8,13 +8,15 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **UniFi Protect Integration** (Phase 2) - Native WebSocket connection for real-time events
   - Auto-discovery of cameras from Protect controller
   - Smart detection filtering (Person/Vehicle/Package/Animal)
-  - Doorbell ring notifications
+  - Doorbell ring event detection with distinct styling
+  - Multi-camera event correlation across cameras
   - Real-time camera status sync
 - **RTSP IP Cameras** - Connect to any RTSP-compatible camera
 - **USB/Webcam Support** - Use local cameras for testing or monitoring
 
 ### AI-Powered Analysis
-- **Multi-Provider Support**: OpenAI GPT-4o → Claude Haiku → Gemini Flash (automatic fallback)
+- **Multi-Provider Support**: OpenAI GPT-4o → xAI Grok → Claude Haiku → Gemini Flash (automatic fallback)
+- **xAI Grok Integration** (Phase 2) - Vision-capable AI with fast response times
 - **Natural Language Descriptions**: Rich, contextual descriptions of events
 - **Smart Filtering**: Configure which event types trigger AI analysis per camera
 
@@ -26,7 +28,9 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 
 ### Event Management
 - **Persistent Storage**: Events stored with thumbnails and AI descriptions
-- **Search & Filter**: Find events by description, camera, date, or object type
+- **Search & Filter**: Find events by description, camera, date, object type, or source type
+- **Event Source Display**: Visual badges showing RTSP/USB/Protect source for each event
+- **Multi-Camera Correlation**: View related events captured across multiple cameras simultaneously
 - **Data Retention**: Configurable automatic cleanup policies
 - **Export**: Download events as CSV or JSON
 
@@ -160,10 +164,18 @@ Configure AI providers in **Settings** → **AI Providers**:
 | Provider | Model | Use Case |
 |----------|-------|----------|
 | OpenAI | GPT-4o-mini | Primary (best cost/quality) |
-| Anthropic | Claude 3 Haiku | Fallback |
+| xAI | Grok 2 Vision | Fast vision analysis |
+| Anthropic | Claude 3 Haiku | Reliable fallback |
 | Google | Gemini Flash | Free tier fallback |
 
 The system automatically falls back to the next provider if one fails.
+
+### xAI Grok Provider
+
+To enable xAI Grok:
+1. Get an API key from [xAI Console](https://console.x.ai)
+2. Add to **Settings** → **AI Providers** → **xAI Grok**
+3. Grok uses the `grok-2-vision-1212` model for image analysis
 
 ## Project Structure
 
@@ -179,9 +191,10 @@ live-object-ai-classifier/
 │   │       ├── protect_service.py     # UniFi Protect integration
 │   │       ├── ai_service.py          # Multi-provider AI
 │   │       ├── event_processor.py     # Event pipeline
+│   │       ├── correlation_service.py # Multi-camera correlation
 │   │       └── alert_engine.py        # Rule evaluation
 │   ├── alembic/             # Database migrations
-│   └── tests/               # 444 tests
+│   └── tests/               # 590+ tests
 ├── frontend/                 # Next.js frontend
 │   ├── app/                 # App Router pages
 │   ├── components/          # React components
@@ -215,7 +228,7 @@ pytest tests/ --cov=app --cov-report=html
 pytest tests/test_api/test_protect.py -v
 ```
 
-**Current Coverage:** 444 tests, 100% pass rate
+**Current Coverage:** 590+ tests including integration and performance tests
 
 ### Frontend
 
@@ -240,6 +253,7 @@ ENCRYPTION_KEY=<generate-with-fernet>
 
 # AI Providers (at least one required)
 OPENAI_API_KEY=sk-...
+XAI_API_KEY=xai-...           # xAI Grok
 ANTHROPIC_API_KEY=sk-ant-...
 GOOGLE_API_KEY=AIza...
 
@@ -272,20 +286,22 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 ## Roadmap
 
-### Completed (MVP + Phase 2.1-2.2)
+### Completed (MVP + Phase 2)
 - ✅ RTSP/USB camera support with motion detection
-- ✅ Multi-provider AI descriptions (OpenAI, Claude, Gemini)
+- ✅ Multi-provider AI descriptions (OpenAI, xAI Grok, Claude, Gemini)
 - ✅ Event storage with search and retention
 - ✅ Alert rules with webhook integration
 - ✅ Real-time dashboard with notifications
 - ✅ UniFi Protect controller integration
 - ✅ Camera auto-discovery and smart detection filtering
 - ✅ Real-time camera status sync
-
-### In Progress (Phase 2.3-2.6)
-- 🔄 Doorbell ring notifications
-- 🔄 Multi-camera event correlation
-- 🔄 xAI Grok provider integration
+- ✅ Event source type display (RTSP/USB/Protect badges)
+- ✅ Doorbell ring event detection and distinct styling
+- ✅ Multi-camera event correlation service
+- ✅ Correlated events display in dashboard (link indicators, related events section)
+- ✅ xAI Grok provider with vision capabilities
+- ✅ RTSP/USB/Protect camera coexistence
+- ✅ Comprehensive error handling and recovery
 
 ### Planned
 - 📋 Local LLM support (Ollama)

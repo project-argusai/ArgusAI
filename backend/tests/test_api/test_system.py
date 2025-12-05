@@ -498,6 +498,291 @@ class TestEventsCleanupEndpoint:
             db.close()
 
 
+# ============================================================================
+# AI Providers Status Endpoint Tests (Story P2-5.2)
+# ============================================================================
+
+
+class TestAIProvidersStatusEndpoint:
+    """Tests for GET /api/v1/system/ai-providers endpoint"""
+
+    @pytest.fixture(autouse=True)
+    def setup_cleanup(self):
+        """Clean up provider settings before/after each test"""
+        db = TestingSessionLocal()
+        try:
+            # Remove any AI provider settings
+            db.query(SystemSetting).filter(
+                SystemSetting.key.in_([
+                    'ai_api_key_openai',
+                    'ai_api_key_grok',
+                    'ai_api_key_claude',
+                    'ai_api_key_gemini',
+                    'ai_provider_order'
+                ])
+            ).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+
+        yield
+
+        # Cleanup after test
+        db = TestingSessionLocal()
+        try:
+            db.query(SystemSetting).filter(
+                SystemSetting.key.in_([
+                    'ai_api_key_openai',
+                    'ai_api_key_grok',
+                    'ai_api_key_claude',
+                    'ai_api_key_gemini',
+                    'ai_provider_order'
+                ])
+            ).delete(synchronize_session=False)
+            db.commit()
+        finally:
+            db.close()
+
+    def test_get_providers_status_empty(self):
+        """Test GET /ai-providers with no providers configured"""
+        response = client.get("/api/v1/system/ai-providers")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "providers" in data
+        assert "order" in data
+
+        # All providers should be unconfigured
+        assert len(data["providers"]) == 4
+        for provider in data["providers"]:
+            assert provider["configured"] is False
+
+        # Default order should be returned
+        assert data["order"] == ["openai", "grok", "anthropic", "google"]
+
+    def test_get_providers_status_with_configured_provider(self):
+        """Test GET /ai-providers with one provider configured"""
+        db = TestingSessionLocal()
+        try:
+            # Add a configured API key for OpenAI
+            db.add(SystemSetting(key='ai_api_key_openai', value='encrypted:test-key'))
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/ai-providers")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Find the OpenAI provider
+        openai_provider = next((p for p in data["providers"] if p["provider"] == "openai"), None)
+        assert openai_provider is not None
+        assert openai_provider["configured"] is True
+
+        # Grok should still be unconfigured
+        grok_provider = next((p for p in data["providers"] if p["provider"] == "grok"), None)
+        assert grok_provider is not None
+        assert grok_provider["configured"] is False
+
+    def test_get_providers_status_with_custom_order(self):
+        """Test GET /ai-providers returns custom provider order"""
+        db = TestingSessionLocal()
+        try:
+            # Set a custom provider order
+            custom_order = ["grok", "anthropic", "openai", "google"]
+            db.add(SystemSetting(key='ai_provider_order', value=json.dumps(custom_order)))
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/ai-providers")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should return the custom order
+        assert data["order"] == custom_order
+
+    def test_get_providers_status_invalid_order_falls_back(self):
+        """Test GET /ai-providers returns default order if saved order is invalid"""
+        db = TestingSessionLocal()
+        try:
+            # Set an invalid provider order
+            db.add(SystemSetting(key='ai_provider_order', value='not-valid-json'))
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/ai-providers")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should fall back to default order
+        assert data["order"] == ["openai", "grok", "anthropic", "google"]
+
+
+# ============================================================================
+# AI Provider Stats Endpoint Tests (Story P2-5.3)
+# ============================================================================
+
+
+class TestAIProviderStatsEndpoint:
+    """Tests for GET /api/v1/system/ai-stats endpoint (Story P2-5.3)"""
+
+    @pytest.fixture(autouse=True)
+    def setup_cleanup(self):
+        """Create test events with provider_used set"""
+        db = TestingSessionLocal()
+        try:
+            # Clean up existing events
+            db.query(Event).delete()
+            db.commit()
+
+            # Create test events with different providers
+            now = datetime.now(timezone.utc)
+            events = [
+                # 5 OpenAI events
+                *[Event(
+                    id=f"openai-{i}",
+                    camera_id="test-camera",
+                    timestamp=now - timedelta(hours=i),
+                    description="Event by OpenAI",
+                    confidence=85,
+                    objects_detected='["person"]',
+                    thumbnail_path=None,
+                    alert_triggered=False,
+                    provider_used="openai"
+                ) for i in range(5)],
+                # 3 Grok events
+                *[Event(
+                    id=f"grok-{i}",
+                    camera_id="test-camera",
+                    timestamp=now - timedelta(hours=i+5),
+                    description="Event by Grok",
+                    confidence=80,
+                    objects_detected='["vehicle"]',
+                    thumbnail_path=None,
+                    alert_triggered=False,
+                    provider_used="grok"
+                ) for i in range(3)],
+                # 2 Claude events (older)
+                *[Event(
+                    id=f"claude-{i}",
+                    camera_id="test-camera",
+                    timestamp=now - timedelta(days=10),
+                    description="Event by Claude",
+                    confidence=90,
+                    objects_detected='["package"]',
+                    thumbnail_path=None,
+                    alert_triggered=False,
+                    provider_used="claude"
+                ) for i in range(2)],
+                # 1 Legacy event (no provider_used)
+                Event(
+                    id="legacy-1",
+                    camera_id="test-camera",
+                    timestamp=now - timedelta(days=5),
+                    description="Legacy event",
+                    confidence=70,
+                    objects_detected='["unknown"]',
+                    thumbnail_path=None,
+                    alert_triggered=False,
+                    provider_used=None
+                )
+            ]
+
+            db.add_all(events)
+            db.commit()
+        finally:
+            db.close()
+
+        yield
+
+        # Cleanup
+        db = TestingSessionLocal()
+        try:
+            db.query(Event).delete()
+            db.commit()
+        finally:
+            db.close()
+
+    def test_get_ai_stats_default_range(self):
+        """Test GET /ai-stats with default 7 day range"""
+        response = client.get("/api/v1/system/ai-stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert "total_events" in data
+        assert "events_per_provider" in data
+        assert "date_range" in data
+        assert "time_range" in data
+
+        # Should include recent events but not 10-day-old Claude events
+        assert data["date_range"] == "7d"
+        assert data["events_per_provider"].get("openai", 0) == 5
+        assert data["events_per_provider"].get("grok", 0) == 3
+        # Claude events are 10 days old, outside 7-day range
+        assert data["events_per_provider"].get("claude", 0) == 0
+
+    def test_get_ai_stats_24h_range(self):
+        """Test GET /ai-stats with 24 hour range"""
+        response = client.get("/api/v1/system/ai-stats?date_range=24h")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["date_range"] == "24h"
+        # Only events within last 24h should be counted
+        # (all our test events are within 24h except the 10-day-old ones)
+
+    def test_get_ai_stats_all_range(self):
+        """Test GET /ai-stats with 'all' range includes all events"""
+        response = client.get("/api/v1/system/ai-stats?date_range=all")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["date_range"] == "all"
+        # Should include all events with provider_used set
+        assert data["events_per_provider"].get("openai", 0) == 5
+        assert data["events_per_provider"].get("grok", 0) == 3
+        assert data["events_per_provider"].get("claude", 0) == 2
+        # Total should be 10 (excludes legacy event with null provider)
+        assert data["total_events"] == 10
+
+    def test_get_ai_stats_excludes_null_providers(self):
+        """Test that events without provider_used are excluded from stats"""
+        response = client.get("/api/v1/system/ai-stats?date_range=all")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Total should be 10, not 11 (excludes the legacy event)
+        assert data["total_events"] == 10
+
+    def test_get_ai_stats_empty_result(self):
+        """Test GET /ai-stats when no events exist"""
+        # Clean all events
+        db = TestingSessionLocal()
+        try:
+            db.query(Event).delete()
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/ai-stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total_events"] == 0
+        assert data["events_per_provider"] == {}
+
+
 # Cleanup test database on module exit
 def teardown_module():
     """Remove test database file"""

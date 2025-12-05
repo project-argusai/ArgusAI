@@ -15,6 +15,21 @@ from app.models.camera import Camera
 from app.services.protect_service import ProtectService, ConnectionTestResult
 
 
+def make_smart_detect_enum(value: str):
+    """
+    Helper to create mock SmartDetectObjectType enum with .value attribute.
+    uiprotect returns SmartDetectObjectType enums, not plain strings.
+    """
+    mock_enum = MagicMock()
+    mock_enum.value = value
+    return mock_enum
+
+
+def make_smart_detect_list(values: list):
+    """Helper to create a list of mock SmartDetectObjectType enums."""
+    return [make_smart_detect_enum(v) for v in values]
+
+
 # Create test database (file-based to avoid threading issues)
 test_db_fd, test_db_path = tempfile.mkstemp(suffix=".db")
 os.close(test_db_fd)
@@ -965,7 +980,7 @@ class TestProtectService:
         """Test that client is properly closed after successful connection"""
         mock_client = MagicMock()
         mock_client.update = AsyncMock()
-        mock_client.close = AsyncMock()
+        mock_client.close_session = AsyncMock()  # ProtectApiClient uses close_session()
         mock_client.bootstrap = MagicMock()
         mock_client.bootstrap.nvr = MagicMock()
         mock_client.bootstrap.nvr.version = "3.0.16"
@@ -981,8 +996,8 @@ class TestProtectService:
             verify_ssl=False
         )
 
-        # Verify close was called
-        mock_client.close.assert_called_once()
+        # Verify close_session was called (ProtectApiClient uses close_session, not close)
+        mock_client.close_session.assert_called_once()
 
     @pytest.mark.asyncio
     @patch('app.services.protect_service.ProtectApiClient')
@@ -992,7 +1007,7 @@ class TestProtectService:
 
         mock_client = MagicMock()
         mock_client.update = AsyncMock(side_effect=NotAuthorized("Bad creds"))
-        mock_client.close = AsyncMock()
+        mock_client.close_session = AsyncMock()  # ProtectApiClient uses close_session()
         mock_client_class.return_value = mock_client
 
         service = ProtectService()
@@ -1004,8 +1019,8 @@ class TestProtectService:
             verify_ssl=False
         )
 
-        # Verify close was called even on error
-        mock_client.close.assert_called_once()
+        # Verify close_session was called even on error
+        mock_client.close_session.assert_called_once()
 
 
 # Story P2-1.4: Connection Management Tests
@@ -1461,13 +1476,16 @@ class TestSmartDetectionCapabilities:
     """Test suite for smart detection capability extraction (Story P2-2.1, AC2)"""
 
     def test_extract_smart_detect_types(self):
-        """AC2: Extract smart detection capabilities from camera"""
+        """AC2: Extract smart detection capabilities from camera using can_detect_* properties"""
         from app.services.protect_service import ProtectService
 
         service = ProtectService()
 
         mock_camera = MagicMock()
-        mock_camera.smart_detect_types = ["person", "vehicle", "package"]
+        mock_camera.can_detect_person = True
+        mock_camera.can_detect_vehicle = True
+        mock_camera.can_detect_package = True
+        mock_camera.can_detect_animal = False
         mock_camera.feature_flags = None
 
         capabilities = service._get_smart_detection_capabilities(mock_camera)
@@ -1475,15 +1493,19 @@ class TestSmartDetectionCapabilities:
         assert "person" in capabilities
         assert "vehicle" in capabilities
         assert "package" in capabilities
+        assert "animal" not in capabilities
 
     def test_extract_from_feature_flags(self):
-        """AC2: Extract capabilities from feature flags when smart_detect_types missing"""
+        """AC2: Extract capabilities from feature flags when can_detect_* not available"""
         from app.services.protect_service import ProtectService
 
         service = ProtectService()
 
         mock_camera = MagicMock()
-        mock_camera.smart_detect_types = None
+        mock_camera.can_detect_person = False
+        mock_camera.can_detect_vehicle = False
+        mock_camera.can_detect_package = False
+        mock_camera.can_detect_animal = False
         mock_camera.feature_flags = MagicMock()
         mock_camera.feature_flags.can_detect_person = True
         mock_camera.feature_flags.can_detect_vehicle = True
@@ -1501,7 +1523,10 @@ class TestSmartDetectionCapabilities:
         service = ProtectService()
 
         mock_camera = MagicMock()
-        mock_camera.smart_detect_types = None
+        mock_camera.can_detect_person = False
+        mock_camera.can_detect_vehicle = False
+        mock_camera.can_detect_package = False
+        mock_camera.can_detect_animal = False
         mock_camera.feature_flags = None
 
         capabilities = service._get_smart_detection_capabilities(mock_camera)
@@ -2261,6 +2286,12 @@ class TestProtectEventHandlerInit:
 class TestEventTypeParsing:
     """Test suite for event type parsing (Story P2-3.1, AC2)"""
 
+    def _make_smart_detect_enum(self, value: str):
+        """Helper to create mock SmartDetectObjectType enum with .value attribute"""
+        mock_enum = MagicMock()
+        mock_enum.value = value
+        return mock_enum
+
     def test_parse_motion_detected(self):
         """AC2: Parse motion event from camera object"""
         from app.services.protect_event_handler import ProtectEventHandler
@@ -2268,21 +2299,21 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = True
-        mock_obj.smart_detect_types = None
+        mock_obj.is_motion_currently_detected = True
+        mock_obj.active_smart_detect_types = None
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "motion" in event_types
 
     def test_parse_no_motion_detected(self):
-        """AC2: No motion event when is_motion_detected is False"""
+        """AC2: No motion event when is_motion_currently_detected is False"""
         from app.services.protect_event_handler import ProtectEventHandler
 
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = None
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = None
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "motion" not in event_types
@@ -2294,8 +2325,8 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = ["person"]
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = [self._make_smart_detect_enum("person")]
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "smart_detect_person" in event_types
@@ -2307,8 +2338,8 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = ["vehicle"]
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = [self._make_smart_detect_enum("vehicle")]
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "smart_detect_vehicle" in event_types
@@ -2320,8 +2351,8 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = ["package"]
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = [self._make_smart_detect_enum("package")]
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "smart_detect_package" in event_types
@@ -2333,8 +2364,8 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = ["animal"]
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = [self._make_smart_detect_enum("animal")]
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "smart_detect_animal" in event_types
@@ -2346,8 +2377,11 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = True
-        mock_obj.smart_detect_types = ["person", "vehicle"]
+        mock_obj.is_motion_currently_detected = True
+        mock_obj.active_smart_detect_types = [
+            self._make_smart_detect_enum("person"),
+            self._make_smart_detect_enum("vehicle")
+        ]
 
         event_types = handler._parse_event_types(mock_obj, "Camera")
         assert "motion" in event_types
@@ -2361,8 +2395,8 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = None
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = None
         mock_obj.is_ringing = True
 
         event_types = handler._parse_event_types(mock_obj, "Doorbell")
@@ -2375,8 +2409,8 @@ class TestEventTypeParsing:
         handler = ProtectEventHandler()
 
         mock_obj = MagicMock()
-        mock_obj.is_motion_detected = False
-        mock_obj.smart_detect_types = None
+        mock_obj.is_motion_currently_detected = False
+        mock_obj.active_smart_detect_types = None
         mock_obj.is_ringing = False
 
         event_types = handler._parse_event_types(mock_obj, "Doorbell")
@@ -2602,8 +2636,8 @@ class TestHandleEventCameraLookup:
         mock_msg.new_obj = MagicMock()
         type(mock_msg.new_obj).__name__ = "Camera"
         mock_msg.new_obj.id = "unknown-protect-camera-id"
-        mock_msg.new_obj.is_motion_detected = True
-        mock_msg.new_obj.smart_detect_types = None
+        mock_msg.new_obj.is_motion_currently_detected = True
+        mock_msg.new_obj.active_smart_detect_types = None
 
         result = await handler.handle_event("ctrl-1", mock_msg)
         assert result == False
@@ -2635,8 +2669,8 @@ class TestHandleEventCameraLookup:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Camera"
             mock_msg.new_obj.id = "disabled-protect-cam"
-            mock_msg.new_obj.is_motion_detected = True
-            mock_msg.new_obj.smart_detect_types = None
+            mock_msg.new_obj.is_motion_currently_detected = True
+            mock_msg.new_obj.active_smart_detect_types = None
 
             result = await handler.handle_event("ctrl-1", mock_msg)
             assert result == False
@@ -2670,8 +2704,8 @@ class TestHandleEventCameraLookup:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Camera"
             mock_msg.new_obj.id = "rtsp-protect-cam"
-            mock_msg.new_obj.is_motion_detected = True
-            mock_msg.new_obj.smart_detect_types = None
+            mock_msg.new_obj.is_motion_currently_detected = True
+            mock_msg.new_obj.active_smart_detect_types = None
 
             result = await handler.handle_event("ctrl-1", mock_msg)
             assert result == False
@@ -2712,8 +2746,8 @@ class TestHandleEventFullFlow:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Camera"
             mock_msg.new_obj.id = "enabled-protect-cam"
-            mock_msg.new_obj.is_motion_detected = False
-            mock_msg.new_obj.smart_detect_types = ["person"]
+            mock_msg.new_obj.is_motion_currently_detected = False
+            mock_msg.new_obj.active_smart_detect_types = make_smart_detect_list(["person"])
             mock_msg.new_obj.last_motion = None
             mock_msg.new_obj.last_smart_detect = None
 
@@ -2790,8 +2824,8 @@ class TestHandleEventFullFlow:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Camera"
             mock_msg.new_obj.id = "person-only-cam"
-            mock_msg.new_obj.is_motion_detected = False
-            mock_msg.new_obj.smart_detect_types = ["vehicle"]
+            mock_msg.new_obj.is_motion_currently_detected = False
+            mock_msg.new_obj.active_smart_detect_types = make_smart_detect_list(["vehicle"])
 
             result = await handler.handle_event("ctrl-1", mock_msg)
             assert result == False
@@ -2828,8 +2862,8 @@ class TestHandleEventFullFlow:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Camera"
             mock_msg.new_obj.id = "all-motion-cam"
-            mock_msg.new_obj.is_motion_detected = False
-            mock_msg.new_obj.smart_detect_types = ["vehicle"]
+            mock_msg.new_obj.is_motion_currently_detected = False
+            mock_msg.new_obj.active_smart_detect_types = make_smart_detect_list(["vehicle"])
             mock_msg.new_obj.last_motion = None
             mock_msg.new_obj.last_smart_detect = None
 
@@ -2910,8 +2944,8 @@ class TestHandleEventFullFlow:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Camera"
             mock_msg.new_obj.id = "dedup-test-cam"
-            mock_msg.new_obj.is_motion_detected = False
-            mock_msg.new_obj.smart_detect_types = ["person"]
+            mock_msg.new_obj.is_motion_currently_detected = False
+            mock_msg.new_obj.active_smart_detect_types = make_smart_detect_list(["person"])
 
             result = await handler.handle_event("ctrl-1", mock_msg)
             assert result == False
@@ -2960,8 +2994,8 @@ class TestHandleEventFullFlow:
         mock_msg.new_obj = MagicMock()
         type(mock_msg.new_obj).__name__ = "Camera"
         mock_msg.new_obj.id = "test-cam"
-        mock_msg.new_obj.is_motion_detected = True
-        mock_msg.new_obj.smart_detect_types = None
+        mock_msg.new_obj.is_motion_currently_detected = True
+        mock_msg.new_obj.active_smart_detect_types = None
 
         # Mock database to raise exception
         with patch('app.services.protect_event_handler.SessionLocal') as mock_session:
@@ -3506,8 +3540,8 @@ class TestDoorbellRingEventParsing:
 
         # Create mock Doorbell object with is_ringing=True
         mock_doorbell = MagicMock()
-        mock_doorbell.is_motion_detected = False
-        mock_doorbell.smart_detect_types = []
+        mock_doorbell.is_motion_currently_detected = False
+        mock_doorbell.active_smart_detect_types = []
         mock_doorbell.is_ringing = True
 
         event_types = handler._parse_event_types(mock_doorbell, 'Doorbell')
@@ -3522,8 +3556,8 @@ class TestDoorbellRingEventParsing:
 
         # Create mock Doorbell object with is_ringing=False
         mock_doorbell = MagicMock()
-        mock_doorbell.is_motion_detected = False
-        mock_doorbell.smart_detect_types = []
+        mock_doorbell.is_motion_currently_detected = False
+        mock_doorbell.active_smart_detect_types = []
         mock_doorbell.is_ringing = False
 
         event_types = handler._parse_event_types(mock_doorbell, 'Doorbell')
@@ -3538,8 +3572,8 @@ class TestDoorbellRingEventParsing:
 
         # Create mock Camera object with is_ringing=True (shouldn't be checked)
         mock_camera = MagicMock()
-        mock_camera.is_motion_detected = False
-        mock_camera.smart_detect_types = []
+        mock_camera.is_motion_currently_detected = False
+        mock_camera.active_smart_detect_types = []
         mock_camera.is_ringing = True
 
         event_types = handler._parse_event_types(mock_camera, 'Camera')
@@ -3555,8 +3589,8 @@ class TestDoorbellRingEventParsing:
 
         # Create mock Doorbell with both motion and ring
         mock_doorbell = MagicMock()
-        mock_doorbell.is_motion_detected = True
-        mock_doorbell.smart_detect_types = ['person']
+        mock_doorbell.is_motion_currently_detected = True
+        mock_doorbell.active_smart_detect_types = make_smart_detect_list(['person'])
         mock_doorbell.is_ringing = True
 
         event_types = handler._parse_event_types(mock_doorbell, 'Doorbell')
@@ -3923,8 +3957,8 @@ class TestDoorbellRingIntegration:
             mock_msg.new_obj = MagicMock()
             type(mock_msg.new_obj).__name__ = "Doorbell"
             mock_msg.new_obj.id = "protect-doorbell-123"
-            mock_msg.new_obj.is_motion_detected = False
-            mock_msg.new_obj.smart_detect_types = []
+            mock_msg.new_obj.is_motion_currently_detected = False
+            mock_msg.new_obj.active_smart_detect_types = []
             mock_msg.new_obj.is_ringing = True
             mock_msg.new_obj.last_motion = None
             mock_msg.new_obj.last_smart_detect = None

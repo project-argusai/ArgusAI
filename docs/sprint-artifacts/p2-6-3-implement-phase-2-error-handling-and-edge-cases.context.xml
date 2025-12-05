@@ -1,0 +1,192 @@
+<story-context id="p2-6-3-implement-phase-2-error-handling-and-edge-cases" v="1.0">
+  <metadata>
+    <epicId>P2-6</epicId>
+    <storyId>3</storyId>
+    <title>Implement Phase 2 Error Handling and Edge Cases</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-6-3-implement-phase-2-error-handling-and-edge-cases.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>graceful error handling for all Phase 2 features</iWant>
+    <soThat>the system remains stable and informative when issues occur</soThat>
+    <tasks>
+      <task id="1" name="Implement Controller Connection Error Handling">
+        <subtask>1.1 Create connection error banner component with status-based styling</subtask>
+        <subtask>1.2 Add "Unable to connect" state with yellow banner and retry spinner</subtask>
+        <subtask>1.3 Add "Authentication failed" state with red banner and credential prompt</subtask>
+        <subtask>1.4 Add "Controller unreachable" state with red banner and manual retry button</subtask>
+        <subtask>1.5 Add "Reconnected" toast notification for successful reconnection</subtask>
+        <subtask>1.6 Write tests for connection error states</subtask>
+      </task>
+      <task id="2" name="Implement Camera Discovery Error Handling">
+        <subtask>2.1 Add "No cameras found" empty state with helpful message</subtask>
+        <subtask>2.2 Implement partial failure handling showing discovered cameras with warning</subtask>
+        <subtask>2.3 Add error logging for discovery failures</subtask>
+        <subtask>2.4 Write tests for discovery error states</subtask>
+      </task>
+      <task id="3" name="Implement WebSocket Error Handling">
+        <subtask>3.1 Add WebSocket connection lost toast with auto-reconnect indicator</subtask>
+        <subtask>3.2 Add brief reconnected toast notification</subtask>
+        <subtask>3.3 Implement max retries exceeded state with red banner and manual reconnect</subtask>
+        <subtask>3.4 Track retry count and display appropriate UI state</subtask>
+        <subtask>3.5 Write tests for WebSocket error states</subtask>
+      </task>
+      <task id="4" name="Implement AI Provider Error Handling">
+        <subtask>4.1 Implement rate limit queuing with retry mechanism</subtask>
+        <subtask>4.2 Verify fallback chain behavior when provider is down</subtask>
+        <subtask>4.3 Implement event storage without description when all providers fail</subtask>
+        <subtask>4.4 Add flag for events needing description retry</subtask>
+        <subtask>4.5 Write integration tests for AI provider failures</subtask>
+      </task>
+      <task id="5" name="Enhance UI Error States">
+        <subtask>5.1 Review and enhance form inline validation errors</subtask>
+        <subtask>5.2 Standardize API error toast notifications across components</subtask>
+        <subtask>5.3 Add retry option for network errors</subtask>
+        <subtask>5.4 Add React error boundaries to protect settings page</subtask>
+        <subtask>5.5 Write tests for UI error handling</subtask>
+      </task>
+      <task id="6" name="Implement Retry Logic and Logging">
+        <subtask>6.1 Review existing retry logic and ensure exponential backoff is consistent</subtask>
+        <subtask>6.2 Audit error logging for sensitive data (remove credentials)</subtask>
+        <subtask>6.3 Add contextual information to error logs for debugging</subtask>
+        <subtask>6.4 Write tests for retry logic and logging</subtask>
+      </task>
+      <task id="7" name="Testing and Documentation">
+        <subtask>7.1 Run full test suite and verify no regressions</subtask>
+        <subtask>7.2 Test error scenarios manually in UI</subtask>
+        <subtask>7.3 Update story with dev notes</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Controller connection errors show appropriate banners (yellow for retry, red for auth failure, etc.)</criterion>
+    <criterion id="AC2">"Unable to connect" shows yellow banner with auto-retry in progress</criterion>
+    <criterion id="AC3">"Authentication failed" shows red banner prompting credential check</criterion>
+    <criterion id="AC4">"Controller unreachable" shows red banner with manual retry button</criterion>
+    <criterion id="AC5">Connection restored shows green toast "Reconnected"</criterion>
+    <criterion id="AC6">Camera discovery "No cameras found" shows helpful message</criterion>
+    <criterion id="AC7">Partial camera discovery failure shows discovered cameras with note about missing</criterion>
+    <criterion id="AC8">WebSocket connection lost shows yellow toast with auto-reconnect</criterion>
+    <criterion id="AC9">WebSocket reconnected shows brief green toast</criterion>
+    <criterion id="AC10">Max WebSocket retries exceeded shows red banner with manual reconnect option</criterion>
+    <criterion id="AC11">API rate limited queues request and retries later</criterion>
+    <criterion id="AC12">AI provider down falls back to next provider</criterion>
+    <criterion id="AC13">All AI providers down stores event without description, flags for retry</criterion>
+    <criterion id="AC14">Forms show inline validation errors</criterion>
+    <criterion id="AC15">API errors show toast notifications</criterion>
+    <criterion id="AC16">Network errors show retry option</criterion>
+    <criterion id="AC17">React error boundaries catch component errors gracefully</criterion>
+    <criterion id="AC18">Retry logic uses exponential backoff</criterion>
+    <criterion id="AC19">Errors logged with context for debugging (no credentials)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase2.md" title="Phase 2 Epic Breakdown" section="Story 6.3: Implement Phase 2 Error Handling and Edge Cases">
+        Story 6.3 specifies graceful error handling for controller connections, camera discovery, WebSocket errors, and AI provider failures with NFR6 compliance.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="Error Handling">
+        System uses FastAPI HTTPException, TanStack Query error handling, and toast notifications for error feedback.
+      </doc>
+      <doc path="docs/PRD-phase2.md" title="PRD Phase 2" section="NFR6">
+        NFR6: System must handle errors gracefully with informative UI states and auto-recovery where possible.
+      </doc>
+    </docs>
+    <code>
+      <file path="frontend/components/protect/ConnectionStatus.tsx" kind="component" symbol="ConnectionStatus" lines="1-123" reason="Existing connection status indicator with color-coded states - extend for error banners"/>
+      <file path="frontend/components/protect/ControllerForm.tsx" kind="component" symbol="ControllerForm" reason="Controller configuration form - add error state handling"/>
+      <file path="frontend/components/protect/DiscoveredCameraList.tsx" kind="component" symbol="DiscoveredCameraList" reason="Camera discovery UI - add error states for no cameras and partial failures"/>
+      <file path="frontend/hooks/useToast.ts" kind="hook" symbol="useToast" lines="1-53" reason="Toast notification hook - existing API for success/error/warning toasts"/>
+      <file path="backend/app/services/protect_service.py" kind="service" symbol="ProtectService" reason="WebSocket connection with exponential backoff - verify retry logic"/>
+      <file path="backend/app/services/ai_service.py" kind="service" symbol="AIService" reason="AI provider fallback chain with rate limit handling - enhance error storage"/>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor" reason="Event processing pipeline - add flag for events needing description retry"/>
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" reason="Event model - may need field for description_retry_needed flag"/>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0"/>
+        <package name="sqlalchemy" version=">=2.0.36"/>
+        <package name="uiprotect" version=">=6.0.0"/>
+        <package name="openai" version=">=1.54.0"/>
+        <package name="anthropic" version=">=0.39.0"/>
+        <package name="google-generativeai" version=">=0.8.0"/>
+        <package name="pytest" version="7.4.3"/>
+        <package name="pytest-asyncio" version="0.21.1"/>
+      </python>
+      <node>
+        <package name="next" version="16.0.3"/>
+        <package name="react" version="19.2.0"/>
+        <package name="@tanstack/react-query" version="^5.90.10"/>
+        <package name="sonner" version="^2.0.7"/>
+        <package name="react-hook-form" version="^7.66.0"/>
+        <package name="zod" version="^4.1.12"/>
+        <package name="lucide-react" version="^0.553.0"/>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Use existing useToast hook for all toast notifications (sonner-based)</constraint>
+    <constraint type="pattern">Use existing ConnectionStatus component patterns for error indicators</constraint>
+    <constraint type="pattern">Follow NFR6: Graceful error handling with informative UI states</constraint>
+    <constraint type="pattern">Use TanStack Query error handling for API requests</constraint>
+    <constraint type="security">Never log credentials or API keys in error messages</constraint>
+    <constraint type="architecture">Exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s (max)</constraint>
+    <constraint type="testing">Backend tests use pytest with pytest-asyncio for async tests</constraint>
+    <constraint type="testing">Frontend uses npm run build for TypeScript validation</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="ConnectionStatus" kind="React component">
+      <signature>ConnectionStatus({ status, errorMessage?, firmwareVersion?, cameraCount? })</signature>
+      <path>frontend/components/protect/ConnectionStatus.tsx:53</path>
+      <note>status: 'not_configured' | 'connecting' | 'connected' | 'error'</note>
+    </interface>
+    <interface name="useToast" kind="React hook">
+      <signature>useToast(): { showSuccess, showError, showInfo, showWarning }</signature>
+      <path>frontend/hooks/useToast.ts:37</path>
+    </interface>
+    <interface name="BACKOFF_DELAYS" kind="constant">
+      <signature>BACKOFF_DELAYS = [1, 2, 4, 8, 16, 30]</signature>
+      <path>backend/app/services/protect_service.py:35</path>
+    </interface>
+    <interface name="AIService.generate_description" kind="method">
+      <signature>async generate_description(image: bytes, custom_prompt: str = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py</path>
+      <note>Falls back through providers: OpenAI → Grok → Gemini → Claude</note>
+    </interface>
+    <interface name="Event.provider_used" kind="model field">
+      <signature>provider_used: Column(String(20), nullable=True)</signature>
+      <path>backend/app/models/event.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio for async tests. Tests live in backend/tests/ directory organized by type (test_api/, test_services/, test_integration/). Use TestingSessionLocal for database fixtures. Frontend uses TypeScript compilation (npm run build) for validation. Follow existing test patterns for protect and ai_service tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_protect.py</location>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_services/test_protect_service.py</location>
+      <location>backend/tests/test_integration/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1,AC2,AC3,AC4">Test ConnectionStatus component renders correct banners for each error type</idea>
+      <idea ac="AC5,AC8,AC9">Test toast notifications appear for connection state changes</idea>
+      <idea ac="AC6,AC7">Test DiscoveredCameraList handles no cameras and partial discovery failures</idea>
+      <idea ac="AC10">Test WebSocket max retry exceeded triggers manual reconnect state</idea>
+      <idea ac="AC11,AC18">Test AI service rate limit handling with exponential backoff</idea>
+      <idea ac="AC12">Test AI provider fallback chain when primary provider fails</idea>
+      <idea ac="AC13">Test event storage without description when all providers fail</idea>
+      <idea ac="AC14">Test form inline validation for ControllerForm</idea>
+      <idea ac="AC17">Test React error boundary catches component errors</idea>
+      <idea ac="AC19">Audit test logs to ensure no credentials are logged</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -1,0 +1,182 @@
+<story-context id="p2-6-1-verify-rtsp-usb-camera-coexistence" v="1.0">
+  <metadata>
+    <epicId>P2-6</epicId>
+    <storyId>1</storyId>
+    <title>Verify RTSP/USB Camera Coexistence</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-6-1-verify-rtsp-usb-camera-coexistence.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>my existing RTSP and USB cameras to continue working alongside Protect cameras</iWant>
+    <soThat>I can use both camera types in my system without any degradation or conflicts</soThat>
+    <tasks>
+      <task id="1" name="Verify RTSP Camera Event Flow">
+        <subtask>1.1 Run existing RTSP camera tests to verify no regression</subtask>
+        <subtask>1.2 Test RTSP event creation, storage, and retrieval</subtask>
+        <subtask>1.3 Verify motion detection still triggers AI analysis for RTSP cameras</subtask>
+        <subtask>1.4 Verify thumbnails are generated correctly for RTSP events</subtask>
+      </task>
+      <task id="2" name="Verify USB Camera Event Flow">
+        <subtask>2.1 Run existing USB camera tests to verify no regression</subtask>
+        <subtask>2.2 Test USB event creation, storage, and retrieval</subtask>
+        <subtask>2.3 Verify motion detection still triggers AI analysis for USB cameras</subtask>
+        <subtask>2.4 Verify thumbnails are generated correctly for USB events</subtask>
+      </task>
+      <task id="3" name="Test Mixed Source Timeline">
+        <subtask>3.1 Create integration test with events from all three sources</subtask>
+        <subtask>3.2 Verify events are sorted by timestamp regardless of source</subtask>
+        <subtask>3.3 Verify no duplicate events when same camera could appear in multiple sources</subtask>
+        <subtask>3.4 Test search functionality across all event sources</subtask>
+        <subtask>3.5 Test pagination with mixed source events</subtask>
+      </task>
+      <task id="4" name="Verify Source Type Filtering">
+        <subtask>4.1 Test source_type filter in events API (rtsp, usb, protect, all)</subtask>
+        <subtask>4.2 Verify filter combinations work (source_type + camera_id + date_range)</subtask>
+        <subtask>4.3 Verify source type badge displays correctly in frontend</subtask>
+        <subtask>4.4 Test filter persistence in URL query params</subtask>
+      </task>
+      <task id="5" name="Verify Alert Rule Integration">
+        <subtask>5.1 Test existing alert rules with Protect events</subtask>
+        <subtask>5.2 Verify object type matching works for Protect smart detection</subtask>
+        <subtask>5.3 Test webhook dispatch for Protect events</subtask>
+        <subtask>5.4 Verify alert rule evaluation performance with mixed sources</subtask>
+      </task>
+      <task id="6" name="Performance Testing">
+        <subtask>6.1 Measure event processing time for RTSP with/without Protect cameras</subtask>
+        <subtask>6.2 Load test event timeline API with 1000+ mixed source events</subtask>
+        <subtask>6.3 Verify event list response time less than 500ms</subtask>
+        <subtask>6.4 Check database query performance with source_type index</subtask>
+      </task>
+      <task id="7" name="Documentation and Verification">
+        <subtask>7.1 Run full test suite and document results</subtask>
+        <subtask>7.2 Update CLAUDE.md if coexistence notes needed</subtask>
+        <subtask>7.3 Create coexistence verification checklist</subtask>
+        <subtask>7.4 Manual test with actual mixed camera setup (if available)</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">RTSP camera events continue working with no regression from Phase 2 changes</criterion>
+    <criterion id="AC2">USB camera events continue working with no regression from Phase 2 changes</criterion>
+    <criterion id="AC3">Protect camera events work alongside RTSP/USB events</criterion>
+    <criterion id="AC4">No duplicate events occur (Protect camera not also configured as RTSP)</criterion>
+    <criterion id="AC5">All events sorted by timestamp (newest first) in unified timeline</criterion>
+    <criterion id="AC6">Source type badge distinguishes camera type (RTSP/USB/Protect) in event cards</criterion>
+    <criterion id="AC7">Filter by source type works correctly in events API</criterion>
+    <criterion id="AC8">Search includes events from all sources</criterion>
+    <criterion id="AC9">Existing alert rules evaluate events from all camera sources</criterion>
+    <criterion id="AC10">Rule conditions work for Protect events (object types, etc.)</criterion>
+    <criterion id="AC11">Webhooks trigger for Protect events</criterion>
+    <criterion id="AC12">Adding Protect cameras doesn't slow RTSP processing (performance)</criterion>
+    <criterion id="AC13">Event timeline loads efficiently with mixed sources (less than 500ms)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase2.md" title="Phase 2 Epic Breakdown" section="Epic 6: Coexistence and Polish">
+        Story 6.1 specifies verification of RTSP/USB camera coexistence with Protect cameras, including unified timeline, alert rules, and performance requirements.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="Phase 2 Additions">
+        Multi-source event architecture supports RTSP, USB, and Protect cameras feeding into unified event pipeline with AI processing.
+      </doc>
+      <doc path="docs/prd.md" title="PRD" section="Event Processing">
+        Requirements for event processing pipeline supporting multiple camera sources with consistent AI analysis.
+      </doc>
+    </docs>
+    <code>
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" lines="1-70" reason="Event model with source_type field (rtsp/usb/protect) - core data structure for coexistence verification"/>
+      <file path="backend/app/models/camera.py" kind="model" symbol="Camera" reason="Camera model with source_type field - defines camera sources"/>
+      <file path="backend/app/api/v1/events.py" kind="router" symbol="list_events" lines="180-400" reason="Events API with source_type filtering - verify filter works correctly"/>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor" reason="RTSP/USB event processing pipeline - verify no regression"/>
+      <file path="backend/app/services/protect_event_handler.py" kind="service" symbol="ProtectEventHandler" reason="Protect event processing - verify coexistence with other sources"/>
+      <file path="backend/app/services/alert_engine.py" kind="service" symbol="AlertEngine" lines="1-100" reason="Alert rule evaluation - verify works with all source types"/>
+      <file path="backend/app/services/webhook_service.py" kind="service" symbol="WebhookService" reason="Webhook dispatch - verify triggers for Protect events"/>
+      <file path="backend/tests/test_api/test_events.py" kind="test" symbol="test_list_events_filter_by_source_type" lines="858-950" reason="Existing source_type filter tests - baseline for coexistence"/>
+      <file path="backend/tests/test_api/test_cameras.py" kind="test" reason="Camera API tests - verify RTSP/USB camera operations unchanged"/>
+      <file path="backend/tests/test_services/test_event_processor.py" kind="test" reason="Event processor tests - verify RTSP/USB processing unchanged"/>
+      <file path="backend/tests/test_services/test_alert_engine.py" kind="test" reason="Alert engine tests - verify rule evaluation"/>
+      <file path="frontend/components/events/EventCard.tsx" kind="component" symbol="EventCard" reason="Event card displaying source type badge"/>
+      <file path="frontend/components/events/SourceTypeBadge.tsx" kind="component" symbol="SourceTypeBadge" reason="Badge component showing RTSP/USB/Protect source"/>
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="eventsApi" reason="Frontend API client with source_type filter support"/>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0"/>
+        <package name="sqlalchemy" version=">=2.0.36"/>
+        <package name="pytest" version="7.4.3"/>
+        <package name="pytest-asyncio" version="0.21.1"/>
+        <package name="httpx" version="0.25.2"/>
+        <package name="uiprotect" version=">=6.0.0"/>
+        <package name="opencv-python" version=">=4.12.0"/>
+        <package name="openai" version=">=1.54.0"/>
+      </python>
+      <node>
+        <package name="next" version="16.0.3"/>
+        <package name="react" version="19.2.0"/>
+        <package name="@tanstack/react-query" version="^5.90.10"/>
+        <package name="typescript" version="^5"/>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing test patterns in test_api and test_services directories</constraint>
+    <constraint type="pattern">Use pytest fixtures for database setup/teardown</constraint>
+    <constraint type="pattern">Maintain backward compatibility with existing RTSP/USB camera flows</constraint>
+    <constraint type="testing">Integration tests must cover all three source types (rtsp, usb, protect)</constraint>
+    <constraint type="testing">Performance tests must verify response times under 500ms</constraint>
+    <constraint type="database">Verify source_type index exists and is used for filtering queries</constraint>
+    <constraint type="architecture">Event processing pipelines must remain independent (RTSP/USB vs Protect)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/events" kind="REST endpoint">
+      <signature>GET /api/v1/events?source_type={rtsp,usb,protect}&amp;camera_id={id}&amp;start_date={date}&amp;end_date={date}&amp;search_query={query}</signature>
+      <path>backend/app/api/v1/events.py:180</path>
+    </interface>
+    <interface name="Event.source_type" kind="model field">
+      <signature>source_type: Column(String(20), nullable=False, default='rtsp')</signature>
+      <path>backend/app/models/event.py:48</path>
+    </interface>
+    <interface name="AlertEngine.evaluate_all_rules" kind="method">
+      <signature>async evaluate_all_rules(event: Event) -> List[AlertRule]</signature>
+      <path>backend/app/services/alert_engine.py</path>
+    </interface>
+    <interface name="EventProcessor.process_motion_event" kind="method">
+      <signature>async process_motion_event(camera_id: str, frame: np.ndarray, timestamp: datetime) -> Event</signature>
+      <path>backend/app/services/event_processor.py</path>
+    </interface>
+    <interface name="ProtectEventHandler.handle_event" kind="method">
+      <signature>async handle_event(event_data: dict) -> Optional[Event]</signature>
+      <path>backend/app/services/protect_event_handler.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Use pytest for backend tests with pytest-asyncio for async tests. Tests live in backend/tests/ directory organized by test type (test_api/, test_services/, test_integration/). Use TestingSessionLocal for database fixtures. Follow existing test patterns for camera and event tests. Performance tests should measure response times and compare against 500ms threshold.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_events.py</location>
+      <location>backend/tests/test_api/test_cameras.py</location>
+      <location>backend/tests/test_services/test_event_processor.py</location>
+      <location>backend/tests/test_services/test_alert_engine.py</location>
+      <location>backend/tests/test_integration/ (create for coexistence tests)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1,AC2">Create TestCameraCoexistence class with test methods for RTSP and USB event flow regression</idea>
+      <idea ac="AC3">Test mixed source event creation in single timeline - create events from all three sources and verify retrieval</idea>
+      <idea ac="AC4">Test that enabling Protect camera doesn't create duplicate events if same camera had RTSP URL</idea>
+      <idea ac="AC5">Test event list sorting with mixed sources - verify timestamp ordering regardless of source_type</idea>
+      <idea ac="AC7">Test source_type filter combinations with other filters (camera_id, date_range, search)</idea>
+      <idea ac="AC8">Test FTS5 search returns events from all source types</idea>
+      <idea ac="AC9,AC10,AC11">Test alert rule evaluation with Protect events - verify object matching and webhook dispatch</idea>
+      <idea ac="AC12,AC13">Performance test with 1000+ events - measure list response time, compare with/without Protect</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -39,6 +39,7 @@ SENSITIVE_SETTING_KEYS = [
     "ai_api_key_openai",
     "ai_api_key_claude",
     "ai_api_key_gemini",
+    "ai_api_key_grok",  # Story P2-5.2: xAI Grok API key
 ]
 
 router = APIRouter(
@@ -494,13 +495,29 @@ async def update_settings(
         # Update only provided fields
         update_data = settings_update.model_dump(exclude_unset=True)
 
+        # Fields that should be saved WITHOUT the settings_ prefix
+        # These are read directly by AI service (Story P2-5.2, P2-5.3)
+        no_prefix_fields = {
+            'ai_api_key_openai',
+            'ai_api_key_grok',
+            'ai_api_key_claude',
+            'ai_api_key_gemini',
+            'ai_provider_order',
+        }
+
         for field_name, value in update_data.items():
             if value is not None:  # Only update non-None values
                 # Skip masked API key values
                 if field_name in ('primary_api_key', 'fallback_api_key') and isinstance(value, str) and value.startswith('****'):
                     logger.debug(f"Skipping masked value for {field_name}")
                     continue
-                _set_setting_in_db(db, f"{SETTINGS_PREFIX}{field_name}", value)
+
+                # AI provider fields are saved without prefix (Story P2-5.2, P2-5.3)
+                if field_name in no_prefix_fields:
+                    _set_setting_in_db(db, field_name, value)
+                    logger.info(f"Saved AI provider setting: {field_name}")
+                else:
+                    _set_setting_in_db(db, f"{SETTINGS_PREFIX}{field_name}", value)
 
         # If API key was updated (and not a masked value), also save it with provider-specific key name
         # so AI service can find it
@@ -549,7 +566,7 @@ async def update_settings(
 
 class TestKeyRequest(BaseModel):
     """Request body for API key test endpoint"""
-    provider: Literal["openai", "anthropic", "google"] = Field(
+    provider: Literal["openai", "anthropic", "google", "grok"] = Field(
         ..., description="AI provider to test"
     )
     api_key: str = Field(..., min_length=1, description="API key to test")
@@ -605,6 +622,8 @@ async def test_api_key(request: TestKeyRequest):
             valid, message = await _test_anthropic_key(api_key)
         elif provider == "google":
             valid, message = await _test_google_key(api_key)
+        elif provider == "grok":
+            valid, message = await _test_grok_key(api_key)
         else:
             return TestKeyResponse(
                 valid=False,
@@ -680,6 +699,29 @@ async def _test_google_key(api_key: str) -> tuple[bool, str]:
         return False, f"Google AI API error: {str(e)}"
 
 
+async def _test_grok_key(api_key: str) -> tuple[bool, str]:
+    """Test xAI Grok API key with a minimal request (Story P2-5.2)"""
+    try:
+        import openai
+        # Grok uses OpenAI-compatible API with custom base URL
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://api.x.ai/v1"
+        )
+        # List models to verify the key works
+        models = client.models.list()
+        return True, "xAI Grok API key validated successfully"
+    except openai.AuthenticationError:
+        return False, "Invalid API key - authentication failed"
+    except openai.RateLimitError:
+        return True, "API key valid (rate limited, but authenticated)"
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "api key" in error_msg or "invalid" in error_msg or "401" in error_msg or "unauthorized" in error_msg:
+            return False, "Invalid API key - authentication failed"
+        return False, f"xAI Grok API error: {str(e)}"
+
+
 def get_decrypted_api_key(db: Session, provider: str) -> Optional[str]:
     """
     Get decrypted API key for a specific provider from system settings
@@ -719,6 +761,209 @@ def get_decrypted_api_key(db: Session, provider: str) -> Optional[str]:
     else:
         # Return unencrypted value (legacy)
         return encrypted_value
+
+
+# ============================================================================
+# AI Provider Status API (Story P2-5.2)
+# ============================================================================
+
+
+class AIProviderStatus(BaseModel):
+    """Status of AI provider configuration"""
+    provider: str = Field(..., description="Provider identifier")
+    configured: bool = Field(..., description="Whether API key is configured")
+
+
+class AIProvidersStatusResponse(BaseModel):
+    """Response listing all AI providers and their configuration status"""
+    providers: List[AIProviderStatus] = Field(..., description="List of provider statuses")
+    order: List[str] = Field(..., description="Provider order for fallback chain")
+
+
+@router.get("/ai-providers", response_model=AIProvidersStatusResponse)
+async def get_ai_providers_status(db: Session = Depends(get_db)):
+    """
+    Get configuration status for all AI providers
+
+    Returns a list of all supported AI providers and whether they have
+    API keys configured. This is used by the frontend to show provider
+    status in the settings UI.
+
+    **Response:**
+    ```json
+    {
+        "providers": [
+            {"provider": "openai", "configured": true},
+            {"provider": "grok", "configured": false},
+            {"provider": "anthropic", "configured": true},
+            {"provider": "google", "configured": false}
+        ]
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    - 500: Internal server error
+    """
+    try:
+        # Map providers to their database key names
+        provider_key_map = {
+            "openai": "ai_api_key_openai",
+            "grok": "ai_api_key_grok",
+            "anthropic": "ai_api_key_claude",
+            "google": "ai_api_key_gemini",
+        }
+
+        providers = []
+        for provider_id, db_key in provider_key_map.items():
+            # Check if the key exists and has a value
+            setting = db.query(SystemSetting).filter(SystemSetting.key == db_key).first()
+            is_configured = bool(setting and setting.value and setting.value.strip())
+
+            providers.append(AIProviderStatus(
+                provider=provider_id,
+                configured=is_configured
+            ))
+
+        # Get saved provider order or use default
+        order_setting = db.query(SystemSetting).filter(
+            SystemSetting.key == "ai_provider_order"
+        ).first()
+
+        default_order = ["openai", "grok", "anthropic", "google"]
+        if order_setting and order_setting.value:
+            try:
+                import json
+                order = json.loads(order_setting.value)
+            except (json.JSONDecodeError, TypeError):
+                order = default_order
+        else:
+            order = default_order
+
+        return AIProvidersStatusResponse(providers=providers, order=order)
+
+    except Exception as e:
+        logger.error(f"Error getting AI providers status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get AI providers status"
+        )
+
+
+# ============================================================================
+# AI Provider Stats API (Story P2-5.3)
+# ============================================================================
+
+
+class AIProviderStatsResponse(BaseModel):
+    """Response for AI provider usage statistics"""
+    total_events: int = Field(..., description="Total events with provider_used set")
+    events_per_provider: dict[str, int] = Field(..., description="Event count by provider")
+    date_range: Literal["24h", "7d", "30d", "all"] = Field(..., description="Date range filter applied")
+    time_range: dict[str, Optional[str]] = Field(..., description="Actual time range (start, end)")
+
+
+@router.get("/ai-stats", response_model=AIProviderStatsResponse)
+async def get_ai_provider_stats(
+    date_range: Literal["24h", "7d", "30d", "all"] = "7d",
+    db: Session = Depends(get_db)
+):
+    """
+    Get AI provider usage statistics (Story P2-5.3)
+
+    Returns a breakdown of how many events were processed by each AI provider.
+    Useful for monitoring provider usage and fallback behavior.
+
+    **Query Parameters:**
+    - `date_range`: Time filter - "24h", "7d", "30d", or "all" (default: "7d")
+
+    **Response:**
+    ```json
+    {
+        "total_events": 1234,
+        "events_per_provider": {
+            "openai": 1000,
+            "grok": 150,
+            "claude": 75,
+            "gemini": 9
+        },
+        "date_range": "7d",
+        "time_range": {
+            "start": "2025-11-28T00:00:00Z",
+            "end": "2025-12-05T23:59:59Z"
+        }
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    - 500: Internal server error
+    """
+    from app.models.event import Event
+    from sqlalchemy import func
+
+    try:
+        # Calculate time range
+        now = datetime.now(timezone.utc)
+        if date_range == "24h":
+            start_time = now - timedelta(hours=24)
+        elif date_range == "7d":
+            start_time = now - timedelta(days=7)
+        elif date_range == "30d":
+            start_time = now - timedelta(days=30)
+        else:  # "all"
+            start_time = None
+
+        # Build query for events with provider_used set
+        query = db.query(
+            Event.provider_used,
+            func.count(Event.id).label('count')
+        ).filter(Event.provider_used.isnot(None))
+
+        if start_time:
+            query = query.filter(Event.timestamp >= start_time)
+
+        # Group by provider
+        results = query.group_by(Event.provider_used).all()
+
+        # Build response
+        events_per_provider = {}
+        total = 0
+        for provider, count in results:
+            if provider:  # Skip None values
+                events_per_provider[provider] = count
+                total += count
+
+        # Get actual time range from data
+        if start_time:
+            time_range_data = {
+                "start": start_time.isoformat(),
+                "end": now.isoformat()
+            }
+        else:
+            # Get actual min/max from data
+            min_max = db.query(
+                func.min(Event.timestamp),
+                func.max(Event.timestamp)
+            ).filter(Event.provider_used.isnot(None)).first()
+            time_range_data = {
+                "start": min_max[0].isoformat() if min_max[0] else None,
+                "end": min_max[1].isoformat() if min_max[1] else None
+            }
+
+        return AIProviderStatsResponse(
+            total_events=total,
+            events_per_provider=events_per_provider,
+            date_range=date_range,
+            time_range=time_range_data
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting AI provider stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get AI provider statistics"
+        )
 
 
 # ============================================================================

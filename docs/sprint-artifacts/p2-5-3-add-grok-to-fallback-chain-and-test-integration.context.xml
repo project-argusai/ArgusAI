@@ -1,0 +1,229 @@
+<story-context id="p2-5-3-add-grok-to-fallback-chain-and-test-integration" v="1.0">
+  <metadata>
+    <epicId>P2-5</epicId>
+    <storyId>3</storyId>
+    <title>Add Grok to Fallback Chain and Test Integration</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-5-3-add-grok-to-fallback-chain-and-test-integration.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>Grok integrated into the AI fallback chain with comprehensive testing and monitoring</iWant>
+    <soThat>it's used according to user-configured priority and system reliability is ensured</soThat>
+    <tasks>
+      <task id="1" title="Add provider_used Field to Event Model" ac="5">
+        <subtask>1.1 Add provider_used column (String, nullable=True) to Event model</subtask>
+        <subtask>1.2 Create Alembic migration for new column</subtask>
+        <subtask>1.3 Update EventProcessor to set provider_used from AIResult.provider</subtask>
+        <subtask>1.4 Update event schemas (EventResponse) to include provider_used</subtask>
+      </task>
+      <task id="2" title="Update Event API Responses" ac="6">
+        <subtask>2.1 Add provider_used field to event list and detail API responses</subtask>
+        <subtask>2.2 Add provider_used to event export/stats endpoints if applicable</subtask>
+        <subtask>2.3 Frontend: Update IEvent type to include provider_used</subtask>
+        <subtask>2.4 Frontend: Display provider badge on event cards (optional enhancement)</subtask>
+      </task>
+      <task id="3" title="Add Provider Usage Statistics Endpoint" ac="7">
+        <subtask>3.1 Create GET /api/v1/system/ai-stats endpoint returning provider usage breakdown</subtask>
+        <subtask>3.2 Query events table grouped by provider_used for counts</subtask>
+        <subtask>3.3 Include: events_per_provider, success_rate_per_provider, avg_response_time_per_provider</subtask>
+        <subtask>3.4 Add date range filtering (last 24h, 7d, 30d)</subtask>
+      </task>
+      <task id="4" title="Verify Fallback Chain Configuration" ac="1,2,3,4">
+        <subtask>4.1 Write unit test: _get_provider_order() returns configured order from settings</subtask>
+        <subtask>4.2 Write unit test: Default order when no configuration exists</subtask>
+        <subtask>4.3 Write unit test: Providers without API keys are skipped</subtask>
+        <subtask>4.4 Write integration test: Grok rate limit (429) triggers fallback to next provider</subtask>
+        <subtask>4.5 Write integration test: Full chain tested with mock failures</subtask>
+      </task>
+      <task id="5" title="Comprehensive Integration Testing" ac="8,9">
+        <subtask>5.1 Integration test: Configure provider order, verify order respected in fallback</subtask>
+        <subtask>5.2 Integration test: First provider fails, second succeeds, verify provider_used</subtask>
+        <subtask>5.3 Integration test: All providers fail, verify error handling</subtask>
+        <subtask>5.4 E2E test: Configure Grok API key → POST /cameras/{id}/analyze → Verify event created with provider_used</subtask>
+        <subtask>5.5 E2E test: Trigger motion event, verify description generated and provider logged</subtask>
+      </task>
+      <task id="6" title="Build Verification and Documentation" ac="all">
+        <subtask>6.1 Run full test suite: pytest tests/ -v</subtask>
+        <subtask>6.2 Verify frontend build: npm run build</subtask>
+        <subtask>6.3 Update CLAUDE.md if architecture notes needed</subtask>
+        <subtask>6.4 Manual test: Full flow with actual Grok API key (if available)</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" verification="unit-test">Fallback chain reads ai_provider_order from settings and attempts providers in configured order</criterion>
+    <criterion id="AC2" verification="unit-test">Providers without valid API keys are skipped in the fallback chain</criterion>
+    <criterion id="AC3" verification="unit-test">Default fallback order is OpenAI → Grok → Gemini → Anthropic</criterion>
+    <criterion id="AC4" verification="integration-test">Grok-specific errors (rate limits 429, model unavailable) are handled with appropriate retry/fallback</criterion>
+    <criterion id="AC5" verification="unit-test">provider_used field added to Event model and populated with the successful provider name</criterion>
+    <criterion id="AC6" verification="unit-test">Events API includes provider_used field in responses</criterion>
+    <criterion id="AC7" verification="manual-test">Dashboard/API provides provider usage statistics (events processed per provider)</criterion>
+    <criterion id="AC8" verification="integration-test">Comprehensive integration tests verify full fallback chain behavior with mocked providers</criterion>
+    <criterion id="AC9" verification="e2e-test">E2E test verifies: configure Grok key → trigger event → description generated → provider_used populated</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase2.md</path>
+        <title>Phase 2 Epics</title>
+        <section>Epic 5: xAI Grok Provider - Story 5.3</section>
+        <snippet>Technical Notes: Update AIService.get_description() to use ordered chain, Add provider_used field to event record (for analytics), Consider provider health tracking.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Phase 2 Additions - AI Provider Chain</section>
+        <snippet>xAI Grok uses OpenAI-compatible API at api.x.ai/v1 with model grok-2-vision-1212. Multi-Provider AI: Support multiple AI models with automatic fallback. Provider order stored as JSON array in ai_provider_order setting.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p2-5-1-implement-xai-grok-provider-in-ai-service.md</path>
+        <title>Story P2-5.1: Grok Provider Implementation</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>GrokProvider class at ai_service.py:491-654. Fallback chain order is [OPENAI, GROK, CLAUDE, GEMINI]. Provider-specific retry: Grok uses 2 retries with 500ms delay.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p2-5-2-build-grok-provider-configuration-ui.md</path>
+        <title>Story P2-5.2: Grok Configuration UI</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>AIService._get_provider_order() method reads from database settings at ai_service.py:770-812. GET /api/v1/system/ai-providers returns configured status. Provider order saved as ai_provider_order setting.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>1-67</lines>
+        <reason>MODIFY: Add provider_used column (String, nullable=True) for tracking which AI provider generated the description. Follow existing Phase 2 column pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse, EventCreate</symbol>
+        <lines>66-115</lines>
+        <reason>MODIFY: Add provider_used field to EventResponse schema. Optional string field for AI provider name (openai/grok/claude/gemini).</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor._process_event, _store_event_with_retry</symbol>
+        <lines>528-632, 634-739</lines>
+        <reason>MODIFY: Set event.provider_used = ai_result.provider when creating Event record. The AIResult already contains provider field.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService._get_provider_order, generate_description</symbol>
+        <lines>770-812, 815-900</lines>
+        <reason>REFERENCE: Provider order configuration and fallback chain implementation. Already implemented in P2-5.1 and P2-5.2.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>715-762</lines>
+        <reason>MODIFY: Add GET /api/v1/system/ai-stats endpoint for provider usage statistics.</reason>
+      </file>
+      <file>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent</symbol>
+        <lines>28-47</lines>
+        <reason>MODIFY: Add provider_used: string | null field to IEvent interface.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_ai_service.py</path>
+        <kind>test</kind>
+        <symbol>TestProviderOrderConfiguration, TestGrokProvider</symbol>
+        <lines>744-810, 227-362</lines>
+        <reason>REFERENCE: Existing test patterns for provider order configuration and Grok provider. Follow these patterns for new tests.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database models</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="openai" version=">=1.54.0">AI provider SDK (also used for xAI Grok with custom base_url)</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+        <package name="httpx" version="0.25.2">HTTP client for tests</package>
+      </python>
+      <node>
+        <package name="next" version="16.0.3">Frontend framework</package>
+        <package name="react" version="19.2.0">UI library</package>
+        <package name="typescript" version="^5">Type safety</package>
+        <package name="@tanstack/react-query" version="^5.90.10">Server state management</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing column addition pattern in Event model - see source_type, protect_event_id columns as examples</constraint>
+    <constraint type="migration">Create Alembic migration using: alembic revision -m "add_provider_used_to_events"</constraint>
+    <constraint type="testing">All new code must have unit tests. Follow existing TestProviderOrderConfiguration class pattern.</constraint>
+    <constraint type="backwards-compatibility">provider_used field must be nullable to support existing events (legacy events will have NULL)</constraint>
+    <constraint type="layer">Database → Model → Schema → Service → API route. Changes flow through all layers.</constraint>
+    <constraint type="naming">Python: snake_case (provider_used), TypeScript: camelCase (providerUsed for display) but snake_case for API fields</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Event.provider_used</name>
+      <kind>model-field</kind>
+      <signature>provider_used = Column(String(20), nullable=True)  # openai/grok/claude/gemini</signature>
+      <path>backend/app/models/event.py</path>
+    </interface>
+    <interface>
+      <name>EventResponse.provider_used</name>
+      <kind>schema-field</kind>
+      <signature>provider_used: Optional[str] = Field(None, description="AI provider that generated description")</signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/system/ai-stats</name>
+      <kind>REST-endpoint</kind>
+      <signature>GET /api/v1/system/ai-stats?range=24h|7d|30d → { events_per_provider: {openai: N, grok: N, ...}, success_rate_per_provider: {...}, total_events: N }</signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+    <interface>
+      <name>IEvent.provider_used</name>
+      <kind>typescript-interface</kind>
+      <signature>provider_used?: string | null;  // AI provider: openai, grok, claude, gemini</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+    <interface>
+      <name>AIResult.provider</name>
+      <kind>dataclass-field</kind>
+      <signature>provider: str  # Already exists in AIResult, populated by provider implementations</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Testing uses pytest with pytest-asyncio for async tests. Tests are organized in backend/tests/ with test_api/ for endpoint tests and test_services/ for service layer tests. Mock external dependencies (AI APIs) using unittest.mock or pytest-mock. Use test_db fixture from conftest.py for database tests. All tests should follow AAA pattern (Arrange, Act, Assert).</standards>
+    <locations>
+      <location>backend/tests/test_api/test_events.py</location>
+      <location>backend/tests/test_api/test_system.py</location>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_services/test_event_processor.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test _get_provider_order() returns order from ai_provider_order setting when configured</idea>
+      <idea ac="AC2">Test generate_description() skips providers where self.providers.get(provider_enum) returns None</idea>
+      <idea ac="AC3">Test _get_provider_order() returns [OPENAI, GROK, CLAUDE, GEMINI] when no setting exists</idea>
+      <idea ac="AC4">Test Grok 429 RateLimitError triggers fallback to next provider within 2s (mock using AsyncOpenAI.chat.completions.create)</idea>
+      <idea ac="AC5">Test event creation sets provider_used from AIResult.provider value</idea>
+      <idea ac="AC6">Test GET /api/v1/events returns events with provider_used field populated</idea>
+      <idea ac="AC7">Test GET /api/v1/system/ai-stats returns counts grouped by provider_used</idea>
+      <idea ac="AC8">Integration test: Mock all 4 providers, first fails, verify second is tried and logged</idea>
+      <idea ac="AC9">E2E test: Configure Grok key → POST /cameras/{id}/analyze → Verify event.provider_used == "grok"</idea>
+    </ideas>
+  </tests>
+</story-context>

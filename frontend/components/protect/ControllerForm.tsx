@@ -298,6 +298,9 @@ export function ControllerForm({ controller, onSaveSuccess, onCancel }: Controll
               {...form.register('name', { onChange: () => handleFieldChange() })}
               className={errors.name ? 'border-red-500' : ''}
             />
+            <p className="text-xs text-muted-foreground">
+              A friendly name to identify this controller (e.g., &quot;Home UDM Pro&quot;, &quot;Office Cloud Key&quot;)
+            </p>
             {errors.name && (
               <p className="text-sm text-red-500">{errors.name.message}</p>
             )}
@@ -314,6 +317,9 @@ export function ControllerForm({ controller, onSaveSuccess, onCancel }: Controll
               {...form.register('host', { onChange: () => handleFieldChange() })}
               className={errors.host ? 'border-red-500' : ''}
             />
+            <p className="text-xs text-muted-foreground">
+              The IP address or hostname of your UDM, Cloud Key, or NVR (e.g., 192.168.1.1)
+            </p>
             {errors.host && (
               <p className="text-sm text-red-500">{errors.host.message}</p>
             )}
@@ -332,6 +338,9 @@ export function ControllerForm({ controller, onSaveSuccess, onCancel }: Controll
               })}
               className={errors.port ? 'border-red-500' : ''}
             />
+            <p className="text-xs text-muted-foreground">
+              Default is 443. Only change if your controller uses a non-standard HTTPS port.
+            </p>
             {errors.port && (
               <p className="text-sm text-red-500">{errors.port.message}</p>
             )}
@@ -349,6 +358,9 @@ export function ControllerForm({ controller, onSaveSuccess, onCancel }: Controll
               {...form.register('username', { onChange: () => handleFieldChange() })}
               className={errors.username ? 'border-red-500' : ''}
             />
+            <p className="text-xs text-muted-foreground">
+              A local Protect account username. Cloud/Ubiquiti SSO accounts are not supported.
+            </p>
             {errors.username && (
               <p className="text-sm text-red-500">{errors.username.message}</p>
             )}

@@ -164,6 +164,9 @@ export function EventTypeFilter({
         <div className="space-y-4">
           {/* Header */}
           <div className="font-medium">Event Types to Analyze</div>
+          <p className="text-xs text-muted-foreground">
+            Select which smart detection types trigger AI analysis. Only checked types will generate AI descriptions.
+          </p>
           <div className="border-t" />
 
           {/* Smart Detection Checkboxes (AC2) */}

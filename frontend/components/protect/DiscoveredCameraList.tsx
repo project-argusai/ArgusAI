@@ -3,11 +3,13 @@
  * Story P2-2.2: Build Discovered Camera List UI with Enable/Disable
  * Story P2-2.3: Per-Camera Event Type Filtering integration
  * Story P2-2.4: Real-time camera status sync via WebSocket
+ * Story P2-6.3: Error handling for camera discovery
  *
  * Displays all cameras discovered from a connected UniFi Protect controller with:
  * - Header with camera count and refresh button
  * - Loading state with skeleton cards
  * - Empty state for no cameras / disconnected controller
+ * - Error state with helpful messages
  * - Responsive grid layout (1 column mobile, 2 columns tablet/desktop)
  * - Sorted list: enabled cameras first, then alphabetical by name
  * - Filter badge and popover for each enabled camera
@@ -15,6 +17,8 @@
  *
  * AC1: "Discovered Cameras (N found)" section with camera list
  * AC3: Sorted list with enabled cameras first
+ * AC6: "No cameras found" shows helpful message
+ * AC7: Partial failure shows discovered cameras with note about missing
  * AC10: Empty states for no cameras / disconnected
  * AC11: Loading state with skeleton cards
  * AC12: Responsive layout
@@ -24,14 +28,15 @@
 
 import { useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RefreshCw, Camera, Loader2 } from 'lucide-react';
+import { RefreshCw, Camera, Loader2, AlertTriangle, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiClient, type ProtectDiscoveredCamera } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DiscoveredCameraCard } from './DiscoveredCameraCard';
-import { useWebSocket, type CameraStatusChangeData } from '@/lib/hooks/useWebSocket';
+import { useWebSocketWithNotifications } from '@/lib/hooks/useWebSocketWithNotifications';
+import type { CameraStatusChangeData } from '@/lib/hooks/useWebSocket';
 
 export interface DiscoveredCameraListProps {
   controllerId: string;
@@ -108,9 +113,11 @@ export function DiscoveredCameraList({
   );
 
   // Connect to WebSocket for real-time camera status updates (Story P2-2.4 AC1)
-  useWebSocket({
+  // Story P2-6.3: Uses useWebSocketWithNotifications for toast notifications (AC8-10)
+  useWebSocketWithNotifications({
     onCameraStatusChange: handleCameraStatusChange,
     autoConnect: isControllerConnected,
+    showToasts: true, // AC8-10: Show connection state toasts
   });
 
   // Fetch discovered cameras with 60-second stale time (matching backend cache)
@@ -247,6 +254,8 @@ export function DiscoveredCameraList({
   const cameraCount = camerasQuery.data?.meta?.count ?? 0;
   const isLoading = camerasQuery.isLoading;
   const isRefetching = camerasQuery.isRefetching || refreshMutation.isPending; // AC3
+  // Story P2-6.3 AC7: Check for partial failure warning
+  const discoveryWarning = camerasQuery.data?.meta?.warning;
 
   // Disconnected state (AC10)
   if (!isControllerConnected) {
@@ -284,7 +293,42 @@ export function DiscoveredCameraList({
     );
   }
 
-  // Empty state - no cameras found (AC10)
+  // Error state with helpful message (AC6)
+  if (camerasQuery.isError) {
+    const errorMessage = camerasQuery.error instanceof Error
+      ? camerasQuery.error.message
+      : 'Failed to discover cameras';
+    return (
+      <div className="mt-6 pt-6 border-t">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Discovered Cameras</h3>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefetching}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isRefetching ? 'animate-spin' : ''}`} />
+            Retry
+          </Button>
+        </div>
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:bg-red-950 dark:border-red-800">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-medium text-red-800 dark:text-red-200">Discovery Failed</h4>
+              <p className="text-sm text-red-700 dark:text-red-300 mt-1">{errorMessage}</p>
+              <p className="text-sm text-red-600 dark:text-red-400 mt-2">
+                Check that your controller is accessible and try again.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Empty state - no cameras found with helpful message (AC6, AC10)
   if (sortedCameras.length === 0) {
     return (
       <div className="mt-6 pt-6 border-t">
@@ -300,10 +344,12 @@ export function DiscoveredCameraList({
             Refresh
           </Button>
         </div>
-        <div className="flex flex-col items-center justify-center py-8 text-center">
+        <div className="flex flex-col items-center justify-center py-8 text-center bg-muted/50 rounded-lg">
           <Camera className="h-12 w-12 text-muted-foreground/50 mb-3" />
-          <p className="text-muted-foreground">
-            No cameras found. Check your Protect controller.
+          <h4 className="font-medium text-muted-foreground mb-2">No Cameras Found</h4>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Your UniFi Protect controller doesn&apos;t have any cameras configured.
+            Add cameras to your controller using the UniFi Protect app, then click Refresh.
           </p>
         </div>
       </div>
@@ -328,6 +374,23 @@ export function DiscoveredCameraList({
           Refresh
         </Button>
       </div>
+
+      {/* Story P2-6.3 AC7: Partial discovery failure warning banner */}
+      {discoveryWarning && (
+        <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-3 dark:bg-yellow-950 dark:border-yellow-800">
+          <div className="flex items-start gap-3">
+            <Info className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h4 className="font-medium text-yellow-800 dark:text-yellow-200 text-sm">
+                Discovery Warning
+              </h4>
+              <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                {discoveryWarning}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Camera grid - responsive layout (AC12) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

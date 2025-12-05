@@ -385,6 +385,20 @@ export const apiClient = {
     },
 
     /**
+     * Get AI providers status (Story P2-5.2)
+     * @returns List of providers with configuration status and order
+     */
+    getAIProvidersStatus: async (): Promise<{
+      providers: Array<{ provider: string; configured: boolean }>;
+      order: string[];
+    }> => {
+      return apiFetch<{
+        providers: Array<{ provider: string; configured: boolean }>;
+        order: string[];
+      }>('/system/ai-providers');
+    },
+
+    /**
      * Get storage statistics
      * @returns Storage usage information
      */

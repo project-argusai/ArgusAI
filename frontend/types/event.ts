@@ -44,6 +44,8 @@ export interface IEvent {
   // Story P2-4.4: Multi-camera event correlation
   correlation_group_id?: string | null;  // UUID linking correlated events across cameras
   correlated_events?: ICorrelatedEvent[]; // Related events from same correlation group
+  // Story P2-5.3: AI provider tracking
+  provider_used?: string | null;  // AI provider: openai, grok, claude, gemini
 }
 
 /**

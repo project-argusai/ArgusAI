@@ -1,0 +1,205 @@
+<story-context id="p2-5-2" v="1.0">
+  <metadata>
+    <epicId>P2-5</epicId>
+    <storyId>2</storyId>
+    <title>Build Grok Provider Configuration UI</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p2-5-2-build-grok-provider-configuration-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to configure xAI Grok in the AI Providers settings</iWant>
+    <soThat>I can use Grok for event descriptions</soThat>
+    <tasks>
+      <task id="1" title="Add Grok to AI Providers List" acs="1,2,8">
+        <subtask id="1.1">Add Grok provider entry to AI Providers section in Settings page</subtask>
+        <subtask id="1.2">Create provider row component with icon, status indicator, and action button</subtask>
+        <subtask id="1.3">Display "Not configured" / "Configured ✓" based on ai_api_key_grok presence</subtask>
+        <subtask id="1.4">Style consistently with existing provider entries</subtask>
+      </task>
+      <task id="2" title="Build Grok Configuration Form" acs="3,8">
+        <subtask id="2.1">Create GrokProviderForm component with API key password input</subtask>
+        <subtask id="2.2">Add form validation (API key required, minimum length)</subtask>
+        <subtask id="2.3">Add Test, Save, and Remove buttons with appropriate states</subtask>
+        <subtask id="2.4">Integrate with existing modal/dialog pattern for provider configuration</subtask>
+      </task>
+      <task id="3" title="Implement API Key Validation" acs="4">
+        <subtask id="3.1">Create backend endpoint POST /api/v1/ai/providers/grok/test for API key validation</subtask>
+        <subtask id="3.2">Implement test call to xAI API with provided key</subtask>
+        <subtask id="3.3">Return success/failure with appropriate error messages</subtask>
+        <subtask id="3.4">Handle rate limit errors and timeout gracefully</subtask>
+      </task>
+      <task id="4" title="Implement API Key Save/Remove" acs="5,7">
+        <subtask id="4.1">Add ai_api_key_grok to settings save logic (encrypt with Fernet)</subtask>
+        <subtask id="4.2">Create mutation for saving Grok API key</subtask>
+        <subtask id="4.3">Create mutation for removing Grok API key</subtask>
+        <subtask id="4.4">Show confirmation dialog before removal</subtask>
+        <subtask id="4.5">Update provider status after save/remove</subtask>
+      </task>
+      <task id="5" title="Implement Drag-to-Reorder Fallback Chain" acs="6">
+        <subtask id="5.1">Add drag handles to provider list</subtask>
+        <subtask id="5.2">Implement drag-and-drop using dnd-kit or react-beautiful-dnd</subtask>
+        <subtask id="5.3">Save order to ai_provider_order setting</subtask>
+        <subtask id="5.4">Backend: Load provider order from settings and apply to fallback chain</subtask>
+        <subtask id="5.5">Update AIService to respect configured provider order</subtask>
+      </task>
+      <task id="6" title="Testing" acs="all">
+        <subtask id="6.1">Unit test: Grok API key encryption/storage</subtask>
+        <subtask id="6.2">Unit test: Provider order persistence</subtask>
+        <subtask id="6.3">Integration test: API key validation endpoint</subtask>
+        <subtask id="6.4">Manual test: Full UI flow (add, test, save, reorder, remove)</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">xAI Grok appears in the AI Providers section of Settings page (FR27)</criterion>
+    <criterion id="AC2">Provider row shows: "xAI Grok" with icon, status ("Not configured" or "Configured ✓"), and action button ("Setup" or "Edit")</criterion>
+    <criterion id="AC3">Grok configuration form includes: API Key field (password input), Test button, Save button, Remove button (when configured)</criterion>
+    <criterion id="AC4">Test button validates API key by making actual API call; shows success (green checkmark) or failure (red X with error) (FR28)</criterion>
+    <criterion id="AC5">Save button stores API key encrypted as ai_api_key_grok in system settings</criterion>
+    <criterion id="AC6">Provider list supports drag-to-reorder for fallback priority; order saved as ai_provider_order setting (FR29)</criterion>
+    <criterion id="AC7">Remove button shows confirmation dialog and removes API key from settings</criterion>
+    <criterion id="AC8">UI follows existing provider form patterns (consistent with OpenAI/Claude/Gemini)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase2.md" title="Phase 2 Epics" section="Story 5.2: Build Grok Provider Configuration UI">
+        Story P2-5.2 acceptance criteria and task breakdown for UI configuration.
+      </doc>
+      <doc path="docs/ux-design-specification.md" title="UX Design Specification" section="10.4 Settings Page: xAI Grok Provider">
+        UI wireframes for provider list with drag handles, status badges, and form fields.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="AI Service">
+        Multi-provider fallback architecture with encrypted API key storage pattern.
+      </doc>
+      <doc path="docs/sprint-artifacts/p2-5-1-implement-xai-grok-provider-in-ai-service.md" title="Previous Story P2-5.1" section="Dev Agent Record">
+        GrokProvider implementation details, API key pattern ai_api_key_grok, fallback chain order.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="frontend/app/settings/page.tsx" kind="page" lines="1-500+" reason="Primary file to modify - Settings page with AI provider configuration, existing API key test pattern">
+        <symbol name="SettingsPage" kind="component" lines="50-500">Main settings page with tabs including AI configuration</symbol>
+        <symbol name="handleTestApiKey" kind="function" lines="174-224">Existing API key validation pattern - reference for Grok implementation</symbol>
+        <symbol name="handleSave" kind="function" lines="147-167">Save settings mutation pattern</symbol>
+      </file>
+
+      <file path="frontend/lib/api-client.ts" kind="api-client" lines="354-418" reason="API client methods for settings - add Grok test endpoint">
+        <symbol name="apiClient.settings" kind="object" lines="354-418">Settings API methods including testApiKey, get, update</symbol>
+        <symbol name="testApiKey" kind="method" lines="380-385">Existing API key test method - extend for Grok provider</symbol>
+      </file>
+
+      <file path="frontend/types/settings.ts" kind="types" lines="1-67" reason="TypeScript types for settings - add Grok provider type">
+        <symbol name="AIProvider" kind="type" lines="46">Current: 'openai' | 'anthropic' | 'google' - add 'grok'</symbol>
+        <symbol name="AIKeyTestRequest" kind="interface" lines="48-51">Request type for API key test</symbol>
+        <symbol name="SystemSettings" kind="interface" lines="12-37">Settings interface - may need ai_provider_order field</symbol>
+      </file>
+
+      <file path="backend/app/api/v1/system.py" kind="api" lines="36-42,550-681" reason="System settings API - add Grok test endpoint, extend SENSITIVE_SETTING_KEYS">
+        <symbol name="SENSITIVE_SETTING_KEYS" kind="constant" lines="36-42">List of encrypted keys - add ai_api_key_grok</symbol>
+        <symbol name="test_api_key" kind="endpoint" lines="565-627">Existing test endpoint - add grok provider case</symbol>
+        <symbol name="_test_openai_key" kind="function" lines="630-644">Reference for implementing _test_grok_key</symbol>
+      </file>
+
+      <file path="backend/app/services/ai_service.py" kind="service" lines="489-654,800-810" reason="GrokProvider implementation from P2-5.1, fallback chain order">
+        <symbol name="GrokProvider" kind="class" lines="491-654">xAI Grok provider implementation using OpenAI SDK with custom base_url</symbol>
+        <symbol name="AIService.provider_order" kind="attribute" lines="807">Current hardcoded order: [OPENAI, GROK, CLAUDE, GEMINI] - needs to read from settings</symbol>
+        <symbol name="AIService.load_api_keys_from_db" kind="method" lines="664-735">Loads and decrypts API keys including ai_api_key_grok</symbol>
+      </file>
+
+      <file path="backend/app/models/system_setting.py" kind="model" reason="SystemSetting model for storing encrypted API keys and provider order">
+        <symbol name="SystemSetting" kind="class">Key-value store for ai_api_key_* settings and ai_provider_order</symbol>
+      </file>
+
+      <file path="backend/app/utils/encryption.py" kind="utility" reason="Fernet encryption for API key storage">
+        <symbol name="encrypt_password" kind="function">Encrypts values with 'encrypted:' prefix</symbol>
+        <symbol name="decrypt_password" kind="function">Decrypts encrypted: prefixed values</symbol>
+      </file>
+
+      <file path="frontend/components/ui/dialog.tsx" kind="component" reason="shadcn/ui Dialog component for provider configuration modal">
+      </file>
+
+      <file path="frontend/components/ui/alert-dialog.tsx" kind="component" reason="shadcn/ui AlertDialog for removal confirmation">
+      </file>
+
+      <file path="frontend/components/settings/ConfirmDialog.tsx" kind="component" reason="Existing confirmation dialog pattern">
+      </file>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package name="@dnd-kit/core" version="^6.0.0" note="NEED TO INSTALL - Drag-and-drop for provider reordering (AC6)"/>
+        <package name="@dnd-kit/sortable" version="^8.0.0" note="NEED TO INSTALL - Sortable list for provider reordering"/>
+        <package name="react-hook-form" version="^7.66.0" note="Already installed - Form handling"/>
+        <package name="zod" version="^4.1.12" note="Already installed - Validation"/>
+        <package name="@tanstack/react-query" version="^5.90.10" note="Already installed - Server state"/>
+        <package name="sonner" version="^2.0.7" note="Already installed - Toast notifications"/>
+        <package name="@radix-ui/react-alert-dialog" version="^1.1.15" note="Already installed - Confirmation dialogs"/>
+        <package name="lucide-react" version="^0.553.0" note="Already installed - Icons"/>
+      </frontend>
+      <backend>
+        <package name="openai" version=">=1.54.0" note="Grok uses OpenAI SDK with custom base_url - already installed"/>
+        <package name="cryptography" version="==41.0.7" note="Fernet encryption for API keys - already installed"/>
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">API keys must be encrypted with 'encrypted:' prefix using Fernet encryption</constraint>
+    <constraint source="architecture">Follow existing provider pattern in AIService for consistency</constraint>
+    <constraint source="ux-design">Provider list must have drag handles (⋮⋮) for reordering</constraint>
+    <constraint source="ux-design">Status badges: "Configured ✓" (green) or "Not configured" (muted)</constraint>
+    <constraint source="story">Grok form must follow same UI patterns as existing OpenAI/Claude/Gemini providers</constraint>
+    <constraint source="P2-5.1">GrokProvider uses base_url="https://api.x.ai/v1" with model grok-2-vision-1212</constraint>
+    <constraint source="P2-5.1">Grok API key is stored as ai_api_key_grok in system_settings table</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/ai/providers/grok/test" kind="REST">
+      <signature>POST /api/v1/ai/providers/grok/test</signature>
+      <request>{ api_key: string }</request>
+      <response>{ valid: boolean, message: string, error?: string }</response>
+      <path>backend/app/api/v1/ai.py (new endpoint)</path>
+    </interface>
+    <interface name="PUT /api/v1/system/settings" kind="REST">
+      <signature>PUT /api/v1/system/settings</signature>
+      <note>Extend to accept ai_api_key_grok and ai_provider_order fields</note>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+    <interface name="GrokProvider" kind="class">
+      <signature>class GrokProvider(AIProviderBase)</signature>
+      <method>async def generate_description(self, image_base64: str, camera_name: str, timestamp: str, detected_objects: List[str], custom_prompt: Optional[str] = None) -> AIResult</method>
+      <path>backend/app/services/ai_service.py:491-654</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend tests use Jest/React Testing Library. Backend tests use pytest with pytest-asyncio.
+      Mock external API calls using unittest.mock.AsyncMock.
+      Each provider has dedicated test patterns in test_ai_service.py.
+      Manual tests verify full UI flow including form interactions and drag-to-reorder.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_system.py</location>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>frontend/__tests__/ (if exists)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Manual test: Verify Grok appears in AI Providers section</idea>
+      <idea ac="AC2">Manual test: Verify status indicator shows correct state based on API key presence</idea>
+      <idea ac="AC3">Manual test: Verify form has all required fields and buttons</idea>
+      <idea ac="AC4">Integration test: POST /ai/providers/grok/test with valid/invalid keys</idea>
+      <idea ac="AC5">Unit test: Verify ai_api_key_grok is encrypted when saved</idea>
+      <idea ac="AC6">Manual test: Drag provider to reorder, verify order persists on reload</idea>
+      <idea ac="AC6">Unit test: Verify ai_provider_order is saved and loaded from settings</idea>
+      <idea ac="AC7">Manual test: Remove Grok, verify confirmation dialog and key deletion</idea>
+      <idea ac="AC8">Manual test: Compare Grok form with existing provider forms for consistency</idea>
+    </ideas>
+  </tests>
+</story-context>

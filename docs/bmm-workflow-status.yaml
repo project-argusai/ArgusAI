@@ -45,6 +45,7 @@ workflow_status:
 phase3_artifacts:
   brainstorm: docs/brainstorming-session-results-2025-12-05.md
   prd: docs/PRD-phase3.md
+  epics: docs/epics-phase3.md
 
 # Phase 2 Artifacts (completed iteration)
 phase2_artifacts:

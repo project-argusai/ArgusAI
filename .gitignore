@@ -208,3 +208,6 @@ __marimo__/
 .DS_Store
 samples/
 backend/node_modules/
+
+# Application data directories
+backend/data/clips/

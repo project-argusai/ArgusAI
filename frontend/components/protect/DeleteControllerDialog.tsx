@@ -80,15 +80,17 @@ export function DeleteControllerDialog({
             <AlertTriangle className="h-5 w-5 text-destructive" />
             Remove Controller
           </AlertDialogTitle>
-          <AlertDialogDescription className="space-y-2">
-            <p>
-              Are you sure you want to remove <strong>{controllerName}</strong>?
-            </p>
-            <p>
-              This will disconnect the WebSocket connection and disassociate any
-              cameras linked to this controller. The cameras and their events will
-              be preserved but no longer receive Protect updates.
-            </p>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              <p>
+                Are you sure you want to remove <strong>{controllerName}</strong>?
+              </p>
+              <p>
+                This will disconnect the WebSocket connection and disassociate any
+                cameras linked to this controller. The cameras and their events will
+                be preserved but no longer receive Protect updates.
+              </p>
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

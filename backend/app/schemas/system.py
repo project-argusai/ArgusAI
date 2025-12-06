@@ -158,6 +158,10 @@ class SystemSettings(BaseModel):
     primary_api_key: str = Field(default="")  # Encrypted in storage
     fallback_model: Optional[Literal["gpt-4o-mini", "claude-3-haiku", "gemini-flash"]] = Field(default=None)
     description_prompt: str = Field(default="Describe what you see in this image in one concise sentence. Focus on objects, people, and actions.")
+    multi_frame_description_prompt: str = Field(
+        default="",
+        description="Custom prompt appended to multi-frame analysis (Story P3-2.4). Leave empty to use system defaults."
+    )
 
     # Motion Detection
     motion_sensitivity: int = Field(default=50, ge=0, le=100)
@@ -183,6 +187,7 @@ class SystemSettings(BaseModel):
                 "primary_api_key": "sk-...",
                 "fallback_model": None,
                 "description_prompt": "Describe what you see in this image in one concise sentence.",
+                "multi_frame_description_prompt": "",
                 "motion_sensitivity": 50,
                 "detection_method": "background_subtraction",
                 "cooldown_period": 60,
@@ -212,6 +217,10 @@ class SystemSettingsUpdate(BaseModel):
     primary_api_key: Optional[str] = None
     fallback_model: Optional[Literal["gpt-4o-mini", "claude-3-haiku", "gemini-flash"]] = None
     description_prompt: Optional[str] = None
+    multi_frame_description_prompt: Optional[str] = Field(
+        None,
+        description="Custom prompt appended to multi-frame analysis (Story P3-2.4). Leave empty to use system defaults."
+    )
 
     # AI Provider API Keys (Story P2-5.2, P2-5.3)
     ai_api_key_openai: Optional[str] = None

@@ -167,7 +167,7 @@ development_status:
   p3-2-1-implement-frameextractor-service: done
   p3-2-2-add-blur-detection-for-frame-filtering: done
   p3-2-3-extend-aiservice-for-multi-image-analysis: done
-  p3-2-4-create-multi-frame-prompts-optimized-for-sequences: backlog
+  p3-2-4-create-multi-frame-prompts-optimized-for-sequences: done
   p3-2-5-track-token-usage-for-multi-image-requests: backlog
   p3-2-6-integrate-multi-frame-analysis-into-event-pipeline: backlog
   epic-p3-2-retrospective: optional

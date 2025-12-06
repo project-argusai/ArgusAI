@@ -1206,7 +1206,7 @@ class TestMultiImagePreprocessing:
 
 
 class TestMultiImagePromptBuilder:
-    """Test multi-image prompt building (Story P3-2.3)"""
+    """Test multi-image prompt building (Story P3-2.3, P3-2.4)"""
 
     def test_build_multi_image_prompt_basic(self):
         """Test multi-image prompt includes frame count and context"""
@@ -1219,14 +1219,14 @@ class TestMultiImagePromptBuilder:
             num_images=5
         )
 
-        assert "5 sequential frames" in prompt
+        assert "5 frames" in prompt
         assert "Camera 'Front Door'" in prompt
         assert "2025-12-06T10:00:00" in prompt
         assert "person" in prompt
-        assert "complete sequence" in prompt.lower() or "sequence" in prompt.lower()
+        assert "sequence" in prompt.lower()
 
     def test_build_multi_image_prompt_custom(self):
-        """Test multi-image prompt with custom prompt override"""
+        """Test multi-image prompt with custom prompt APPENDED (not replacing)"""
         provider = OpenAIProvider("sk-test-key")
 
         custom_prompt = "Focus only on vehicle movements"
@@ -1238,8 +1238,12 @@ class TestMultiImagePromptBuilder:
             custom_prompt=custom_prompt
         )
 
+        # Custom prompt should be appended
         assert custom_prompt in prompt
         assert "Camera 'Driveway'" in prompt
+        # System prompt should STILL be present (not replaced)
+        assert "chronological order" in prompt
+        assert "Additional instructions:" in prompt
 
     def test_build_multi_image_prompt_no_detected_objects(self):
         """Test multi-image prompt without detected objects"""
@@ -1252,8 +1256,127 @@ class TestMultiImagePromptBuilder:
             num_images=4
         )
 
-        assert "4 sequential frames" in prompt
+        assert "4 frames" in prompt
         assert "Motion detected" not in prompt
+
+    def test_build_multi_image_prompt_chronological_order_ac1(self):
+        """Test prompt includes 'chronological order' text (AC1)"""
+        provider = OpenAIProvider("sk-test-key")
+
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=[],
+            num_images=5
+        )
+
+        assert "chronological order" in prompt.lower()
+
+    def test_build_multi_image_prompt_what_happened_ac1(self):
+        """Test prompt asks for 'what happened' description (AC1)"""
+        provider = OpenAIProvider("sk-test-key")
+
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=[],
+            num_images=5
+        )
+
+        assert "what happened" in prompt.lower()
+
+    def test_build_multi_image_prompt_describes_who_what_action_direction_ac2(self):
+        """Test prompt instructs to describe who/what, action, direction, sequence (AC2)"""
+        provider = OpenAIProvider("sk-test-key")
+
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=[],
+            num_images=5
+        )
+
+        # Should mention action verbs
+        assert "action" in prompt.lower()
+        # Should mention direction
+        assert "direction" in prompt.lower()
+        # Should mention sequence/progression
+        assert "sequence" in prompt.lower()
+
+    def test_build_multi_image_prompt_action_verbs_ac3(self):
+        """Test prompt mentions action verbs like walked, placed, picked up (AC3)"""
+        provider = OpenAIProvider("sk-test-key")
+
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=[],
+            num_images=5
+        )
+
+        # Should include action verbs
+        assert "walked" in prompt.lower()
+        assert "placed" in prompt.lower()
+        assert "approached" in prompt.lower()
+
+    def test_build_multi_image_prompt_avoids_static_ac3(self):
+        """Test prompt warns against static descriptions (AC3)"""
+        provider = OpenAIProvider("sk-test-key")
+
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=[],
+            num_images=5
+        )
+
+        # Should warn against static descriptions
+        assert "static" in prompt.lower() or "is standing" in prompt.lower() or "bad" in prompt.lower()
+
+    def test_build_multi_image_prompt_custom_appended_ac4(self):
+        """Test custom prompt is APPENDED after system instructions (AC4)"""
+        provider = OpenAIProvider("sk-test-key")
+
+        custom_prompt = "Pay special attention to packages"
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=[],
+            num_images=5,
+            custom_prompt=custom_prompt
+        )
+
+        # Custom prompt should be present
+        assert custom_prompt in prompt
+        # System prompt should STILL be present (temporal context preserved)
+        assert "chronological order" in prompt.lower()
+        assert "what happened" in prompt.lower()
+        # Custom prompt appears after system prompt
+        chronological_pos = prompt.lower().find("chronological order")
+        custom_pos = prompt.find(custom_prompt)
+        assert custom_pos > chronological_pos
+
+    def test_build_multi_image_prompt_works_all_providers(self):
+        """Test prompt works with all 4 providers"""
+        providers = [
+            OpenAIProvider("sk-test-key"),
+            GrokProvider("xai-test-key"),
+            ClaudeProvider("sk-ant-test-key"),
+            GeminiProvider("test-key"),
+        ]
+
+        for provider in providers:
+            prompt = provider._build_multi_image_prompt(
+                camera_name="Test Camera",
+                timestamp="2025-12-06T10:00:00",
+                detected_objects=["person"],
+                num_images=3
+            )
+
+            # All providers should include temporal context
+            assert "chronological order" in prompt.lower()
+            assert "3 frames" in prompt
+            assert "Camera 'Test Camera'" in prompt
 
 
 class TestOpenAIMultiImageProvider:

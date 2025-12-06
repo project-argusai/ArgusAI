@@ -41,6 +41,26 @@ from app.models.ai_usage import AIUsage
 logger = logging.getLogger(__name__)
 
 
+# Multi-frame analysis system prompt (Story P3-2.4)
+# Optimized for temporal narrative descriptions of video sequences
+MULTI_FRAME_SYSTEM_PROMPT = """You are analyzing a sequence of {num_frames} frames from a security camera video, shown in chronological order.
+
+Your task is to describe WHAT HAPPENED - focus on the narrative and action over time:
+
+1. **Actions and movements** - Use action verbs: walked, arrived, departed, placed, picked up, approached, entered, exited, turned, stopped, ran, carried, delivered, rang, opened, closed
+2. **Direction of travel** - entering frame, exiting frame, left to right, right to left, approaching camera, moving away, circling, pacing
+3. **Sequence of events** - First... then... next... finally... Describe the progression
+4. **Who or what is present** - People (appearance, clothing, items carried), vehicles, animals, packages, objects
+
+IMPORTANT - Use dynamic descriptions, NOT static ones:
+- GOOD: "A delivery person approached the front door, placed a package on the step, then departed walking left toward the street."
+- BAD: "A person is visible near the front door. There is a package on the ground."
+- GOOD: "A car pulled into the driveway and parked. The driver exited and walked toward the house."
+- BAD: "A car is parked in the driveway. A person is standing nearby."
+
+Be specific about the narrative - this is video showing motion over time, not a static photograph. Describe the complete sequence of what happened."""
+
+
 class AIProvider(Enum):
     """Supported AI vision providers"""
     OPENAI = "openai"
@@ -163,33 +183,32 @@ class AIProviderBase(ABC):
         num_images: int,
         custom_prompt: Optional[str] = None
     ) -> str:
-        """Build user prompt for multi-image analysis (Story P3-2.3)
+        """Build user prompt for multi-image analysis (Story P3-2.3, P3-2.4)
+
+        Uses MULTI_FRAME_SYSTEM_PROMPT optimized for temporal narrative descriptions.
+        Custom prompts are APPENDED after system instructions, not replacing them,
+        to ensure temporal context is always included.
 
         Args:
             camera_name: Name of the camera
             timestamp: ISO 8601 timestamp of first frame
             detected_objects: List of detected object types
             num_images: Number of images being analyzed
-            custom_prompt: Optional custom prompt to override default
+            custom_prompt: Optional custom prompt to APPEND after system instructions
+                          (from Settings → multi_frame_description_prompt or per-camera config)
         """
-        # Build camera context
-        context = f"\nContext: Camera '{camera_name}' at {timestamp}."
+        # Build camera context suffix
+        context = f"\n\nContext: Camera '{camera_name}' at {timestamp}."
         if detected_objects:
             context += f" Motion detected: {', '.join(detected_objects)}."
 
-        # Multi-frame specific prompt
-        multi_frame_prompt = (
-            f"You are analyzing {num_images} sequential frames from a security camera. "
-            "Describe the complete sequence of events across all frames. Include: "
-            "WHO (people, their appearance, clothing), "
-            "WHAT (objects, vehicles, packages), "
-            "WHERE (location and movement path in frame), "
-            "and ACTIONS (what is happening over time, how the scene changes). "
-            "Provide a single coherent narrative covering the entire sequence."
-        )
+        # Use optimized multi-frame system prompt with frame count (Story P3-2.4)
+        base_prompt = MULTI_FRAME_SYSTEM_PROMPT.format(num_frames=num_images)
 
-        # Use custom prompt if provided, otherwise use multi-frame specific prompt
-        base_prompt = custom_prompt if custom_prompt else multi_frame_prompt
+        # APPEND custom prompt after system instructions (not replace)
+        # This ensures temporal context is always preserved (AC4)
+        if custom_prompt:
+            base_prompt += f"\n\nAdditional instructions: {custom_prompt}"
 
         return base_prompt + context
 

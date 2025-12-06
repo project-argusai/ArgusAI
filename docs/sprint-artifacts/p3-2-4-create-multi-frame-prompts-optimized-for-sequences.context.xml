@@ -1,0 +1,181 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P3-2</epicId>
+    <storyId>4</storyId>
+    <title>Create Multi-Frame Prompts Optimized for Sequences</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-06</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-2-4-create-multi-frame-prompts-optimized-for-sequences.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>specialized prompts for frame sequence analysis</iWant>
+    <soThat>AI understands it's analyzing action over time and provides richer narrative descriptions</soThat>
+    <tasks>
+      <task id="1" ac="1,2">Create MULTI_FRAME_SYSTEM_PROMPT constant
+        <subtask id="1.1">Add MULTI_FRAME_SYSTEM_PROMPT constant to ai_service.py</subtask>
+        <subtask id="1.2">Include instruction stating frames are chronological from security camera video</subtask>
+        <subtask id="1.3">Focus prompt on "what happened" vs "what is shown"</subtask>
+        <subtask id="1.4">Include instruction to describe: who/what present, action occurred, direction, sequence</subtask>
+      </task>
+      <task id="2" ac="3">Add action-focused prompt instructions
+        <subtask id="2.1">Add instruction to use action verbs (walked, placed, picked up, departed)</subtask>
+        <subtask id="2.2">Add instruction to avoid static descriptions ("is standing", "is visible")</subtask>
+        <subtask id="2.3">Add examples of good vs bad descriptions in prompt</subtask>
+      </task>
+      <task id="3" ac="4">Integrate custom prompt handling
+        <subtask id="3.1">Modify _build_multi_image_prompt() to check for custom prompt setting</subtask>
+        <subtask id="3.2">Append user's custom prompt after system multi-frame instructions</subtask>
+        <subtask id="3.3">Ensure custom prompt doesn't override temporal context instructions</subtask>
+      </task>
+      <task id="4" ac="1-4">Update existing multi-image methods
+        <subtask id="4.1">Update describe_images() to use new MULTI_FRAME_SYSTEM_PROMPT</subtask>
+        <subtask id="4.2">Update each provider's generate_multi_image_description() to incorporate new prompt</subtask>
+        <subtask id="4.3">Ensure backward compatibility with existing single-image prompts</subtask>
+      </task>
+      <task id="5" ac="4">Add prompt configuration to settings
+        <subtask id="5.1">Add multi_frame_custom_prompt to system settings schema</subtask>
+        <subtask id="5.2">Allow per-camera prompt customization (optional enhancement)</subtask>
+        <subtask id="5.3">Add API endpoint to update custom prompt settings</subtask>
+      </task>
+      <task id="6" ac="All">Write unit tests
+        <subtask id="6.1">Test multi-frame prompt includes temporal context</subtask>
+        <subtask id="6.2">Test prompt instructs for action verbs</subtask>
+        <subtask id="6.3">Test custom prompt is appended correctly</subtask>
+        <subtask id="6.4">Test prompt works with all providers</subtask>
+        <subtask id="6.5">Test prompt includes camera name and timestamp context</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Given multi-frame analysis mode, when AI is called with multiple images, then the prompt explicitly states "These frames are from a security camera video, shown in chronological order" and asks for description of "what happened" not just "what is shown"</ac>
+    <ac id="2">Given 5 frames from a motion event, when multi-frame prompt is used, then AI is instructed to describe: who/what is present, what action occurred (arrival, departure, delivery, etc.), direction of movement, and sequence of events - and the response captures temporal narrative</ac>
+    <ac id="3">Given frames showing a person, when multi-frame prompt processes them, then description includes action verbs ("walked", "placed", "picked up") and avoids static descriptions ("person is standing")</ac>
+    <ac id="4">Given user's custom description prompt exists, when multi-frame analysis runs, then custom prompt is appended after system's multi-frame instructions</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture - AIService</title>
+        <section>AI Primary, AI Fallback, AI Tertiary</section>
+        <snippet>Multi-provider AI service with OpenAI GPT-4o mini (primary), Grok, Claude 3 Haiku (fallback), Gemini Flash. Each provider implements generate_description and generate_multi_image_description.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epics - Story P3-2.4</title>
+        <section>Epic P3-2: Multi-Frame Analysis Mode (MVP)</section>
+        <snippet>Story P3-2.4 creates specialized prompts for frame sequence analysis. Multi-frame prompt should instruct AI to describe actions, movements, and temporal narrative - not static scene descriptions.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-2-3-extend-aiservice-for-multi-image-analysis.md</path>
+        <title>Previous Story - P3-2.3</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>Multi-image infrastructure complete. _build_multi_image_prompt() exists at lines 158-194. Each provider calls this method. 19 tests in TestMultiImagePromptBuilder class. Use same patterns.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIProviderBase._build_multi_image_prompt, OpenAIProvider, ClaudeProvider, GeminiProvider, GrokProvider, AIService.describe_images</symbol>
+        <lines>158-194, 218-300, 380-500</lines>
+        <reason>Main file to modify. _build_multi_image_prompt() at lines 158-194 needs enhanced prompt content. Each provider's generate_multi_image_description() calls this method. user_prompt_template at line 75 shows single-image pattern to follow.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/system.py</path>
+        <kind>schema</kind>
+        <symbol>SystemSettings, SystemSettingsUpdate</symbol>
+        <lines>139-234</lines>
+        <reason>Schema for system settings. Has description_prompt field at line 160. Add multi_frame_custom_prompt field following same pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>api</kind>
+        <symbol>router, SystemSettings endpoints</symbol>
+        <lines>1-100</lines>
+        <reason>System settings API. Settings are stored/retrieved via SystemSetting model. Custom prompt will be loaded from here.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/system_setting.py</path>
+        <kind>model</kind>
+        <symbol>SystemSetting</symbol>
+        <lines>all</lines>
+        <reason>Model for storing system settings as key-value pairs. Multi-frame custom prompt will be stored here.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_ai_service.py</path>
+        <kind>test</kind>
+        <symbol>TestMultiImagePromptBuilder</symbol>
+        <lines>1208-1256</lines>
+        <reason>Existing test class for multi-image prompts. Extend with tests for temporal context, action verbs, and custom prompt appending.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="openai" version=">=1.54.0">OpenAI Python SDK - already installed</package>
+        <package name="anthropic" version=">=0.39.0">Anthropic Python SDK - already installed</package>
+        <package name="google-generativeai" version=">=0.8.0">Google Generative AI SDK - already installed</package>
+        <package name="pillow" version=">=10.0.0">PIL for image processing - already installed</package>
+        <package name="pydantic" version=">=2.10.0">Data validation for schemas - already installed</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Enhance existing _build_multi_image_prompt() method - DO NOT create new method</constraint>
+    <constraint type="pattern">Add MULTI_FRAME_SYSTEM_PROMPT as module-level constant following existing user_prompt_template pattern</constraint>
+    <constraint type="pattern">Custom prompt must APPEND to system instructions, not replace temporal context</constraint>
+    <constraint type="pattern">Use structured logging with extra={} dict pattern for all log calls</constraint>
+    <constraint type="pattern">Maintain backward compatibility with existing single-image describe_image() method</constraint>
+    <constraint type="architecture">Add tests to existing TestMultiImagePromptBuilder class in test_ai_service.py</constraint>
+    <constraint type="api">Custom prompt setting stored in system_settings table via existing API</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AIProviderBase._build_multi_image_prompt</name>
+      <kind>method</kind>
+      <signature>def _build_multi_image_prompt(self, camera_name: str, timestamp: str, detected_objects: List[str], num_images: int, custom_prompt: Optional[str] = None) -> str</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>AIService.describe_images</name>
+      <kind>async method</kind>
+      <signature>async def describe_images(self, images: List[bytes], camera_name: str, timestamp: Optional[str] = None, detected_objects: Optional[List[str]] = None, sla_timeout_ms: int = 10000, custom_prompt: Optional[str] = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>SystemSettings.description_prompt</name>
+      <kind>field</kind>
+      <signature>description_prompt: str = Field(default="Describe what you see...")</signature>
+      <path>backend/app/schemas/system.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests follow pytest patterns with pytest-asyncio for async methods. Use MagicMock/AsyncMock for mocking AI provider API calls. Test files located in backend/tests/test_services/. Mock all external API calls - no real AI API calls in tests. Use fixtures with autouse for setup/teardown. Test both success and error paths. Follow existing test patterns in test_ai_service.py. Existing TestMultiImagePromptBuilder class has 3 tests to extend.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test multi-frame prompt includes "chronological order" text</idea>
+      <idea ac="1">Test multi-frame prompt asks for "what happened" description</idea>
+      <idea ac="2">Test prompt instructs to describe who/what, action, direction, sequence</idea>
+      <idea ac="3">Test prompt mentions action verbs (walked, placed, picked up, departed)</idea>
+      <idea ac="3">Test prompt warns against static descriptions</idea>
+      <idea ac="4">Test custom prompt is appended after system instructions</idea>
+      <idea ac="4">Test custom prompt does not override temporal context</idea>
+      <idea ac="all">Test prompt works with OpenAI, Claude, Gemini, Grok providers</idea>
+      <idea ac="all">Test prompt includes camera name and timestamp context</idea>
+    </ideas>
+  </tests>
+</story-context>

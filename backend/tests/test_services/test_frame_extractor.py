@@ -1,11 +1,18 @@
 """
-Unit tests for FrameExtractor (Story P3-2.1)
+Unit tests for FrameExtractor (Story P3-2.1, P3-2.2)
 
 Tests cover:
+Story P3-2.1:
 - AC1: Returns list of JPEG-encoded frame bytes, extraction within 2s
 - AC2: Evenly-spaced strategy with first/last frames included
 - AC3: frame_count parameter (3-10) works correctly
 - AC4: Error handling for invalid/corrupted files
+
+Story P3-2.2:
+- AC1: _is_frame_usable() detects blur and empty frames
+- AC2: Blurry frames replaced, minimum 3 frames guaranteed
+- AC3: All-blurry scenario returns best available with warning
+- AC4: filter_blur=False bypasses quality checks
 """
 import pytest
 import tempfile
@@ -23,6 +30,8 @@ from app.services.frame_extractor import (
     FRAME_EXTRACT_MAX_COUNT,
     FRAME_JPEG_QUALITY,
     FRAME_MAX_WIDTH,
+    FRAME_BLUR_THRESHOLD,
+    FRAME_EMPTY_STD_THRESHOLD,
 )
 
 
@@ -48,6 +57,14 @@ class TestFrameExtractorConstants:
     def test_max_width(self):
         """AC1: Verify max width is 1280px"""
         assert FRAME_MAX_WIDTH == 1280
+
+    def test_blur_threshold(self):
+        """P3-2.2 AC1: Verify blur threshold is 100"""
+        assert FRAME_BLUR_THRESHOLD == 100
+
+    def test_empty_std_threshold(self):
+        """P3-2.2 AC1: Verify empty frame std threshold is defined"""
+        assert FRAME_EMPTY_STD_THRESHOLD == 10
 
 
 class TestFrameExtractorInit:
@@ -547,3 +564,325 @@ class TestExtractFramesLogging:
                 # Should have logged success
                 info_calls = [str(c) for c in mock_logger.info.call_args_list]
                 assert any("success" in c.lower() or "complete" in c.lower() for c in info_calls)
+
+
+class TestIsFrameUsable:
+    """Test _is_frame_usable method (Story P3-2.2 AC1)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Create extractor for tests"""
+        reset_frame_extractor()
+        self.extractor = FrameExtractor()
+        yield
+        reset_frame_extractor()
+
+    def test_blurry_frame_returns_false(self):
+        """P3-2.2 AC1: Blurry frame (low Laplacian variance) returns False"""
+        # Create a blurry frame - uniform gradient with no sharp edges
+        # A very smooth gradient has very low Laplacian variance
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        # Create a smooth horizontal gradient
+        for i in range(100):
+            frame[:, i, :] = i * 2  # Smooth gradient 0-198
+
+        result = self.extractor._is_frame_usable(frame)
+
+        assert result is False, "Blurry frame should return False"
+
+    def test_single_color_frame_returns_false(self):
+        """P3-2.2 AC1: Single-color/empty frame returns False"""
+        # Create a solid black frame (std deviation = 0)
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+
+        result = self.extractor._is_frame_usable(frame)
+
+        assert result is False, "Single-color frame should return False"
+
+    def test_all_white_frame_returns_false(self):
+        """P3-2.2 AC1: All white frame returns False"""
+        # Create a solid white frame
+        frame = np.ones((100, 100, 3), dtype=np.uint8) * 255
+
+        result = self.extractor._is_frame_usable(frame)
+
+        assert result is False, "All-white frame should return False"
+
+    def test_clear_frame_with_edges_returns_true(self):
+        """P3-2.2 AC1: Clear frame with edges/content returns True"""
+        # Create a frame with clear edges - checkerboard pattern
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        # Create checkerboard pattern (high contrast edges)
+        for i in range(0, 100, 10):
+            for j in range(0, 100, 10):
+                if (i // 10 + j // 10) % 2 == 0:
+                    frame[i:i+10, j:j+10, :] = 255
+
+        result = self.extractor._is_frame_usable(frame)
+
+        assert result is True, "Clear frame with edges should return True"
+
+    def test_random_noise_frame_returns_true(self):
+        """P3-2.2 AC1: Frame with random content (high variance) returns True"""
+        # Random noise has high Laplacian variance and high std deviation
+        np.random.seed(42)  # For reproducibility
+        frame = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+
+        result = self.extractor._is_frame_usable(frame)
+
+        assert result is True, "Random noise frame should return True"
+
+
+class TestGetFrameQualityScore:
+    """Test _get_frame_quality_score method (Story P3-2.2)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Create extractor for tests"""
+        reset_frame_extractor()
+        self.extractor = FrameExtractor()
+        yield
+        reset_frame_extractor()
+
+    def test_blurry_frame_has_low_score(self):
+        """Blurry frame has low quality score"""
+        # Solid color frame has very low Laplacian variance
+        frame = np.ones((100, 100, 3), dtype=np.uint8) * 128
+
+        score = self.extractor._get_frame_quality_score(frame)
+
+        assert score < FRAME_BLUR_THRESHOLD, f"Blurry frame score {score} should be below threshold"
+
+    def test_clear_frame_has_high_score(self):
+        """Clear frame with edges has high quality score"""
+        # Checkerboard pattern has high Laplacian variance
+        frame = np.zeros((100, 100, 3), dtype=np.uint8)
+        for i in range(0, 100, 10):
+            for j in range(0, 100, 10):
+                if (i // 10 + j // 10) % 2 == 0:
+                    frame[i:i+10, j:j+10, :] = 255
+
+        score = self.extractor._get_frame_quality_score(frame)
+
+        assert score >= FRAME_BLUR_THRESHOLD, f"Clear frame score {score} should be at/above threshold"
+
+    def test_score_is_float(self):
+        """Quality score is returned as float"""
+        frame = np.random.randint(0, 256, (100, 100, 3), dtype=np.uint8)
+
+        score = self.extractor._get_frame_quality_score(frame)
+
+        assert isinstance(score, float)
+
+
+class TestBlurFiltering:
+    """Test blur filtering in extract_frames (Story P3-2.2 AC2, AC4)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Setup for tests"""
+        reset_frame_extractor()
+        self.extractor = FrameExtractor()
+        yield
+        reset_frame_extractor()
+
+    def _create_mock_container_with_quality(self, frame_qualities: list):
+        """
+        Create a mock PyAV container with frames of specified qualities.
+
+        Args:
+            frame_qualities: List of 'clear' or 'blurry' for each frame
+        """
+        total_frames = len(frame_qualities)
+        mock_container = MagicMock()
+        mock_stream = MagicMock()
+        mock_stream.frames = total_frames
+        mock_stream.average_rate = 30
+        mock_container.streams.video = [mock_stream]
+        mock_container.duration = (total_frames / 30) * 1_000_000
+
+        # Create mock frames with appropriate quality
+        mock_frames = []
+        for i, quality in enumerate(frame_qualities):
+            mock_frame = MagicMock()
+            if quality == 'clear':
+                # Checkerboard pattern - high variance
+                frame_array = np.zeros((100, 100, 3), dtype=np.uint8)
+                for x in range(0, 100, 10):
+                    for y in range(0, 100, 10):
+                        if (x // 10 + y // 10) % 2 == 0:
+                            frame_array[x:x+10, y:y+10, :] = 255
+            else:  # blurry
+                # Solid gray - low variance
+                frame_array = np.ones((100, 100, 3), dtype=np.uint8) * 128
+
+            mock_frame.to_ndarray.return_value = frame_array
+            mock_frames.append(mock_frame)
+
+        mock_container.decode.return_value = iter(mock_frames)
+        mock_container.__enter__ = MagicMock(return_value=mock_container)
+        mock_container.__exit__ = MagicMock(return_value=False)
+
+        return mock_container
+
+    @pytest.mark.asyncio
+    async def test_filter_blur_false_returns_all_frames(self):
+        """P3-2.2 AC4: filter_blur=False returns all frames regardless of quality"""
+        # Create 5 blurry frames
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_with_quality(
+                ['blurry', 'blurry', 'blurry', 'blurry', 'blurry']
+            )
+
+            result = await self.extractor.extract_frames(
+                Path("/test/video.mp4"),
+                frame_count=5,
+                filter_blur=False
+            )
+
+            # Should return all 5 frames even though they're all blurry
+            assert len(result) == 5
+
+    @pytest.mark.asyncio
+    async def test_filter_blur_false_logs_disabled(self):
+        """P3-2.2 AC4: Logs that blur filtering is disabled"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_with_quality(
+                ['clear', 'clear', 'clear']
+            )
+
+            with patch("app.services.frame_extractor.logger") as mock_logger:
+                await self.extractor.extract_frames(
+                    Path("/test/video.mp4"),
+                    frame_count=3,
+                    filter_blur=False
+                )
+
+                # Check debug was called with blur filter disabled message
+                debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
+                assert any("blur" in c.lower() and "disabled" in c.lower() for c in debug_calls)
+
+    @pytest.mark.asyncio
+    async def test_minimum_3_frames_always_returned(self):
+        """P3-2.2 AC2: At least min_frames (3) are always returned"""
+        # Create 5 frames where only 1 is clear
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_with_quality(
+                ['blurry', 'blurry', 'clear', 'blurry', 'blurry']
+            )
+
+            result = await self.extractor.extract_frames(
+                Path("/test/video.mp4"),
+                frame_count=5,
+                filter_blur=True
+            )
+
+            # Should return at least 3 frames (the minimum)
+            assert len(result) >= FRAME_EXTRACT_MIN_COUNT
+
+    @pytest.mark.asyncio
+    async def test_clear_frames_preferred_over_blurry(self):
+        """P3-2.2 AC2: Clear frames are preferred when filtering"""
+        # Create mix of clear and blurry frames
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_with_quality(
+                ['clear', 'clear', 'clear', 'clear', 'clear']
+            )
+
+            result = await self.extractor.extract_frames(
+                Path("/test/video.mp4"),
+                frame_count=5,
+                filter_blur=True
+            )
+
+            # Should return all 5 clear frames
+            assert len(result) == 5
+
+
+class TestAllBlurryScenario:
+    """Test all-blurry frame scenario (Story P3-2.2 AC3)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Setup for tests"""
+        reset_frame_extractor()
+        self.extractor = FrameExtractor()
+        yield
+        reset_frame_extractor()
+
+    def _create_mock_container_all_blurry(self, count: int, varying_quality: bool = False):
+        """Create container with all blurry frames"""
+        mock_container = MagicMock()
+        mock_stream = MagicMock()
+        mock_stream.frames = count
+        mock_stream.average_rate = 30
+        mock_container.streams.video = [mock_stream]
+        mock_container.duration = (count / 30) * 1_000_000
+
+        mock_frames = []
+        for i in range(count):
+            mock_frame = MagicMock()
+            # All frames are solid color (blurry), but with slightly different values
+            # for varying quality
+            if varying_quality:
+                gray_value = 128 + (i * 5) % 50
+            else:
+                gray_value = 128
+            frame_array = np.ones((100, 100, 3), dtype=np.uint8) * gray_value
+            mock_frame.to_ndarray.return_value = frame_array
+            mock_frames.append(mock_frame)
+
+        mock_container.decode.return_value = iter(mock_frames)
+        mock_container.__enter__ = MagicMock(return_value=mock_container)
+        mock_container.__exit__ = MagicMock(return_value=False)
+
+        return mock_container
+
+    @pytest.mark.asyncio
+    async def test_all_blurry_returns_best_available(self):
+        """P3-2.2 AC3: All blurry frames returns best available by quality"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_all_blurry(5)
+
+            result = await self.extractor.extract_frames(
+                Path("/test/video.mp4"),
+                frame_count=5,
+                filter_blur=True
+            )
+
+            # Should return frames even though all are blurry
+            assert len(result) >= FRAME_EXTRACT_MIN_COUNT
+
+    @pytest.mark.asyncio
+    async def test_all_blurry_logs_warning(self):
+        """P3-2.2 AC3: Logs warning 'All frames below quality threshold'"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_all_blurry(5)
+
+            with patch("app.services.frame_extractor.logger") as mock_logger:
+                await self.extractor.extract_frames(
+                    Path("/test/video.mp4"),
+                    frame_count=5,
+                    filter_blur=True
+                )
+
+                # Check warning was called with appropriate message
+                mock_logger.warning.assert_called()
+                warning_calls = [str(c) for c in mock_logger.warning.call_args_list]
+                assert any("all frames below quality threshold" in c.lower() for c in warning_calls)
+
+    @pytest.mark.asyncio
+    async def test_all_blurry_returns_valid_jpeg(self):
+        """P3-2.2 AC3: All-blurry scenario still returns valid JPEG frames"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container_all_blurry(5)
+
+            result = await self.extractor.extract_frames(
+                Path("/test/video.mp4"),
+                frame_count=5,
+                filter_blur=True
+            )
+
+            for frame in result:
+                assert frame[:2] == b'\xff\xd8', "Frame should be valid JPEG"
+                assert frame[-2:] == b'\xff\xd9', "Frame should be valid JPEG"

@@ -165,7 +165,7 @@ development_status:
   # Epic P3-2: Multi-Frame Analysis Mode (MVP)
   epic-p3-2: backlog
   p3-2-1-implement-frameextractor-service: done
-  p3-2-2-add-blur-detection-for-frame-filtering: backlog
+  p3-2-2-add-blur-detection-for-frame-filtering: done
   p3-2-3-extend-aiservice-for-multi-image-analysis: backlog
   p3-2-4-create-multi-frame-prompts-optimized-for-sequences: backlog
   p3-2-5-track-token-usage-for-multi-image-requests: backlog

@@ -1,0 +1,193 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P3-2</epicId>
+    <storyId>2</storyId>
+    <title>Add Blur Detection for Frame Filtering</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-05</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-2-2-add-blur-detection-for-frame-filtering.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to filter out blurry or empty frames</iWant>
+    <soThat>AI receives the clearest images for analysis</soThat>
+    <tasks>
+      <task id="1" ac="1">Implement blur detection method
+        <subtask id="1.1">Add _is_frame_usable(frame: np.ndarray) -> bool private method to FrameExtractor</subtask>
+        <subtask id="1.2">Implement Laplacian variance calculation using cv2.Laplacian(gray, cv2.CV_64F).var()</subtask>
+        <subtask id="1.3">Add blur threshold check (variance < FRAME_BLUR_THRESHOLD returns False)</subtask>
+        <subtask id="1.4">Implement single-color detection using standard deviation of pixel values</subtask>
+        <subtask id="1.5">Return True only for frames that pass both checks</subtask>
+      </task>
+      <task id="2" ac="1">Implement empty frame detection
+        <subtask id="2.1">Convert frame to grayscale for analysis</subtask>
+        <subtask id="2.2">Calculate standard deviation of pixel values</subtask>
+        <subtask id="2.3">Return False if >90% of pixels are within single color threshold</subtask>
+        <subtask id="2.4">Add logging for detected empty frames</subtask>
+      </task>
+      <task id="3" ac="1,4">Add configuration settings
+        <subtask id="3.1">Add FRAME_BLUR_THRESHOLD constant (default: 100)</subtask>
+        <subtask id="3.2">Add FRAME_EMPTY_STD_THRESHOLD constant for empty detection</subtask>
+        <subtask id="3.3">Add filter_blur: bool = True parameter to extract_frames() method</subtask>
+      </task>
+      <task id="4" ac="2,3">Implement frame replacement logic
+        <subtask id="4.1">After initial extraction, evaluate each frame with _is_frame_usable()</subtask>
+        <subtask id="4.2">For blurry frames, attempt to extract replacement from adjacent timestamps</subtask>
+        <subtask id="4.3">Track frame quality scores (Laplacian variance) for fallback selection</subtask>
+        <subtask id="4.4">Ensure at least min_frames (3) are always returned</subtask>
+        <subtask id="4.5">If replacement not possible, keep original frame with warning</subtask>
+      </task>
+      <task id="5" ac="3">Handle all-blurry scenario
+        <subtask id="5.1">If all frames are below threshold, sort by quality (highest variance first)</subtask>
+        <subtask id="5.2">Return best available frames up to requested count</subtask>
+        <subtask id="5.3">Log warning "All frames below quality threshold" with structured extra dict</subtask>
+      </task>
+      <task id="6" ac="4">Add filter_blur parameter
+        <subtask id="6.1">Add filter_blur: bool = True parameter to extract_frames() signature</subtask>
+        <subtask id="6.2">When filter_blur=False, skip all quality checks and return raw frames</subtask>
+        <subtask id="6.3">Log that blur filtering is disabled when called with False</subtask>
+      </task>
+      <task id="7" ac="All">Write unit tests
+        <subtask id="7.1">Test _is_frame_usable returns False for blurry image (low Laplacian variance)</subtask>
+        <subtask id="7.2">Test _is_frame_usable returns False for single-color image</subtask>
+        <subtask id="7.3">Test _is_frame_usable returns True for clear image</subtask>
+        <subtask id="7.4">Test blurry frames are replaced with adjacent timestamps</subtask>
+        <subtask id="7.5">Test minimum 3 frames are always returned</subtask>
+        <subtask id="7.6">Test all-blurry scenario returns best available frames</subtask>
+        <subtask id="7.7">Test warning is logged when all frames are below threshold</subtask>
+        <subtask id="7.8">Test filter_blur=False bypasses quality checks</subtask>
+        <subtask id="7.9">Test configuration constants are defined correctly</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Given an extracted frame, when FrameExtractor._is_frame_usable(frame) is called, then returns False if Laplacian variance < 100 (blurry) and returns False if frame is >90% single color (empty/black) and returns True for clear, content-rich frames</ac>
+    <ac id="2">Given 5 frames extracted where 2 are blurry, when filtering is enabled (default), then blurry frames are replaced with adjacent timestamps and at least min_frames (3) are always returned</ac>
+    <ac id="3">Given all frames in a clip are blurry, when filtering runs, then returns best available frames (highest variance) and logs warning "All frames below quality threshold"</ac>
+    <ac id="4">Given blur detection is disabled via parameter, when extraction is called with filter_blur=False, then all extracted frames are returned regardless of quality</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture - FrameExtractor</title>
+        <section>Phase 3 Service Architecture - FrameExtractor (NEW)</section>
+        <snippet>FrameExtractor extracts frames from video clips using PyAV, selects frames using configurable strategy, filters low-quality frames (blur detection), and encodes as JPEG for AI analysis. Key methods: extract_frames(), _is_frame_usable(), _encode_frame().</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epics - Story P3-2.2</title>
+        <section>Epic P3-2: Multi-Frame Analysis Mode (MVP)</section>
+        <snippet>Story P3-2.2 adds blur detection. Uses Laplacian variance (threshold 100), filters empty/single-color frames via std deviation, replaces blurry frames with adjacent timestamps, guarantees minimum 3 frames.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-2-1-implement-frameextractor-service.md</path>
+        <title>Previous Story - P3-2.1</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>FrameExtractor service created at backend/app/services/frame_extractor.py. Uses sequential decoding not seeking. Configuration as module constants. Use av.FFmpegError not av.AVError. 37 tests in test_frame_extractor.py.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/frame_extractor.py</path>
+        <kind>service</kind>
+        <symbol>FrameExtractor, get_frame_extractor, reset_frame_extractor, _encode_frame, _calculate_frame_indices, extract_frames</symbol>
+        <lines>1-361</lines>
+        <reason>Main service file to extend. Add _is_frame_usable() method, FRAME_BLUR_THRESHOLD constant, filter_blur parameter to extract_frames(). Follow existing patterns for logging and error handling.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_frame_extractor.py</path>
+        <kind>test</kind>
+        <symbol>TestFrameExtractorConstants, TestFrameExtractorInit, TestFrameExtractorSingleton, TestCalculateFrameIndices, TestEncodeFrame, TestExtractFrames</symbol>
+        <lines>1-550</lines>
+        <reason>Existing test file with 37 tests. Add new test classes for blur detection: TestIsFrameUsable, TestBlurFiltering, TestAllBlurryScenario. Follow established patterns for mocking and assertions.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/motion_detector.py</path>
+        <kind>service</kind>
+        <symbol>cv2.cvtColor</symbol>
+        <lines>156</lines>
+        <reason>Reference for OpenCV cv2.cvtColor usage pattern in this codebase. Uses cv2.COLOR_BGR2GRAY for grayscale conversion.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="opencv-python" version=">=4.12.0">OpenCV for cv2.Laplacian blur detection and cv2.cvtColor grayscale conversion - already installed</package>
+        <package name="numpy" version="implied">NumPy for np.std() standard deviation calculation and frame array handling - already installed</package>
+        <package name="av" version=">=12.0.0">PyAV for video frame extraction - already installed</package>
+        <package name="pillow" version=">=10.0.0">PIL for JPEG encoding - already installed</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Extend existing FrameExtractor class - DO NOT create new service</constraint>
+    <constraint type="pattern">Use module-level constants for configuration (FRAME_BLUR_THRESHOLD, FRAME_EMPTY_STD_THRESHOLD)</constraint>
+    <constraint type="pattern">Use structured logging with extra={} dict pattern for all log calls</constraint>
+    <constraint type="pattern">Return empty list on error (never raise exceptions from public methods)</constraint>
+    <constraint type="pattern">Maintain async def for extract_frames (consistency with existing signature)</constraint>
+    <constraint type="fr">FR9: Filter blurry frames using Laplacian variance threshold</constraint>
+    <constraint type="algorithm">Laplacian variance: cv2.Laplacian(gray, cv2.CV_64F).var() with threshold 100</constraint>
+    <constraint type="algorithm">Empty frame: std deviation of grayscale pixels below threshold</constraint>
+    <constraint type="guarantee">Always return at least min_frames (3) regardless of blur filtering</constraint>
+    <constraint type="architecture">Add tests to existing backend/tests/test_services/test_frame_extractor.py</constraint>
+    <constraint type="opencv">Use cv2.COLOR_RGB2GRAY for frame_extractor (frames are RGB from PyAV), not BGR</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>FrameExtractor._is_frame_usable</name>
+      <kind>private method</kind>
+      <signature>def _is_frame_usable(self, frame: np.ndarray) -> bool</signature>
+      <path>backend/app/services/frame_extractor.py</path>
+    </interface>
+    <interface>
+      <name>FrameExtractor.extract_frames (updated)</name>
+      <kind>async method</kind>
+      <signature>async def extract_frames(self, clip_path: Path, frame_count: int = 5, strategy: str = "evenly_spaced", filter_blur: bool = True) -> List[bytes]</signature>
+      <path>backend/app/services/frame_extractor.py</path>
+    </interface>
+    <interface>
+      <name>FRAME_BLUR_THRESHOLD</name>
+      <kind>module constant</kind>
+      <signature>FRAME_BLUR_THRESHOLD = 100  # Laplacian variance threshold</signature>
+      <path>backend/app/services/frame_extractor.py</path>
+    </interface>
+    <interface>
+      <name>FRAME_EMPTY_STD_THRESHOLD</name>
+      <kind>module constant</kind>
+      <signature>FRAME_EMPTY_STD_THRESHOLD = 10  # Std dev threshold for empty frames</signature>
+      <path>backend/app/services/frame_extractor.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests follow pytest patterns with pytest-asyncio for async methods. Use MagicMock/AsyncMock for mocking dependencies. Test files located in backend/tests/test_services/. Use fixtures with autouse for setup/teardown. Create test images with known properties using numpy arrays. Mock cv2.Laplacian if needed for deterministic tests. Test both success and error paths. Follow existing test patterns in test_frame_extractor.py.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_frame_extractor.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test _is_frame_usable returns False for blurry image created with np.random (low Laplacian variance)</idea>
+      <idea ac="1">Test _is_frame_usable returns False for single-color image (np.zeros or np.ones)</idea>
+      <idea ac="1">Test _is_frame_usable returns True for clear image with edges (high Laplacian variance)</idea>
+      <idea ac="1">Test Laplacian variance calculation produces expected values for known images</idea>
+      <idea ac="2">Test blurry frames are replaced with adjacent timestamps when available</idea>
+      <idea ac="2">Test minimum 3 frames are always returned even with many blurry frames</idea>
+      <idea ac="2">Test frame replacement doesn't duplicate indices</idea>
+      <idea ac="3">Test all-blurry scenario returns frames sorted by quality (highest variance first)</idea>
+      <idea ac="3">Test warning "All frames below quality threshold" is logged</idea>
+      <idea ac="4">Test filter_blur=False bypasses all quality checks</idea>
+      <idea ac="4">Test filter_blur=False returns raw extracted frames</idea>
+      <idea ac="all">Test FRAME_BLUR_THRESHOLD constant is 100</idea>
+      <idea ac="all">Test FRAME_EMPTY_STD_THRESHOLD constant is defined</idea>
+    </ideas>
+  </tests>
+</story-context>

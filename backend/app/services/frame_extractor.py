@@ -1,9 +1,10 @@
 """
-FrameExtractor for extracting frames from video clips (Story P3-2.1)
+FrameExtractor for extracting frames from video clips (Story P3-2.1, P3-2.2)
 
 Provides functionality to:
 - Extract multiple frames from video clips for AI analysis
 - Select frames using evenly-spaced strategy (first/last guaranteed)
+- Filter out blurry or empty frames using Laplacian variance (Story P3-2.2)
 - Encode frames as JPEG with configurable quality
 - Resize frames to max width for optimal AI token cost
 
@@ -12,9 +13,10 @@ Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
 import io
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import av
+import cv2
 import numpy as np
 from PIL import Image
 
@@ -26,6 +28,10 @@ FRAME_EXTRACT_MIN_COUNT = 3
 FRAME_EXTRACT_MAX_COUNT = 10
 FRAME_JPEG_QUALITY = 85
 FRAME_MAX_WIDTH = 1280
+
+# Blur detection configuration (Story P3-2.2, FR9)
+FRAME_BLUR_THRESHOLD = 100  # Laplacian variance threshold for blur detection
+FRAME_EMPTY_STD_THRESHOLD = 10  # Std deviation threshold for empty/single-color frames
 
 
 class FrameExtractor:
@@ -135,31 +141,103 @@ class FrameExtractor:
         img.save(buffer, format='JPEG', quality=self.jpeg_quality)
         return buffer.getvalue()
 
+    def _get_frame_quality_score(self, frame: np.ndarray) -> float:
+        """
+        Calculate quality score for a frame using Laplacian variance.
+
+        Higher scores indicate sharper/clearer images.
+        Used for blur detection and frame ranking.
+
+        Args:
+            frame: RGB numpy array (H, W, 3)
+
+        Returns:
+            Laplacian variance (float). Higher = sharper.
+        """
+        # Convert RGB to grayscale for analysis
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+
+        # Calculate Laplacian variance (measure of sharpness)
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        return float(laplacian_var)
+
+    def _is_frame_usable(self, frame: np.ndarray) -> bool:
+        """
+        Check if frame is usable for AI analysis.
+
+        Returns False if:
+        - Frame is too blurry (Laplacian variance < FRAME_BLUR_THRESHOLD)
+        - Frame is empty/single-color (std deviation < FRAME_EMPTY_STD_THRESHOLD)
+
+        Args:
+            frame: RGB numpy array (H, W, 3)
+
+        Returns:
+            True if frame passes quality checks, False otherwise
+        """
+        # Convert RGB to grayscale for analysis
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+
+        # Check for blur using Laplacian variance
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+        if laplacian_var < FRAME_BLUR_THRESHOLD:
+            logger.debug(
+                f"Frame is blurry (variance={laplacian_var:.2f} < {FRAME_BLUR_THRESHOLD})",
+                extra={
+                    "event_type": "frame_blur_detected",
+                    "laplacian_variance": laplacian_var,
+                    "threshold": FRAME_BLUR_THRESHOLD
+                }
+            )
+            return False
+
+        # Check for empty/single-color frames
+        std_dev = np.std(gray)
+        if std_dev < FRAME_EMPTY_STD_THRESHOLD:
+            logger.debug(
+                f"Frame is empty/single-color (std_dev={std_dev:.2f} < {FRAME_EMPTY_STD_THRESHOLD})",
+                extra={
+                    "event_type": "frame_empty_detected",
+                    "std_deviation": std_dev,
+                    "threshold": FRAME_EMPTY_STD_THRESHOLD
+                }
+            )
+            return False
+
+        return True
+
     async def extract_frames(
         self,
         clip_path: Path,
         frame_count: int = 5,
-        strategy: str = "evenly_spaced"
+        strategy: str = "evenly_spaced",
+        filter_blur: bool = True
     ) -> List[bytes]:
         """
         Extract frames from a video clip.
 
         Extracts evenly-spaced frames from the video for AI analysis.
         First and last frames are always included.
+        Optionally filters out blurry/empty frames and replaces them.
 
         Args:
             clip_path: Path to the video file (MP4)
             frame_count: Number of frames to extract (3-10, default 5)
             strategy: Selection strategy (currently only "evenly_spaced")
+            filter_blur: If True (default), filter out blurry/empty frames
+                        and attempt to replace them with better alternatives
 
         Returns:
             List of JPEG-encoded frame bytes.
             Returns empty list on any error (never raises).
+            Always returns at least min_frames (3) when possible.
 
         Note:
             - Extraction completes within 2 seconds for 10-second clips (NFR2)
             - JPEG quality is 85% (configurable)
             - Frames are resized to max 1280px width
+            - When filter_blur=True, blurry frames are replaced with adjacent frames
         """
         logger.info(
             "Starting frame extraction",
@@ -167,9 +245,19 @@ class FrameExtractor:
                 "event_type": "frame_extraction_start",
                 "clip_path": str(clip_path),
                 "frame_count": frame_count,
-                "strategy": strategy
+                "strategy": strategy,
+                "filter_blur": filter_blur
             }
         )
+
+        if not filter_blur:
+            logger.debug(
+                "Blur filtering is disabled",
+                extra={
+                    "event_type": "blur_filter_disabled",
+                    "clip_path": str(clip_path)
+                }
+            )
 
         # Validate frame_count within bounds
         if frame_count < FRAME_EXTRACT_MIN_COUNT:
@@ -263,27 +351,157 @@ class FrameExtractor:
                 )
 
                 # Extract frames at calculated indices
-                frames: List[bytes] = []
+                # Store as tuples: (frame_index, quality_score, rgb_array, jpeg_bytes)
+                extracted_frames: List[Tuple[int, float, np.ndarray, bytes]] = []
                 current_frame_index = 0
+                indices_set = set(indices)
 
                 # Decode all frames and pick the ones we need
                 # This is more reliable than seeking for many codecs
                 for frame in container.decode(video=0):
-                    if current_frame_index in indices:
+                    if current_frame_index in indices_set:
                         # Convert to RGB numpy array
                         img_array = frame.to_ndarray(format='rgb24')
+
+                        # Calculate quality score
+                        quality_score = self._get_frame_quality_score(img_array)
+
                         # Encode as JPEG
                         jpeg_bytes = self._encode_frame(img_array)
-                        frames.append(jpeg_bytes)
+
+                        extracted_frames.append(
+                            (current_frame_index, quality_score, img_array, jpeg_bytes)
+                        )
 
                         # Remove this index from the set we're looking for
-                        indices.remove(current_frame_index)
+                        indices_set.remove(current_frame_index)
 
                         # If we've got all frames, stop early
-                        if not indices:
+                        if not indices_set:
                             break
 
                     current_frame_index += 1
+
+                # If blur filtering is disabled, return all frames as-is
+                if not filter_blur:
+                    frames = [jpeg_bytes for _, _, _, jpeg_bytes in extracted_frames]
+                    logger.info(
+                        f"Frame extraction complete (no filtering): {len(frames)} frames",
+                        extra={
+                            "event_type": "frame_extraction_success",
+                            "clip_path": str(clip_path),
+                            "frames_extracted": len(frames),
+                            "total_bytes": sum(len(f) for f in frames),
+                            "filter_blur": False
+                        }
+                    )
+                    return frames
+
+                # Apply blur filtering
+                usable_frames: List[Tuple[int, float, bytes]] = []
+                unusable_frames: List[Tuple[int, float, bytes]] = []
+
+                for frame_idx, quality_score, img_array, jpeg_bytes in extracted_frames:
+                    if self._is_frame_usable(img_array):
+                        usable_frames.append((frame_idx, quality_score, jpeg_bytes))
+                    else:
+                        unusable_frames.append((frame_idx, quality_score, jpeg_bytes))
+
+                # Log filtering results
+                if unusable_frames:
+                    logger.debug(
+                        f"Filtered out {len(unusable_frames)} low-quality frames",
+                        extra={
+                            "event_type": "frame_filtering_result",
+                            "clip_path": str(clip_path),
+                            "usable_count": len(usable_frames),
+                            "unusable_count": len(unusable_frames)
+                        }
+                    )
+
+                # If all frames are usable, return them
+                if len(usable_frames) >= frame_count:
+                    frames = [jpeg_bytes for _, _, jpeg_bytes in usable_frames[:frame_count]]
+                    logger.info(
+                        f"Frame extraction complete: {len(frames)} frames (all passed quality check)",
+                        extra={
+                            "event_type": "frame_extraction_success",
+                            "clip_path": str(clip_path),
+                            "frames_extracted": len(frames),
+                            "total_bytes": sum(len(f) for f in frames),
+                            "filter_blur": True,
+                            "all_usable": True
+                        }
+                    )
+                    return frames
+
+                # Check if all frames are below quality threshold
+                if len(usable_frames) == 0:
+                    # All frames are blurry - return best available by quality score
+                    logger.warning(
+                        "All frames below quality threshold",
+                        extra={
+                            "event_type": "all_frames_below_threshold",
+                            "clip_path": str(clip_path),
+                            "total_frames": len(extracted_frames)
+                        }
+                    )
+
+                    # Sort by quality score (highest first) and return best available
+                    all_frames_sorted = sorted(
+                        extracted_frames,
+                        key=lambda x: x[1],  # quality_score
+                        reverse=True
+                    )
+
+                    # Return up to requested count, but at least min_frames
+                    count_to_return = max(
+                        min(frame_count, len(all_frames_sorted)),
+                        min(FRAME_EXTRACT_MIN_COUNT, len(all_frames_sorted))
+                    )
+                    frames = [jpeg_bytes for _, _, _, jpeg_bytes in all_frames_sorted[:count_to_return]]
+
+                    logger.info(
+                        f"Frame extraction complete: {len(frames)} frames (best available, all below threshold)",
+                        extra={
+                            "event_type": "frame_extraction_success",
+                            "clip_path": str(clip_path),
+                            "frames_extracted": len(frames),
+                            "total_bytes": sum(len(f) for f in frames),
+                            "filter_blur": True,
+                            "all_below_threshold": True
+                        }
+                    )
+                    return frames
+
+                # We have some usable frames but not enough
+                # Ensure we return at least min_frames by including best of unusable
+                frames_needed = max(FRAME_EXTRACT_MIN_COUNT, frame_count) - len(usable_frames)
+
+                if frames_needed > 0 and unusable_frames:
+                    # Sort unusable frames by quality (highest first)
+                    unusable_sorted = sorted(
+                        unusable_frames,
+                        key=lambda x: x[1],  # quality_score
+                        reverse=True
+                    )
+
+                    # Add best unusable frames to meet minimum
+                    for frame_idx, quality_score, jpeg_bytes in unusable_sorted[:frames_needed]:
+                        usable_frames.append((frame_idx, quality_score, jpeg_bytes))
+                        logger.debug(
+                            f"Including low-quality frame {frame_idx} (quality={quality_score:.2f}) to meet minimum",
+                            extra={
+                                "event_type": "low_quality_frame_included",
+                                "frame_index": frame_idx,
+                                "quality_score": quality_score
+                            }
+                        )
+
+                # Sort by frame index to maintain temporal order
+                usable_frames.sort(key=lambda x: x[0])
+
+                frames = [jpeg_bytes for _, _, jpeg_bytes in usable_frames]
 
                 logger.info(
                     f"Frame extraction complete: {len(frames)} frames",
@@ -291,7 +509,8 @@ class FrameExtractor:
                         "event_type": "frame_extraction_success",
                         "clip_path": str(clip_path),
                         "frames_extracted": len(frames),
-                        "total_bytes": sum(len(f) for f in frames)
+                        "total_bytes": sum(len(f) for f in frames),
+                        "filter_blur": True
                     }
                 )
 

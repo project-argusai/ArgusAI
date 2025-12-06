@@ -175,7 +175,7 @@ development_status:
   # Epic P3-3: Analysis Mode Configuration (MVP)
   epic-p3-3: backlog
   p3-3-1-add-analysis-mode-field-to-camera-model: done
-  p3-3-2-add-analysis-mode-to-camera-api: backlog
+  p3-3-2-add-analysis-mode-to-camera-api: done
   p3-3-3-build-analysis-mode-selector-ui-component: backlog
   p3-3-4-display-analysis-mode-on-event-cards: backlog
   p3-3-5-implement-automatic-fallback-chain: backlog

@@ -1,0 +1,194 @@
+<story-context id="p3-3-2-add-analysis-mode-to-camera-api" v="1.0">
+  <metadata>
+    <epicId>P3-3</epicId>
+    <storyId>2</storyId>
+    <title>Add Analysis Mode to Camera API</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-06</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-3-2-add-analysis-mode-to-camera-api.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to update camera analysis mode via the REST API</iWant>
+    <soThat>I can configure each camera's analysis depth for different quality/cost trade-offs</soThat>
+    <tasks>
+      <task id="1" ac="1,2" status="done">
+        <title>Verify analysis_mode in CameraUpdate schema</title>
+        <subtasks>
+          <subtask id="1.1" status="done">Confirm analysis_mode field exists in CameraUpdate with Optional Literal type</subtask>
+          <subtask id="1.2" status="done">Confirm Literal type restricts to 'single_frame', 'multi_frame', 'video_native'</subtask>
+          <subtask id="1.3" status="done">Verify Pydantic returns 422 for invalid values</subtask>
+        </subtasks>
+      </task>
+      <task id="2" ac="1" status="done">
+        <title>Verify PUT/PATCH endpoint handles analysis_mode</title>
+        <subtasks>
+          <subtask id="2.1" status="done">Confirm update_camera endpoint processes analysis_mode from request body</subtask>
+          <subtask id="2.2" status="done">Verify validation warning for video_native on non-Protect cameras</subtask>
+          <subtask id="2.3" status="done">Confirm updated value is persisted and returned in response</subtask>
+        </subtasks>
+      </task>
+      <task id="3" ac="3,4" status="done">
+        <title>Verify GET endpoints return analysis_mode</title>
+        <subtasks>
+          <subtask id="3.1" status="done">Confirm CameraResponse schema includes analysis_mode</subtask>
+          <subtask id="3.2" status="done">Verify GET /cameras/{id} returns analysis_mode</subtask>
+          <subtask id="3.3" status="done">Verify GET /cameras list returns analysis_mode for each camera</subtask>
+        </subtasks>
+      </task>
+      <task id="4" ac="all" status="done">
+        <title>Verify API tests cover all acceptance criteria</title>
+        <subtasks>
+          <subtask id="4.1" status="done">Test PATCH updates analysis_mode successfully</subtask>
+          <subtask id="4.2" status="done">Test invalid analysis_mode returns 422</subtask>
+          <subtask id="4.3" status="done">Test GET single camera includes analysis_mode</subtask>
+          <subtask id="4.4" status="done">Test GET list cameras includes analysis_mode</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given PATCH /api/v1/cameras/{id} with {"analysis_mode": "multi_frame"}, when request is processed, then camera's analysis_mode is updated and response includes the updated analysis_mode value</criterion>
+    <criterion id="AC2">Given an invalid analysis_mode value like "super_frame", when PATCH request is made, then returns 422 Validation Error with message explaining valid options: 'single_frame', 'multi_frame', 'video_native'</criterion>
+    <criterion id="AC3">Given GET /api/v1/cameras/{id}, when response is returned, then includes analysis_mode field showing the camera's configured mode</criterion>
+    <criterion id="AC4">Given GET /api/v1/cameras, when listing all cameras, then each camera includes analysis_mode field</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Database Schema - cameras table</section>
+        <snippet>The cameras table stores analysis_mode as VARCHAR(20) with valid values: 'single_frame', 'multi_frame', 'video_native'. Default is 'single_frame'.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epics</title>
+        <section>Story P3-3.2: Add Analysis Mode to Camera API</section>
+        <snippet>API endpoints for PATCH/GET camera with analysis_mode. Literal type validation returns 422 for invalid values. Protect-only modes require validation.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-3-1-add-analysis-mode-field-to-camera-model.md</path>
+        <title>Story P3-3.1 (Predecessor)</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>P3-3.2 acceptance criteria were implemented alongside P3-3.1 for efficiency. All schema, API, and test changes are complete.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/schemas/camera.py</path>
+        <kind>schema</kind>
+        <symbol>CameraBase, CameraUpdate</symbol>
+        <lines>31-34, 102-105</lines>
+        <reason>analysis_mode field with Literal['single_frame', 'multi_frame', 'video_native'] type validation</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/cameras.py</path>
+        <kind>controller</kind>
+        <symbol>create_camera, update_camera</symbol>
+        <lines>87, 226-236</lines>
+        <reason>analysis_mode handling in create and update endpoints; video_native warning for non-Protect</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <lines>72, 86</lines>
+        <reason>analysis_mode column with CheckConstraint for valid values</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_cameras.py</path>
+        <kind>test</kind>
+        <symbol>TestCameraAnalysisModeAPI</symbol>
+        <lines>1023-1185</lines>
+        <reason>9 tests covering all P3-3.2 ACs: create, update, get single, get list, 422 validation</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="pytest" version="7.4.3" />
+      </backend>
+      <frontend>
+        <package name="next" version="16.0.7" />
+        <package name="react" version="19.2.0" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="zod" version="^4.1.12" />
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="validation">analysis_mode must be one of: 'single_frame', 'multi_frame', 'video_native' (enforced by Pydantic Literal and SQLAlchemy CheckConstraint)</constraint>
+    <constraint type="compatibility">video_native mode only meaningful for Protect cameras (warning logged for non-Protect)</constraint>
+    <constraint type="default">New cameras default to 'single_frame'; Protect cameras discovered via API default to 'multi_frame'</constraint>
+    <constraint type="architecture">Follow existing patterns: Pydantic schemas for validation, FastAPI dependency injection, SQLAlchemy ORM models</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>PUT /api/v1/cameras/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /api/v1/cameras/{camera_id} body: CameraUpdate -> CameraResponse</signature>
+      <path>backend/app/api/v1/cameras.py:188-273</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/cameras/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/cameras/{camera_id} -> CameraResponse</signature>
+      <path>backend/app/api/v1/cameras.py:149-185</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/cameras</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/cameras?is_enabled=bool -> List[CameraResponse]</signature>
+      <path>backend/app/api/v1/cameras.py:116-146</path>
+    </interface>
+    <interface>
+      <name>CameraUpdate</name>
+      <kind>Pydantic schema</kind>
+      <signature>class CameraUpdate(BaseModel): analysis_mode: Optional[Literal['single_frame', 'multi_frame', 'video_native']]</signature>
+      <path>backend/app/schemas/camera.py:102-105</path>
+    </interface>
+    <interface>
+      <name>CameraResponse</name>
+      <kind>Pydantic schema</kind>
+      <signature>class CameraResponse(CameraBase): includes analysis_mode field</signature>
+      <path>backend/app/schemas/camera.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with TestClient from FastAPI. Tests are organized in test_api/ for endpoint tests and test_services/ for service layer tests.
+      Test files mirror source structure. Use client.post/get/put/delete for HTTP calls. Assert status codes and response JSON structure.
+      Tests follow AAA pattern (Arrange-Act-Assert). Database is reset between tests via fixtures.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_cameras.py</location>
+      <location>backend/tests/test_models/test_camera.py</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1,AC2,AC3,AC4">All tests already exist in TestCameraAnalysisModeAPI class (lines 1023-1185). This story was implemented as part of P3-3.1.</idea>
+      <idea ac="AC1">test_update_camera_analysis_mode - verifies PUT updates mode successfully</idea>
+      <idea ac="AC2">test_update_camera_invalid_analysis_mode - verifies 422 on invalid value</idea>
+      <idea ac="AC3">test_get_camera_includes_analysis_mode - verifies GET single includes field</idea>
+      <idea ac="AC4">test_list_cameras_includes_analysis_mode - verifies GET list includes field</idea>
+    </ideas>
+  </tests>
+
+  <implementationNote>
+    This story was ALREADY IMPLEMENTED as part of Story P3-3.1 for efficiency. All acceptance criteria are satisfied.
+    The dev agent should VERIFY existing implementation rather than implement from scratch.
+    Run: pytest backend/tests/test_api/test_cameras.py::TestCameraAnalysisModeAPI -v to confirm all tests pass.
+  </implementationNote>
+</story-context>

@@ -35,6 +35,7 @@ import { DetectionZoneDrawer } from './DetectionZoneDrawer';
 import { DetectionZoneList } from './DetectionZoneList';
 import { ZonePresetTemplates } from './ZonePresetTemplates';
 import { DetectionScheduleEditor } from './DetectionScheduleEditor';
+import { AnalysisModeSelector } from './AnalysisModeSelector';
 
 interface CameraFormProps {
   /**
@@ -99,6 +100,7 @@ export function CameraForm({
             end_time: '17:00',
             days: [0, 1, 2, 3, 4],
           },
+          analysis_mode: initialData.analysis_mode || 'single_frame',
         }
       : {
           name: '',
@@ -116,6 +118,7 @@ export function CameraForm({
             end_time: '17:00',
             days: [0, 1, 2, 3, 4],
           },
+          analysis_mode: 'single_frame',
         },
   });
 
@@ -428,6 +431,12 @@ export function CameraForm({
 
         {/* Detection Schedule */}
         <DetectionScheduleEditor form={form} />
+
+        {/* AI Analysis Mode */}
+        <AnalysisModeSelector
+          form={form}
+          sourceType={initialData?.source_type || cameraType}
+        />
 
         {/* Test Connection Button (edit mode only) */}
         {isEditMode && (

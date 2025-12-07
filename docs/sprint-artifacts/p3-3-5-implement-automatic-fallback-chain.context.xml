@@ -1,0 +1,231 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P3-3</epicId>
+    <storyId>P3-3.5</storyId>
+    <title>Implement Automatic Fallback Chain</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-06</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-3-5-implement-automatic-fallback-chain.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>automatic fallback when configured analysis mode fails</iWant>
+    <soThat>events always get descriptions even if video analysis fails</soThat>
+    <tasks>
+      <task id="1" title="Analyze existing event processing flow">
+        <subtask id="1.1">Review event_processor.py to understand current AI analysis flow</subtask>
+        <subtask id="1.2">Review protect_event_handler.py to understand Protect event pipeline</subtask>
+        <subtask id="1.3">Identify where camera's analysis_mode preference is read</subtask>
+        <subtask id="1.4">Map current fallback behavior (if any) and identify gaps</subtask>
+      </task>
+      <task id="2" title="Implement fallback chain logic in EventProcessor">
+        <subtask id="2.1">Create _try_video_native_analysis() method</subtask>
+        <subtask id="2.2">Create _try_multi_frame_analysis() method</subtask>
+        <subtask id="2.3">Create _try_single_frame_analysis() method</subtask>
+        <subtask id="2.4">Implement fallback chain orchestrator: video_native -> multi_frame -> single_frame</subtask>
+        <subtask id="2.5">Track each failure reason in structured format</subtask>
+        <subtask id="2.6">Update event.analysis_mode with ACTUAL mode used</subtask>
+        <subtask id="2.7">Update event.fallback_reason with failure chain</subtask>
+      </task>
+      <task id="3" title="Handle complete fallback failure">
+        <subtask id="3.1">Implement final catch-all handler when single_frame fails</subtask>
+        <subtask id="3.2">Set event.description = "AI analysis unavailable"</subtask>
+        <subtask id="3.3">Log error alert for operator</subtask>
+        <subtask id="3.4">Ensure event is saved to database without AI description</subtask>
+      </task>
+      <task id="4" title="Add fallback-related fields to Event model">
+        <subtask id="4.1">Verify analysis_mode field exists (added in P3-3.1)</subtask>
+        <subtask id="4.2">Verify fallback_reason field exists (added in P3-1.4)</subtask>
+        <subtask id="4.3">Add configured_analysis_mode field if needed</subtask>
+        <subtask id="4.4">Create migration if new fields needed</subtask>
+      </task>
+      <task id="5" title="Update Protect event flow to use fallback chain">
+        <subtask id="5.1">Modify protect_event_handler.py to pass camera's analysis_mode</subtask>
+        <subtask id="5.2">Integrate fallback chain into Protect event processing path</subtask>
+        <subtask id="5.3">Ensure clip availability check triggers appropriate fallback</subtask>
+      </task>
+      <task id="6" title="Write backend tests">
+        <subtask id="6.1">Test fallback from video_native -> multi_frame -> single_frame</subtask>
+        <subtask id="6.2">Test fallback from multi_frame -> single_frame on clip download failure</subtask>
+        <subtask id="6.3">Test complete failure scenario (all modes fail)</subtask>
+        <subtask id="6.4">Test fallback_reason is correctly populated</subtask>
+        <subtask id="6.5">Test analysis_mode reflects actual mode used</subtask>
+        <subtask id="6.6">Test non-Protect cameras default to single_frame</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">
+      Given camera configured for video_native, when video analysis fails (provider error, format issue),
+      then system automatically tries multi_frame, and if that fails, tries single_frame,
+      and event.fallback_reason records why each step failed
+    </criterion>
+    <criterion id="AC2">
+      Given camera configured for multi_frame, when clip download fails,
+      then system falls back to single_frame using thumbnail,
+      and event.fallback_reason = "clip_download_failed"
+    </criterion>
+    <criterion id="AC3">
+      Given fallback chain exhausted (single_frame also fails), when AI is completely unavailable,
+      then event description = "AI analysis unavailable",
+      and event is saved without description, and alert logged for operator
+    </criterion>
+    <criterion id="AC4">
+      Given successful fallback, when event is saved,
+      then event.analysis_mode = actual mode used (not configured mode),
+      and event.fallback_reason explains the fallback
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epic Breakdown" section="Story P3-3.5">
+        Defines fallback chain: video_native -> multi_frame -> single_frame -> no description.
+        Track each failure reason in comma-separated fallback_reason field.
+        Example format: "video_native:provider_unsupported,multi_frame:clip_download_timeout"
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="Event Processing Pipeline">
+        Documents event flow from camera capture through AI analysis to database storage.
+        Phase 3 additions include multi-frame analysis and video native modes.
+      </doc>
+      <doc path="docs/sprint-artifacts/p3-3-4-display-analysis-mode-on-event-cards.md" title="Previous Story" section="Dev Agent Record">
+        Frontend already supports displaying fallback_reason in AnalysisModeBadge tooltip.
+        Backend fields exist: analysis_mode, frame_count_used, fallback_reason.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/protect_event_handler.py" kind="service" symbol="ProtectEventHandler" lines="831-1143" reason="Primary location for analysis mode selection logic. Contains _submit_to_ai_pipeline(), _try_multi_frame_analysis(), _single_frame_analysis(). MAIN IMPLEMENTATION TARGET for fallback chain.">
+        <note>Current implementation has partial fallback (multi_frame -> single_frame) but lacks full chain and proper reason tracking.</note>
+        <note>Lines 878-896: Currently handles video_native to single_frame fallback for non-Protect cameras only.</note>
+        <note>Lines 899-918: Attempts multi_frame if enabled and clip available, falls through to single_frame.</note>
+        <note>Instance variables _last_analysis_mode, _last_frame_count, _last_fallback_reason track state (lines 861-863).</note>
+      </file>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor" lines="534-665" reason="Handles RTSP/USB camera event processing. May need updates for fallback chain consistency, but primary focus is ProtectEventHandler.">
+        <note>_process_event() method handles AI description generation and event storage.</note>
+        <note>Lines 569-600: Handles case when all AI providers fail - sets description_retry_needed=True.</note>
+      </file>
+      <file path="backend/app/services/ai_service.py" kind="service" symbol="AIService" lines="1-150" reason="Multi-provider AI service with fallback between providers. describe_images() for multi-frame, generate_description() for single-frame.">
+        <note>MULTI_FRAME_SYSTEM_PROMPT defined at lines 46-61 for temporal narrative descriptions.</note>
+        <note>Providers: OpenAI -> Grok -> Claude -> Gemini fallback order.</note>
+      </file>
+      <file path="backend/app/services/clip_service.py" kind="service" symbol="ClipService" lines="82-150" reason="Downloads video clips from Protect. Retry logic with exponential backoff already implemented (Story P3-1.3).">
+        <note>RetriableClipError and NonRetriableClipError exception classes for error categorization.</note>
+        <note>MAX_RETRY_ATTEMPTS=3, RETRY_MIN_WAIT=1s, RETRY_MAX_WAIT=4s.</note>
+      </file>
+      <file path="backend/app/services/frame_extractor.py" kind="service" symbol="FrameExtractor" lines="37-150" reason="Extracts frames from video clips for multi-frame analysis. Returns empty list on failure.">
+        <note>extract_frames() is async method returning List[bytes] of JPEG frames.</note>
+        <note>Includes blur detection via Laplacian variance (threshold=100).</note>
+      </file>
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" lines="1-80" reason="Event database model with analysis_mode, fallback_reason, frame_count_used fields already present.">
+        <note>analysis_mode: String(20), nullable, indexed - "single_frame", "multi_frame", "video_native"</note>
+        <note>fallback_reason: String(100), nullable - e.g., "clip_download_failed"</note>
+        <note>frame_count_used: Integer, nullable - number of frames sent to AI</note>
+      </file>
+      <file path="backend/app/models/camera.py" kind="model" symbol="Camera" lines="72" reason="Camera model with analysis_mode field (Story P3-3.1). Default 'single_frame'.">
+        <note>analysis_mode = Column(String(20), default='single_frame', nullable=False, index=True)</note>
+        <note>CheckConstraint ensures valid values: single_frame, multi_frame, video_native</note>
+      </file>
+      <file path="backend/tests/test_services/test_event_processor.py" kind="test" symbol="TestEventProcessor" reason="Existing test file for event processor. Add fallback chain tests here.">
+        <note>Uses pytest-asyncio for async tests. Mock patterns established.</note>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0"/>
+        <package name="sqlalchemy" version=">=2.0.36"/>
+        <package name="opencv-python" version=">=4.12.0"/>
+        <package name="av" version=">=12.0.0" note="PyAV for video processing"/>
+        <package name="openai" version=">=1.54.0"/>
+        <package name="anthropic" version=">=0.39.0"/>
+        <package name="google-generativeai" version=">=0.8.0"/>
+        <package name="tenacity" version=">=8.2.0" note="Retry logic"/>
+        <package name="uiprotect" version=">=6.0.0" note="UniFi Protect API"/>
+        <package name="pytest" version="7.4.3"/>
+        <package name="pytest-asyncio" version="0.21.1"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Fallback chain order: video_native -> multi_frame -> single_frame -> no description</constraint>
+    <constraint type="pattern">Track failure reasons in comma-separated format: "mode:reason,mode:reason"</constraint>
+    <constraint type="pattern">Non-Protect cameras (RTSP/USB) should always use single_frame regardless of configured mode (no clip source)</constraint>
+    <constraint type="pattern">Video_native mode currently has no provider support in MVP (Epic P3-4 is Growth scope) - should immediately fall back to multi_frame</constraint>
+    <constraint type="performance">Processing should not significantly slow down event pipeline - fallbacks should be fast</constraint>
+    <constraint type="data">Event must be saved to database even on complete AI failure with description "AI analysis unavailable"</constraint>
+    <constraint type="logging">Log error alert with event_id and full failure chain when all modes fail</constraint>
+    <constraint type="testing">Use pytest-asyncio for async tests, mock AI service and clip service for unit tests</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="ProtectEventHandler._submit_to_ai_pipeline" kind="async method" path="backend/app/services/protect_event_handler.py">
+      <signature>async def _submit_to_ai_pipeline(self, snapshot_result, camera, event_type, is_doorbell_ring=False, clip_path=None) -> Optional[AIResult]</signature>
+      <note>Main entry point for AI analysis. Currently has partial fallback - needs full chain implementation.</note>
+    </interface>
+    <interface name="ProtectEventHandler._try_multi_frame_analysis" kind="async method" path="backend/app/services/protect_event_handler.py">
+      <signature>async def _try_multi_frame_analysis(self, clip_path, snapshot_result, camera, event_type, is_doorbell_ring=False) -> Optional[AIResult]</signature>
+      <note>Existing method for multi-frame attempts. Sets _last_fallback_reason on failure.</note>
+    </interface>
+    <interface name="ProtectEventHandler._single_frame_analysis" kind="async method" path="backend/app/services/protect_event_handler.py">
+      <signature>async def _single_frame_analysis(self, snapshot_result, camera, event_type, is_doorbell_ring=False) -> Optional[AIResult]</signature>
+      <note>Existing method for single-frame analysis. Sets _last_analysis_mode='single_frame'.</note>
+    </interface>
+    <interface name="AIService.describe_images" kind="async method" path="backend/app/services/ai_service.py">
+      <signature>async def describe_images(self, images: List[bytes], camera_name, timestamp, detected_objects, sla_timeout_ms=10000, custom_prompt=None) -> AIResult</signature>
+      <note>Multi-image analysis for multi_frame mode. Uses MULTI_FRAME_SYSTEM_PROMPT.</note>
+    </interface>
+    <interface name="AIService.generate_description" kind="async method" path="backend/app/services/ai_service.py">
+      <signature>async def generate_description(self, frame, camera_name, timestamp, detected_objects, sla_timeout_ms=5000, custom_prompt=None) -> AIResult</signature>
+      <note>Single image analysis for single_frame mode.</note>
+    </interface>
+    <interface name="ClipService.download_clip" kind="async method" path="backend/app/services/clip_service.py">
+      <signature>async def download_clip(self, controller_id, camera_id, event_start, event_end, event_id) -> Optional[Path]</signature>
+      <note>Downloads clip with retry logic. Returns None on failure.</note>
+    </interface>
+    <interface name="FrameExtractor.extract_frames" kind="async method" path="backend/app/services/frame_extractor.py">
+      <signature>async def extract_frames(self, clip_path, frame_count=5, strategy="evenly_spaced", filter_blur=True) -> List[bytes]</signature>
+      <note>Extracts JPEG frames from video. Returns empty list on failure.</note>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Use pytest with pytest-asyncio for async tests. Mock external dependencies (AI providers, ClipService, FrameExtractor).
+      Follow existing patterns in backend/tests/test_services/test_event_processor.py.
+      Use unittest.mock.AsyncMock for async methods.
+      Create new test file: backend/tests/test_services/test_fallback_chain.py
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_fallback_chain.py (new)</location>
+      <location>backend/tests/test_services/test_event_processor.py (existing, may add integration tests)</location>
+      <location>backend/tests/test_api/test_protect.py (existing API tests)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">
+        Test video_native configured camera: mock video analysis to fail, verify multi_frame attempted,
+        mock multi_frame to fail, verify single_frame attempted, verify fallback_reason contains both failures
+      </idea>
+      <idea ac="AC2">
+        Test multi_frame configured camera: mock ClipService.download_clip to return None,
+        verify single_frame analysis used, verify event.fallback_reason = "clip_download_failed"
+      </idea>
+      <idea ac="AC3">
+        Test complete failure: mock all AI methods to fail/return success=False,
+        verify event.description = "AI analysis unavailable", verify event saved, verify error logged
+      </idea>
+      <idea ac="AC4">
+        Test successful fallback: mock multi_frame to fail, single_frame to succeed,
+        verify event.analysis_mode = "single_frame" (not "multi_frame"), verify fallback_reason populated
+      </idea>
+      <idea ac="All">
+        Test non-Protect camera (RTSP/USB) with video_native or multi_frame configured:
+        verify single_frame used regardless, no fallback_reason needed (expected behavior)
+      </idea>
+    </ideas>
+  </tests>
+</story-context>

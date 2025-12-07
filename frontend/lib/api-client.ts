@@ -1275,6 +1275,10 @@ export interface ProtectDiscoveredCamera {
   smart_detection_types?: string[] | null;
   /** Whether this camera was newly discovered (not in database) (Story P2-2.4 AC11) */
   is_new?: boolean;
+  /** Database camera ID (only set when camera is enabled for AI) (Story P3-3.3) */
+  camera_id?: string | null;
+  /** AI analysis mode for this camera (Story P3-3.3) */
+  analysis_mode?: 'single_frame' | 'multi_frame' | 'video_native' | null;
 }
 
 // Story P2-2.2: Camera Enable/Disable Types

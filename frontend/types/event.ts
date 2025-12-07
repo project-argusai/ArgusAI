@@ -16,6 +16,12 @@ export type SourceType = 'rtsp' | 'usb' | 'protect';
 export type SmartDetectionType = 'person' | 'vehicle' | 'package' | 'animal' | 'motion' | 'ring';
 
 /**
+ * Story P3-3.4: Analysis mode types for AI event processing
+ * Matches backend Event.analysis_mode field
+ */
+export type AnalysisMode = 'single_frame' | 'multi_frame' | 'video_native';
+
+/**
  * Story P2-4.4: Correlated event info for multi-camera event display
  */
 export interface ICorrelatedEvent {
@@ -46,6 +52,10 @@ export interface IEvent {
   correlated_events?: ICorrelatedEvent[]; // Related events from same correlation group
   // Story P2-5.3: AI provider tracking
   provider_used?: string | null;  // AI provider: openai, grok, claude, gemini
+  // Story P3-3.4: Analysis mode tracking
+  analysis_mode?: AnalysisMode | null;  // Analysis mode used: single_frame, multi_frame, video_native
+  frame_count_used?: number | null;     // Number of frames sent to AI (for multi_frame mode)
+  fallback_reason?: string | null;      // Reason for fallback to lower mode (e.g., "clip_download_failed")
 }
 
 /**

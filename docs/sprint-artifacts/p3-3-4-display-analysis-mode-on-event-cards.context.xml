@@ -1,0 +1,216 @@
+<story-context id="p3-3-4-display-analysis-mode-on-event-cards" v="1.0">
+  <metadata>
+    <epicId>P3-3</epicId>
+    <storyId>P3-3.4</storyId>
+    <title>Display Analysis Mode on Event Cards</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-06</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-3-4-display-analysis-mode-on-event-cards.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to see which analysis mode was used for each event</iWant>
+    <soThat>I understand why description quality varies</soThat>
+    <tasks>
+      <task id="1" ac="1,2,3">
+        <title>Add analysis_mode fields to frontend Event type</title>
+        <subtasks>
+          <subtask id="1.1">Add AnalysisMode type to frontend/types/event.ts ('single_frame' | 'multi_frame' | 'video_native')</subtask>
+          <subtask id="1.2">Add analysis_mode field to IEvent interface (optional, can be null for legacy events)</subtask>
+          <subtask id="1.3">Add frame_count_used field to IEvent interface (optional int)</subtask>
+          <subtask id="1.4">Add fallback_reason field to IEvent interface (optional string)</subtask>
+        </subtasks>
+      </task>
+      <task id="2" ac="1,2,3,4">
+        <title>Create AnalysisModeBadge component</title>
+        <subtasks>
+          <subtask id="2.1">Create frontend/components/events/AnalysisModeBadge.tsx</subtask>
+          <subtask id="2.2">Display compact badge with abbreviation: SF (Single Frame), MF (Multi-Frame), VN (Video Native)</subtask>
+          <subtask id="2.3">Add icons from lucide-react: Image (SF), Images (MF), Video (VN)</subtask>
+          <subtask id="2.4">Apply color coding: gray (SF), blue (MF), purple (VN)</subtask>
+          <subtask id="2.5">Handle null/undefined analysis_mode (show nothing or "---")</subtask>
+          <subtask id="2.6">Add fallback indicator (small warning icon) when fallback_reason is present</subtask>
+          <subtask id="2.7">Implement Tooltip with full details on hover: mode name, frame count, fallback reason</subtask>
+        </subtasks>
+      </task>
+      <task id="3" ac="1,2">
+        <title>Integrate AnalysisModeBadge into EventCard</title>
+        <subtasks>
+          <subtask id="3.1">Import AnalysisModeBadge into EventCard.tsx</subtask>
+          <subtask id="3.2">Add badge to header section near SourceTypeBadge</subtask>
+          <subtask id="3.3">Ensure badge doesn't clutter the layout (keep compact)</subtask>
+          <subtask id="3.4">Pass analysis_mode, frame_count_used, and fallback_reason props</subtask>
+        </subtasks>
+      </task>
+      <task id="4" ac="All" blocked="true">
+        <title>Add component tests - BLOCKED: No testing framework</title>
+        <note>Frontend has no Jest, Vitest, or React Testing Library configured</note>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given an event card in the timeline, when event has analysis_mode stored, then small badge shows mode: "SF" / "MF" / "VN" with appropriate icon</criterion>
+    <criterion id="AC2">Given event used fallback (e.g., multi_frame to single_frame), when event card is displayed, then badge shows actual mode used (single_frame) and subtle indicator shows fallback occurred, with tooltip explaining: "Fell back to Single Frame: {fallback_reason}"</criterion>
+    <criterion id="AC3">Given event has no analysis_mode (legacy events), when displayed, then no badge shown or shows "---" placeholder</criterion>
+    <criterion id="AC4">Given user clicks/hovers analysis mode badge, when interaction occurs, then shows tooltip with full details: Mode used (full name), Frame count (if multi-frame), Fallback reason (if any)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Story P3-3.4</section>
+        <snippet>Defines acceptance criteria for displaying analysis mode on event cards with badge showing SF/MF/VN abbreviations, fallback indicators, and tooltip details.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Frontend Stack</section>
+        <snippet>Next.js 15.x with App Router, TypeScript 5.x, Tailwind CSS + shadcn/ui components, lucide-react icons, React Hook Form + Zod validation.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-3-3-build-analysis-mode-selector-ui-component.md</path>
+        <title>Story P3-3.3 - Analysis Mode Selector UI</title>
+        <section>Dev Agent Record</section>
+        <snippet>Established icons (Image/Images/Video), color coding (gray/blue/purple), and ANALYSIS_MODES config pattern. Use AnalysisModeSelector as reference for consistent UI.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent</symbol>
+        <lines>28-49</lines>
+        <reason>Main event interface that needs analysis_mode, frame_count_used, fallback_reason fields added</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <lines>44-202</lines>
+        <reason>Parent component where AnalysisModeBadge will be integrated, near SourceTypeBadge</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/SourceTypeBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>SourceTypeBadge</symbol>
+        <lines>1-41</lines>
+        <reason>Reference pattern for compact badge with icon - follow this structure for AnalysisModeBadge</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/SmartDetectionBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>SmartDetectionBadge</symbol>
+        <lines>1-85</lines>
+        <reason>Reference pattern for colored pill badge with icon and config object - follow this structure</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/AnalysisModeSelector.tsx</path>
+        <kind>component</kind>
+        <symbol>AnalysisModeSelector, ANALYSIS_MODES</symbol>
+        <lines>47-76</lines>
+        <reason>ANALYSIS_MODES config with icons (Image/Images/Video), names, descriptions - reuse same icons and colors for consistency</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/tooltip.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Tooltip, TooltipTrigger, TooltipContent, TooltipProvider</symbol>
+        <lines>1-62</lines>
+        <reason>shadcn/ui tooltip component to use for showing details on hover</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>63-66</lines>
+        <reason>Backend already has analysis_mode, frame_count_used, fallback_reason fields - confirms API returns these</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse</symbol>
+        <lines>93-97</lines>
+        <reason>Backend schema includes analysis_mode, frame_count_used, fallback_reason - API already returns them</reason>
+      </file>
+    </code>
+    <dependencies>
+      <frontend>
+        <package name="react" version="19.2.0" />
+        <package name="next" version="16.0.7" />
+        <package name="lucide-react" version="^0.553.0">Icons: Image, Images, Video, AlertTriangle</package>
+        <package name="@radix-ui/react-tooltip" version="^1.2.8">For tooltip component</package>
+        <package name="tailwind-merge" version="^3.4.0" />
+        <package name="clsx" version="^2.1.1" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="pydantic" version=">=2.10.0" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing badge component patterns: SourceTypeBadge.tsx and SmartDetectionBadge.tsx</constraint>
+    <constraint type="pattern">Use ANALYSIS_MODES config object pattern from AnalysisModeSelector.tsx for consistency</constraint>
+    <constraint type="pattern">Use shadcn/ui Tooltip component for hover details</constraint>
+    <constraint type="styling">Keep badge compact to not clutter timeline - use abbreviations SF/MF/VN</constraint>
+    <constraint type="styling">Color coding: gray (single_frame), blue (multi_frame), purple (video_native)</constraint>
+    <constraint type="styling">Icons from lucide-react: Image (SF), Images (MF), Video (VN), AlertTriangle (fallback)</constraint>
+    <constraint type="data">Handle null/undefined analysis_mode for legacy events gracefully</constraint>
+    <constraint type="testing">Frontend has no testing framework - Task 4 is blocked</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>IEvent.analysis_mode</name>
+      <kind>TypeScript field</kind>
+      <signature>analysis_mode?: 'single_frame' | 'multi_frame' | 'video_native' | null</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+    <interface>
+      <name>IEvent.frame_count_used</name>
+      <kind>TypeScript field</kind>
+      <signature>frame_count_used?: number | null</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+    <interface>
+      <name>IEvent.fallback_reason</name>
+      <kind>TypeScript field</kind>
+      <signature>fallback_reason?: string | null</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+    <interface>
+      <name>AnalysisModeBadgeProps</name>
+      <kind>React component props</kind>
+      <signature>{ analysisMode?: AnalysisMode | null; frameCountUsed?: number | null; fallbackReason?: string | null; }</signature>
+      <path>frontend/components/events/AnalysisModeBadge.tsx (to create)</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events</name>
+      <kind>REST endpoint</kind>
+      <signature>Returns EventResponse[] with analysis_mode, frame_count_used, fallback_reason fields</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend has no testing framework configured (no Jest, Vitest, or React Testing Library in package.json). Manual browser testing is the recommended validation approach. Backend uses pytest with pytest-asyncio for async tests.</standards>
+    <locations>
+      <location>backend/tests/test_api/ - Backend API tests</location>
+      <location>backend/tests/test_services/ - Backend service tests</location>
+      <location>Manual browser testing for frontend components</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Verify AnalysisModeBadge renders correct abbreviation (SF/MF/VN) for each analysis_mode value</idea>
+      <idea ac="2">Verify fallback indicator (warning icon) appears when fallback_reason is non-null</idea>
+      <idea ac="3">Verify badge renders nothing or placeholder when analysis_mode is null/undefined</idea>
+      <idea ac="4">Verify tooltip displays full mode name, frame count, and fallback reason on hover</idea>
+      <idea ac="1,2">Verify badge integrates correctly in EventCard layout without cluttering UI</idea>
+    </ideas>
+  </tests>
+</story-context>

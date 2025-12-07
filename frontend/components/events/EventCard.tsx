@@ -13,6 +13,7 @@ import { Card } from '@/components/ui/card';
 import { SourceTypeBadge } from './SourceTypeBadge';
 import { SmartDetectionBadge } from './SmartDetectionBadge';
 import { CorrelationIndicator } from './CorrelationIndicator';
+import { AnalysisModeBadge } from './AnalysisModeBadge';
 import { cn } from '@/lib/utils';
 
 interface EventCardProps {
@@ -129,6 +130,12 @@ export const EventCard = memo(function EventCard({
               >
                 {relativeTime}
               </time>
+              {/* Story P3-3.4: Analysis Mode Badge (AC1, AC2, AC3, AC4) */}
+              <AnalysisModeBadge
+                analysisMode={event.analysis_mode}
+                frameCountUsed={event.frame_count_used}
+                fallbackReason={event.fallback_reason}
+              />
               {event.source_type && (
                 <SourceTypeBadge sourceType={event.source_type} />
               )}

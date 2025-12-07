@@ -774,6 +774,10 @@ async def discover_cameras(
         # Story P2-2.4 AC11: Mark as "new" if never been in database
         is_new = camera.protect_camera_id not in known_camera_ids
 
+        # Story P3-3.3: Include camera_id and analysis_mode for enabled cameras
+        camera_id = str(camera_record.id) if camera_record else None
+        analysis_mode = camera_record.analysis_mode if camera_record else None
+
         response_cameras.append(ProtectDiscoveredCamera(
             protect_camera_id=camera.protect_camera_id,
             name=camera.name,
@@ -784,7 +788,9 @@ async def discover_cameras(
             is_enabled_for_ai=is_enabled,
             smart_detection_capabilities=camera.smart_detection_capabilities,
             smart_detection_types=smart_detection_types,
-            is_new=is_new
+            is_new=is_new,
+            camera_id=camera_id,
+            analysis_mode=analysis_mode
         ))
 
     # Check if we should return 503 (no cameras and no cache due to not connected)

@@ -24,6 +24,14 @@ export type MotionSensitivity = 'low' | 'medium' | 'high';
 export type MotionAlgorithm = 'mog2' | 'knn' | 'frame_diff';
 
 /**
+ * AI analysis mode options (Phase 3)
+ * - single_frame: Uses event thumbnail only (fastest, lowest cost)
+ * - multi_frame: Extracts 5 frames from video clip (balanced)
+ * - video_native: Sends full video to AI (best quality, highest cost, Protect only)
+ */
+export type AnalysisMode = 'single_frame' | 'multi_frame' | 'video_native';
+
+/**
  * Detection zone vertex coordinate
  * Normalized to 0-1 scale relative to image dimensions
  */
@@ -72,6 +80,8 @@ export interface ICamera {
   motion_algorithm: MotionAlgorithm;
   detection_zones?: IDetectionZone[] | null; // Optional array of detection zones (max 10)
   detection_schedule?: IDetectionSchedule | null; // Optional detection schedule configuration
+  // Phase 3: AI analysis mode
+  analysis_mode: AnalysisMode; // AI analysis mode for event processing
   // Phase 2: UniFi Protect integration fields
   source_type: CameraSourceType; // 'rtsp', 'usb', or 'protect'
   protect_controller_id?: string | null; // Foreign key to protect_controllers
@@ -101,6 +111,7 @@ export interface ICameraCreate {
   motion_algorithm?: MotionAlgorithm;
   detection_zones?: IDetectionZone[];
   detection_schedule?: IDetectionSchedule | null;
+  analysis_mode?: AnalysisMode; // Phase 3: AI analysis mode
 }
 
 /**
@@ -121,6 +132,7 @@ export interface ICameraUpdate {
   device_index?: number | null;
   detection_zones?: IDetectionZone[];
   detection_schedule?: IDetectionSchedule | null;
+  analysis_mode?: AnalysisMode; // Phase 3: AI analysis mode
 }
 
 /**

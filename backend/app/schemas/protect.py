@@ -1,6 +1,6 @@
 """Pydantic schemas for UniFi Protect controller API endpoints"""
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime, timezone
 import uuid
 
@@ -218,6 +218,15 @@ class ProtectDiscoveredCamera(BaseModel):
     is_new: bool = Field(
         default=False,
         description="Whether this camera was newly discovered (not in database) (Story P2-2.4 AC11)"
+    )
+    # Phase 3: Analysis mode support for Protect cameras
+    camera_id: Optional[str] = Field(
+        default=None,
+        description="Database camera ID (only set when camera is enabled for AI)"
+    )
+    analysis_mode: Optional[Literal['single_frame', 'multi_frame', 'video_native']] = Field(
+        default=None,
+        description="AI analysis mode for this camera (Story P3-3.3)"
     )
 
     model_config = {

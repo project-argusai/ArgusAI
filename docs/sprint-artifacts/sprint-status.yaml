@@ -176,9 +176,9 @@ development_status:
   epic-p3-3: backlog
   p3-3-1-add-analysis-mode-field-to-camera-model: done
   p3-3-2-add-analysis-mode-to-camera-api: done
-  p3-3-3-build-analysis-mode-selector-ui-component: backlog
-  p3-3-4-display-analysis-mode-on-event-cards: backlog
-  p3-3-5-implement-automatic-fallback-chain: backlog
+  p3-3-3-build-analysis-mode-selector-ui-component: done
+  p3-3-4-display-analysis-mode-on-event-cards: done
+  p3-3-5-implement-automatic-fallback-chain: done
   epic-p3-3-retrospective: optional
 
   # Epic P3-4: Native Video Analysis (Growth)
@@ -213,3 +213,10 @@ development_status:
   p3-7-5-display-key-frames-gallery-on-event-detail: backlog
   p3-7-6-add-analysis-mode-filter-to-timeline: backlog
   epic-p3-7-retrospective: optional
+
+  # ============================================================================
+  # TECHNICAL DEBT
+  # ============================================================================
+  # Source: docs/backlog.md
+
+  td-001-frontend-testing-framework: in-progress

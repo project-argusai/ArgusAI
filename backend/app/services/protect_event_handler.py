@@ -330,14 +330,37 @@ class ProtectEventHandler:
                             )
 
                     if not ai_result or not ai_result.success:
-                        logger.warning(
-                            f"AI pipeline failed for camera '{camera.name}'",
+                        # Story P3-3.5 AC3: Complete failure - all analysis modes exhausted
+                        # Create event with "AI analysis unavailable" instead of returning False
+                        logger.error(
+                            f"AI pipeline completely failed for camera '{camera.name}' - saving event without description",
                             extra={
-                                "event_type": "protect_ai_failed",
+                                "event_type": "protect_ai_complete_failure",
                                 "camera_id": camera.id,
-                                "error": ai_result.error if ai_result else "No result"
+                                "camera_name": camera.name,
+                                "event_id": generated_event_id,
+                                "error": ai_result.error if ai_result else "No result",
+                                "fallback_chain": getattr(self, '_fallback_chain', [])
                             }
                         )
+
+                        # Story P3-3.5 AC3: Store event with "AI analysis unavailable" description
+                        stored_event = await self._store_event_without_ai(
+                            db,
+                            snapshot_result,
+                            camera,
+                            filter_type,
+                            protect_event_id,
+                            is_doorbell_ring=is_doorbell_ring,
+                            event_id_override=generated_event_id
+                        )
+
+                        if stored_event:
+                            # Broadcast the event even without AI description
+                            await self._broadcast_event_created(stored_event, camera)
+                            asyncio.create_task(self._process_correlation(stored_event))
+                            return True
+
                         return False
 
                     # Story P2-3.3: Store event in database
@@ -837,7 +860,10 @@ class ProtectEventHandler:
         clip_path: Optional[Path] = None
     ) -> Optional["AIResult"]:
         """
-        Submit snapshot to AI pipeline for description generation (Story P2-3.3 AC1-3, P2-4.1 AC4, P3-2.6).
+        Submit snapshot to AI pipeline for description generation (Story P2-3.3 AC1-3, P2-4.1 AC4, P3-2.6, P3-3.5).
+
+        Implements automatic fallback chain: video_native -> multi_frame -> single_frame -> no description.
+        Each failure reason is tracked in comma-separated format (Story P3-3.5 AC1, AC4).
 
         Converts base64 image to numpy array and calls AIService.generate_description().
         Uses doorbell-specific prompt for ring events (Story P2-4.1).
@@ -845,6 +871,8 @@ class ProtectEventHandler:
         Story P3-2.6: When camera.analysis_mode == "multi_frame" and clip is available,
         extracts frames from clip and uses AIService.describe_images() for richer descriptions.
         Falls back to single-frame on any failure.
+
+        Story P3-3.5: Full fallback chain with reason tracking.
 
         Args:
             snapshot_result: Snapshot with base64-encoded image
@@ -854,13 +882,14 @@ class ProtectEventHandler:
             clip_path: Optional path to video clip for multi-frame analysis (Story P3-1.4, P3-2.6)
 
         Returns:
-            AIResult with description, or None on failure
-            Also sets self._last_analysis_mode and self._last_frame_count for event storage
+            AIResult with description, or None on complete failure
+            Also sets self._last_analysis_mode, self._last_frame_count, and self._last_fallback_reason for event storage
         """
-        # Story P3-2.6: Track analysis mode and frame count for event storage
+        # Story P3-3.5: Track analysis mode, frame count, and fallback chain for event storage
         self._last_analysis_mode: Optional[str] = None
         self._last_frame_count: Optional[int] = None
         self._last_fallback_reason: Optional[str] = None
+        self._fallback_chain: List[str] = []  # Track each failure: ["video_native:provider_unsupported", ...]
 
         try:
             # Lazy import to avoid circular imports (same pattern as snapshot_service)
@@ -875,29 +904,39 @@ class ProtectEventHandler:
             finally:
                 db.close()
 
-            # Story P3-2.6 AC1: Check if multi-frame analysis should be used
+            # Get camera's configured analysis mode
             # camera.analysis_mode may not exist yet (added in P3-3.1), so use getattr with default
-            camera_analysis_mode = getattr(camera, 'analysis_mode', None) or 'single_frame'
+            configured_mode = getattr(camera, 'analysis_mode', None) or 'single_frame'
 
-            # Story P3-3.1 AC4: Treat video_native as single_frame for non-Protect cameras
-            # (RTSP/USB cameras don't have native clip sources, only Protect does)
-            if camera_analysis_mode == 'video_native' and camera.source_type != 'protect':
-                logger.info(
-                    f"Camera '{camera.name}' has video_native mode but source_type='{camera.source_type}', "
-                    "falling back to single_frame (no native clip source available)",
-                    extra={
-                        "event_type": "video_native_fallback",
-                        "camera_id": camera.id,
-                        "source_type": camera.source_type,
-                        "original_mode": camera_analysis_mode,
-                        "effective_mode": "single_frame"
-                    }
+            # Story P3-3.5: Non-Protect cameras (RTSP/USB) always use single_frame regardless of config
+            # They have no clip source, so video_native and multi_frame are not applicable
+            if camera.source_type != 'protect':
+                if configured_mode in ('video_native', 'multi_frame'):
+                    logger.info(
+                        f"Camera '{camera.name}' has {configured_mode} mode but source_type='{camera.source_type}', "
+                        "using single_frame (no clip source available for non-Protect cameras)",
+                        extra={
+                            "event_type": "non_protect_single_frame",
+                            "camera_id": camera.id,
+                            "source_type": camera.source_type,
+                            "configured_mode": configured_mode,
+                            "effective_mode": "single_frame"
+                        }
+                    )
+                # For non-Protect cameras, go directly to single-frame (no fallback chain needed)
+                return await self._single_frame_analysis(
+                    snapshot_result=snapshot_result,
+                    camera=camera,
+                    event_type=event_type,
+                    is_doorbell_ring=is_doorbell_ring
                 )
-                camera_analysis_mode = 'single_frame'
 
-            # Story P3-2.6 AC1: Attempt multi-frame analysis if enabled and clip available
-            if camera_analysis_mode == 'multi_frame' and clip_path and clip_path.exists():
-                result = await self._try_multi_frame_analysis(
+            # Story P3-3.5: Implement fallback chain for Protect cameras
+            # Chain: video_native -> multi_frame -> single_frame
+
+            # Step 1: Try video_native if configured
+            if configured_mode == 'video_native':
+                result = await self._try_video_native_analysis(
                     clip_path=clip_path,
                     snapshot_result=snapshot_result,
                     camera=camera,
@@ -906,16 +945,59 @@ class ProtectEventHandler:
                 )
                 if result:
                     return result
-                # If multi-frame failed, _try_multi_frame_analysis already set fallback_reason
-                # and we fall through to single-frame analysis below
+                # video_native failed, continue to multi_frame
 
-            # Single-frame analysis (existing behavior or fallback)
-            return await self._single_frame_analysis(
+            # Step 2: Try multi_frame if configured OR as fallback from video_native
+            if configured_mode in ('video_native', 'multi_frame'):
+                if clip_path and clip_path.exists():
+                    result = await self._try_multi_frame_analysis(
+                        clip_path=clip_path,
+                        snapshot_result=snapshot_result,
+                        camera=camera,
+                        event_type=event_type,
+                        is_doorbell_ring=is_doorbell_ring
+                    )
+                    if result:
+                        return result
+                    # multi_frame failed, continue to single_frame
+                else:
+                    # No clip available, record why we're skipping multi_frame
+                    self._fallback_chain.append("multi_frame:no_clip_available")
+                    logger.info(
+                        f"Skipping multi_frame for camera '{camera.name}': no clip available",
+                        extra={
+                            "event_type": "multi_frame_skip",
+                            "camera_id": camera.id,
+                            "configured_mode": configured_mode,
+                            "reason": "no_clip_available"
+                        }
+                    )
+
+            # Step 3: Try single_frame (final fallback or configured mode)
+            result = await self._single_frame_analysis(
                 snapshot_result=snapshot_result,
                 camera=camera,
                 event_type=event_type,
                 is_doorbell_ring=is_doorbell_ring
             )
+            if result:
+                return result
+
+            # Step 4: Complete failure - all modes exhausted
+            # This is handled by returning None, and handle_event will create event with "AI analysis unavailable"
+            self._fallback_chain.append("single_frame:ai_failed")
+            self._last_fallback_reason = ",".join(self._fallback_chain)
+
+            logger.error(
+                f"All analysis modes failed for camera '{camera.name}', fallback chain exhausted",
+                extra={
+                    "event_type": "fallback_chain_exhausted",
+                    "camera_id": camera.id,
+                    "configured_mode": configured_mode,
+                    "fallback_chain": self._fallback_chain
+                }
+            )
+            return None
 
         except Exception as e:
             logger.error(
@@ -928,6 +1010,51 @@ class ProtectEventHandler:
                 }
             )
             return None
+
+    async def _try_video_native_analysis(
+        self,
+        clip_path: Optional[Path],
+        snapshot_result: SnapshotResult,
+        camera: Camera,
+        event_type: str,
+        is_doorbell_ring: bool = False
+    ) -> Optional["AIResult"]:
+        """
+        Attempt video native analysis (Story P3-3.5 AC1).
+
+        Currently no AI providers fully support video_native in Phase 3 MVP scope
+        (Epic P3-4 is Growth scope), so this immediately fails and records the reason.
+
+        Args:
+            clip_path: Path to video clip file (may be None)
+            snapshot_result: Snapshot with base64-encoded image (for fallback)
+            camera: Camera that captured the event
+            event_type: Detection type (person, vehicle, ring, etc.)
+            is_doorbell_ring: If True, use doorbell-specific AI prompt
+
+        Returns:
+            AIResult if video_native succeeded (currently always None - not implemented)
+        """
+        # Story P3-3.5: video_native is not supported in MVP - immediately fall back
+        # Epic P3-4 (Growth) will implement actual video upload to providers
+        reason = "provider_unsupported"
+
+        if not clip_path or not clip_path.exists():
+            reason = "no_clip_available"
+
+        self._fallback_chain.append(f"video_native:{reason}")
+
+        logger.info(
+            f"video_native analysis not available for camera '{camera.name}': {reason}",
+            extra={
+                "event_type": "video_native_fallback",
+                "camera_id": camera.id,
+                "reason": reason,
+                "clip_available": bool(clip_path and clip_path.exists())
+            }
+        )
+
+        return None
 
     async def _try_multi_frame_analysis(
         self,
@@ -986,7 +1113,8 @@ class ProtectEventHandler:
                         "fallback_reason": "frame_extraction_failed"
                     }
                 )
-                self._last_fallback_reason = "frame_extraction_failed"
+                # Story P3-3.5: Track failure in fallback chain
+                self._fallback_chain.append("multi_frame:frame_extraction_failed")
                 return None
 
             logger.info(
@@ -1043,7 +1171,8 @@ class ProtectEventHandler:
                             "fallback_reason": "multi_frame_ai_failed"
                         }
                     )
-                    self._last_fallback_reason = "multi_frame_ai_failed"
+                    # Story P3-3.5: Track failure in fallback chain
+                    self._fallback_chain.append("multi_frame:ai_failed")
                     return None
 
             except Exception as e:
@@ -1058,7 +1187,8 @@ class ProtectEventHandler:
                         "fallback_reason": "multi_frame_ai_failed"
                     }
                 )
-                self._last_fallback_reason = "multi_frame_ai_failed"
+                # Story P3-3.5: Track failure in fallback chain
+                self._fallback_chain.append("multi_frame:ai_failed")
                 return None
 
         except Exception as e:
@@ -1073,7 +1203,8 @@ class ProtectEventHandler:
                     "fallback_reason": "frame_extraction_failed"
                 }
             )
-            self._last_fallback_reason = "frame_extraction_failed"
+            # Story P3-3.5: Track failure in fallback chain
+            self._fallback_chain.append("multi_frame:frame_extraction_failed")
             return None
 
     async def _single_frame_analysis(
@@ -1087,6 +1218,7 @@ class ProtectEventHandler:
         Perform single-frame analysis using snapshot (existing behavior).
 
         Story P3-2.6 AC4: Records analysis_mode as "single_frame".
+        Story P3-3.5: Sets fallback_reason if this was reached via fallback chain.
 
         Args:
             snapshot_result: Snapshot with base64-encoded image
@@ -1099,48 +1231,78 @@ class ProtectEventHandler:
         """
         from app.services.ai_service import ai_service
 
-        # Convert base64 to numpy array (BGR format for OpenCV/AI)
-        image_bytes = base64.b64decode(snapshot_result.image_base64)
-        image = Image.open(io.BytesIO(image_bytes))
+        try:
+            # Convert base64 to numpy array (BGR format for OpenCV/AI)
+            image_bytes = base64.b64decode(snapshot_result.image_base64)
+            image = Image.open(io.BytesIO(image_bytes))
 
-        # Convert PIL to numpy array and then RGB->BGR for OpenCV convention
-        frame_rgb = np.array(image)
-        if len(frame_rgb.shape) == 3 and frame_rgb.shape[2] == 3:
-            frame_bgr = frame_rgb[:, :, ::-1]  # RGB to BGR
-        else:
-            frame_bgr = frame_rgb
+            # Convert PIL to numpy array and then RGB->BGR for OpenCV convention
+            frame_rgb = np.array(image)
+            if len(frame_rgb.shape) == 3 and frame_rgb.shape[2] == 3:
+                frame_bgr = frame_rgb[:, :, ::-1]  # RGB to BGR
+            else:
+                frame_bgr = frame_rgb
 
-        # Story P2-4.1: Use doorbell-specific prompt for ring events (AC4)
-        custom_prompt = DOORBELL_RING_PROMPT if is_doorbell_ring else None
+            # Story P2-4.1: Use doorbell-specific prompt for ring events (AC4)
+            custom_prompt = DOORBELL_RING_PROMPT if is_doorbell_ring else None
 
-        # Call AI service (AC1, AC2, AC3)
-        result = await ai_service.generate_description(
-            frame=frame_bgr,
-            camera_name=camera.name,
-            timestamp=snapshot_result.timestamp.isoformat(),
-            detected_objects=[event_type],
-            sla_timeout_ms=5000,  # 5s SLA target
-            custom_prompt=custom_prompt
-        )
+            # Call AI service (AC1, AC2, AC3)
+            result = await ai_service.generate_description(
+                frame=frame_bgr,
+                camera_name=camera.name,
+                timestamp=snapshot_result.timestamp.isoformat(),
+                detected_objects=[event_type],
+                sla_timeout_ms=5000,  # 5s SLA target
+                custom_prompt=custom_prompt
+            )
 
-        # Story P3-2.6 AC4: Record analysis mode (single_frame)
-        self._last_analysis_mode = "single_frame"
-        self._last_frame_count = 1
+            # Check if AI succeeded
+            if not result or not result.success:
+                logger.warning(
+                    f"Single-frame AI request failed for camera '{camera.name}'",
+                    extra={
+                        "event_type": "single_frame_ai_failed",
+                        "camera_id": camera.id,
+                        "error": result.error if result else "No result"
+                    }
+                )
+                return None
 
-        logger.info(
-            f"AI description generated for camera '{camera.name}': {result.description[:50]}...",
-            extra={
-                "event_type": "protect_ai_success",
-                "camera_id": camera.id,
-                "ai_provider": result.provider,
-                "confidence": result.confidence,
-                "response_time_ms": result.response_time_ms,
-                "analysis_mode": "single_frame",
-                "is_doorbell_ring": is_doorbell_ring
-            }
-        )
+            # Story P3-2.6 AC4: Record analysis mode (single_frame)
+            self._last_analysis_mode = "single_frame"
+            self._last_frame_count = 1
 
-        return result
+            # Story P3-3.5 AC4: Set fallback_reason if we had prior failures in the chain
+            if hasattr(self, '_fallback_chain') and self._fallback_chain:
+                self._last_fallback_reason = ",".join(self._fallback_chain)
+
+            logger.info(
+                f"AI description generated for camera '{camera.name}': {result.description[:50]}...",
+                extra={
+                    "event_type": "protect_ai_success",
+                    "camera_id": camera.id,
+                    "ai_provider": result.provider,
+                    "confidence": result.confidence,
+                    "response_time_ms": result.response_time_ms,
+                    "analysis_mode": "single_frame",
+                    "is_doorbell_ring": is_doorbell_ring,
+                    "fallback_reason": self._last_fallback_reason
+                }
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Single-frame analysis error for camera '{camera.name}': {e}",
+                extra={
+                    "event_type": "single_frame_error",
+                    "camera_id": camera.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            return None
 
     async def _store_protect_event(
         self,
@@ -1230,6 +1392,96 @@ class ProtectEventHandler:
                 f"Database error storing event for camera '{camera.name}': {e}",
                 extra={
                     "event_type": "protect_event_store_error",
+                    "camera_id": camera.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            db.rollback()
+            return None
+
+    async def _store_event_without_ai(
+        self,
+        db: Session,
+        snapshot_result: SnapshotResult,
+        camera: Camera,
+        event_type: str,
+        protect_event_id: Optional[str],
+        is_doorbell_ring: bool = False,
+        event_id_override: Optional[str] = None
+    ) -> Optional[Event]:
+        """
+        Store Protect event without AI description (Story P3-3.5 AC3).
+
+        Creates Event record with description = "AI analysis unavailable" when
+        all AI analysis modes have failed.
+
+        Args:
+            db: Database session
+            snapshot_result: Snapshot with thumbnail path
+            camera: Camera that captured the event
+            event_type: Detection type (person, vehicle, ring, etc.)
+            protect_event_id: Protect's native event ID
+            is_doorbell_ring: Whether this is a doorbell ring event
+            event_id_override: Pre-generated event ID to use
+
+        Returns:
+            Stored Event model or None on failure
+        """
+        try:
+            # Story P3-3.5 AC3: Build complete fallback reason
+            fallback_chain = getattr(self, '_fallback_chain', [])
+            fallback_reason = ",".join(fallback_chain) if fallback_chain else "ai_unavailable"
+
+            # Create Event record with "AI analysis unavailable" description
+            event = Event(
+                camera_id=camera.id,
+                timestamp=snapshot_result.timestamp,
+                description="AI analysis unavailable",  # Story P3-3.5 AC3
+                confidence=0.0,  # No AI confidence available
+                objects_detected=json.dumps([event_type]),
+                thumbnail_path=snapshot_result.thumbnail_path,
+                thumbnail_base64=None,
+                alert_triggered=False,
+                source_type='protect',
+                protect_event_id=protect_event_id,
+                smart_detection_type=event_type,
+                is_doorbell_ring=is_doorbell_ring,
+                provider_used=None,  # No provider was successful
+                fallback_reason=fallback_reason,  # Full failure chain
+                analysis_mode=None,  # No analysis mode succeeded
+                frame_count_used=None,
+                description_retry_needed=True  # Flag for potential retry
+            )
+
+            if event_id_override:
+                event.id = event_id_override
+
+            db.add(event)
+            db.commit()
+            db.refresh(event)
+
+            logger.warning(
+                f"Protect event stored WITHOUT AI description: {event.id} for camera '{camera.name}'",
+                extra={
+                    "event_type": "protect_event_stored_no_ai",
+                    "event_id": event.id,
+                    "camera_id": camera.id,
+                    "camera_name": camera.name,
+                    "smart_detection_type": event.smart_detection_type,
+                    "is_doorbell_ring": event.is_doorbell_ring,
+                    "fallback_reason": event.fallback_reason,
+                    "description_retry_needed": event.description_retry_needed
+                }
+            )
+
+            return event
+
+        except Exception as e:
+            logger.error(
+                f"Database error storing event without AI for camera '{camera.name}': {e}",
+                extra={
+                    "event_type": "protect_event_store_no_ai_error",
                     "camera_id": camera.id,
                     "error_type": type(e).__name__,
                     "error_message": str(e)

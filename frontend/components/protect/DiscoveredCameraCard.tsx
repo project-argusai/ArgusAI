@@ -3,6 +3,7 @@
  * Story P2-2.2: Build Discovered Camera List UI with Enable/Disable
  * Story P2-2.3: Per-Camera Event Type Filtering
  * Story P2-2.4: Offline camera tooltip
+ * Story P3-3.3: Analysis Mode Selector for Protect cameras
  *
  * Displays a single discovered camera from UniFi Protect controller with:
  * - Enable/disable checkbox
@@ -11,6 +12,7 @@
  * - Online/offline status indicator with tooltip (Story P2-2.4 AC10)
  * - Configure Filters button with popover
  * - Filter badge showing active filters
+ * - AI Mode button with analysis mode popover (Story P3-3.3)
  *
  * AC2: All required elements displayed
  * AC4: Disabled cameras at 50% opacity with "(Disabled)" label
@@ -35,6 +37,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { ProtectDiscoveredCamera } from '@/lib/api-client';
 import { EventTypeFilter, getFilterDisplayText } from './EventTypeFilter';
+import { AnalysisModePopover } from './AnalysisModePopover';
 
 export interface DiscoveredCameraCardProps {
   camera: ProtectDiscoveredCamera;
@@ -160,6 +163,16 @@ export function DiscoveredCameraCard({
           currentFilters={currentFilters}
           onSave={onFiltersUpdated}
         />
+
+        {/* AI Mode Button with Popover (Story P3-3.3) */}
+        {camera.camera_id && (
+          <AnalysisModePopover
+            cameraId={camera.camera_id}
+            currentMode={camera.analysis_mode || 'single_frame'}
+            isEnabled={camera.is_enabled_for_ai}
+            onModeUpdated={onFiltersUpdated}
+          />
+        )}
       </div>
     </div>
   );

@@ -1,0 +1,245 @@
+<story-context id="p3-3-3-build-analysis-mode-selector-ui-component" v="1.0">
+  <metadata>
+    <epicId>P3-3</epicId>
+    <storyId>3</storyId>
+    <title>Build Analysis Mode Selector UI Component</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-06</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-3-3-build-analysis-mode-selector-ui-component.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>a clear UI to select analysis mode per camera</iWant>
+    <soThat>I understand the trade-offs and can make informed choices</soThat>
+    <tasks>
+      <task id="1" ac="1" status="pending">
+        <title>Add analysis_mode type to frontend</title>
+        <subtasks>
+          <subtask id="1.1" status="pending">Add AnalysisMode type to frontend/types/camera.ts</subtask>
+          <subtask id="1.2" status="pending">Add analysis_mode field to ICamera interface</subtask>
+          <subtask id="1.3" status="pending">Add analysis_mode field to ICameraUpdate interface</subtask>
+          <subtask id="1.4" status="pending">Update form validation schema in frontend/lib/validations/camera.ts</subtask>
+        </subtasks>
+      </task>
+      <task id="2" ac="1,2" status="pending">
+        <title>Create AnalysisModeSelector component</title>
+        <subtasks>
+          <subtask id="2.1" status="pending">Create frontend/components/cameras/AnalysisModeSelector.tsx</subtask>
+          <subtask id="2.2" status="pending">Use shadcn/ui RadioGroup component with styled options</subtask>
+          <subtask id="2.3" status="pending">Add icons: Image (single), Images (multi), Video (video_native)</subtask>
+          <subtask id="2.4" status="pending">Add cost indicators: $ (single), $$ (multi), $$$ (video)</subtask>
+          <subtask id="2.5" status="pending">Implement tooltips with mode descriptions</subtask>
+        </subtasks>
+      </task>
+      <task id="3" ac="3" status="pending">
+        <title>Implement video_native restriction for non-Protect cameras</title>
+        <subtasks>
+          <subtask id="3.1" status="pending">Add sourceType prop to AnalysisModeSelector component</subtask>
+          <subtask id="3.2" status="pending">Disable video_native option when sourceType !== 'protect'</subtask>
+          <subtask id="3.3" status="pending">Show warning message when user attempts to select disabled option</subtask>
+          <subtask id="3.4" status="pending">Add visual styling for disabled state</subtask>
+        </subtasks>
+      </task>
+      <task id="4" ac="4" status="pending">
+        <title>Integrate into CameraForm</title>
+        <subtasks>
+          <subtask id="4.1" status="pending">Import AnalysisModeSelector into CameraForm.tsx</subtask>
+          <subtask id="4.2" status="pending">Add analysis_mode field to form state and submission</subtask>
+          <subtask id="4.3" status="pending">Pass sourceType prop based on camera.source_type</subtask>
+          <subtask id="4.4" status="pending">Verify PATCH API call includes analysis_mode</subtask>
+          <subtask id="4.5" status="pending">Add success toast on successful update</subtask>
+        </subtasks>
+      </task>
+      <task id="5" ac="all" status="pending">
+        <title>Add component tests</title>
+        <subtasks>
+          <subtask id="5.1" status="pending">Test AnalysisModeSelector renders all 3 options</subtask>
+          <subtask id="5.2" status="pending">Test tooltips display correct descriptions</subtask>
+          <subtask id="5.3" status="pending">Test video_native disabled for non-Protect cameras</subtask>
+          <subtask id="5.4" status="pending">Test form submission includes analysis_mode</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given camera settings panel, when user views a Protect camera, then Analysis Mode selector is visible with 3 options, and each option shows: name, quality level, speed, relative cost indicator</criterion>
+    <criterion id="AC2">Given analysis mode options displayed, when user hovers/focuses an option, then tooltip explains the mode with full description</criterion>
+    <criterion id="AC3">Given user selects Video Native for non-Protect camera, when option is clicked, then shows warning and selection is prevented or disabled</criterion>
+    <criterion id="AC4">Given user changes analysis mode, when save is clicked, then PATCH API updates camera and success toast confirms change</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epics</title>
+        <section>Story P3-3.3: Build Analysis Mode Selector UI Component</section>
+        <snippet>Create AnalysisModeSelector.tsx with RadioGroup, icons (Image, Images, Video), cost indicators ($, $$, $$$), and tooltips explaining each mode.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-3-2-add-analysis-mode-to-camera-api.md</path>
+        <title>Story P3-3.2 (Predecessor)</title>
+        <section>Dev Agent Record</section>
+        <snippet>Backend API supports analysis_mode in PATCH /api/v1/cameras/{id}. Valid values: 'single_frame', 'multi_frame', 'video_native'. Returns 422 for invalid values.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/types/camera.ts</path>
+        <kind>types</kind>
+        <symbol>ICamera, ICameraUpdate, CameraSourceType</symbol>
+        <lines>60-124</lines>
+        <reason>Add AnalysisMode type and analysis_mode field to ICamera and ICameraUpdate interfaces</reason>
+        <content>
+// Add new type:
+export type AnalysisMode = 'single_frame' | 'multi_frame' | 'video_native';
+
+// Add to ICamera (line ~84):
+analysis_mode: AnalysisMode;
+
+// Add to ICameraUpdate (line ~124):
+analysis_mode?: AnalysisMode;
+        </content>
+      </file>
+      <file>
+        <path>frontend/lib/validations/camera.ts</path>
+        <kind>validation</kind>
+        <symbol>cameraFormSchema</symbol>
+        <lines>42-95</lines>
+        <reason>Add analysis_mode field to zod schema with enum validation</reason>
+        <content>
+// Add to schema (after motion_algorithm):
+analysis_mode: z.enum(['single_frame', 'multi_frame', 'video_native']),
+        </content>
+      </file>
+      <file>
+        <path>frontend/components/cameras/CameraForm.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraForm</symbol>
+        <lines>1-150</lines>
+        <reason>Integrate AnalysisModeSelector component, pass sourceType prop, handle form submission</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/MotionSettingsSection.tsx</path>
+        <kind>component-pattern</kind>
+        <symbol>MotionSettingsSection</symbol>
+        <lines>1-80</lines>
+        <reason>Reference pattern for section component with form integration, tooltips, and select components</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/camera.py</path>
+        <kind>backend-schema</kind>
+        <symbol>CameraUpdate</symbol>
+        <lines>102-105</lines>
+        <reason>Backend already supports analysis_mode: Optional[Literal['single_frame', 'multi_frame', 'video_native']]</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package name="next" version="16.0.7" />
+        <package name="react" version="19.2.0" />
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="@hookform/resolvers" version="^5.2.2" />
+        <package name="zod" version="^4.1.12" />
+        <package name="lucide-react" version="^0.553.0" />
+        <package name="@radix-ui/react-tooltip" version="^1.2.8" />
+        <package name="sonner" version="^2.0.7" note="For toast notifications" />
+      </frontend>
+      <toInstall>
+        <package name="@radix-ui/react-radio-group" note="RadioGroup component not yet installed - need to add shadcn/ui radio-group" />
+      </toInstall>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="validation">analysis_mode must be one of: 'single_frame', 'multi_frame', 'video_native'</constraint>
+    <constraint type="ui">video_native option must be disabled for non-Protect cameras (source_type !== 'protect')</constraint>
+    <constraint type="pattern">Follow existing MotionSettingsSection component pattern for form integration</constraint>
+    <constraint type="accessibility">RadioGroup must be keyboard accessible with proper focus states</constraint>
+    <constraint type="dependency">RadioGroup shadcn/ui component needs to be added (not currently installed)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AnalysisModeSelector</name>
+      <kind>React Component</kind>
+      <signature>
+interface AnalysisModeSelectorProps {
+  form: UseFormReturn&lt;CameraFormValues&gt;;
+  sourceType: CameraSourceType;
+}
+      </signature>
+      <path>frontend/components/cameras/AnalysisModeSelector.tsx (new)</path>
+    </interface>
+    <interface>
+      <name>PATCH /api/v1/cameras/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>PATCH /api/v1/cameras/{camera_id} body: { analysis_mode?: AnalysisMode } -> CameraResponse</signature>
+      <path>backend/app/api/v1/cameras.py:188-273</path>
+    </interface>
+    <interface>
+      <name>apiClient.cameras.update</name>
+      <kind>API client method</kind>
+      <signature>updateCamera(id: string, data: ICameraUpdate): Promise&lt;ICamera&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend uses React Testing Library patterns. Test component renders correctly with different props.
+      Test user interactions (selection, hover for tooltips). Verify form submission includes new field.
+      No existing test files in frontend - this story establishes testing patterns.
+    </standards>
+    <locations>
+      <location>frontend/components/cameras/__tests__/AnalysisModeSelector.test.tsx (new)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test component renders all 3 options with icons and cost indicators</idea>
+      <idea ac="AC2">Test tooltips appear on hover with correct text</idea>
+      <idea ac="AC3">Test video_native option is disabled when sourceType is not 'protect'</idea>
+      <idea ac="AC3">Test warning message displays when attempting to select disabled option</idea>
+      <idea ac="AC4">Test form submission includes analysis_mode value</idea>
+    </ideas>
+  </tests>
+
+  <modeDescriptions>
+    <mode value="single_frame">
+      <name>Single Frame</name>
+      <description>Fastest, lowest cost. Uses event thumbnail only.</description>
+      <icon>Image</icon>
+      <cost>$</cost>
+      <quality>Basic</quality>
+      <speed>Fastest</speed>
+    </mode>
+    <mode value="multi_frame">
+      <name>Multi-Frame</name>
+      <description>Balanced. Extracts 5 frames from video clip.</description>
+      <icon>Images</icon>
+      <cost>$$</cost>
+      <quality>Good</quality>
+      <speed>Moderate</speed>
+    </mode>
+    <mode value="video_native">
+      <name>Video Native</name>
+      <description>Best quality, higher cost. Sends full video to AI.</description>
+      <icon>Video</icon>
+      <cost>$$$</cost>
+      <quality>Best</quality>
+      <speed>Slowest</speed>
+      <restriction>Requires UniFi Protect camera</restriction>
+    </mode>
+  </modeDescriptions>
+
+  <implementationNotes>
+    <note priority="high">RadioGroup shadcn/ui component needs to be installed: npx shadcn@latest add radio-group</note>
+    <note priority="medium">Follow MotionSettingsSection pattern for consistent UI and form integration</note>
+    <note priority="medium">Use existing Tooltip component from @/components/ui/tooltip</note>
+    <note priority="low">Consider adding keyboard navigation tests for accessibility</note>
+  </implementationNotes>
+</story-context>

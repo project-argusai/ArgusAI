@@ -1,0 +1,225 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P3-4</epicId>
+    <storyId>4.2</storyId>
+    <title>Implement Video Upload to OpenAI</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-07</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-4-2-implement-video-upload-to-openai.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to send video clips to OpenAI GPT-4o</iWant>
+    <soThat>users get video-native analysis from OpenAI</soThat>
+    <tasks>
+      <task id="1">Research OpenAI video API capabilities
+        <subtask>1.1 Verify OpenAI GPT-4o video input format requirements</subtask>
+        <subtask>1.2 Confirm base64 encoding vs file upload approach</subtask>
+        <subtask>1.3 Document size limits, duration limits, and supported formats</subtask>
+        <subtask>1.4 Identify model requirements (gpt-4o vs gpt-4o-mini)</subtask>
+      </task>
+      <task id="2">Implement video validation in AIService
+        <subtask>2.1 Add _validate_video_for_openai(video_path) method</subtask>
+        <subtask>2.2 Check file size against 20MB limit (PROVIDER_CAPABILITIES)</subtask>
+        <subtask>2.3 Check video duration against 60s limit</subtask>
+        <subtask>2.4 Return validation result with specific error message</subtask>
+      </task>
+      <task id="3">Implement video format conversion
+        <subtask>3.1 Add _convert_video_for_openai(video_path) method</subtask>
+        <subtask>3.2 Use PyAV to convert unsupported formats to MP4/H.264</subtask>
+        <subtask>3.3 Handle conversion failures gracefully</subtask>
+        <subtask>3.4 Return converted file path or None on failure</subtask>
+      </task>
+      <task id="4">Implement describe_video() method for OpenAI
+        <subtask>4.1 Add describe_video(video_path, prompt, provider) method to AIService</subtask>
+        <subtask>4.2 Implement _describe_video_openai(video_path, prompt) for OpenAI-specific logic</subtask>
+        <subtask>4.3 Encode video as base64 for API request</subtask>
+        <subtask>4.4 Build API request with video content block</subtask>
+        <subtask>4.5 Send request to gpt-4o model (video requires full model, not mini)</subtask>
+        <subtask>4.6 Parse response and extract description</subtask>
+        <subtask>4.7 Clean up temporary files after completion</subtask>
+      </task>
+      <task id="5">Integrate with fallback chain
+        <subtask>5.1 Update _try_video_native_analysis() in protect_event_handler.py</subtask>
+        <subtask>5.2 Call validation before attempting video upload</subtask>
+        <subtask>5.3 If validation fails, return None with appropriate reason</subtask>
+        <subtask>5.4 Log video analysis attempts with provider and duration</subtask>
+      </task>
+      <task id="6">Track usage for video requests
+        <subtask>6.1 Add video analysis tracking to AIUsage</subtask>
+        <subtask>6.2 Record tokens used for video analysis</subtask>
+        <subtask>6.3 Add analysis_mode='video_native' to usage records</subtask>
+      </task>
+      <task id="7">Write backend tests
+        <subtask>7.1 Test _validate_video_for_openai() with valid video</subtask>
+        <subtask>7.2 Test _validate_video_for_openai() with oversized video</subtask>
+        <subtask>7.3 Test _validate_video_for_openai() with too-long video</subtask>
+        <subtask>7.4 Test describe_video() with mocked OpenAI response</subtask>
+        <subtask>7.5 Test video format conversion</subtask>
+        <subtask>7.6 Test fallback when video exceeds limits</subtask>
+        <subtask>7.7 Test usage tracking for video requests</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Given a video clip under 20MB and 60 seconds, when AIService.describe_video(video_path, prompt) is called for OpenAI, then video is uploaded using OpenAI's video API, and vision request references the uploaded video, and description is returned.</criterion>
+    <criterion id="AC2">Given video exceeds OpenAI limits (>20MB or >60s), when video analysis is attempted, then returns None with error "Video exceeds OpenAI limits", and triggers fallback to multi_frame.</criterion>
+    <criterion id="AC3">Given video format is not supported, when analysis is attempted, then system converts to supported format (MP4/H.264), and retries with converted file.</criterion>
+    <criterion id="AC4">Given video upload succeeds, when analysis completes, then uploaded file is cleaned up from temporary storage.</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Epic P3-4: Native Video Analysis</section>
+        <snippet>Story P3-4.2: Implement Video Upload to OpenAI. Send video clips to OpenAI GPT-4o, handle limits (20MB, 60s), convert formats, and clean up after analysis.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>AI Service, Technology Stack</section>
+        <snippet>Multi-provider AI service with automatic fallback. Backend uses FastAPI with OpenAI, Claude, Gemini SDKs. Video native mode sends clips directly to video-capable providers.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-4-1-add-provider-video-capability-detection.md</path>
+        <title>Previous Story - Provider Video Capability Detection</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>PROVIDER_CAPABILITIES constant added with OpenAI video=True, max_duration=60s, max_size=20MB, formats=[mp4,mov,webm]. Six capability methods implemented. _try_video_native_analysis returns "video_upload_not_implemented".</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase3.md</path>
+        <title>Phase 3 PRD</title>
+        <section>FR19-FR22 Native Video Analysis</section>
+        <snippet>FR19: System can send video clips directly to video-capable AI providers. FR20: Detect provider capabilities. FR21: Convert video format if needed. FR22: Handle size/duration limits per provider.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService, PROVIDER_CAPABILITIES, AIProvider, AIResult</symbol>
+        <lines>82-118 (PROVIDER_CAPABILITIES), 2266-2395 (capability methods)</lines>
+        <reason>Primary file to add describe_video() method. Contains PROVIDER_CAPABILITIES defining OpenAI video limits. Has multi-image describe_images() method pattern to follow for video. Contains provider base classes and result types.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/protect_event_handler.py</path>
+        <kind>service</kind>
+        <symbol>ProtectEventHandler._try_video_native_analysis, _submit_to_ai_pipeline</symbol>
+        <lines>1014-1111</lines>
+        <reason>Contains _try_video_native_analysis() stub that returns "video_upload_not_implemented". This method needs to call AIService.describe_video() when implemented. Also contains fallback chain infrastructure.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/frame_extractor.py</path>
+        <kind>service</kind>
+        <symbol>FrameExtractor, _calculate_frame_indices</symbol>
+        <lines>1-100</lines>
+        <reason>Uses PyAV for video processing. Can reuse container.duration logic (line 306) to get video duration for validation. Pattern for using av library to read video metadata.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/clip_service.py</path>
+        <kind>service</kind>
+        <symbol>ClipService</symbol>
+        <reason>Downloads video clips from Protect. Clips are stored at data/clips/{event_id}.mp4. Understanding file path patterns for video cleanup.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/ai_usage.py</path>
+        <kind>model</kind>
+        <symbol>AIUsage</symbol>
+        <reason>Model for tracking AI API usage. Need to add analysis_mode='video_native' to usage records. Already has tokens_used, cost_estimate, provider fields.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_ai_service.py</path>
+        <kind>test</kind>
+        <symbol>test_capability_methods</symbol>
+        <reason>Existing test file with 23 capability tests from P3-4.1. Add new tests for describe_video() method, validation, and format conversion.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="openai" version=">=1.54.0">OpenAI API client with vision capabilities</package>
+        <package name="av" version=">=12.0.0">PyAV for video processing, format detection, duration reading</package>
+        <package name="pillow" version=">=10.0.0">Image processing for frame handling</package>
+        <package name="tenacity" version=">=8.2.0">Retry logic for API calls</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing AIProviderBase pattern - add abstract method to base class if video support varies by provider</constraint>
+    <constraint type="pattern">Use PROVIDER_CAPABILITIES constant for all limit checks (max_video_duration, max_video_size_mb, supported_formats)</constraint>
+    <constraint type="pattern">Follow existing _describe_openai pattern for OpenAI-specific implementation</constraint>
+    <constraint type="layer">Video upload logic goes in AIService; fallback integration in ProtectEventHandler</constraint>
+    <constraint type="error-handling">Return None with descriptive reason for all failures to enable proper fallback chain tracking</constraint>
+    <constraint type="cleanup">Always clean up temporary converted files, even on error paths</constraint>
+    <constraint type="model">Use gpt-4o (not gpt-4o-mini) for video input - mini doesn't support video</constraint>
+    <constraint type="encoding">Base64 encode video with proper MIME type: data:video/mp4;base64,{encoded_data}</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AIService.describe_video</name>
+      <kind>method</kind>
+      <signature>async def describe_video(self, video_path: str, prompt: str, provider: str = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>AIService._validate_video_for_openai</name>
+      <kind>method</kind>
+      <signature>def _validate_video_for_openai(self, video_path: str) -> Tuple[bool, Optional[str]]</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>AIService._convert_video_for_openai</name>
+      <kind>method</kind>
+      <signature>def _convert_video_for_openai(self, video_path: str) -> Optional[str]</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>AIService._describe_video_openai</name>
+      <kind>method</kind>
+      <signature>async def _describe_video_openai(self, video_path: str, prompt: str) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>PROVIDER_CAPABILITIES</name>
+      <kind>constant</kind>
+      <signature>{"openai": {"video": True, "max_video_duration": 60, "max_video_size_mb": 20, "supported_formats": ["mp4", "mov", "webm"], ...}}</signature>
+      <path>backend/app/services/ai_service.py:89-118</path>
+    </interface>
+    <interface>
+      <name>ProtectEventHandler._try_video_native_analysis</name>
+      <kind>method</kind>
+      <signature>async def _try_video_native_analysis(self, clip_path, snapshot_result, camera, event_type, is_doorbell_ring) -> Optional[AIResult]</signature>
+      <path>backend/app/services/protect_event_handler.py:1014-1111</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend uses pytest with pytest-asyncio for async tests. Test files in backend/tests/test_services/. Follow existing patterns in test_ai_service.py with mocked API responses. Use fixtures from conftest.py for database sessions and test data. Coverage reporting with pytest-cov.</standards>
+    <locations>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_services/test_fallback_chain.py</location>
+    </locations>
+    <ideas>
+      <testIdea ac="AC1">Test describe_video() with mocked OpenAI response returns valid AIResult with description</testIdea>
+      <testIdea ac="AC1">Test video base64 encoding produces correct format with data:video/mp4;base64 prefix</testIdea>
+      <testIdea ac="AC1">Test describe_video uses gpt-4o model (not mini) for video requests</testIdea>
+      <testIdea ac="AC2">Test _validate_video_for_openai rejects video over 20MB with specific error</testIdea>
+      <testIdea ac="AC2">Test _validate_video_for_openai rejects video over 60s with specific error</testIdea>
+      <testIdea ac="AC2">Test fallback to multi_frame when video validation fails</testIdea>
+      <testIdea ac="AC3">Test _convert_video_for_openai converts MOV to MP4</testIdea>
+      <testIdea ac="AC3">Test _convert_video_for_openai returns None on conversion failure</testIdea>
+      <testIdea ac="AC3">Test describe_video auto-converts unsupported format before upload</testIdea>
+      <testIdea ac="AC4">Test temporary converted file is cleaned up after successful analysis</testIdea>
+      <testIdea ac="AC4">Test temporary converted file is cleaned up even on API error</testIdea>
+      <testIdea ac="All">Test usage tracking records analysis_mode='video_native'</testIdea>
+    </ideas>
+  </tests>
+</story-context>

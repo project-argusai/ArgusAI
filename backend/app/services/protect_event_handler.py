@@ -1091,7 +1091,10 @@ class ProtectEventHandler:
             )
 
         # Story P3-4.1: Video capability detection complete
-        # Epic P3-4.2/P3-4.3 will implement actual video upload to OpenAI/Gemini
+        # Story P3-4.2: Research confirmed OpenAI does NOT support native video upload
+        #   - OpenAI only supports frame extraction (handled by multi_frame mode)
+        #   - Only Gemini supports native video file upload
+        # Story P3-4.3 will implement actual video upload to Gemini
         # For now, we've validated capability but video upload is not yet implemented
         reason = "video_upload_not_implemented"
         self._fallback_chain.append(f"video_native:{reason}")

@@ -79,19 +79,24 @@ COST_RATES = {
     "gemini": {"input": 0.000075, "output": 0.0003},  # Gemini Flash
 }
 
-# Provider capabilities matrix (Story P3-4.1)
+# Provider capabilities matrix (Story P3-4.1, P3-4.2)
 # Static capability information for each AI provider
-# - video: Whether provider supports native video input
+# - video: Whether provider supports native video file input (NOT frame extraction)
 # - max_video_duration: Maximum video duration in seconds (0 if no video support)
 # - max_video_size_mb: Maximum video file size in MB (0 if no video support)
 # - supported_formats: List of supported video formats (empty if no video support)
 # - max_images: Maximum number of images for multi-frame analysis
+#
+# NOTE (P3-4.2): OpenAI GPT-4o does NOT support native video file upload via API.
+# OpenAI only supports sending images (frames extracted from video).
+# Use multi_frame analysis mode for OpenAI video analysis instead of video_native.
+# Source: https://community.openai.com/t/does-gpt-4o-api-natively-support-video-input-like-gemini-1-5/784779
 PROVIDER_CAPABILITIES = {
     "openai": {
-        "video": True,
-        "max_video_duration": 60,
-        "max_video_size_mb": 20,
-        "supported_formats": ["mp4", "mov", "webm"],
+        "video": False,  # P3-4.2: OpenAI does NOT support native video upload, only frame extraction
+        "max_video_duration": 0,
+        "max_video_size_mb": 0,
+        "supported_formats": [],
         "max_images": 10,
     },
     "grok": {

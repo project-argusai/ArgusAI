@@ -2069,15 +2069,17 @@ class TestProviderCapabilities:
         expected_providers = ["openai", "grok", "claude", "gemini"]
         assert set(PROVIDER_CAPABILITIES.keys()) == set(expected_providers)
 
-    def test_provider_capabilities_openai_supports_video(self):
-        """Test OpenAI capabilities include video=True (AC1)"""
+    def test_provider_capabilities_openai_no_video(self):
+        """Test OpenAI capabilities have video=False (P3-4.2: OpenAI doesn't support native video)"""
         from app.services.ai_service import PROVIDER_CAPABILITIES
 
         openai_caps = PROVIDER_CAPABILITIES["openai"]
-        assert openai_caps["video"] is True
-        assert openai_caps["max_video_duration"] == 60
-        assert openai_caps["max_video_size_mb"] == 20
-        assert "mp4" in openai_caps["supported_formats"]
+        # P3-4.2: Research confirmed OpenAI does NOT support native video upload
+        # OpenAI only supports frame extraction (handled by multi_frame mode)
+        assert openai_caps["video"] is False
+        assert openai_caps["max_video_duration"] == 0
+        assert openai_caps["max_video_size_mb"] == 0
+        assert openai_caps["supported_formats"] == []
         assert openai_caps["max_images"] == 10
 
     def test_provider_capabilities_gemini_supports_video(self):
@@ -2121,10 +2123,11 @@ class TestAIServiceCapabilityMethods:
         """Test get_provider_capabilities returns correct data for OpenAI"""
         caps = ai_service_instance.get_provider_capabilities("openai")
 
-        assert caps["video"] is True
-        assert caps["max_video_duration"] == 60
-        assert caps["max_video_size_mb"] == 20
-        assert "mp4" in caps["supported_formats"]
+        # P3-4.2: OpenAI does NOT support native video upload
+        assert caps["video"] is False
+        assert caps["max_video_duration"] == 0
+        assert caps["max_video_size_mb"] == 0
+        assert caps["supported_formats"] == []
         assert caps["max_images"] == 10
 
     def test_get_provider_capabilities_claude(self, ai_service_instance):
@@ -2141,8 +2144,9 @@ class TestAIServiceCapabilityMethods:
         assert caps == {}
 
     def test_supports_video_openai(self, ai_service_instance):
-        """Test supports_video returns True for OpenAI"""
-        assert ai_service_instance.supports_video("openai") is True
+        """Test supports_video returns False for OpenAI (P3-4.2: no native video support)"""
+        # P3-4.2: OpenAI does NOT support native video upload
+        assert ai_service_instance.supports_video("openai") is False
 
     def test_supports_video_gemini(self, ai_service_instance):
         """Test supports_video returns True for Gemini"""
@@ -2161,13 +2165,14 @@ class TestAIServiceCapabilityMethods:
         assert ai_service_instance.supports_video("unknown") is False
 
     def test_get_video_capable_providers_all_configured(self, ai_service_instance):
-        """Test get_video_capable_providers returns OpenAI and Gemini when configured"""
+        """Test get_video_capable_providers returns only Gemini when configured"""
         video_providers = ai_service_instance.get_video_capable_providers()
 
         # ai_service_instance fixture configures all providers
-        assert "openai" in video_providers
+        # P3-4.2: Only Gemini supports native video upload
         assert "gemini" in video_providers
-        # Non-video providers should not be in list
+        # P3-4.2: OpenAI does NOT support native video upload
+        assert "openai" not in video_providers
         assert "claude" not in video_providers
         assert "grok" not in video_providers
 
@@ -2194,8 +2199,9 @@ class TestAIServiceCapabilityMethods:
         assert video_providers == []
 
     def test_get_max_video_duration_openai(self, ai_service_instance):
-        """Test get_max_video_duration returns 60 for OpenAI"""
-        assert ai_service_instance.get_max_video_duration("openai") == 60
+        """Test get_max_video_duration returns 0 for OpenAI (P3-4.2: no native video)"""
+        # P3-4.2: OpenAI does NOT support native video upload
+        assert ai_service_instance.get_max_video_duration("openai") == 0
 
     def test_get_max_video_duration_claude(self, ai_service_instance):
         """Test get_max_video_duration returns 0 for Claude (no video)"""

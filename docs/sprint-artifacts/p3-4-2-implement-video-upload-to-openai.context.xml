@@ -1,12 +1,13 @@
-<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+<story-context id="p3-4-2-implement-video-upload-to-openai" v="2.0">
   <metadata>
     <epicId>P3-4</epicId>
-    <storyId>4.2</storyId>
+    <storyId>P3-4.2</storyId>
     <title>Implement Video Upload to OpenAI</title>
     <status>ready-for-dev</status>
     <generatedAt>2025-12-07</generatedAt>
     <generator>BMAD Story Context Workflow</generator>
     <sourceStoryPath>docs/sprint-artifacts/p3-4-2-implement-video-upload-to-openai.md</sourceStoryPath>
+    <version>2.0 - Updated with frame extraction approach based on new research</version>
   </metadata>
 
   <story>
@@ -14,212 +15,247 @@
     <iWant>to send video clips to OpenAI GPT-4o</iWant>
     <soThat>users get video-native analysis from OpenAI</soThat>
     <tasks>
-      <task id="1">Research OpenAI video API capabilities
-        <subtask>1.1 Verify OpenAI GPT-4o video input format requirements</subtask>
-        <subtask>1.2 Confirm base64 encoding vs file upload approach</subtask>
-        <subtask>1.3 Document size limits, duration limits, and supported formats</subtask>
-        <subtask>1.4 Identify model requirements (gpt-4o vs gpt-4o-mini)</subtask>
-      </task>
-      <task id="2">Implement video validation in AIService
-        <subtask>2.1 Add _validate_video_for_openai(video_path) method</subtask>
-        <subtask>2.2 Check file size against 20MB limit (PROVIDER_CAPABILITIES)</subtask>
-        <subtask>2.3 Check video duration against 60s limit</subtask>
-        <subtask>2.4 Return validation result with specific error message</subtask>
-      </task>
-      <task id="3">Implement video format conversion
-        <subtask>3.1 Add _convert_video_for_openai(video_path) method</subtask>
-        <subtask>3.2 Use PyAV to convert unsupported formats to MP4/H.264</subtask>
-        <subtask>3.3 Handle conversion failures gracefully</subtask>
-        <subtask>3.4 Return converted file path or None on failure</subtask>
-      </task>
-      <task id="4">Implement describe_video() method for OpenAI
-        <subtask>4.1 Add describe_video(video_path, prompt, provider) method to AIService</subtask>
-        <subtask>4.2 Implement _describe_video_openai(video_path, prompt) for OpenAI-specific logic</subtask>
-        <subtask>4.3 Encode video as base64 for API request</subtask>
-        <subtask>4.4 Build API request with video content block</subtask>
-        <subtask>4.5 Send request to gpt-4o model (video requires full model, not mini)</subtask>
-        <subtask>4.6 Parse response and extract description</subtask>
-        <subtask>4.7 Clean up temporary files after completion</subtask>
-      </task>
-      <task id="5">Integrate with fallback chain
-        <subtask>5.1 Update _try_video_native_analysis() in protect_event_handler.py</subtask>
-        <subtask>5.2 Call validation before attempting video upload</subtask>
-        <subtask>5.3 If validation fails, return None with appropriate reason</subtask>
-        <subtask>5.4 Log video analysis attempts with provider and duration</subtask>
-      </task>
-      <task id="6">Track usage for video requests
-        <subtask>6.1 Add video analysis tracking to AIUsage</subtask>
-        <subtask>6.2 Record tokens used for video analysis</subtask>
-        <subtask>6.3 Add analysis_mode='video_native' to usage records</subtask>
-      </task>
-      <task id="7">Write backend tests
-        <subtask>7.1 Test _validate_video_for_openai() with valid video</subtask>
-        <subtask>7.2 Test _validate_video_for_openai() with oversized video</subtask>
-        <subtask>7.3 Test _validate_video_for_openai() with too-long video</subtask>
-        <subtask>7.4 Test describe_video() with mocked OpenAI response</subtask>
-        <subtask>7.5 Test video format conversion</subtask>
-        <subtask>7.6 Test fallback when video exceeds limits</subtask>
-        <subtask>7.7 Test usage tracking for video requests</subtask>
-      </task>
+      <task id="1" ac="All" status="done">Research OpenAI video API capabilities - confirmed frame extraction approach</task>
+      <task id="2" ac="4">Update PROVIDER_CAPABILITIES for OpenAI - set video: true, video_method: frame_extraction</task>
+      <task id="3" ac="1,2">Implement describe_video() via frame extraction - use FrameExtractor + generate_multi_image_description()</task>
+      <task id="4" ac="3">Add optional audio transcription support via Whisper API</task>
+      <task id="5" ac="4">Update _try_video_native_analysis() to route OpenAI to frame-extraction pipeline</task>
+      <task id="6" ac="5">Add token/cost tracking for video requests</task>
+      <task id="7" ac="All">Write tests for describe_video, frame limits, audio transcription, routing</task>
     </tasks>
   </story>
 
   <acceptanceCriteria>
-    <criterion id="AC1">Given a video clip under 20MB and 60 seconds, when AIService.describe_video(video_path, prompt) is called for OpenAI, then video is uploaded using OpenAI's video API, and vision request references the uploaded video, and description is returned.</criterion>
-    <criterion id="AC2">Given video exceeds OpenAI limits (>20MB or >60s), when video analysis is attempted, then returns None with error "Video exceeds OpenAI limits", and triggers fallback to multi_frame.</criterion>
-    <criterion id="AC3">Given video format is not supported, when analysis is attempted, then system converts to supported format (MP4/H.264), and retries with converted file.</criterion>
-    <criterion id="AC4">Given video upload succeeds, when analysis completes, then uploaded file is cleaned up from temporary storage.</criterion>
+    <ac id="1">Given video clip, when video_native mode selected for OpenAI, then extracts frames at 1-4 fps, sends as images to GPT-4o, returns description</ac>
+    <ac id="2">Given video exceeds practical limits, when analysis attempted, then limits to max 10 frames for cost control</ac>
+    <ac id="3">Given video has audio, when analysis includes audio transcription (Whisper), then transcript included in prompt context</ac>
+    <ac id="4">Given OpenAI configured as video-capable provider, when video_native triggered, then uses frame-extraction pipeline (not direct upload)</ac>
+    <ac id="5">Given frame extraction and analysis completes, when response received, then token usage tracked accurately</ac>
   </acceptanceCriteria>
+
+  <researchFindings>
+    <finding priority="critical">
+      <summary>OpenAI GPT-4o CAN process video - via frame extraction, NOT native upload</summary>
+      <detail>GPT-4o API does not accept MP4 files directly. Official approach: extract frames (1-4 fps) + optionally extract audio (Whisper) + send frames as images with transcript as text.</detail>
+      <sources>
+        <source url="https://arxiv.org/abs/2410.21276">GPT-4o System Card - confirms video support in principle</source>
+        <source url="https://community.openai.com/t/why-file-upload-does-not-accept-mp4-files/863541">OpenAI Community - MP4 not accepted</source>
+        <source url="https://cookbook.openai.com/examples/gpt4o/introduction_to_gpt4o">OpenAI Cookbook - frame extraction approach</source>
+        <source url="https://portkey.ai/docs/guides/integrations/introduction-to-gpt-4o">Portkey Docs - frame + audio approach</source>
+      </sources>
+    </finding>
+    <finding priority="high">
+      <summary>Existing infrastructure already supports this approach</summary>
+      <detail>FrameExtractor (P3-2.1) and generate_multi_image_description() (P3-2.3) already exist. OpenAI describe_video() is essentially a wrapper that calls these.</detail>
+    </finding>
+    <finding priority="medium">
+      <summary>Audio transcription via Whisper is optional enhancement</summary>
+      <detail>Whisper API (whisper-1 or gpt-4o-transcribe) can transcribe audio. Include transcript in prompt for richer descriptions.</detail>
+    </finding>
+  </researchFindings>
 
   <artifacts>
     <docs>
       <doc>
         <path>docs/epics-phase3.md</path>
         <title>Phase 3 Epic Breakdown</title>
-        <section>Epic P3-4: Native Video Analysis</section>
-        <snippet>Story P3-4.2: Implement Video Upload to OpenAI. Send video clips to OpenAI GPT-4o, handle limits (20MB, 60s), convert formats, and clean up after analysis.</snippet>
-      </doc>
-      <doc>
-        <path>docs/architecture.md</path>
-        <title>Architecture Document</title>
-        <section>AI Service, Technology Stack</section>
-        <snippet>Multi-provider AI service with automatic fallback. Backend uses FastAPI with OpenAI, Claude, Gemini SDKs. Video native mode sends clips directly to video-capable providers.</snippet>
+        <section>Epic P3-4: Native Video Analysis / Story P3-4.2</section>
+        <snippet>Original story defined native video upload. Updated to frame extraction based on research.</snippet>
       </doc>
       <doc>
         <path>docs/sprint-artifacts/p3-4-1-add-provider-video-capability-detection.md</path>
-        <title>Previous Story - Provider Video Capability Detection</title>
-        <section>Dev Agent Record - Completion Notes</section>
-        <snippet>PROVIDER_CAPABILITIES constant added with OpenAI video=True, max_duration=60s, max_size=20MB, formats=[mp4,mov,webm]. Six capability methods implemented. _try_video_native_analysis returns "video_upload_not_implemented".</snippet>
-      </doc>
-      <doc>
-        <path>docs/PRD-phase3.md</path>
-        <title>Phase 3 PRD</title>
-        <section>FR19-FR22 Native Video Analysis</section>
-        <snippet>FR19: System can send video clips directly to video-capable AI providers. FR20: Detect provider capabilities. FR21: Convert video format if needed. FR22: Handle size/duration limits per provider.</snippet>
+        <title>Provider Capability Detection Story</title>
+        <section>Implementation</section>
+        <snippet>PROVIDER_CAPABILITIES structure, get_video_capable_providers(), supports_video() methods.</snippet>
       </doc>
     </docs>
 
     <code>
       <file>
         <path>backend/app/services/ai_service.py</path>
-        <kind>service</kind>
-        <symbol>AIService, PROVIDER_CAPABILITIES, AIProvider, AIResult</symbol>
-        <lines>82-118 (PROVIDER_CAPABILITIES), 2266-2395 (capability methods)</lines>
-        <reason>Primary file to add describe_video() method. Contains PROVIDER_CAPABILITIES defining OpenAI video limits. Has multi-image describe_images() method pattern to follow for video. Contains provider base classes and result types.</reason>
+        <kind>provider-class</kind>
+        <symbol>OpenAIProvider</symbol>
+        <lines>299-468</lines>
+        <reason>Target class for adding describe_video() method. Has generate_description() and generate_multi_image_description() patterns.</reason>
       </file>
       <file>
-        <path>backend/app/services/protect_event_handler.py</path>
-        <kind>service</kind>
-        <symbol>ProtectEventHandler._try_video_native_analysis, _submit_to_ai_pipeline</symbol>
-        <lines>1014-1111</lines>
-        <reason>Contains _try_video_native_analysis() stub that returns "video_upload_not_implemented". This method needs to call AIService.describe_video() when implemented. Also contains fallback chain infrastructure.</reason>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>provider-method</kind>
+        <symbol>OpenAIProvider.generate_multi_image_description</symbol>
+        <lines>461-580</lines>
+        <reason>Existing multi-image method to be called by describe_video() after frame extraction.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>constant</kind>
+        <symbol>PROVIDER_CAPABILITIES</symbol>
+        <lines>94-123</lines>
+        <reason>Must update OpenAI entry: video=true, video_method="frame_extraction", max_frames=10</reason>
       </file>
       <file>
         <path>backend/app/services/frame_extractor.py</path>
         <kind>service</kind>
-        <symbol>FrameExtractor, _calculate_frame_indices</symbol>
-        <lines>1-100</lines>
-        <reason>Uses PyAV for video processing. Can reuse container.duration logic (line 306) to get video duration for validation. Pattern for using av library to read video metadata.</reason>
+        <symbol>FrameExtractor</symbol>
+        <lines>37-100</lines>
+        <reason>Existing service for extracting frames from video. Use extract_frames() with frame_count=10, strategy="evenly_spaced", filter_blur=True.</reason>
       </file>
       <file>
-        <path>backend/app/services/clip_service.py</path>
-        <kind>service</kind>
-        <symbol>ClipService</symbol>
-        <reason>Downloads video clips from Protect. Clips are stored at data/clips/{event_id}.mp4. Understanding file path patterns for video cleanup.</reason>
-      </file>
-      <file>
-        <path>backend/app/models/ai_usage.py</path>
-        <kind>model</kind>
-        <symbol>AIUsage</symbol>
-        <reason>Model for tracking AI API usage. Need to add analysis_mode='video_native' to usage records. Already has tokens_used, cost_estimate, provider fields.</reason>
+        <path>backend/app/services/protect_event_handler.py</path>
+        <kind>handler</kind>
+        <symbol>_try_video_native_analysis</symbol>
+        <lines>1014-1114</lines>
+        <reason>Must update to check video_method and route OpenAI to frame-extraction pipeline.</reason>
       </file>
       <file>
         <path>backend/tests/test_services/test_ai_service.py</path>
         <kind>test</kind>
-        <symbol>test_capability_methods</symbol>
-        <reason>Existing test file with 23 capability tests from P3-4.1. Add new tests for describe_video() method, validation, and format conversion.</reason>
+        <symbol>AI Service tests</symbol>
+        <lines>1-150</lines>
+        <reason>Add tests for describe_video(), frame limits, audio transcription.</reason>
       </file>
     </code>
 
     <dependencies>
       <python>
-        <package name="openai" version=">=1.54.0">OpenAI API client with vision capabilities</package>
-        <package name="av" version=">=12.0.0">PyAV for video processing, format detection, duration reading</package>
-        <package name="pillow" version=">=10.0.0">Image processing for frame handling</package>
-        <package name="tenacity" version=">=8.2.0">Retry logic for API calls</package>
+        <package name="openai" version=">=1.54.0">OpenAI API client - includes Whisper for audio transcription</package>
+        <package name="av" version=">=12.0.0">PyAV for frame extraction (existing) and audio extraction (new)</package>
+        <package name="pillow" version=">=10.0.0">Image processing for frame encoding</package>
+        <package name="opencv-python" version=">=4.12.0">Used by FrameExtractor for blur detection</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
       </python>
     </dependencies>
   </artifacts>
 
   <constraints>
-    <constraint type="pattern">Follow existing AIProviderBase pattern - add abstract method to base class if video support varies by provider</constraint>
-    <constraint type="pattern">Use PROVIDER_CAPABILITIES constant for all limit checks (max_video_duration, max_video_size_mb, supported_formats)</constraint>
-    <constraint type="pattern">Follow existing _describe_openai pattern for OpenAI-specific implementation</constraint>
-    <constraint type="layer">Video upload logic goes in AIService; fallback integration in ProtectEventHandler</constraint>
-    <constraint type="error-handling">Return None with descriptive reason for all failures to enable proper fallback chain tracking</constraint>
-    <constraint type="cleanup">Always clean up temporary converted files, even on error paths</constraint>
-    <constraint type="model">Use gpt-4o (not gpt-4o-mini) for video input - mini doesn't support video</constraint>
-    <constraint type="encoding">Base64 encode video with proper MIME type: data:video/mp4;base64,{encoded_data}</constraint>
+    <constraint type="architecture">OpenAI video_method is "frame_extraction" - NOT native upload. Use existing FrameExtractor + generate_multi_image_description().</constraint>
+    <constraint type="architecture">Max 10 frames for cost control. FrameExtractor already supports this limit (FRAME_EXTRACT_MAX_COUNT=10).</constraint>
+    <constraint type="architecture">Audio transcription via Whisper is OPTIONAL. Make it a configurable setting.</constraint>
+    <constraint type="coding">Reuse existing infrastructure: don't duplicate frame extraction or multi-image logic.</constraint>
+    <constraint type="coding">describe_video() should call generate_multi_image_description() internally.</constraint>
+    <constraint type="testing">Mock OpenAI client and FrameExtractor in tests.</constraint>
+    <constraint type="testing">Test both with and without audio transcription.</constraint>
   </constraints>
 
   <interfaces>
     <interface>
-      <name>AIService.describe_video</name>
-      <kind>method</kind>
-      <signature>async def describe_video(self, video_path: str, prompt: str, provider: str = None) -> AIResult</signature>
+      <name>OpenAIProvider.describe_video</name>
+      <kind>async method (NEW)</kind>
+      <signature>async def describe_video(self, video_path: Path, camera_name: str, timestamp: str, detected_objects: List[str], include_audio: bool = False, custom_prompt: Optional[str] = None) -> AIResult</signature>
       <path>backend/app/services/ai_service.py</path>
     </interface>
     <interface>
-      <name>AIService._validate_video_for_openai</name>
-      <kind>method</kind>
-      <signature>def _validate_video_for_openai(self, video_path: str) -> Tuple[bool, Optional[str]]</signature>
+      <name>OpenAIProvider._transcribe_audio</name>
+      <kind>async method (NEW)</kind>
+      <signature>async def _transcribe_audio(self, video_path: Path) -> Optional[str]</signature>
       <path>backend/app/services/ai_service.py</path>
     </interface>
     <interface>
-      <name>AIService._convert_video_for_openai</name>
-      <kind>method</kind>
-      <signature>def _convert_video_for_openai(self, video_path: str) -> Optional[str]</signature>
-      <path>backend/app/services/ai_service.py</path>
+      <name>FrameExtractor.extract_frames</name>
+      <kind>async method (EXISTING)</kind>
+      <signature>async def extract_frames(self, clip_path: Path, frame_count: int = 5, strategy: str = "evenly_spaced", filter_blur: bool = True) -> List[bytes]</signature>
+      <path>backend/app/services/frame_extractor.py</path>
     </interface>
     <interface>
-      <name>AIService._describe_video_openai</name>
-      <kind>method</kind>
-      <signature>async def _describe_video_openai(self, video_path: str, prompt: str) -> AIResult</signature>
-      <path>backend/app/services/ai_service.py</path>
+      <name>OpenAIProvider.generate_multi_image_description</name>
+      <kind>async method (EXISTING)</kind>
+      <signature>async def generate_multi_image_description(self, images_base64: List[str], camera_name: str, timestamp: str, detected_objects: List[str], custom_prompt: Optional[str] = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py:461</path>
     </interface>
     <interface>
-      <name>PROVIDER_CAPABILITIES</name>
-      <kind>constant</kind>
-      <signature>{"openai": {"video": True, "max_video_duration": 60, "max_video_size_mb": 20, "supported_formats": ["mp4", "mov", "webm"], ...}}</signature>
-      <path>backend/app/services/ai_service.py:89-118</path>
-    </interface>
-    <interface>
-      <name>ProtectEventHandler._try_video_native_analysis</name>
-      <kind>method</kind>
-      <signature>async def _try_video_native_analysis(self, clip_path, snapshot_result, camera, event_type, is_doorbell_ring) -> Optional[AIResult]</signature>
-      <path>backend/app/services/protect_event_handler.py:1014-1111</path>
+      <name>openai.audio.transcriptions.create</name>
+      <kind>API method</kind>
+      <signature>client.audio.transcriptions.create(model="whisper-1", file=audio_file) -> Transcription</signature>
+      <path>openai library</path>
     </interface>
   </interfaces>
 
+  <referenceImplementation>
+    <description>OpenAI Cookbook pattern for video analysis via frame extraction</description>
+    <frameExtraction>
+      <comment>Extract 1 frame/sec using ffmpeg (we use PyAV FrameExtractor)</comment>
+      <code>ffmpeg.input(VIDEO_PATH).filter('fps', fps=1).output(f"{FRAMES_DIR}/frame_%04d.jpg").run()</code>
+    </frameExtraction>
+    <audioTranscription>
+      <comment>Optional: Extract and transcribe audio via Whisper API</comment>
+      <code>
+audio_transcript = client.audio.transcriptions.create(
+    model="gpt-4o-transcribe",  # or "whisper-1"
+    file=open(AUDIO_PATH, "rb")
+).text
+      </code>
+    </audioTranscription>
+    <apiCall>
+      <comment>Send frames + transcript to GPT-4o</comment>
+      <code>
+messages = [
+    {"role": "system", "content": "You are a video analysis assistant."},
+    {"role": "user", "content": [
+        {"type": "text", "text": "Here are frames extracted from a video. Analyze what's happening."},
+        {"type": "text", "text": f"Audio transcript: {audio_transcript if audio_transcript else 'No audio'}"},
+    ]},
+]
+
+# Add images to the message
+for img in images:
+    messages[1]["content"].append({
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{img}"}
+    })
+
+response = client.chat.completions.create(model="gpt-4o", messages=messages)
+      </code>
+    </apiCall>
+    <ourImplementation>
+      <comment>Our describe_video() leverages existing services</comment>
+      <code>
+async def describe_video(self, video_path: Path, camera_name: str, timestamp: str,
+                         detected_objects: List[str], include_audio: bool = False,
+                         custom_prompt: Optional[str] = None) -> AIResult:
+    from app.services.frame_extractor import get_frame_extractor
+
+    # 1. Extract frames using existing FrameExtractor (P3-2.1)
+    frame_extractor = get_frame_extractor()
+    frames = await frame_extractor.extract_frames(
+        clip_path=video_path, frame_count=10,
+        strategy="evenly_spaced", filter_blur=True
+    )
+
+    if not frames:
+        return AIResult(success=False, error="No frames extracted from video")
+
+    frames_base64 = [self._frame_to_base64(frame) for frame in frames]
+
+    # 2. Optional: Transcribe audio via Whisper
+    transcript = await self._transcribe_audio(video_path) if include_audio else None
+
+    # 3. Build enhanced prompt with transcript context
+    enhanced_prompt = f"Audio transcript: {transcript}\n\n{custom_prompt or ''}" if transcript else custom_prompt
+
+    # 4. Use existing multi-image method (P3-2.3)
+    return await self.generate_multi_image_description(
+        images_base64=frames_base64, camera_name=camera_name,
+        timestamp=timestamp, detected_objects=detected_objects,
+        custom_prompt=enhanced_prompt
+    )
+      </code>
+    </ourImplementation>
+  </referenceImplementation>
+
   <tests>
-    <standards>Backend uses pytest with pytest-asyncio for async tests. Test files in backend/tests/test_services/. Follow existing patterns in test_ai_service.py with mocked API responses. Use fixtures from conftest.py for database sessions and test data. Coverage reporting with pytest-cov.</standards>
+    <standards>Backend uses pytest with pytest-asyncio for async tests. Mock external APIs using unittest.mock (patch, AsyncMock). Use fixture test_db for database tests.</standards>
     <locations>
       <location>backend/tests/test_services/test_ai_service.py</location>
       <location>backend/tests/test_services/test_fallback_chain.py</location>
     </locations>
     <ideas>
-      <testIdea ac="AC1">Test describe_video() with mocked OpenAI response returns valid AIResult with description</testIdea>
-      <testIdea ac="AC1">Test video base64 encoding produces correct format with data:video/mp4;base64 prefix</testIdea>
-      <testIdea ac="AC1">Test describe_video uses gpt-4o model (not mini) for video requests</testIdea>
-      <testIdea ac="AC2">Test _validate_video_for_openai rejects video over 20MB with specific error</testIdea>
-      <testIdea ac="AC2">Test _validate_video_for_openai rejects video over 60s with specific error</testIdea>
-      <testIdea ac="AC2">Test fallback to multi_frame when video validation fails</testIdea>
-      <testIdea ac="AC3">Test _convert_video_for_openai converts MOV to MP4</testIdea>
-      <testIdea ac="AC3">Test _convert_video_for_openai returns None on conversion failure</testIdea>
-      <testIdea ac="AC3">Test describe_video auto-converts unsupported format before upload</testIdea>
-      <testIdea ac="AC4">Test temporary converted file is cleaned up after successful analysis</testIdea>
-      <testIdea ac="AC4">Test temporary converted file is cleaned up even on API error</testIdea>
-      <testIdea ac="All">Test usage tracking records analysis_mode='video_native'</testIdea>
+      <idea ac="1">Test describe_video() calls FrameExtractor and generate_multi_image_description()</idea>
+      <idea ac="2">Test frame count limited to max 10 even for long videos</idea>
+      <idea ac="3">Test audio transcription included in prompt when enabled</idea>
+      <idea ac="3">Test graceful handling when video has no audio track</idea>
+      <idea ac="4">Test PROVIDER_CAPABILITIES has video_method="frame_extraction"</idea>
+      <idea ac="4">Test _try_video_native_analysis routes OpenAI correctly</idea>
+      <idea ac="5">Test token usage tracked from multi-image response</idea>
     </ideas>
   </tests>
 </story-context>

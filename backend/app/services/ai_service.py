@@ -87,38 +87,51 @@ COST_RATES = {
 # - supported_formats: List of supported video formats (empty if no video support)
 # - max_images: Maximum number of images for multi-frame analysis
 #
-# NOTE (P3-4.2): OpenAI GPT-4o does NOT support native video file upload via API.
-# OpenAI only supports sending images (frames extracted from video).
-# Use multi_frame analysis mode for OpenAI video analysis instead of video_native.
-# Source: https://community.openai.com/t/does-gpt-4o-api-natively-support-video-input-like-gemini-1-5/784779
+# NOTE (P3-4.2): Provider video capabilities
+# - OpenAI: Supports video via FRAME EXTRACTION (not native upload). Extract frames + optional Whisper audio.
+#   Source: https://cookbook.openai.com/examples/gpt4o/introduction_to_gpt4o
+# - Gemini: Supports NATIVE VIDEO UPLOAD (file upload or inline data).
+#   Source: https://ai.google.dev/gemini-api/docs/vision
 PROVIDER_CAPABILITIES = {
     "openai": {
-        "video": False,  # P3-4.2: OpenAI does NOT support native video upload, only frame extraction
-        "max_video_duration": 0,
-        "max_video_size_mb": 0,
-        "supported_formats": [],
+        "video": True,  # P3-4.2: OpenAI supports video via frame extraction
+        "video_method": "frame_extraction",  # Extract frames, send as images
+        "max_video_duration": 60,  # Practical limit for frame extraction
+        "max_video_size_mb": 50,  # Larger files OK since we extract frames
+        "max_frames": 10,  # Cost control: max frames to extract
+        "supported_formats": ["mp4", "mov", "webm", "avi"],
         "max_images": 10,
+        "supports_audio_transcription": True,  # Optional Whisper integration
     },
     "grok": {
-        "video": False,
-        "max_video_duration": 0,
-        "max_video_size_mb": 0,
-        "supported_formats": [],
+        "video": True,  # Grok 2 Vision supports video via frame extraction (same as OpenAI pattern)
+        "video_method": "frame_extraction",
+        "max_video_duration": 60,
+        "max_video_size_mb": 50,
+        "max_frames": 10,
+        "supported_formats": ["mp4", "mov", "webm", "avi"],
         "max_images": 10,
+        "supports_audio_transcription": False,
     },
     "claude": {
-        "video": False,
+        "video": False,  # Claude does not support video input
+        "video_method": None,
         "max_video_duration": 0,
         "max_video_size_mb": 0,
+        "max_frames": 0,
         "supported_formats": [],
         "max_images": 20,
+        "supports_audio_transcription": False,
     },
     "gemini": {
         "video": True,
+        "video_method": "native_upload",  # P3-4.3: Native video file upload
         "max_video_duration": 60,
         "max_video_size_mb": 20,
+        "max_frames": 0,  # N/A for native upload
         "supported_formats": ["mp4", "mov", "webm"],
         "max_images": 16,
+        "supports_audio_transcription": False,  # Gemini handles audio in video natively
     },
 }
 
@@ -563,6 +576,265 @@ class OpenAIProvider(AIProviderBase):
                 success=False,
                 error=str(e)
             )
+
+    async def describe_video(
+        self,
+        video_path: "Path",
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str],
+        include_audio: bool = False,
+        custom_prompt: Optional[str] = None
+    ) -> AIResult:
+        """
+        Analyze video using frame extraction + optional audio transcription (Story P3-4.2).
+
+        OpenAI does not support native video file upload. This method extracts frames
+        using FrameExtractor (P3-2.1) and sends them via generate_multi_image_description().
+        Optionally transcribes audio via Whisper API and includes in prompt context.
+
+        Args:
+            video_path: Path to the video file (MP4, MOV, etc.)
+            camera_name: Name of the camera for context
+            timestamp: Timestamp of the event
+            detected_objects: Objects detected by motion analysis
+            include_audio: If True, extract and transcribe audio via Whisper (AC3)
+            custom_prompt: Optional custom prompt to append
+
+        Returns:
+            AIResult with video analysis description
+
+        Implementation Notes:
+            - Extracts max 10 frames for cost control (AC2)
+            - Uses evenly_spaced strategy with blur filtering
+            - Token usage is tracked accurately (AC5)
+            - Frame extraction uses existing FrameExtractor (P3-2.1)
+        """
+        from pathlib import Path
+        from app.services.frame_extractor import get_frame_extractor
+
+        start_time = time.time()
+
+        # Ensure video_path is a Path object
+        if isinstance(video_path, str):
+            video_path = Path(video_path)
+
+        logger.info(
+            "Starting video analysis via frame extraction",
+            extra={
+                "event_type": "video_describe_start",
+                "provider": "openai",
+                "video_path": str(video_path),
+                "include_audio": include_audio,
+                "camera_name": camera_name
+            }
+        )
+
+        try:
+            # Step 1: Extract frames using FrameExtractor (AC1, AC2)
+            frame_extractor = get_frame_extractor()
+            max_frames = PROVIDER_CAPABILITIES["openai"].get("max_frames", 10)
+
+            frames_bytes = await frame_extractor.extract_frames(
+                clip_path=video_path,
+                frame_count=max_frames,
+                strategy="evenly_spaced",
+                filter_blur=True
+            )
+
+            if not frames_bytes:
+                elapsed_ms = int((time.time() - start_time) * 1000)
+                logger.warning(
+                    "No frames extracted from video",
+                    extra={
+                        "event_type": "video_describe_no_frames",
+                        "provider": "openai",
+                        "video_path": str(video_path),
+                        "response_time_ms": elapsed_ms
+                    }
+                )
+                return AIResult(
+                    description="",
+                    confidence=0,
+                    objects_detected=[],
+                    provider=AIProvider.OPENAI.value,
+                    tokens_used=0,
+                    response_time_ms=elapsed_ms,
+                    cost_estimate=0.0,
+                    success=False,
+                    error="No frames could be extracted from video"
+                )
+
+            # Convert JPEG bytes to base64 strings
+            frames_base64 = [base64.b64encode(fb).decode('utf-8') for fb in frames_bytes]
+
+            # Step 2: Optional audio transcription via Whisper (AC3)
+            transcript = None
+            if include_audio:
+                transcript = await self._transcribe_audio(video_path)
+
+            # Step 3: Build enhanced prompt with transcript context
+            enhanced_prompt = custom_prompt or ""
+            if transcript:
+                enhanced_prompt = f"Audio transcript from the video: {transcript}\n\n{enhanced_prompt}".strip()
+
+            # Step 4: Use existing multi-image method (reuse P3-2.3 infrastructure)
+            result = await self.generate_multi_image_description(
+                images_base64=frames_base64,
+                camera_name=camera_name,
+                timestamp=timestamp,
+                detected_objects=detected_objects,
+                custom_prompt=enhanced_prompt if enhanced_prompt else None
+            )
+
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            logger.info(
+                "Video analysis via frame extraction completed",
+                extra={
+                    "event_type": "video_describe_success",
+                    "provider": "openai",
+                    "video_path": str(video_path),
+                    "num_frames": len(frames_base64),
+                    "audio_transcribed": transcript is not None,
+                    "response_time_ms": elapsed_ms,
+                    "tokens_used": result.tokens_used,
+                    "success": result.success
+                }
+            )
+
+            # Update response time to include frame extraction time
+            result.response_time_ms = elapsed_ms
+
+            return result
+
+        except Exception as e:
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            logger.error(
+                "Video analysis via frame extraction failed",
+                extra={
+                    "event_type": "video_describe_error",
+                    "provider": "openai",
+                    "video_path": str(video_path),
+                    "response_time_ms": elapsed_ms,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            return AIResult(
+                description="",
+                confidence=0,
+                objects_detected=[],
+                provider=AIProvider.OPENAI.value,
+                tokens_used=0,
+                response_time_ms=elapsed_ms,
+                cost_estimate=0.0,
+                success=False,
+                error=str(e)
+            )
+
+    async def _transcribe_audio(self, video_path: "Path") -> Optional[str]:
+        """
+        Extract and transcribe audio from video using Whisper API (Story P3-4.2 AC3).
+
+        Args:
+            video_path: Path to the video file
+
+        Returns:
+            Transcribed text, or None if no audio or transcription fails
+        """
+        import tempfile
+        import os
+        import av
+
+        temp_audio_path = None
+        try:
+            # Check if video has audio stream
+            with av.open(str(video_path)) as container:
+                audio_stream = next(
+                    (s for s in container.streams if s.type == 'audio'),
+                    None
+                )
+                if not audio_stream:
+                    logger.debug(
+                        "Video has no audio track",
+                        extra={
+                            "event_type": "audio_transcribe_no_track",
+                            "video_path": str(video_path)
+                        }
+                    )
+                    return None
+
+            # Extract audio to temporary WAV file
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+                temp_audio_path = temp_audio.name
+
+            # Use PyAV to extract audio
+            with av.open(str(video_path)) as in_container:
+                audio_stream = next(s for s in in_container.streams if s.type == 'audio')
+
+                # Create output container for WAV
+                with av.open(temp_audio_path, 'w', format='wav') as out_container:
+                    out_stream = out_container.add_stream('pcm_s16le', rate=16000)
+                    out_stream.layout = 'mono'
+
+                    # Resample and write audio
+                    resampler = av.AudioResampler(
+                        format='s16',
+                        layout='mono',
+                        rate=16000
+                    )
+
+                    for packet in in_container.demux(audio_stream):
+                        for frame in packet.decode():
+                            resampled = resampler.resample(frame)
+                            for resampled_frame in resampled:
+                                for out_packet in out_stream.encode(resampled_frame):
+                                    out_container.mux(out_packet)
+
+                    # Flush encoder
+                    for out_packet in out_stream.encode():
+                        out_container.mux(out_packet)
+
+            # Transcribe with Whisper
+            with open(temp_audio_path, "rb") as audio_file:
+                transcript_response = await self.client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file
+                )
+
+            transcript = transcript_response.text.strip() if transcript_response.text else None
+
+            logger.info(
+                "Audio transcription completed",
+                extra={
+                    "event_type": "audio_transcribe_success",
+                    "video_path": str(video_path),
+                    "transcript_length": len(transcript) if transcript else 0
+                }
+            )
+
+            return transcript
+
+        except Exception as e:
+            logger.warning(
+                f"Audio transcription failed: {e}",
+                extra={
+                    "event_type": "audio_transcribe_error",
+                    "video_path": str(video_path),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
+            return None
+
+        finally:
+            # Clean up temp file
+            if temp_audio_path and os.path.exists(temp_audio_path):
+                try:
+                    os.unlink(temp_audio_path)
+                except Exception:
+                    pass
 
 
 class ClaudeProvider(AIProviderBase):
@@ -2365,6 +2637,20 @@ class AIService:
         """
         capabilities = PROVIDER_CAPABILITIES.get(provider, {})
         return capabilities.get("max_video_size_mb", 0)
+
+    def get_provider_order(self) -> List[str]:
+        """
+        Get the configured provider order for fallback chain (Story P3-4.2).
+
+        Returns the list of provider names in the order they should be tried.
+        Uses system settings if configured, otherwise returns default order.
+
+        Returns:
+            List of provider names in priority order.
+            Example: ["openai", "grok", "claude", "gemini"]
+        """
+        provider_enums = self._get_provider_order()
+        return [p.value for p in provider_enums]
 
     def get_all_capabilities(self) -> Dict[str, Dict[str, Any]]:
         """

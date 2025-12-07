@@ -1,0 +1,178 @@
+<story-context id="p3-4-3-implement-video-upload-to-gemini" v="1.0">
+  <metadata>
+    <epicId>P3-4</epicId>
+    <storyId>P3-4.3</storyId>
+    <title>Implement Video Upload to Gemini</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-07</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-4-3-implement-video-upload-to-gemini.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to send video clips to Google Gemini</iWant>
+    <soThat>users get video-native analysis from Gemini for the highest quality event descriptions</soThat>
+    <tasks>
+      <task id="1" ac="All">Research Gemini Video API - Verify video input format, file upload vs base64, size/duration limits, model requirements</task>
+      <task id="2" ac="1,4">Implement describe_video() method in GeminiProvider - Add async method, read video file, use genai library, return AIResult</task>
+      <task id="3" ac="5">Add video size/duration validation - Implement _validate_video_for_gemini(), check limits from PROVIDER_CAPABILITIES</task>
+      <task id="4" ac="2">Implement video format conversion - Add _convert_video_format() using PyAV, support MP4/H.264</task>
+      <task id="5" ac="3">Add token/cost tracking for video requests - Extract token usage from response, estimate if needed, calculate cost</task>
+      <task id="6" ac="All">Update _try_video_native_analysis() in protect_event_handler - Remove placeholder, call describe_video(), handle fallback</task>
+      <task id="7" ac="All">Add AIService orchestration for describe_video - Add method, route to video-capable providers, handle fallback</task>
+      <task id="8" ac="All">Write tests - Unit tests for describe_video, validation, format conversion; integration test for video_native</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Given video clip under Gemini limits (20MB, 60s), when AIService.describe_video() called for Gemini, then video sent using Gemini API, description returned</ac>
+    <ac id="2">Given video needs format conversion, when original format unsupported, then converts to MP4/H.264 using PyAV, retries</ac>
+    <ac id="3">Given Gemini video analysis completes, when response received, then token usage tracked, cost estimate calculated</ac>
+    <ac id="4">Given Gemini provider configured with valid API key, when describe_video() called with valid clip, then returns AIResult with description</ac>
+    <ac id="5">Given video exceeds Gemini limits (>20MB or >60s), when video analysis attempted, then returns AIResult with success=False, triggers fallback to multi_frame</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Epic P3-4: Native Video Analysis / Story P3-4.3</section>
+        <snippet>Story defines acceptance criteria for Gemini video upload including size limits, format conversion, and token tracking. FRs covered: FR19, FR21, FR22.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-4-2-implement-video-upload-to-openai.md</path>
+        <title>Previous Story - OpenAI Video Research</title>
+        <section>Dev Agent Record / Completion Notes</section>
+        <snippet>Critical finding: Only Gemini supports native video upload. OpenAI does NOT support video via API. PROVIDER_CAPABILITIES updated accordingly.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-4-1-add-provider-video-capability-detection.md</path>
+        <title>Provider Capability Detection Story</title>
+        <section>Implementation</section>
+        <snippet>Implemented get_video_capable_providers(), supports_video(), get_all_capabilities() methods in AIService for querying video support.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>GeminiProvider</symbol>
+        <lines>776-945</lines>
+        <reason>Target class for adding describe_video() method. Has existing generate_description() and generate_multi_image_description() patterns to follow.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>constant</kind>
+        <symbol>PROVIDER_CAPABILITIES</symbol>
+        <lines>94-123</lines>
+        <reason>Contains Gemini video capabilities: video=True, max_video_duration=60, max_video_size_mb=20, supported_formats=[mp4,mov,webm]</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service-methods</kind>
+        <symbol>AIService capability methods</symbol>
+        <lines>2271-2400</lines>
+        <reason>get_provider_capabilities(), supports_video(), get_video_capable_providers(), get_max_video_duration(), get_max_video_size() - use these for validation</reason>
+      </file>
+      <file>
+        <path>backend/app/services/protect_event_handler.py</path>
+        <kind>handler</kind>
+        <symbol>_try_video_native_analysis</symbol>
+        <lines>1014-1114</lines>
+        <reason>Placeholder returning "video_upload_not_implemented" at line 1099. Must update to call actual Gemini video analysis.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_ai_service.py</path>
+        <kind>test</kind>
+        <symbol>AI Service tests</symbol>
+        <lines>1-150</lines>
+        <reason>Existing test patterns for OpenAI/Claude/Gemini providers. Extend with describe_video() tests.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="google-generativeai" version=">=0.8.0">Gemini API client - use genai.GenerativeModel for video content</package>
+        <package name="av" version=">=12.0.0">PyAV for video processing and format conversion</package>
+        <package name="pillow" version=">=10.0.0">Image processing, potentially for video thumbnail</package>
+        <package name="tenacity" version=">=8.2.0">Retry logic with exponential backoff</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+      </python>
+      <node>
+        <package name="next" version="16.0.7">Frontend framework - no changes needed for this story</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Follow existing GeminiProvider pattern: async methods, AIResult return type, structured logging with extra dict</constraint>
+    <constraint type="architecture">Use PROVIDER_CAPABILITIES for limits - don't hardcode values in describe_video()</constraint>
+    <constraint type="architecture">Fallback chain: video_native failures append to self._fallback_chain list</constraint>
+    <constraint type="coding">Token/cost estimation pattern from generate_multi_image_description(): tokens_used = 150 + estimate</constraint>
+    <constraint type="coding">Video prompt should use MULTI_FRAME_SYSTEM_PROMPT pattern for temporal narrative</constraint>
+    <constraint type="testing">Mock genai library responses in tests - don't make real API calls</constraint>
+    <constraint type="testing">Test both success and failure paths including validation errors</constraint>
+    <constraint type="performance">Video analysis may be slower - use appropriate timeouts (30s suggested)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GeminiProvider.describe_video</name>
+      <kind>async method</kind>
+      <signature>async def describe_video(self, video_path: Path, camera_name: str, timestamp: str, detected_objects: List[str], custom_prompt: Optional[str] = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>AIService.describe_video</name>
+      <kind>async method</kind>
+      <signature>async def describe_video(self, video_path: Path, camera_name: str, timestamp: str, detected_objects: List[str], custom_prompt: Optional[str] = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py</path>
+    </interface>
+    <interface>
+      <name>ai_service.get_video_capable_providers</name>
+      <kind>method</kind>
+      <signature>def get_video_capable_providers(self) -> List[str]</signature>
+      <path>backend/app/services/ai_service.py:2311</path>
+    </interface>
+    <interface>
+      <name>ai_service.get_max_video_duration</name>
+      <kind>method</kind>
+      <signature>def get_max_video_duration(self, provider: str) -> int</signature>
+      <path>backend/app/services/ai_service.py:2343</path>
+    </interface>
+    <interface>
+      <name>ai_service.get_max_video_size</name>
+      <kind>method</kind>
+      <signature>def get_max_video_size(self, provider: str) -> int</signature>
+      <path>backend/app/services/ai_service.py:2356</path>
+    </interface>
+    <interface>
+      <name>genai.GenerativeModel.generate_content_async</name>
+      <kind>async method</kind>
+      <signature>await model.generate_content_async(parts, generation_config=...)</signature>
+      <path>google-generativeai library</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend uses pytest with pytest-asyncio for async tests. Mock external APIs using unittest.mock (patch, AsyncMock). Use fixture test_db for database tests. Follow existing patterns in test_ai_service.py.</standards>
+    <locations>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_services/test_fallback_chain.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test GeminiProvider.describe_video() with mocked genai returning valid response</idea>
+      <idea ac="2">Test format conversion from unsupported format to MP4</idea>
+      <idea ac="3">Test token/cost calculation matches COST_RATES for gemini</idea>
+      <idea ac="4">Test describe_video() returns AIResult with success=True on valid video</idea>
+      <idea ac="5">Test validation rejects video over 20MB with appropriate error</idea>
+      <idea ac="5">Test validation rejects video over 60s with appropriate error</idea>
+      <idea ac="All">Test _try_video_native_analysis() calls describe_video() and removes placeholder</idea>
+      <idea ac="All">Integration test: video_native mode processes event with Gemini</idea>
+    </ideas>
+  </tests>
+</story-context>

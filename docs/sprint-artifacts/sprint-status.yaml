@@ -185,7 +185,7 @@ development_status:
   epic-p3-4: backlog
   p3-4-1-add-provider-video-capability-detection: done
   p3-4-2-implement-video-upload-to-openai: done
-  p3-4-3-implement-video-upload-to-gemini: backlog
+  p3-4-3-implement-video-upload-to-gemini: ready-for-dev
   p3-4-4-integrate-video-native-mode-into-pipeline: backlog
   epic-p3-4-retrospective: optional
 

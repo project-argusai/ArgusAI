@@ -19,6 +19,10 @@ import {
   AlertTriangle,
   Video,
   Link2,
+  Sparkles,
+  Zap,
+  MessageCircle,
+  Sparkle,
 } from 'lucide-react';
 import type { IEvent } from '@/types/event';
 import { getConfidenceColor, getConfidenceLevel } from '@/types/event';
@@ -287,6 +291,25 @@ export function EventDetailModal({
                 </div>
               </div>
             </div>
+
+            {/* Story P3-4.5: AI Provider (AC3) */}
+            {event.provider_used && (
+              <div className="flex items-start space-x-3">
+                {event.provider_used === 'openai' && <Sparkles className="w-5 h-5 text-green-500 mt-0.5" />}
+                {event.provider_used === 'grok' && <Zap className="w-5 h-5 text-orange-500 mt-0.5" />}
+                {event.provider_used === 'claude' && <MessageCircle className="w-5 h-5 text-amber-500 mt-0.5" />}
+                {event.provider_used === 'gemini' && <Sparkle className="w-5 h-5 text-blue-500 mt-0.5" />}
+                <div>
+                  <p className="text-sm font-medium text-gray-700">AI Provider</p>
+                  <p className="text-sm text-gray-600">
+                    {event.provider_used === 'openai' && 'OpenAI GPT-4o mini'}
+                    {event.provider_used === 'grok' && 'xAI Grok 2 Vision'}
+                    {event.provider_used === 'claude' && 'Anthropic Claude 3 Haiku'}
+                    {event.provider_used === 'gemini' && 'Google Gemini 2.0 Flash'}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Alert Status */}
             {event.alert_triggered && (

@@ -811,15 +811,15 @@ class TestEncryptedAPIKeyLoading:
 class TestProviderOrderConfiguration:
     """Tests for configurable provider order (Story P2-5.2)"""
 
-    def test_get_provider_order_default(self):
-        """Test that default order is returned when no database is configured"""
+    def test_get_provider_order_default(self, test_db):
+        """Test that default order is returned when no database setting exists"""
         from app.services.ai_service import AIService, AIProvider
 
         service = AIService()
-        # No database configured
-        service.db = None
 
-        order = service._get_provider_order()
+        # Mock SessionLocal to return test_db which has no ai_provider_order setting
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service._get_provider_order()
 
         assert order == [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
 
@@ -835,9 +835,10 @@ class TestProviderOrderConfiguration:
         test_db.commit()
 
         service = AIService()
-        service.db = test_db
 
-        order = service._get_provider_order()
+        # Mock SessionLocal to return test_db
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service._get_provider_order()
 
         assert order == [AIProvider.GROK, AIProvider.CLAUDE, AIProvider.OPENAI, AIProvider.GEMINI]
 
@@ -851,9 +852,10 @@ class TestProviderOrderConfiguration:
         test_db.commit()
 
         service = AIService()
-        service.db = test_db
 
-        order = service._get_provider_order()
+        # Mock SessionLocal to return test_db
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service._get_provider_order()
 
         # Should fall back to default
         assert order == [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
@@ -868,9 +870,10 @@ class TestProviderOrderConfiguration:
         test_db.commit()
 
         service = AIService()
-        service.db = test_db
 
-        order = service._get_provider_order()
+        # Mock SessionLocal to return test_db
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service._get_provider_order()
 
         # Should fall back to default
         assert order == [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
@@ -929,12 +932,14 @@ class TestFallbackChainBehavior:
             return claude_success
 
         # Set custom order: Grok first, then Claude
-        service.db = Mock()
-        service.db.query.return_value.filter.return_value.first.return_value = Mock(
+        # Create a mock session that returns the custom order
+        mock_db = Mock()
+        mock_db.query.return_value.filter.return_value.first.return_value = Mock(
             value='["grok", "anthropic", "openai", "google"]'
         )
+        mock_db.close = Mock()
 
-        with patch.object(
+        with patch('app.core.database.SessionLocal', return_value=mock_db), patch.object(
             service.providers[AIProviderEnum.GROK],
             'generate_description',
             new=mock_grok_generate
@@ -986,9 +991,10 @@ class TestFallbackChainBehavior:
         test_db.commit()
 
         service = AIService()
-        service.db = test_db
 
-        order = service._get_provider_order()
+        # Mock SessionLocal to return test_db
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service._get_provider_order()
 
         assert order[0] == AIProviderEnum.GEMINI
         assert order[1] == AIProviderEnum.CLAUDE
@@ -2696,12 +2702,13 @@ class TestProviderCapabilitiesVideoMethod:
 class TestGetProviderOrder:
     """Test AIService.get_provider_order() public method"""
 
-    def test_get_provider_order_returns_string_list(self):
+    def test_get_provider_order_returns_string_list(self, test_db):
         """Test get_provider_order returns list of string provider names"""
         service = AIService()
-        service.db = None  # No database configured
 
-        order = service.get_provider_order()
+        # Mock SessionLocal to return test_db which has no ai_provider_order setting
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service.get_provider_order()
 
         assert isinstance(order, list)
         assert all(isinstance(p, str) for p in order)
@@ -2718,9 +2725,10 @@ class TestGetProviderOrder:
         test_db.commit()
 
         service = AIService()
-        service.db = test_db
 
-        order = service.get_provider_order()
+        # Mock SessionLocal to return test_db
+        with patch('app.core.database.SessionLocal', return_value=test_db):
+            order = service.get_provider_order()
 
         assert order == ["grok", "claude", "openai", "gemini"]
 

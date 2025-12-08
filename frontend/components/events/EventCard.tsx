@@ -14,6 +14,7 @@ import { SourceTypeBadge } from './SourceTypeBadge';
 import { SmartDetectionBadge } from './SmartDetectionBadge';
 import { CorrelationIndicator } from './CorrelationIndicator';
 import { AnalysisModeBadge } from './AnalysisModeBadge';
+import { AIProviderBadge } from './AIProviderBadge';
 import { cn } from '@/lib/utils';
 
 interface EventCardProps {
@@ -136,6 +137,8 @@ export const EventCard = memo(function EventCard({
                 frameCountUsed={event.frame_count_used}
                 fallbackReason={event.fallback_reason}
               />
+              {/* Story P3-4.5: AI Provider Badge */}
+              <AIProviderBadge provider={event.provider_used} />
               {event.source_type && (
                 <SourceTypeBadge sourceType={event.source_type} />
               )}

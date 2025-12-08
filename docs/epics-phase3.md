@@ -20,12 +20,12 @@ This document provides the complete epic and story breakdown for Phase 3, decomp
 | **P3-1** | Motion Clip Download Infrastructure | MVP | 5 | FR1-FR5 |
 | **P3-2** | Multi-Frame Analysis Mode | MVP | 6 | FR6-FR13 |
 | **P3-3** | Analysis Mode Configuration | MVP | 5 | FR14-FR18, FR38 |
-| **P3-4** | Native Video Analysis | Growth | 4 | FR19-FR22 |
+| **P3-4** | Native Video Analysis | Growth | 5 | FR19-FR22, FR42 |
 | **P3-5** | Audio Analysis for Doorbells | Growth | 3 | FR23-FR26 |
 | **P3-6** | Confidence Scoring & Quality | Growth | 4 | FR27-FR31, FR40 |
 | **P3-7** | Cost Monitoring Dashboard | Growth | 6 | FR32-FR37, FR39, FR41 |
 
-**Total:** 7 Epics, 33 Stories
+**Total:** 7 Epics, 34 Stories
 
 ---
 
@@ -84,11 +84,12 @@ This document provides the complete epic and story breakdown for Phase 3, decomp
 - **FR36:** System alerts users when approaching cost limits
 - **FR37:** System can pause AI analysis when cap is reached
 
-### Event Display Updates (FR38-FR41)
+### Event Display Updates (FR38-FR42)
 - **FR38:** Event cards show which analysis mode was used
 - **FR39:** Event cards can display key frames used for analysis (optional)
 - **FR40:** Event cards show confidence indicator when available
 - **FR41:** Timeline supports filtering by analysis mode
+- **FR42:** Event cards show which AI provider generated the description
 
 ---
 
@@ -137,6 +138,7 @@ This document provides the complete epic and story breakdown for Phase 3, decomp
 | FR39 | Display key frames | P3-7 | P3-7.5 |
 | FR40 | Show confidence indicator | P3-6 | P3-6.3 |
 | FR41 | Filter by analysis mode | P3-7 | P3-7.6 |
+| FR42 | Show AI provider on cards | P3-4 | P3-4.5 |
 
 ---
 
@@ -933,6 +935,54 @@ This document provides the complete epic and story breakdown for Phase 3, decomp
 
 ---
 
+### Story P3-4.5: Add AI Provider Badge to Event Cards
+
+**As a** user viewing events,
+**I want to** see which AI provider analyzed each event,
+**So that** I can understand which AI service generated the description and correlate quality with providers.
+
+**Acceptance Criteria:**
+
+**Given** an event card in the timeline
+**When** event has provider_used stored
+**Then** small badge shows provider: OpenAI/Grok/Claude/Gemini
+**And** badge has appropriate icon and color per provider
+
+**Given** event with provider_used = "openai"
+**When** displayed
+**Then** shows green badge with sparkle icon labeled "OpenAI"
+
+**Given** event with provider_used = "grok"
+**When** displayed
+**Then** shows orange badge with zap icon labeled "Grok"
+
+**Given** event with provider_used = "claude"
+**When** displayed
+**Then** shows amber badge with message icon labeled "Claude"
+
+**Given** event with provider_used = "gemini"
+**When** displayed
+**Then** shows blue badge with stars icon labeled "Gemini"
+
+**Given** event has no provider_used (legacy events or null)
+**When** displayed
+**Then** no AI provider badge is shown
+
+**Given** user hovers AI provider badge
+**When** tooltip appears
+**Then** shows full provider name (e.g., "OpenAI GPT-4o mini")
+
+**Prerequisites:** None (backend already tracks provider_used)
+
+**Technical Notes:**
+- Create `frontend/components/events/AIProviderBadge.tsx`
+- Add to EventCard.tsx header row after AnalysisModeBadge
+- Provider styling: OpenAI=green, Grok=orange, Claude=amber, Gemini=blue
+- Follow existing AnalysisModeBadge pattern with Tooltip
+- No backend changes needed - provider_used field already exists
+
+---
+
 ## Epic P3-5: Audio Analysis for Doorbells
 
 **Goal:** Extract and transcribe audio from doorbell events to provide richer context including spoken words.
@@ -1502,8 +1552,9 @@ This document provides the complete epic and story breakdown for Phase 3, decomp
 | FR39 | Display key frames | P3-7 | P3-7.5 |
 | FR40 | Show confidence indicator | P3-6 | P3-6.3 |
 | FR41 | Filter by analysis mode | P3-7 | P3-7.6 |
+| FR42 | Show AI provider on cards | P3-4 | P3-4.5 |
 
-**Coverage Validation:** All 41 FRs mapped to stories. ✓
+**Coverage Validation:** All 42 FRs mapped to stories. ✓
 
 ---
 
@@ -1519,7 +1570,7 @@ This document provides the complete epic and story breakdown for Phase 3, decomp
 - User control over cost/quality trade-off per camera
 
 **Growth (Epics P3-4, P3-5, P3-6, P3-7):**
-- 17 stories covering video native, audio analysis, confidence scoring, and cost monitoring
+- 18 stories covering video native, audio analysis, confidence scoring, and cost monitoring
 - Enhances quality with full video and audio context
 - Provides operational visibility and cost control
 

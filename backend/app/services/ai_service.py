@@ -1052,7 +1052,7 @@ class GeminiProvider(AIProviderBase):
     def __init__(self, api_key: str):
         super().__init__(api_key)
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
         self.cost_per_1k_tokens = 0.0001  # Approximate (free tier available)
 
     async def generate_description(
@@ -1171,7 +1171,7 @@ class GeminiProvider(AIProviderBase):
                 extra={
                     "event_type": "ai_api_multi_image_success",
                     "provider": "gemini",
-                    "model": "gemini-1.5-flash",
+                    "model": "gemini-2.5-flash-preview-05-20",
                     "num_images": len(images_base64),
                     "response_time_ms": elapsed_ms,
                     "tokens_used": tokens_used,
@@ -1198,7 +1198,7 @@ class GeminiProvider(AIProviderBase):
                 extra={
                     "event_type": "ai_api_multi_image_error",
                     "provider": "gemini",
-                    "model": "gemini-1.5-flash",
+                    "model": "gemini-2.5-flash-preview-05-20",
                     "num_images": len(images_base64),
                     "response_time_ms": elapsed_ms,
                     "error_type": type(e).__name__,
@@ -2258,42 +2258,51 @@ class AIService:
         Get provider order from database settings or return default order.
         (Story P2-5.2: Configurable provider fallback chain)
 
+        Opens a fresh database session for each query to avoid issues with
+        closed sessions from load_api_keys_from_db().
+
         Returns:
             List of AIProvider enums in configured order
         """
         default_order = [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
 
-        if self.db is None:
-            return default_order
-
         try:
             import json
-            order_setting = self.db.query(SystemSetting).filter(
-                SystemSetting.key == "ai_provider_order"
-            ).first()
+            from app.core.database import SessionLocal
 
-            if order_setting and order_setting.value:
-                try:
-                    order_list = json.loads(order_setting.value)
-                    # Convert string names to AIProvider enums
-                    provider_map = {
-                        "openai": AIProvider.OPENAI,
-                        "grok": AIProvider.GROK,
-                        "anthropic": AIProvider.CLAUDE,
-                        "google": AIProvider.GEMINI,
-                    }
-                    provider_order = []
-                    for name in order_list:
-                        if name in provider_map:
-                            provider_order.append(provider_map[name])
-                    # If we got a valid order, use it
-                    if provider_order:
-                        logger.debug(f"Using configured provider order: {[p.value for p in provider_order]}")
-                        return provider_order
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"Invalid provider order in settings: {e}, using default")
+            # Open a fresh database session for this query
+            # (self.db may be closed after load_api_keys_from_db completes)
+            db = SessionLocal()
+            try:
+                order_setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == "ai_provider_order"
+                ).first()
 
-            return default_order
+                logger.info(f"Provider order query result: setting exists={order_setting is not None}, value={order_setting.value if order_setting else None}")
+                if order_setting and order_setting.value:
+                    try:
+                        order_list = json.loads(order_setting.value)
+                        # Convert string names to AIProvider enums
+                        provider_map = {
+                            "openai": AIProvider.OPENAI,
+                            "grok": AIProvider.GROK,
+                            "anthropic": AIProvider.CLAUDE,
+                            "google": AIProvider.GEMINI,
+                        }
+                        provider_order = []
+                        for name in order_list:
+                            if name in provider_map:
+                                provider_order.append(provider_map[name])
+                        # If we got a valid order, use it
+                        if provider_order:
+                            logger.info(f"Using configured provider order: {[p.value for p in provider_order]}")
+                            return provider_order
+                    except (json.JSONDecodeError, TypeError) as e:
+                        logger.warning(f"Invalid provider order in settings: {e}, using default")
+
+                return default_order
+            finally:
+                db.close()
         except Exception as e:
             logger.warning(f"Failed to load provider order from database: {e}, using default")
             return default_order

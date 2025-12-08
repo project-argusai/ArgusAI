@@ -1,0 +1,155 @@
+<story-context id="p3-4-5-add-ai-provider-badge-to-event-cards" v="1.0">
+  <metadata>
+    <epicId>P3-4</epicId>
+    <storyId>5</storyId>
+    <title>Add AI Provider Badge to Event Cards</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-07</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-4-5-add-ai-provider-badge-to-event-cards.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user viewing events</asA>
+    <iWant>see which AI provider analyzed each event</iWant>
+    <soThat>I can understand which AI service generated the description and correlate quality with providers</soThat>
+    <tasks>
+      <task id="1">Create AIProviderBadge component with provider configs (OpenAI, Grok, Claude, Gemini)</task>
+      <task id="2">Add distinct styling for each provider (icon, colors, tooltip)</task>
+      <task id="3">Integrate badge into EventCard.tsx header row</task>
+      <task id="4">Handle null/undefined provider_used gracefully</task>
+      <task id="5">Add accessibility (sr-only text)</task>
+      <task id="6">Optional: Add to EventDetailModal</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="AC1" title="Create AIProviderBadge Component">
+      <item>Create new component frontend/components/events/AIProviderBadge.tsx</item>
+      <item>Support all four providers with distinct styling: OpenAI (green, sparkle), Grok (orange, zap), Claude (amber, message-circle), Gemini (blue, stars)</item>
+      <item>Display provider name compactly</item>
+      <item>Include tooltip with full provider name</item>
+    </ac>
+    <ac id="AC2" title="Integrate Badge in EventCard">
+      <item>Add AIProviderBadge to EventCard.tsx header row</item>
+      <item>Position after AnalysisModeBadge, before SourceTypeBadge</item>
+      <item>Handle null/undefined provider_used gracefully (show nothing)</item>
+    </ac>
+    <ac id="AC3" title="Integrate Badge in EventDetailModal (Optional)">
+      <item>Add provider info to metadata section</item>
+      <item>Show full provider name with icon</item>
+    </ac>
+    <ac id="AC4" title="Consistent Badge Styling">
+      <item>Follow existing badge patterns (AnalysisModeBadge, SourceTypeBadge)</item>
+      <item>Use Tailwind classes consistent with design system</item>
+      <item>Support dark mode</item>
+    </ac>
+    <ac id="AC5" title="Accessibility">
+      <item>Include sr-only text for screen readers</item>
+      <item>Ensure sufficient color contrast</item>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Epic P3-4: Native Video Analysis</section>
+        <snippet>Story P3-4.5 adds AI provider badge to event cards. FR42: Event cards show which AI provider generated the description.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-4-5-add-ai-provider-badge-to-event-cards.md</path>
+        <title>Story P3-4.5 Definition</title>
+        <section>Full story with acceptance criteria and technical notes</section>
+        <snippet>Frontend-only implementation. Backend already tracks provider_used field. Create AIProviderBadge.tsx following AnalysisModeBadge pattern.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/components/events/AnalysisModeBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>AnalysisModeBadge</symbol>
+        <lines>1-133</lines>
+        <reason>Reference pattern for badge implementation - uses MODE_CONFIG record, Tooltip, lucide icons, sr-only text, handles null gracefully</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/SourceTypeBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>SourceTypeBadge</symbol>
+        <lines>1-41</lines>
+        <reason>Simpler badge pattern without tooltip - shows config record pattern with icon and label</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <lines>133-141</lines>
+        <reason>Integration point - add AIProviderBadge after AnalysisModeBadge (line 138), before SourceTypeBadge (line 139-141)</reason>
+      </file>
+      <file>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent</symbol>
+        <lines>54</lines>
+        <reason>provider_used field already defined: provider_used?: string | null (openai, grok, claude, gemini)</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/tooltip.tsx</path>
+        <kind>component</kind>
+        <symbol>Tooltip, TooltipContent, TooltipTrigger</symbol>
+        <reason>shadcn/ui tooltip components - use for hover details</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package name="lucide-react" version="^0.553.0">Icon library - use Sparkles, Zap, MessageCircle, Stars icons</package>
+        <package name="@radix-ui/react-tooltip" version="^1.2.8">Tooltip primitives via shadcn/ui</package>
+        <package name="tailwindcss" version="^4">Styling with dark mode support</package>
+        <package name="next" version="16.0.7">React framework with App Router</package>
+        <package name="react" version="19.2.0">React 19</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing badge component pattern from AnalysisModeBadge.tsx</constraint>
+    <constraint type="styling">Use Tailwind CSS classes with dark mode variants (bg-X-100 dark:bg-X-900/30)</constraint>
+    <constraint type="accessibility">Include sr-only text for screen readers on all badges</constraint>
+    <constraint type="imports">Use 'use client' directive for client components</constraint>
+    <constraint type="null-handling">Return null when provider_used is null/undefined (no badge shown)</constraint>
+    <constraint type="icons">Use lucide-react icons consistently with existing badges</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AIProviderBadgeProps" kind="TypeScript interface">
+      <signature>interface AIProviderBadgeProps { provider?: string | null; }</signature>
+      <path>frontend/components/events/AIProviderBadge.tsx</path>
+    </interface>
+    <interface name="PROVIDER_CONFIG" kind="TypeScript Record">
+      <signature>Record&lt;AIProvider, { icon: LucideIcon; label: string; fullName: string; bgClass: string; textClass: string; }&gt;</signature>
+      <path>frontend/components/events/AIProviderBadge.tsx</path>
+    </interface>
+    <interface name="IEvent.provider_used" kind="TypeScript field">
+      <signature>provider_used?: string | null; // AI provider: openai, grok, claude, gemini</signature>
+      <path>frontend/types/event.ts:54</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend uses Vitest with React Testing Library. Tests in frontend/tests/ or co-located __tests__ folders. Use @testing-library/react for component testing, @testing-library/user-event for interactions.</standards>
+    <locations>
+      <location>frontend/tests/</location>
+      <location>frontend/components/**/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test AIProviderBadge renders correct icon and label for each provider (openai, grok, claude, gemini)</idea>
+      <idea ac="AC1">Test AIProviderBadge tooltip shows full provider name on hover</idea>
+      <idea ac="AC2">Test AIProviderBadge renders nothing when provider is null/undefined</idea>
+      <idea ac="AC4">Test badge has correct Tailwind classes for each provider color scheme</idea>
+      <idea ac="AC5">Test sr-only text is present for accessibility</idea>
+    </ideas>
+  </tests>
+</story-context>

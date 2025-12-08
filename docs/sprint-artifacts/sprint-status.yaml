@@ -187,6 +187,7 @@ development_status:
   p3-4-2-implement-video-upload-to-openai: done
   p3-4-3-implement-video-upload-to-gemini: done
   p3-4-4-integrate-video-native-mode-into-pipeline: review
+  p3-4-5-add-ai-provider-badge-to-event-cards: done
   epic-p3-4-retrospective: optional
 
   # Epic P3-5: Audio Analysis for Doorbells (Growth)

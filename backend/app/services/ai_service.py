@@ -43,6 +43,20 @@ logger = logging.getLogger(__name__)
 
 # Multi-frame analysis system prompt (Story P3-2.4)
 # Optimized for temporal narrative descriptions of video sequences
+# Story P3-6.1: Confidence scoring instruction appended to all prompts
+CONFIDENCE_INSTRUCTION = """
+
+After your description, rate your confidence in this description from 0 to 100, where:
+- 0-30: Very uncertain, limited visibility or unclear action
+- 31-50: Somewhat uncertain, some ambiguity
+- 51-70: Moderately confident
+- 71-90: Confident
+- 91-100: Very confident, clear view and obvious action
+
+Respond in this exact JSON format:
+{"description": "your detailed description here", "confidence": 85}"""
+
+
 MULTI_FRAME_SYSTEM_PROMPT = """You are analyzing a sequence of {num_frames} frames from a security camera video, shown in chronological order.
 
 Your task is to describe WHAT HAPPENED - focus on the narrative and action over time:
@@ -149,7 +163,7 @@ class AIProvider(Enum):
 class AIResult:
     """Result from AI description generation"""
     description: str
-    confidence: int  # 0-100
+    confidence: int  # 0-100 (computed from heuristics)
     objects_detected: List[str]  # person, vehicle, animal, package, unknown
     provider: str  # Which provider was used
     tokens_used: int
@@ -157,6 +171,8 @@ class AIResult:
     cost_estimate: float  # USD
     success: bool
     error: Optional[str] = None
+    # Story P3-6.1: AI self-reported confidence score
+    ai_confidence: Optional[int] = None  # 0-100 (from AI response, None if not provided)
 
 
 class AIProviderBase(ABC):
@@ -262,6 +278,9 @@ class AIProviderBase(ABC):
         if audio_transcription and audio_transcription.strip():
             prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
 
+        # Story P3-6.1: Add confidence instruction to all prompts
+        prompt += CONFIDENCE_INSTRUCTION
+
         return prompt
 
     def _build_multi_image_prompt(
@@ -308,7 +327,69 @@ class AIProviderBase(ABC):
         if audio_transcription and audio_transcription.strip():
             prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
 
+        # Story P3-6.1: Add confidence instruction to all prompts
+        prompt += CONFIDENCE_INSTRUCTION
+
         return prompt
+
+    def _parse_confidence_response(self, response_text: str) -> tuple[str, Optional[int]]:
+        """Parse AI response for description and confidence score (Story P3-6.1)
+
+        Attempts to extract structured JSON response with description and confidence.
+        Falls back to plain text parsing if JSON is not found.
+
+        Args:
+            response_text: Raw response text from AI provider
+
+        Returns:
+            Tuple of (description, ai_confidence) where ai_confidence may be None
+        """
+        import json
+        import re
+
+        # Try JSON parsing first - look for JSON object with description field
+        try:
+            # Find JSON in response (may be embedded in text)
+            json_match = re.search(r'\{[^{}]*"description"[^{}]*\}', response_text, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                description = data.get('description', '').strip()
+                confidence = data.get('confidence')
+
+                # Validate confidence is in valid range
+                if isinstance(confidence, (int, float)) and 0 <= confidence <= 100:
+                    # Use extracted description if valid, otherwise fall back
+                    if description:
+                        return description, int(confidence)
+                    else:
+                        # JSON found but description empty - use original minus JSON
+                        clean_text = response_text.replace(json_match.group(), '').strip()
+                        return clean_text if clean_text else response_text, int(confidence)
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            logger.debug(f"JSON parsing failed for confidence extraction: {e}")
+
+        # Fallback: Try to extract confidence from plain text
+        # Look for patterns like "85% confident", "confidence: 85", "confidence is 85"
+        confidence_patterns = [
+            r'confidence[:\s]+(\d{1,3})(?:%|\b)',  # "confidence: 85" or "confidence 85%"
+            r'(\d{1,3})%?\s*confiden',  # "85% confident" or "85 confident"
+            r'confidence\s*(?:score|level|rating)?[:\s]*(\d{1,3})',  # "confidence score: 85"
+        ]
+
+        for pattern in confidence_patterns:
+            match = re.search(pattern, response_text, re.IGNORECASE)
+            if match:
+                try:
+                    confidence = int(match.group(1))
+                    if 0 <= confidence <= 100:
+                        logger.debug(f"Extracted confidence {confidence} from plain text")
+                        return response_text, confidence
+                except (ValueError, IndexError):
+                    continue
+
+        # No confidence found - return original text with None
+        logger.debug("No confidence score found in AI response")
+        return response_text, None
 
     def _extract_objects(self, description: str) -> List[str]:
         """Extract object types from description text"""
@@ -379,7 +460,10 @@ class OpenAIProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -410,6 +494,7 @@ class OpenAIProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -436,7 +521,8 @@ class OpenAIProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -533,7 +619,10 @@ class OpenAIProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -562,6 +651,7 @@ class OpenAIProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -573,7 +663,8 @@ class OpenAIProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -913,7 +1004,10 @@ class ClaudeProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.content[0].text.strip()
+            raw_response = response.content[0].text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             input_tokens = response.usage.input_tokens
@@ -931,7 +1025,7 @@ class ClaudeProvider(AIProviderBase):
 
             logger.info(
                 f"Claude success: {elapsed_ms}ms, {tokens_used} tokens, ${cost:.6f}, "
-                f"confidence={confidence}"
+                f"confidence={confidence}, ai_confidence={ai_confidence}"
             )
 
             return AIResult(
@@ -942,7 +1036,8 @@ class ClaudeProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1002,7 +1097,10 @@ class ClaudeProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.content[0].text.strip()
+            raw_response = response.content[0].text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             input_tokens = response.usage.input_tokens
@@ -1031,6 +1129,7 @@ class ClaudeProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1042,7 +1141,8 @@ class ClaudeProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1116,7 +1216,10 @@ class GeminiProvider(AIProviderBase):
                 finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
                 raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
 
-            description = response.text.strip()
+            raw_response = response.text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Gemini doesn't provide detailed usage stats in all cases
             tokens_used = 150  # Estimate
@@ -1127,7 +1230,7 @@ class GeminiProvider(AIProviderBase):
 
             logger.info(
                 f"Gemini success: {elapsed_ms}ms, ~{tokens_used} tokens, ${cost:.6f}, "
-                f"confidence={confidence}"
+                f"confidence={confidence}, ai_confidence={ai_confidence}"
             )
 
             return AIResult(
@@ -1138,7 +1241,8 @@ class GeminiProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1196,7 +1300,10 @@ class GeminiProvider(AIProviderBase):
                 finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
                 raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
 
-            description = response.text.strip()
+            raw_response = response.text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Gemini doesn't provide detailed usage stats in all cases
             # Estimate based on number of images (more images = more tokens)
@@ -1217,6 +1324,7 @@ class GeminiProvider(AIProviderBase):
                     "tokens_used": tokens_used,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1228,7 +1336,8 @@ class GeminiProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1480,7 +1589,10 @@ class GeminiProvider(AIProviderBase):
             finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
             raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
 
-        description = response.text.strip()
+        raw_response = response.text.strip()
+
+        # Story P3-6.1: Parse response for description and AI confidence
+        description, ai_confidence = self._parse_confidence_response(raw_response)
 
         # Estimate token usage: ~258 tokens/frame at 1fps
         estimated_frames = int(video_duration_seconds) if video_duration_seconds > 0 else 10
@@ -1501,7 +1613,8 @@ class GeminiProvider(AIProviderBase):
                 "response_time_ms": elapsed_ms,
                 "tokens_used": tokens_used,
                 "cost_usd": cost,
-                "confidence": confidence
+                "confidence": confidence,
+                "ai_confidence": ai_confidence
             }
         )
 
@@ -1513,7 +1626,8 @@ class GeminiProvider(AIProviderBase):
             tokens_used=tokens_used,
             response_time_ms=elapsed_ms,
             cost_estimate=cost,
-            success=True
+            success=True,
+            ai_confidence=ai_confidence
         )
 
     async def _describe_video_file_api(
@@ -1606,7 +1720,10 @@ class GeminiProvider(AIProviderBase):
             finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
             raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
 
-        description = response.text.strip()
+        raw_response = response.text.strip()
+
+        # Story P3-6.1: Parse response for description and AI confidence
+        description, ai_confidence = self._parse_confidence_response(raw_response)
 
         # Estimate token usage
         estimated_frames = int(video_duration_seconds) if video_duration_seconds > 0 else 10
@@ -1627,7 +1744,8 @@ class GeminiProvider(AIProviderBase):
                 "response_time_ms": elapsed_ms,
                 "tokens_used": tokens_used,
                 "cost_usd": cost,
-                "confidence": confidence
+                "confidence": confidence,
+                "ai_confidence": ai_confidence
             }
         )
 
@@ -1645,7 +1763,8 @@ class GeminiProvider(AIProviderBase):
             tokens_used=tokens_used,
             response_time_ms=elapsed_ms,
             cost_estimate=cost,
-            success=True
+            success=True,
+            ai_confidence=ai_confidence
         )
 
     async def _get_video_duration(self, video_path: "Path") -> float:
@@ -1878,7 +1997,10 @@ class GrokProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -1907,6 +2029,7 @@ class GrokProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1918,7 +2041,8 @@ class GrokProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1984,7 +2108,10 @@ class GrokProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -2015,6 +2142,7 @@ class GrokProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -2041,7 +2169,8 @@ class GrokProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:

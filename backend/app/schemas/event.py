@@ -32,6 +32,9 @@ class EventCreate(BaseModel):
     frame_count_used: Optional[int] = Field(None, ge=1, le=10, description="Number of frames sent to AI for multi-frame analysis")
     # Story P3-5.3: Audio transcription for doorbell cameras
     audio_transcription: Optional[str] = Field(None, description="Transcribed speech from doorbell audio")
+    # Story P3-6.1: AI confidence scoring
+    ai_confidence: Optional[int] = Field(None, ge=0, le=100, description="AI self-reported confidence score (0-100)")
+    low_confidence: bool = Field(default=False, description="True if ai_confidence < 50, flagging uncertain descriptions")
 
     @field_validator('objects_detected')
     @classmethod
@@ -99,6 +102,9 @@ class EventResponse(BaseModel):
     frame_count_used: Optional[int] = Field(None, description="Number of frames sent to AI for multi-frame analysis")
     # Story P3-5.3: Audio transcription for doorbell cameras
     audio_transcription: Optional[str] = Field(None, description="Transcribed speech from doorbell audio")
+    # Story P3-6.1: AI confidence scoring
+    ai_confidence: Optional[int] = Field(None, ge=0, le=100, description="AI self-reported confidence score (0-100)")
+    low_confidence: bool = Field(default=False, description="True if ai_confidence < 50, flagging uncertain descriptions")
 
     @field_validator('objects_detected', mode='before')
     @classmethod

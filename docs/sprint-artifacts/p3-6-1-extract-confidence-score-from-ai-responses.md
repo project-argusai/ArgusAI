@@ -6,83 +6,83 @@
 **I want** AI to return confidence scores with descriptions,
 **So that** uncertain descriptions can be identified and users can prioritize which events may need attention.
 
-## Status: ready-for-dev
+## Status: done
 
 ## Acceptance Criteria
 
 ### AC1: Prompt AI for Confidence Score
-- [ ] Given AI analysis request (single-frame, multi-frame, or video)
-- [ ] When prompt is sent to any provider
-- [ ] Then includes instruction: "Rate your confidence in this description from 0 to 100"
-- [ ] And requests structured response format with description and confidence
+- [x] Given AI analysis request (single-frame, multi-frame, or video)
+- [x] When prompt is sent to any provider
+- [x] Then includes instruction: "Rate your confidence in this description from 0 to 100"
+- [x] And requests structured response format with description and confidence
 
 ### AC2: Parse Confidence from AI Response
-- [ ] Given AI response with confidence value
-- [ ] When response is parsed
-- [ ] Then extracts `description` (text) and `confidence` (0-100 integer)
-- [ ] And validates confidence is within valid range
-- [ ] And stores both in event record
+- [x] Given AI response with confidence value
+- [x] When response is parsed
+- [x] Then extracts `description` (text) and `confidence` (0-100 integer)
+- [x] And validates confidence is within valid range
+- [x] And stores both in event record
 
 ### AC3: Flag Low Confidence Events
-- [ ] Given AI returns confidence < 50
-- [ ] When event is saved
-- [ ] Then flags event as `low_confidence: true`
-- [ ] And confidence value is stored for display
+- [x] Given AI returns confidence < 50
+- [x] When event is saved
+- [x] Then flags event as `low_confidence: true`
+- [x] And confidence value is stored for display
 
 ### AC4: Handle Missing or Invalid Confidence
-- [ ] Given AI doesn't return valid confidence
-- [ ] When parsing fails or confidence is missing
-- [ ] Then defaults to `confidence: null`
-- [ ] And event is NOT flagged as low confidence (benefit of doubt)
-- [ ] And logs warning about missing confidence
+- [x] Given AI doesn't return valid confidence
+- [x] When parsing fails or confidence is missing
+- [x] Then defaults to `confidence: null`
+- [x] And event is NOT flagged as low confidence (benefit of doubt)
+- [x] And logs warning about missing confidence
 
 ### AC5: Support All AI Providers
-- [ ] Given confidence extraction logic
-- [ ] When applied to OpenAI, Claude, Gemini, and Grok responses
-- [ ] Then all providers return confidence scores consistently
-- [ ] And provider-specific response parsing handles variations
+- [x] Given confidence extraction logic
+- [x] When applied to OpenAI, Claude, Gemini, and Grok responses
+- [x] Then all providers return confidence scores consistently
+- [x] And provider-specific response parsing handles variations
 
 ### AC6: Store Confidence in Event Model
-- [ ] Given event with confidence score
-- [ ] When event is saved to database
-- [ ] Then `confidence` field (0-100) contains the score
-- [ ] And `low_confidence` boolean field is set appropriately
-- [ ] And both fields are retrievable via Event API
+- [x] Given event with confidence score
+- [x] When event is saved to database
+- [x] Then `ai_confidence` field (0-100) contains the score
+- [x] And `low_confidence` boolean field is set appropriately
+- [x] And both fields are retrievable via Event API
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Add Confidence Fields to Event Model** (AC: 6)
-  - [ ] Create Alembic migration to add `ai_confidence` INTEGER and `low_confidence` BOOLEAN columns
-  - [ ] Update Event SQLAlchemy model with new fields
-  - [ ] Update EventResponse Pydantic schema to include both fields
-  - [ ] Run migration and verify columns exist
+- [x] **Task 1: Add Confidence Fields to Event Model** (AC: 6)
+  - [x] Create Alembic migration to add `ai_confidence` INTEGER and `low_confidence` BOOLEAN columns
+  - [x] Update Event SQLAlchemy model with new fields
+  - [x] Update EventResponse Pydantic schema to include both fields
+  - [x] Run migration and verify columns exist
 
-- [ ] **Task 2: Modify AI Prompts to Request Confidence** (AC: 1, 5)
-  - [ ] Update `_build_user_prompt()` to request confidence rating
-  - [ ] Update `_build_multi_image_prompt()` to request confidence rating
-  - [ ] Add response format instructions (JSON with description + confidence)
-  - [ ] Ensure prompt changes apply to all providers
+- [x] **Task 2: Modify AI Prompts to Request Confidence** (AC: 1, 5)
+  - [x] Update `_build_user_prompt()` to request confidence rating
+  - [x] Update `_build_multi_image_prompt()` to request confidence rating
+  - [x] Add response format instructions (JSON with description + confidence)
+  - [x] Ensure prompt changes apply to all providers
 
-- [ ] **Task 3: Implement Response Parsing for Confidence** (AC: 2, 4, 5)
-  - [ ] Create response parsing logic to extract confidence from AI responses
-  - [ ] Handle JSON response format: `{"description": "...", "confidence": 85}`
-  - [ ] Handle plain text with confidence mentioned (fallback parsing)
-  - [ ] Validate confidence is 0-100, set to null if invalid
-  - [ ] Add provider-specific parsing if needed (response format variations)
+- [x] **Task 3: Implement Response Parsing for Confidence** (AC: 2, 4, 5)
+  - [x] Create response parsing logic to extract confidence from AI responses
+  - [x] Handle JSON response format: `{"description": "...", "confidence": 85}`
+  - [x] Handle plain text with confidence mentioned (fallback parsing)
+  - [x] Validate confidence is 0-100, set to null if invalid
+  - [x] Add provider-specific parsing if needed (response format variations)
 
-- [ ] **Task 4: Integrate Confidence into Event Pipeline** (AC: 2, 3, 6)
-  - [ ] Modify `protect_event_handler.py` to capture confidence from AI response
-  - [ ] Set `low_confidence = True` when confidence < 50
-  - [ ] Pass confidence through to event storage
-  - [ ] Update `_store_protect_event` to save confidence fields
+- [x] **Task 4: Integrate Confidence into Event Pipeline** (AC: 2, 3, 6)
+  - [x] Modify `protect_event_handler.py` to capture confidence from AI response
+  - [x] Set `low_confidence = True` when confidence < 50
+  - [x] Pass confidence through to event storage
+  - [x] Update `_store_protect_event` to save confidence fields
 
-- [ ] **Task 5: Write Unit Tests** (AC: 1, 2, 3, 4, 5, 6)
-  - [ ] Test prompt includes confidence instruction
-  - [ ] Test JSON response parsing extracts confidence
-  - [ ] Test low_confidence flag set when score < 50
-  - [ ] Test null confidence handling
-  - [ ] Test all providers return confidence
-  - [ ] Test event stores confidence correctly
+- [x] **Task 5: Write Unit Tests** (AC: 1, 2, 3, 4, 5, 6)
+  - [x] Test prompt includes confidence instruction
+  - [x] Test JSON response parsing extracts confidence
+  - [x] Test low_confidence flag set when score < 50
+  - [x] Test null confidence handling
+  - [x] Test all providers return confidence
+  - [x] Test event stores confidence correctly
 
 ## Dev Notes
 
@@ -204,14 +204,14 @@ def parse_confidence_response(response_text: str) -> tuple[str, Optional[int]]:
 
 ## Definition of Done
 
-- [ ] `ai_confidence` and `low_confidence` fields added to Event model and schema
-- [ ] Database migration created and applied
-- [ ] AI prompts request confidence rating in structured format
-- [ ] Response parsing extracts confidence from all providers
-- [ ] Low confidence events flagged when score < 50
-- [ ] Event API returns confidence fields
-- [ ] Unit tests pass with >80% coverage
-- [ ] No TypeScript/Python errors
+- [x] `ai_confidence` and `low_confidence` fields added to Event model and schema
+- [x] Database migration created and applied
+- [x] AI prompts request confidence rating in structured format
+- [x] Response parsing extracts confidence from all providers
+- [x] Low confidence events flagged when score < 50
+- [x] Event API returns confidence fields
+- [x] Unit tests pass with >80% coverage
+- [x] No TypeScript/Python errors
 
 ## Dev Agent Record
 
@@ -221,15 +221,41 @@ def parse_confidence_response(response_text: str) -> tuple[str, Optional[int]]:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.5 (claude-opus-4-5-20251101)
 
 ### Debug Log References
 
+None
+
 ### Completion Notes List
 
+1. Created Alembic migration 019_add_ai_confidence_to_events.py adding ai_confidence INTEGER and low_confidence BOOLEAN columns
+2. Updated Event SQLAlchemy model with ai_confidence and low_confidence fields
+3. Updated EventCreate and EventResponse Pydantic schemas with ai_confidence and low_confidence fields
+4. Added CONFIDENCE_INSTRUCTION constant to ai_service.py with structured JSON response format
+5. Modified _build_user_prompt() and _build_multi_image_prompt() to append CONFIDENCE_INSTRUCTION
+6. Created _parse_confidence_response() method in AIProviderBase with JSON and fallback plain text parsing
+7. Updated all 4 providers (OpenAI, Claude, Gemini, Grok) to use confidence parsing and include ai_confidence in AIResult
+8. Updated AIResult dataclass with optional ai_confidence field
+9. Updated protect_event_handler._store_protect_event() to calculate low_confidence flag and store both fields
+10. Created comprehensive test suite (30 tests) in test_confidence_extraction.py
+11. Fixed test_retry_with_backoff test mock to include audio_transcription parameter
+
 ### File List
+
+**Created:**
+- backend/alembic/versions/019_add_ai_confidence_to_events.py
+- backend/tests/test_services/test_confidence_extraction.py
+
+**Modified:**
+- backend/app/models/event.py - Added ai_confidence, low_confidence columns
+- backend/app/schemas/event.py - Added ai_confidence, low_confidence fields to EventCreate and EventResponse
+- backend/app/services/ai_service.py - Added CONFIDENCE_INSTRUCTION, _parse_confidence_response(), updated all providers
+- backend/app/services/protect_event_handler.py - Store ai_confidence and low_confidence in events
+- backend/tests/test_services/test_ai_service.py - Fixed test mock signature
 
 ## Change Log
 
 - 2025-12-08: Story drafted from sprint-status backlog
 - 2025-12-08: Story context generated, status changed to ready-for-dev
+- 2025-12-08: Implementation complete, all 30 tests passing, status changed to done

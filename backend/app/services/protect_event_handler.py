@@ -1784,7 +1784,11 @@ class ProtectEventHandler:
             # Story P3-5.3 AC6: Get audio transcription from instance or parameter
             effective_audio_transcription = audio_transcription or getattr(self, '_last_audio_transcription', None)
 
-            # Create Event record (AC5-9, P2-4.1 AC3, AC5, P3-1.4 AC2, P3-2.6 AC4, P3-5.3 AC6)
+            # Story P3-6.1: Determine low_confidence flag
+            ai_confidence = getattr(ai_result, 'ai_confidence', None)
+            low_confidence = ai_confidence is not None and ai_confidence < 50
+
+            # Create Event record (AC5-9, P2-4.1 AC3, AC5, P3-1.4 AC2, P3-2.6 AC4, P3-5.3 AC6, P3-6.1 AC3/AC6)
             event = Event(
                 camera_id=camera.id,
                 timestamp=snapshot_result.timestamp,
@@ -1804,7 +1808,10 @@ class ProtectEventHandler:
                 analysis_mode=getattr(self, '_last_analysis_mode', 'single_frame'),
                 frame_count_used=getattr(self, '_last_frame_count', None),
                 # Story P3-5.3 AC6: Store audio transcription
-                audio_transcription=effective_audio_transcription
+                audio_transcription=effective_audio_transcription,
+                # Story P3-6.1 AC3/AC6: Store AI confidence scoring
+                ai_confidence=ai_confidence,
+                low_confidence=low_confidence
             )
 
             # Story P3-1.4: Use pre-generated event ID if provided
@@ -1829,7 +1836,10 @@ class ProtectEventHandler:
                     "frame_count_used": event.frame_count_used,
                     "fallback_reason": event.fallback_reason,
                     # Story P3-5.3: Log audio transcription info
-                    "has_audio_transcription": bool(event.audio_transcription)
+                    "has_audio_transcription": bool(event.audio_transcription),
+                    # Story P3-6.1: Log AI confidence info
+                    "ai_confidence": event.ai_confidence,
+                    "low_confidence": event.low_confidence
                 }
             )
 

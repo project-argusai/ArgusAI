@@ -33,6 +33,8 @@ class Event(Base):
         analysis_mode: Analysis mode used - "single_frame", "multi_frame", "video_native" (Story P3-2.6)
         frame_count_used: Number of frames sent to AI for multi-frame analysis (Story P3-2.6)
         audio_transcription: Transcribed speech from doorbell audio (Story P3-5.3)
+        ai_confidence: AI self-reported confidence score (0-100) (Story P3-6.1)
+        low_confidence: True if ai_confidence < 50, flagging uncertain descriptions (Story P3-6.1)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -67,6 +69,9 @@ class Event(Base):
     frame_count_used = Column(Integer, nullable=True)  # Number of frames sent to AI (null for single-frame)
     # Story P3-5.3: Audio transcription for doorbell cameras
     audio_transcription = Column(Text, nullable=True)  # Transcribed speech from doorbell audio
+    # Story P3-6.1: AI confidence scoring
+    ai_confidence = Column(Integer, nullable=True)  # 0-100 AI self-reported confidence (null = not available)
+    low_confidence = Column(Boolean, nullable=False, default=False)  # True if ai_confidence < 50
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

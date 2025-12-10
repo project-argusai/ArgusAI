@@ -1,0 +1,185 @@
+<story-context id="p3-7-5-display-key-frames-gallery-on-event-detail" v="1.0">
+  <metadata>
+    <epicId>P3-7</epicId>
+    <storyId>5</storyId>
+    <title>Display Key Frames Gallery on Event Detail</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-10</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-7-5-display-key-frames-gallery-on-event-detail.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user viewing event details</asA>
+    <iWant>to see the frames used for AI analysis</iWant>
+    <soThat>I understand what the AI saw when generating the description</soThat>
+    <tasks>
+      <task id="1" ac="6">Add Key Frames Fields to Event Model - key_frames_base64 (Text, nullable, JSON array), frame_timestamps (Text, nullable, JSON array), Alembic migration, EventResponse schema update</task>
+      <task id="2" ac="4,6">Add STORE_ANALYSIS_FRAMES System Setting - default true, settings API, UI toggle</task>
+      <task id="3" ac="6">Integrate Frame Storage into Event Pipeline - event_processor.py, 320px thumbnails, base64 JSON array, frame timestamps</task>
+      <task id="4" ac="1,5">Build KeyFramesGallery React Component - horizontal scrollable, timestamp overlay, click-to-enlarge, keyboard navigation, frame index</task>
+      <task id="5" ac="1,2,3,4">Integrate Gallery into EventDetailModal - conditional rendering by analysis_mode, "Frames not stored" handling</task>
+      <task id="6" ac="1,2,3,4">Update IEvent TypeScript Type - key_frames_base64?, frame_timestamps?</task>
+      <task id="7" ac="6">Write Backend Tests - frame storage enabled/disabled, thumbnail generation, timestamps</task>
+      <task id="8" ac="1,5">Write Frontend Tests - gallery rendering, keyboard nav, click-to-enlarge, empty state</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Multi-Frame Gallery Display">
+      <given>event analyzed with multi_frame mode</given>
+      <when>event detail view opened</when>
+      <then>shows gallery of extracted frames in chronological order with timestamp overlay</then>
+    </ac>
+    <ac id="2" title="Single-Frame Display">
+      <given>event used single_frame mode</given>
+      <when>detail view opened</when>
+      <then>shows single thumbnail labeled "Single frame analysis"</then>
+    </ac>
+    <ac id="3" title="Video Native Display">
+      <given>event used video_native mode</given>
+      <when>detail view opened</when>
+      <then>shows "Full video analyzed" indicator with optional key frames</then>
+    </ac>
+    <ac id="4" title="Frame Storage Setting">
+      <given>frames not stored (storage disabled)</given>
+      <when>detail view opened</when>
+      <then>shows "Frames not stored" message explaining storage setting</then>
+    </ac>
+    <ac id="5" title="Frame Gallery UI">
+      <given>multi-frame event with stored frames</given>
+      <when>gallery displayed</when>
+      <then>frames clickable for enlarged view, current frame index shown, keyboard navigation supported</then>
+    </ac>
+    <ac id="6" title="Backend Key Frames Storage">
+      <given>AI analysis completes with multi_frame mode</given>
+      <when>event is saved</when>
+      <then>key_frames_base64 stores JSON array of frame thumbnails, frame_timestamps stores extraction timestamps, storage conditional on STORE_ANALYSIS_FRAMES setting</then>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epics" section="Story P3-7.5">
+        Story definition: Display Key Frames Gallery on Event Detail. Covers FR39: Event cards can display key frames used for analysis (optional).
+      </doc>
+      <doc path="docs/architecture.md" title="System Architecture" section="Event Model">
+        Event model already includes analysis_mode, frame_count_used, thumbnail_base64/thumbnail_path fields. Follow same pattern for key_frames storage.
+      </doc>
+      <doc path="docs/sprint-artifacts/p3-7-4-add-cost-alerts-and-notifications.md" title="Previous Story" section="Dev Agent Record">
+        Previous story completed: CostAlertService created, migration 025 added, event pipeline integration pattern at event_processor.py:678-693.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" reason="Add key_frames_base64 and frame_timestamps fields">
+        Event model with analysis_mode (line 73), frame_count_used (line 74), thumbnail_base64 (line 55). Add new fields for key frames storage.
+      </file>
+      <file path="backend/app/schemas/event.py" kind="schema" symbol="EventResponse" reason="Add key_frames_base64 and frame_timestamps to response">
+        EventResponse schema at line 78-147. Add new optional fields for key frames.
+      </file>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor._store_event_with_retry" lines="720-799" reason="Add frame storage logic when STORE_ANALYSIS_FRAMES enabled">
+        Event storage happens here. Add key_frames_base64 and frame_timestamps to event_data before storage.
+      </file>
+      <file path="backend/app/services/frame_extractor.py" kind="service" symbol="FrameExtractor" reason="Use for frame thumbnail generation">
+        Extracts frames at 1280px. Reuse _encode_frame method with modified width (320px) for storage thumbnails.
+      </file>
+      <file path="backend/app/models/system_setting.py" kind="model" symbol="SystemSetting" reason="Add STORE_ANALYSIS_FRAMES setting">
+        Key-value store for system settings. Add new key for frame storage toggle.
+      </file>
+      <file path="frontend/components/events/EventDetailModal.tsx" kind="component" symbol="EventDetailModal" reason="Integrate KeyFramesGallery component">
+        Current modal at 435 lines. Add KeyFramesGallery below existing thumbnail section.
+      </file>
+      <file path="frontend/types/event.ts" kind="type" symbol="IEvent" reason="Add key_frames_base64 and frame_timestamps fields">
+        IEvent interface at line 34-70. Add optional array fields for key frames.
+      </file>
+      <file path="backend/tests/test_services/test_frame_extractor.py" kind="test" reason="Reference for frame extraction test patterns">
+        Existing frame extractor tests. Follow same patterns for key frames storage tests.
+      </file>
+      <file path="frontend/__tests__/components/events/AnalysisModeBadge.test.tsx" kind="test" reason="Reference for event component test patterns">
+        Existing event component tests using Vitest. Follow same patterns for KeyFramesGallery tests.
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <pkg name="fastapi" version="0.115.0">Web framework</pkg>
+        <pkg name="sqlalchemy" version=">=2.0.36">ORM for Event model</pkg>
+        <pkg name="alembic" version=">=1.14.0">Database migrations</pkg>
+        <pkg name="pillow" version=">=10.0.0">Image processing for thumbnail resize</pkg>
+        <pkg name="opencv-python" version=">=4.12.0">Frame processing</pkg>
+        <pkg name="av" version=">=12.0.0">PyAV for video frame extraction</pkg>
+        <pkg name="pytest" version="7.4.3">Testing framework</pkg>
+        <pkg name="pytest-asyncio" version="0.21.1">Async test support</pkg>
+      </python>
+      <node>
+        <pkg name="next" version="16.0.7">React framework</pkg>
+        <pkg name="react" version="19.2.0">UI library</pkg>
+        <pkg name="@radix-ui/react-dialog" version="^1.1.15">Modal component</pkg>
+        <pkg name="lucide-react" version="^0.553.0">Icons (Images, ChevronLeft, ChevronRight)</pkg>
+        <pkg name="vitest" version="^4.0.15">Testing framework</pkg>
+        <pkg name="@testing-library/react" version="^16.3.0">Component testing</pkg>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="storage">Key frames stored as base64 JSON array in Event.key_frames_base64 field. Reduce to 320px width, 70% JPEG quality to minimize storage (~100-200KB per event with 5 frames).</constraint>
+    <constraint type="database">Use Alembic migration 026 for new columns. Follow existing pattern from migration 025.</constraint>
+    <constraint type="api">Add key_frames_base64 and frame_timestamps to EventResponse schema. Both optional, nullable.</constraint>
+    <constraint type="frontend">KeyFramesGallery component must support keyboard navigation (left/right arrows) per AC5. Use existing Dialog component pattern for enlarged view.</constraint>
+    <constraint type="setting">STORE_ANALYSIS_FRAMES defaults to true. Storage is conditional - skip when setting disabled.</constraint>
+    <constraint type="performance">Frame thumbnail generation should not block event processing. Use existing frame extractor with reduced dimensions.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="Event.key_frames_base64" kind="model field">
+      <signature>key_frames_base64 = Column(Text, nullable=True)  # JSON array of base64 strings</signature>
+      <path>backend/app/models/event.py</path>
+    </interface>
+    <interface name="Event.frame_timestamps" kind="model field">
+      <signature>frame_timestamps = Column(Text, nullable=True)  # JSON array of float seconds</signature>
+      <path>backend/app/models/event.py</path>
+    </interface>
+    <interface name="EventResponse.key_frames_base64" kind="schema field">
+      <signature>key_frames_base64: Optional[List[str]] = Field(None, description="Base64-encoded key frames used for analysis")</signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface name="IEvent.key_frames_base64" kind="typescript field">
+      <signature>key_frames_base64?: string[] | null;  // Base64-encoded key frames</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+    <interface name="KeyFramesGallery" kind="react component">
+      <signature>interface KeyFramesGalleryProps { frames: string[]; timestamps?: number[]; analysisMode: AnalysisMode | null; }</signature>
+      <path>frontend/components/events/KeyFramesGallery.tsx</path>
+    </interface>
+    <interface name="STORE_ANALYSIS_FRAMES" kind="system setting">
+      <signature>Key: "store_analysis_frames", Value: "true" | "false", Default: "true"</signature>
+      <path>backend/app/models/system_setting.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Follow existing test patterns in backend/tests/test_services/. Mock database with SQLite in-memory. Use fixtures for test events.
+      Frontend: Vitest with @testing-library/react. Follow existing patterns in frontend/__tests__/components/events/. Mock API responses, test user interactions.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_key_frames_storage.py</location>
+      <location>backend/tests/test_models/test_event.py</location>
+      <location>frontend/__tests__/components/events/KeyFramesGallery.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test KeyFramesGallery renders 5 frames with timestamps for multi_frame event</idea>
+      <idea ac="2">Test EventDetailModal shows single thumbnail with "Single frame analysis" label</idea>
+      <idea ac="3">Test EventDetailModal shows "Full video analyzed" for video_native mode</idea>
+      <idea ac="4">Test EventDetailModal shows "Frames not stored" when key_frames_base64 is null</idea>
+      <idea ac="5">Test keyboard navigation: left arrow decrements frame, right arrow increments</idea>
+      <idea ac="5">Test click-to-enlarge opens modal with full-size frame</idea>
+      <idea ac="6">Test frame storage when STORE_ANALYSIS_FRAMES=true: key_frames_base64 populated</idea>
+      <idea ac="6">Test frame storage when STORE_ANALYSIS_FRAMES=false: key_frames_base64 is null</idea>
+      <idea ac="6">Test frame thumbnails are reduced to 320px width</idea>
+      <idea ac="6">Test frame_timestamps contains correct extraction times</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -30,5 +30,8 @@ class AIUsage(Base):
     analysis_mode = Column(String(20), nullable=True, index=True)  # "single_image", "multi_frame"
     is_estimated = Column(Boolean, nullable=False, default=False)  # True if tokens are estimated
 
+    # Phase 3 Cost Tracking fields (Story P3-7.1)
+    image_count = Column(Integer, nullable=True)  # Number of images in multi-image requests
+
     def __repr__(self):
         return f"<AIUsage(provider='{self.provider}', success={self.success}, tokens={self.tokens_used}, mode={self.analysis_mode})>"

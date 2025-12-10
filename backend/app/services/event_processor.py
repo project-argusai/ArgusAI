@@ -40,6 +40,8 @@ from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService
+from app.services.cost_cap_service import get_cost_cap_service
+from app.services.cost_alert_service import get_cost_alert_service
 from app.core.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -552,6 +554,39 @@ class EventProcessor:
             True if processing succeeded, False otherwise
         """
         try:
+            # Story P3-7.3: Check cost caps before AI analysis
+            cost_cap_service = get_cost_cap_service()
+            db = SessionLocal()
+            try:
+                can_analyze, skip_reason = cost_cap_service.can_analyze(db)
+            finally:
+                db.close()
+
+            if not can_analyze:
+                logger.info(
+                    f"AI analysis skipped for camera {event.camera_name} due to {skip_reason}",
+                    extra={"camera_id": event.camera_id, "skip_reason": skip_reason}
+                )
+                self.metrics.increment_error(f"cost_cap_{skip_reason}")
+
+                # Store event without AI description, with skip reason
+                thumbnail_base64 = self._generate_thumbnail(event.frame)
+                event_data = {
+                    "camera_id": event.camera_id,
+                    "timestamp": event.timestamp.isoformat(),
+                    "description": f"AI analysis paused - {skip_reason.replace('_', ' ')}",
+                    "confidence": 0,
+                    "objects_detected": event.detected_objects,
+                    "thumbnail_base64": thumbnail_base64,
+                    "alert_triggered": False,
+                    "provider_used": None,
+                    "description_retry_needed": True,  # Can retry when cap resets
+                    "analysis_skipped_reason": skip_reason  # Story P3-7.3: Track skip reason
+                }
+
+                success = await self._store_event_with_retry(event_data, max_retries=3)
+                return success
+
             # Step 1: Generate AI description
             logger.debug(f"Worker {worker_id}: Calling AI service for camera {event.camera_name}")
 
@@ -619,7 +654,8 @@ class EventProcessor:
                 "thumbnail_base64": thumbnail_base64,
                 "alert_triggered": False,  # Will be set by alert evaluation (Epic 5)
                 "provider_used": ai_result.provider,  # Story P2-5.3: Track AI provider
-                "description_retry_needed": False  # Successfully processed
+                "description_retry_needed": False,  # Successfully processed
+                "ai_cost": ai_result.cost_estimate  # Story P3-7.1: Track AI cost
             }
 
             logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
@@ -638,6 +674,23 @@ class EventProcessor:
 
             # Step 4 (Stub): WebSocket broadcast (Epic 4 feature)
             # TODO: Integrate with websocket_manager.broadcast_event(event)
+
+            # Step 5: Check cost thresholds and send alerts (Story P3-7.4)
+            try:
+                cost_alert_service = get_cost_alert_service()
+                with SessionLocal() as db:
+                    alerts = await cost_alert_service.check_and_notify(db)
+                    if alerts:
+                        logger.info(
+                            f"Cost alerts triggered: {len(alerts)} notifications sent",
+                            extra={"alert_count": len(alerts)}
+                        )
+            except Exception as alert_error:
+                # Cost alert failures should not block event processing
+                logger.warning(
+                    f"Failed to check cost alerts: {alert_error}",
+                    extra={"error": str(alert_error)}
+                )
 
             logger.info(
                 f"Event processed successfully for camera {event.camera_name}",
@@ -743,6 +796,7 @@ class EventProcessor:
                     alert_triggered=event_data.get("alert_triggered", False),
                     provider_used=event_data.get("provider_used"),  # Story P2-5.3: AI provider tracking
                     description_retry_needed=event_data.get("description_retry_needed", False),  # Story P2-6.3 AC13
+                    ai_cost=event_data.get("ai_cost"),  # Story P3-7.1: AI cost tracking
                 )
 
                 db.add(event)

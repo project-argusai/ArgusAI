@@ -27,6 +27,7 @@ import {
 import type { IEvent } from '@/types/event';
 import { getConfidenceColor, getConfidenceLevel } from '@/types/event';
 import { useDeleteEvent } from '@/lib/hooks/useEvents';
+import { KeyFramesGallery } from './KeyFramesGallery';
 import {
   Dialog,
   DialogContent,
@@ -389,6 +390,14 @@ export function EventDetailModal({
                 })}
               </div>
             </div>
+          )}
+
+          {/* Story P3-7.5: Key Frames Gallery for multi-frame analysis */}
+          {event.key_frames_base64 && event.key_frames_base64.length > 0 && (
+            <KeyFramesGallery
+              frames={event.key_frames_base64}
+              timestamps={event.frame_timestamps || []}
+            />
           )}
 
           <DialogFooter className="flex-col sm:flex-row gap-2">

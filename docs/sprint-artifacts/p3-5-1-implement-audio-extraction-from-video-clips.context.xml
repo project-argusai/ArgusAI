@@ -1,0 +1,186 @@
+<story-context id="p3-5-1-implement-audio-extraction-from-video-clips" v="1.0">
+  <metadata>
+    <epicId>P3-5</epicId>
+    <storyId>1</storyId>
+    <title>Implement Audio Extraction from Video Clips</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-07</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-5-1-implement-audio-extraction-from-video-clips.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to extract audio tracks from video clips</iWant>
+    <soThat>audio can be analyzed separately for speech transcription in doorbell events</soThat>
+    <tasks>
+      <task id="1" title="Create AudioExtractor Service" ac="1,4">
+        <subtask>Create backend/app/services/audio_extractor.py</subtask>
+        <subtask>Implement AudioExtractor class with singleton pattern (matching FrameExtractor)</subtask>
+        <subtask>Add get_audio_extractor() and reset_audio_extractor() functions</subtask>
+        <subtask>Configure logging with structured JSON format</subtask>
+      </task>
+      <task id="2" title="Implement extract_audio Method" ac="1,2,3">
+        <subtask>Use PyAV (av library) to open video container</subtask>
+        <subtask>Check for audio stream: container.streams.audio[0]</subtask>
+        <subtask>If no audio stream, return None and log appropriately (AC2)</subtask>
+        <subtask>Decode audio frames and resample to 16kHz mono WAV</subtask>
+        <subtask>Use io.BytesIO to create WAV bytes in memory</subtask>
+        <subtask>Ensure extraction completes within 2 seconds (performance requirement)</subtask>
+      </task>
+      <task id="3" title="Implement Audio Level Detection" ac="3,5">
+        <subtask>Calculate RMS level or peak amplitude from decoded audio</subtask>
+        <subtask>Log audio level metrics for diagnostics</subtask>
+        <subtask>Define silence threshold (e.g., RMS less than -50dB)</subtask>
+        <subtask>Return audio bytes even if silent (downstream handles silence)</subtask>
+      </task>
+      <task id="4" title="Add Error Handling" ac="1,2">
+        <subtask>Handle FileNotFoundError gracefully</subtask>
+        <subtask>Handle av.FFmpegError for corrupt files</subtask>
+        <subtask>Handle missing audio codecs</subtask>
+        <subtask>Return None on any error (never raise)</subtask>
+        <subtask>Log errors with structured format</subtask>
+      </task>
+      <task id="5" title="Write Unit Tests" ac="1,2,3,4">
+        <subtask>Create backend/tests/test_services/test_audio_extractor.py</subtask>
+        <subtask>Test extraction from video with audio track</subtask>
+        <subtask>Test extraction from video without audio track</subtask>
+        <subtask>Test silent audio track handling</subtask>
+        <subtask>Test singleton pattern behavior</subtask>
+        <subtask>Test error handling for missing/corrupt files</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Extract Audio from Video Clip with Audio Track">
+      <given>A video clip with an audio track</given>
+      <when>AudioExtractor.extract_audio(clip_path) is called</when>
+      <then>Returns audio as WAV bytes (16kHz, mono)</then>
+      <and>Extraction completes within 2 seconds</and>
+    </ac>
+    <ac id="2" title="Handle Video Clips Without Audio Track">
+      <given>A video clip with no audio track</given>
+      <when>Extraction is attempted</when>
+      <then>Returns None</then>
+      <and>Logs "No audio track found in clip"</and>
+    </ac>
+    <ac id="3" title="Handle Silent Audio Tracks">
+      <given>Audio track exists but is completely silent</given>
+      <when>Extraction and analysis occur</when>
+      <then>Returns audio bytes (let downstream transcription handle silence)</then>
+      <and>Logs audio level metrics for diagnostics</and>
+    </ac>
+    <ac id="4" title="Singleton Pattern and Initialization">
+      <requirement>AudioExtractor follows singleton pattern matching FrameExtractor</requirement>
+      <requirement>Provides get_audio_extractor() function</requirement>
+      <requirement>Provides reset_audio_extractor() function for testing</requirement>
+    </ac>
+    <ac id="5" title="Audio Level Detection">
+      <requirement>Detect if extracted audio has content (not silent)</requirement>
+      <requirement>Calculate RMS level or peak amplitude</requirement>
+      <requirement>Log audio level for diagnostics</requirement>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epics" section="Epic P3-5: Audio Analysis for Doorbells">
+        Story P3-5.1 defines audio extraction requirements: extract audio tracks from video clips for transcription, output as WAV (16kHz mono), handle clips with no audio gracefully.
+      </doc>
+      <doc path="docs/PRD-phase3.md" title="Phase 3 PRD" section="Audio Analysis Requirements">
+        FR23: System can extract audio track from video clips. FR26: System handles clips with no audio gracefully. FR24-FR25 cover transcription and context integration (future stories).
+      </doc>
+      <doc path="CLAUDE.md" title="Developer Guide" section="Project Overview">
+        Documents PyAV usage for video processing, service layer patterns, async/await for I/O, structured JSON logging with python-json-logger.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/frame_extractor.py" kind="service" symbol="FrameExtractor" lines="1-580" reason="Primary pattern reference - AudioExtractor should follow this exact pattern: singleton, PyAV usage, async method, graceful error handling, structured logging">
+        <interface>
+          <method>async extract_frames(clip_path: Path, frame_count: int, strategy: str, filter_blur: bool) -> List[bytes]</method>
+          <method>_encode_frame(frame: np.ndarray) -> bytes</method>
+          <method>_get_frame_quality_score(frame: np.ndarray) -> float</method>
+          <method>_is_frame_usable(frame: np.ndarray) -> bool</method>
+        </interface>
+      </file>
+      <file path="backend/app/services/clip_service.py" kind="service" symbol="ClipService" lines="1-750" reason="Shows ClipService that provides video clips via download_clip() - AudioExtractor will process clips from this service">
+        <interface>
+          <method>async download_clip(controller_id: str, camera_id: str, event_start: datetime, event_end: datetime, event_id: str) -> Optional[Path]</method>
+          <method>cleanup_clip(event_id: str) -> bool</method>
+        </interface>
+      </file>
+      <file path="backend/tests/test_services/test_frame_extractor.py" kind="test" lines="1-889" reason="Test pattern reference - AudioExtractor tests should follow same structure: fixture setup, singleton tests, mocking PyAV, error handling tests">
+      </file>
+      <file path="backend/app/services/__init__.py" kind="module" reason="May need to export AudioExtractor if following service module conventions">
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="av" version=">=12.0.0" reason="PyAV for audio/video processing - already used by FrameExtractor"/>
+        <package name="numpy" version="implicit" reason="Audio sample manipulation (via PyAV)"/>
+        <package name="wave" version="stdlib" reason="WAV file encoding (Python standard library)"/>
+        <package name="io" version="stdlib" reason="BytesIO for in-memory WAV creation"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern" source="architecture">Follow singleton service pattern with get_/reset_ functions matching FrameExtractor</constraint>
+    <constraint type="pattern" source="architecture">Use async method signature returning Optional[bytes]</constraint>
+    <constraint type="error-handling" source="architecture">Never raise exceptions - return None on error, log with structured format</constraint>
+    <constraint type="logging" source="architecture">Use structured JSON logging with extra={} dictionary for all log calls</constraint>
+    <constraint type="performance" source="PRD">Extraction must complete within 2 seconds (NFR)</constraint>
+    <constraint type="audio-format" source="story">Output WAV: 16kHz sample rate, mono channel, PCM 16-bit signed</constraint>
+    <constraint type="testing" source="story">Include comprehensive unit tests with >80% coverage</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AudioExtractor.extract_audio" kind="async method">
+      <signature>async def extract_audio(self, clip_path: Path) -> Optional[bytes]</signature>
+      <path>backend/app/services/audio_extractor.py</path>
+      <description>Extract audio from video clip as WAV bytes. Returns None if no audio track or on error.</description>
+    </interface>
+    <interface name="get_audio_extractor" kind="function">
+      <signature>def get_audio_extractor() -> AudioExtractor</signature>
+      <path>backend/app/services/audio_extractor.py</path>
+      <description>Get singleton AudioExtractor instance.</description>
+    </interface>
+    <interface name="reset_audio_extractor" kind="function">
+      <signature>def reset_audio_extractor() -> None</signature>
+      <path>backend/app/services/audio_extractor.py</path>
+      <description>Reset singleton instance for testing.</description>
+    </interface>
+    <interface name="PyAV Audio Stream" kind="library">
+      <signature>container.streams.audio[0]</signature>
+      <description>Access audio stream from PyAV container. Returns AudioStream or raises IndexError if no audio.</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests use pytest with pytest-asyncio for async test support. Follow existing patterns from test_frame_extractor.py: use @pytest.fixture(autouse=True) for setup/teardown with reset functions, organize tests into logical classes (Constants, Init, Singleton, Method-specific), mock PyAV using unittest.mock.patch, verify logging calls with mock_logger. Test coverage target is >80%.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_audio_extractor.py</location>
+      <location>backend/tests/test_services/ (existing test patterns)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test extraction returns WAV bytes with correct magic bytes (RIFF header)</idea>
+      <idea ac="1">Test WAV header confirms 16kHz sample rate and mono channel</idea>
+      <idea ac="1">Test extraction completes within 2 second timeout</idea>
+      <idea ac="2">Test video without audio stream returns None</idea>
+      <idea ac="2">Test appropriate log message for "No audio track found"</idea>
+      <idea ac="3">Test silent audio track returns bytes (not None)</idea>
+      <idea ac="3">Test audio level metrics are logged</idea>
+      <idea ac="4">Test get_audio_extractor returns AudioExtractor instance</idea>
+      <idea ac="4">Test singleton returns same instance on multiple calls</idea>
+      <idea ac="4">Test reset_audio_extractor allows new instance creation</idea>
+      <idea ac="error">Test FileNotFoundError returns None with proper logging</idea>
+      <idea ac="error">Test av.FFmpegError returns None with proper logging</idea>
+      <idea ac="error">Test generic Exception returns None with proper logging</idea>
+    </ideas>
+  </tests>
+</story-context>

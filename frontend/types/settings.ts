@@ -80,3 +80,68 @@ export interface AIProviderConfig {
  * AI Provider order for fallback chain configuration
  */
 export type AIProviderOrder = AIProvider[];
+
+/**
+ * AI Usage Types for Cost Monitoring Dashboard
+ * Story P3-7.2: Build Cost Dashboard UI
+ */
+
+export interface IAIUsagePeriod {
+  start: string;
+  end: string;
+}
+
+export interface IAIUsageByDate {
+  date: string;
+  cost: number;
+  requests: number;
+}
+
+export interface IAIUsageByCamera {
+  camera_id: string;
+  camera_name: string;
+  cost: number;
+  requests: number;
+}
+
+export interface IAIUsageByProvider {
+  provider: string;
+  cost: number;
+  requests: number;
+}
+
+export interface IAIUsageByMode {
+  mode: string;
+  cost: number;
+  requests: number;
+}
+
+export interface IAIUsageResponse {
+  total_cost: number;
+  total_requests: number;
+  period: IAIUsagePeriod;
+  by_date: IAIUsageByDate[];
+  by_camera: IAIUsageByCamera[];
+  by_provider: IAIUsageByProvider[];
+  by_mode: IAIUsageByMode[];
+}
+
+export interface IAIUsageQueryParams {
+  start_date?: string;
+  end_date?: string;
+}
+
+/**
+ * Cost Cap Status for enforcement and UI display
+ * Story P3-7.3: Implement Daily/Monthly Cost Caps
+ */
+export interface ICostCapStatus {
+  daily_cost: number;
+  daily_cap: number | null;  // null = no limit
+  daily_percent: number;     // 0-100, 0 if no cap
+  monthly_cost: number;
+  monthly_cap: number | null;
+  monthly_percent: number;
+  is_paused: boolean;
+  pause_reason: 'cost_cap_daily' | 'cost_cap_monthly' | null;
+}

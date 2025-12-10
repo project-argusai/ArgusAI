@@ -1,6 +1,30 @@
 /**
- * Backup and Restore Types (Story 6.4)
+ * Backup and Restore Types (Story 6.4, FF-007)
  */
+
+// FF-007: Options for selective backup
+export interface IBackupOptions {
+  include_database: boolean;
+  include_thumbnails: boolean;
+  include_settings: boolean;
+}
+
+// FF-007: Options for selective restore
+export interface IRestoreOptions {
+  restore_database: boolean;
+  restore_thumbnails: boolean;
+  restore_settings: boolean;
+}
+
+// FF-007: Information about what's in a backup
+export interface IBackupContents {
+  has_database: boolean;
+  has_thumbnails: boolean;
+  has_settings: boolean;
+  database_size_bytes: number;
+  thumbnails_count: number;
+  settings_count: number;
+}
 
 export interface IBackupResponse {
   success: boolean;
@@ -44,4 +68,5 @@ export interface IValidationResponse {
   app_version?: string;
   backup_timestamp?: string;
   warnings: string[];
+  contents?: IBackupContents; // FF-007
 }

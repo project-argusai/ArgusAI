@@ -20,6 +20,9 @@ import type {
   AIKeyTestRequest,
   AIKeyTestResponse,
   DeleteDataResponse,
+  IAIUsageResponse,
+  IAIUsageQueryParams,
+  ICostCapStatus,
 } from '@/types/settings';
 import type {
   IAlertRule,
@@ -59,6 +62,8 @@ import type {
   IRestoreResponse,
   IBackupListResponse,
   IValidationResponse,
+  IBackupOptions,
+  IRestoreOptions,
 } from '@/types/backup';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -318,6 +323,16 @@ export const apiClient = {
       if (filters?.smart_detection_type) {
         params.append('smart_detection_type', filters.smart_detection_type);
       }
+      // Story P3-7.6: Analysis mode filtering
+      if (filters?.analysis_mode) {
+        params.append('analysis_mode', filters.analysis_mode);
+      }
+      if (filters?.has_fallback !== undefined) {
+        params.append('has_fallback', String(filters.has_fallback));
+      }
+      if (filters?.low_confidence !== undefined) {
+        params.append('low_confidence', String(filters.low_confidence));
+      }
 
       const queryString = params.toString();
       const endpoint = `/events${queryString ? `?${queryString}` : ''}`;
@@ -344,6 +359,22 @@ export const apiClient = {
     delete: async (id: string): Promise<void> => {
       await apiFetch<void>(`/events/${id}`, {
         method: 'DELETE',
+      });
+    },
+
+    /**
+     * Re-analyze an event with a different analysis mode (Story P3-6.4)
+     * @param id Event UUID
+     * @param analysisMode Analysis mode to use: 'single_frame', 'multi_frame', 'video_native'
+     * @returns Updated event with new description and confidence
+     * @throws ApiError with 404 if event not found
+     * @throws ApiError with 400 if analysis mode not available for camera type
+     * @throws ApiError with 429 if rate limit exceeded (max 3 per hour)
+     */
+    reanalyze: async (id: string, analysisMode: 'single_frame' | 'multi_frame' | 'video_native'): Promise<IEvent> => {
+      return apiFetch<IEvent>(`/events/${id}/reanalyze`, {
+        method: 'POST',
+        body: JSON.stringify({ analysis_mode: analysisMode }),
       });
     },
   },
@@ -413,7 +444,12 @@ export const apiClient = {
      */
     exportData: async (format: 'json' | 'csv' = 'json'): Promise<Blob> => {
       const url = `${API_BASE_URL}${API_V1_PREFIX}/events/export?format=${format}`;
-      const response = await fetch(url);
+      const headers: HeadersInit = {};
+      const token = getAuthToken();
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+      const response = await fetch(url, { headers });
       if (!response.ok) {
         throw new ApiError(`Failed to export data`, response.status);
       }
@@ -427,6 +463,47 @@ export const apiClient = {
     deleteAllData: async (): Promise<DeleteDataResponse> => {
       return apiFetch<DeleteDataResponse>('/events', {
         method: 'DELETE',
+      });
+    },
+
+    /**
+     * Get AI usage statistics (Story P3-7.2)
+     * @param params Optional start_date and end_date in YYYY-MM-DD format
+     * @returns AI usage aggregation with breakdown by date, camera, provider, and mode
+     */
+    getAIUsage: async (params?: IAIUsageQueryParams): Promise<IAIUsageResponse> => {
+      const searchParams = new URLSearchParams();
+      if (params?.start_date) {
+        searchParams.append('start_date', params.start_date);
+      }
+      if (params?.end_date) {
+        searchParams.append('end_date', params.end_date);
+      }
+      const queryString = searchParams.toString();
+      const endpoint = `/system/ai-usage${queryString ? `?${queryString}` : ''}`;
+      return apiFetch<IAIUsageResponse>(endpoint);
+    },
+
+    /**
+     * Get AI cost cap status (Story P3-7.3)
+     * @returns Current cost cap status including daily/monthly costs, caps, and pause state
+     */
+    getCostCapStatus: async (): Promise<ICostCapStatus> => {
+      return apiFetch<ICostCapStatus>('/system/ai-cost-status');
+    },
+
+    /**
+     * Update cost cap settings (Story P3-7.3)
+     * @param caps Object with daily_cap and/or monthly_cap (null for no limit)
+     * @returns Updated settings
+     */
+    updateCostCaps: async (caps: {
+      ai_daily_cost_cap?: number | null;
+      ai_monthly_cost_cap?: number | null;
+    }): Promise<SystemSettings> => {
+      return apiFetch<SystemSettings>('/system/settings', {
+        method: 'PUT',
+        body: JSON.stringify(caps),
       });
     },
   },
@@ -854,18 +931,29 @@ export const apiClient = {
   },
 
   /**
-   * Backup and Restore API (Story 6.4)
+   * Backup and Restore API (Story 6.4, FF-007)
    */
   backup: {
     /**
-     * Create a full system backup
+     * Create a system backup with optional selective components (FF-007)
+     * @param options Optional backup options for selective backup
      * @returns Backup result with download URL
      */
-    create: async (): Promise<IBackupResponse> => {
+    create: async (options?: IBackupOptions): Promise<IBackupResponse> => {
       const url = `${API_BASE_URL}${API_V1_PREFIX}/system/backup`;
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      const token = getAuthToken();
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(url, {
         method: 'POST',
+        headers,
         credentials: 'include',
+        body: options ? JSON.stringify(options) : undefined,
       });
 
       const data = await response.json().catch(() => null);
@@ -943,17 +1031,32 @@ export const apiClient = {
     },
 
     /**
-     * Restore from a backup file
+     * Restore from a backup file with optional selective components (FF-007)
      * @param file ZIP file to restore from
+     * @param options Optional restore options for selective restore
      * @returns Restore result
      */
-    restore: async (file: File): Promise<IRestoreResponse> => {
+    restore: async (file: File, options?: IRestoreOptions): Promise<IRestoreResponse> => {
       const url = `${API_BASE_URL}${API_V1_PREFIX}/system/restore`;
       const formData = new FormData();
       formData.append('file', file);
 
+      // FF-007: Add selective restore options as form fields
+      if (options) {
+        formData.append('restore_database', String(options.restore_database));
+        formData.append('restore_thumbnails', String(options.restore_thumbnails));
+        formData.append('restore_settings', String(options.restore_settings));
+      }
+
+      const headers: HeadersInit = {};
+      const token = getAuthToken();
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(url, {
         method: 'POST',
+        headers,
         body: formData,
         credentials: 'include',
       });

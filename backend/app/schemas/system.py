@@ -240,3 +240,135 @@ class SystemSettingsUpdate(BaseModel):
     retention_days: Optional[int] = None
     thumbnail_storage: Optional[Literal["filesystem", "database"]] = None
     auto_cleanup: Optional[bool] = None
+
+    # Story P3-7.3: Cost Cap Settings
+    ai_daily_cost_cap: Optional[float] = Field(None, ge=0, description="Daily cost cap in USD (null = no limit)")
+    ai_monthly_cost_cap: Optional[float] = Field(None, ge=0, description="Monthly cost cap in USD (null = no limit)")
+
+    # Story P3-7.5: Key Frames Storage Setting
+    store_analysis_frames: Optional[bool] = Field(None, description="Store key frames used for AI analysis (default: true)")
+
+
+# Story P3-7.1: AI Usage Response Schemas for Cost Tracking
+
+class AIUsageByDate(BaseModel):
+    """Daily usage aggregation."""
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    cost: float = Field(..., description="Total cost for the date in USD")
+    requests: int = Field(..., description="Number of AI requests")
+
+
+class AIUsageByCamera(BaseModel):
+    """Per-camera usage aggregation."""
+    camera_id: str = Field(..., description="Camera identifier")
+    camera_name: str = Field(..., description="Camera display name")
+    cost: float = Field(..., description="Total cost for the camera in USD")
+    requests: int = Field(..., description="Number of AI requests")
+
+
+class AIUsageByProvider(BaseModel):
+    """Per-provider usage aggregation."""
+    provider: str = Field(..., description="AI provider name (openai, grok, claude, gemini)")
+    cost: float = Field(..., description="Total cost for the provider in USD")
+    requests: int = Field(..., description="Number of AI requests")
+
+
+class AIUsageByMode(BaseModel):
+    """Per-analysis-mode usage aggregation."""
+    mode: str = Field(..., description="Analysis mode (single_image, multi_frame, video_native)")
+    cost: float = Field(..., description="Total cost for the mode in USD")
+    requests: int = Field(..., description="Number of AI requests")
+
+
+class AIUsagePeriod(BaseModel):
+    """Period for usage aggregation."""
+    start: str = Field(..., description="Start date in ISO 8601 format")
+    end: str = Field(..., description="End date in ISO 8601 format")
+
+
+class AIUsageResponse(BaseModel):
+    """
+    Response schema for AI usage aggregation endpoint.
+
+    Provides comprehensive cost and usage breakdown by various dimensions.
+    Story P3-7.1: Implement Cost Tracking Service.
+
+    Attributes:
+        total_cost: Total cost across all requests in USD
+        total_requests: Total number of AI requests
+        period: Date range for the aggregation
+        by_date: Daily usage breakdown
+        by_camera: Per-camera usage breakdown
+        by_provider: Per-provider usage breakdown
+        by_mode: Per-analysis-mode usage breakdown
+    """
+    total_cost: float = Field(..., description="Total cost in USD")
+    total_requests: int = Field(..., description="Total number of AI requests")
+    period: AIUsagePeriod = Field(..., description="Date range for aggregation")
+    by_date: list[AIUsageByDate] = Field(default_factory=list, description="Usage by date")
+    by_camera: list[AIUsageByCamera] = Field(default_factory=list, description="Usage by camera")
+    by_provider: list[AIUsageByProvider] = Field(default_factory=list, description="Usage by provider")
+    by_mode: list[AIUsageByMode] = Field(default_factory=list, description="Usage by analysis mode")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "total_cost": 0.0523,
+                "total_requests": 142,
+                "period": {
+                    "start": "2025-11-09T00:00:00Z",
+                    "end": "2025-12-09T23:59:59Z"
+                },
+                "by_date": [
+                    {"date": "2025-12-09", "cost": 0.0123, "requests": 45},
+                    {"date": "2025-12-08", "cost": 0.0098, "requests": 32}
+                ],
+                "by_camera": [
+                    {"camera_id": "1", "camera_name": "Front Door", "cost": 0.0234, "requests": 67}
+                ],
+                "by_provider": [
+                    {"provider": "openai", "cost": 0.0456, "requests": 120},
+                    {"provider": "claude", "cost": 0.0067, "requests": 22}
+                ],
+                "by_mode": [
+                    {"mode": "single_image", "cost": 0.0234, "requests": 89},
+                    {"mode": "multi_frame", "cost": 0.0289, "requests": 53}
+                ]
+            }
+        }
+
+
+# Story P3-7.3: Cost Cap Status Schema
+
+class CostCapStatus(BaseModel):
+    """
+    Response schema for cost cap status endpoint.
+
+    Story P3-7.3: Implement Daily/Monthly Cost Caps.
+
+    Provides current cost usage and cap status for enforcement and UI display.
+    """
+    daily_cost: float = Field(..., description="Current day's total cost in USD")
+    daily_cap: Optional[float] = Field(None, description="Daily cap in USD (null = no limit)")
+    daily_percent: float = Field(..., description="Percentage of daily cap used (0 if no cap)")
+    monthly_cost: float = Field(..., description="Current month's total cost in USD")
+    monthly_cap: Optional[float] = Field(None, description="Monthly cap in USD (null = no limit)")
+    monthly_percent: float = Field(..., description="Percentage of monthly cap used (0 if no cap)")
+    is_paused: bool = Field(..., description="True if AI analysis is paused due to cap")
+    pause_reason: Optional[Literal["cost_cap_daily", "cost_cap_monthly"]] = Field(
+        None, description="Reason for pause (null if not paused)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "daily_cost": 0.75,
+                "daily_cap": 1.00,
+                "daily_percent": 75.0,
+                "monthly_cost": 12.50,
+                "monthly_cap": 20.00,
+                "monthly_percent": 62.5,
+                "is_paused": False,
+                "pause_reason": None
+            }
+        }

@@ -1,5 +1,5 @@
 """Event SQLAlchemy ORM model for AI-generated semantic events"""
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, CheckConstraint, Index
+from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, CheckConstraint, Index, Float
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 import uuid
@@ -32,6 +32,16 @@ class Event(Base):
         fallback_reason: Reason for fallback to snapshot analysis (Story P3-1.4) - e.g., "clip_download_failed"
         analysis_mode: Analysis mode used - "single_frame", "multi_frame", "video_native" (Story P3-2.6)
         frame_count_used: Number of frames sent to AI for multi-frame analysis (Story P3-2.6)
+        audio_transcription: Transcribed speech from doorbell audio (Story P3-5.3)
+        ai_confidence: AI self-reported confidence score (0-100) (Story P3-6.1)
+        low_confidence: True if ai_confidence < 50 OR vague description, flagging uncertain descriptions (Story P3-6.1, P3-6.2)
+        vague_reason: Human-readable explanation of why description was flagged as vague (Story P3-6.2)
+        reanalyzed_at: Timestamp of last re-analysis (Story P3-6.4)
+        reanalysis_count: Number of re-analyses performed for rate limiting (Story P3-6.4)
+        ai_cost: Estimated cost in USD for AI analysis (Story P3-7.1)
+        analysis_skipped_reason: Reason AI analysis was skipped - "cost_cap_daily"/"cost_cap_monthly" (Story P3-7.3)
+        key_frames_base64: JSON array of base64-encoded frame thumbnails for gallery display (Story P3-7.5)
+        frame_timestamps: JSON array of float seconds from video start for each frame (Story P3-7.5)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -64,6 +74,23 @@ class Event(Base):
     # Story P3-2.6: Multi-frame analysis tracking
     analysis_mode = Column(String(20), nullable=True, index=True)  # "single_frame", "multi_frame", "video_native"
     frame_count_used = Column(Integer, nullable=True)  # Number of frames sent to AI (null for single-frame)
+    # Story P3-5.3: Audio transcription for doorbell cameras
+    audio_transcription = Column(Text, nullable=True)  # Transcribed speech from doorbell audio
+    # Story P3-6.1: AI confidence scoring
+    ai_confidence = Column(Integer, nullable=True)  # 0-100 AI self-reported confidence (null = not available)
+    low_confidence = Column(Boolean, nullable=False, default=False)  # True if ai_confidence < 50 OR vague description
+    # Story P3-6.2: Vagueness detection
+    vague_reason = Column(Text, nullable=True)  # Human-readable reason if description flagged as vague (null = not vague)
+    # Story P3-6.4: Re-analysis tracking
+    reanalyzed_at = Column(DateTime(timezone=True), nullable=True)  # Timestamp of last re-analysis (null = never re-analyzed)
+    reanalysis_count = Column(Integer, nullable=False, default=0)  # Number of re-analyses performed (for rate limiting)
+    # Story P3-7.1: AI cost tracking
+    ai_cost = Column(Float, nullable=True)  # Estimated cost in USD for AI analysis (null = not tracked)
+    # Story P3-7.3: Cost cap enforcement - analysis skip reason
+    analysis_skipped_reason = Column(String(50), nullable=True)  # "cost_cap_daily", "cost_cap_monthly" (null = not skipped)
+    # Story P3-7.5: Key frames storage for event detail gallery
+    key_frames_base64 = Column(Text, nullable=True)  # JSON array of base64-encoded frame thumbnails (null = not stored)
+    frame_timestamps = Column(Text, nullable=True)  # JSON array of float seconds from video start (null = not stored)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

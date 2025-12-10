@@ -1,0 +1,203 @@
+<story-context id="p3-5-2-integrate-speech-to-text-transcription" v="1.0">
+  <metadata>
+    <epicId>P3-5</epicId>
+    <storyId>2</storyId>
+    <title>Integrate Speech-to-Text Transcription</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-5-2-integrate-speech-to-text-transcription.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to transcribe audio from doorbell events</iWant>
+    <soThat>spoken words are captured and can be included in AI-generated event descriptions</soThat>
+    <tasks>
+      <task id="1" acs="1,2">Add Whisper Transcription to AudioExtractor
+        - Add `transcribe(audio_bytes: bytes) -> Optional[str]` method to AudioExtractor
+        - Configure OpenAI client for Whisper API
+        - Send audio bytes using `client.audio.transcriptions.create()`
+        - Parse response and return transcription text
+        - Add timeout handling (30 second max)
+      </task>
+      <task id="2" acs="3">Handle Silent/Ambient Audio
+        - Check audio level before transcription (use P3-5.1's audio level detection)
+        - Skip transcription for very silent audio (RMS below threshold)
+        - Handle Whisper returning empty/whitespace responses
+        - Return appropriate indicator for no speech scenarios
+      </task>
+      <task id="3" acs="4">Implement Error Handling
+        - Catch OpenAI API errors (RateLimitError, APIError, Timeout)
+        - Return None on any transcription failure
+        - Log errors with structured format matching existing patterns
+        - Ensure event processing continues without blocking
+      </task>
+      <task id="4" acs="5">Add Usage Tracking
+        - Calculate audio duration from input bytes
+        - Log usage to ai_usage table with provider="whisper"
+        - Calculate cost estimate: duration_seconds * ($0.006 / 60)
+        - Include analysis_mode="transcription" in usage record
+      </task>
+      <task id="5" acs="1,2,3,4,5">Write Unit Tests
+        - Update `backend/tests/test_services/test_audio_extractor.py`
+        - Test successful transcription with mocked Whisper API
+        - Test handling of ambient-only audio
+        - Test error handling for API failures
+        - Test usage tracking records
+        - Mock OpenAI client to avoid real API calls in tests
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="Transcribe Audio Bytes Using OpenAI Whisper">
+      - Given extracted audio bytes (WAV format, 16kHz mono)
+      - When `AudioExtractor.transcribe(audio_bytes)` is called
+      - Then returns text transcription from OpenAI Whisper API
+      - And uses "whisper-1" model
+      - And transcription completes within 5 seconds for typical doorbell audio (10-30s)
+    </criterion>
+    <criterion id="AC2" title="Handle Audio with Speech Content">
+      - Given audio containing speech
+      - When transcription completes
+      - Then returns accurate text of spoken words
+      - And handles multiple speakers (if present)
+      - And preserves punctuation and sentence structure
+    </criterion>
+    <criterion id="AC3" title="Handle Audio with No Speech (Ambient Noise Only)">
+      - Given audio is just ambient noise (no speech)
+      - When transcription runs
+      - Then returns empty string or "[ambient sounds]" indicator
+      - And does NOT fabricate words
+      - And logs "No speech detected in audio"
+    </criterion>
+    <criterion id="AC4" title="Handle Transcription Failures Gracefully">
+      - Given transcription fails (API error, timeout, rate limit)
+      - When error occurs
+      - Then returns None
+      - And event analysis continues without audio context
+      - And logs error with details (error type, response code)
+    </criterion>
+    <criterion id="AC5" title="Track Transcription Usage and Costs">
+      - Given transcription request completes
+      - When usage is tracked
+      - Then records transcription in ai_usage table
+      - And includes: provider="whisper", duration_seconds, estimated_cost
+      - And uses Whisper pricing: $0.006/minute
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Epic P3-5: Audio Analysis for Doorbells</section>
+        <snippet>Story P3-5.2: Integrate Speech-to-Text Transcription - Transcribe audio using OpenAI Whisper API, returns text or None on failure, tracks usage costs at $0.006/minute</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase3.md</path>
+        <title>Phase 3 PRD</title>
+        <section>Audio Analysis (FR23-FR26)</section>
+        <snippet>FR24: System can transcribe audio using speech-to-text. System uses OpenAI Whisper or configured provider for transcription.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-5-1-implement-audio-extraction-from-video-clips.md</path>
+        <title>P3-5.1 Story - Audio Extraction</title>
+        <section>Completion Notes</section>
+        <snippet>AudioExtractor service created with singleton pattern. Has _is_silent() method for detecting silent audio (RMS &lt; 0.001). Audio format: 16kHz, mono, 16-bit PCM - compatible with Whisper.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/audio_extractor.py</path>
+        <kind>service</kind>
+        <symbol>AudioExtractor</symbol>
+        <lines>35-348</lines>
+        <reason>Primary file to modify - add transcribe() method. Already has singleton pattern, _is_silent() detection, WAV format output compatible with Whisper.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>OpenAIProvider._extract_and_transcribe_audio</symbol>
+        <lines>800-838</lines>
+        <reason>Reference implementation of Whisper API call pattern: client.audio.transcriptions.create(model="whisper-1", file=audio_file)</reason>
+      </file>
+      <file>
+        <path>backend/app/models/ai_usage.py</path>
+        <kind>model</kind>
+        <symbol>AIUsage</symbol>
+        <lines>6-35</lines>
+        <reason>Usage tracking model - add transcription records with provider="whisper", analysis_mode="transcription"</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_audio_extractor.py</path>
+        <kind>test</kind>
+        <symbol>TestAudioExtractor</symbol>
+        <lines>1-631</lines>
+        <reason>Existing test file for AudioExtractor - add transcription tests here. 37 tests, 97% coverage.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="openai" version=">=1.54.0">OpenAI SDK including Whisper API (client.audio.transcriptions.create)</package>
+        <package name="av" version=">=12.0.0">PyAV for audio processing - already used by AudioExtractor</package>
+        <package name="numpy" version="">For audio sample processing - already used</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow singleton pattern established by AudioExtractor with get_audio_extractor() and reset_audio_extractor()</constraint>
+    <constraint type="error-handling">Return None on any error, never raise exceptions to caller - matches existing AudioExtractor pattern</constraint>
+    <constraint type="logging">Use structured JSON logging with extra={} dictionary for all log messages</constraint>
+    <constraint type="async">Use asyncio.to_thread() for blocking OpenAI API calls in async context</constraint>
+    <constraint type="performance">Transcription should complete within 5 seconds for typical 10-30 second doorbell audio</constraint>
+    <constraint type="cost">Track Whisper usage at $0.006/minute pricing</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AudioExtractor.transcribe</name>
+      <kind>async method</kind>
+      <signature>async def transcribe(self, audio_bytes: bytes) -> Optional[str]</signature>
+      <path>backend/app/services/audio_extractor.py</path>
+    </interface>
+    <interface>
+      <name>OpenAI Whisper API</name>
+      <kind>REST API</kind>
+      <signature>client.audio.transcriptions.create(model="whisper-1", file=audio_file, response_format="text")</signature>
+      <path>openai SDK</path>
+    </interface>
+    <interface>
+      <name>AudioExtractor._is_silent</name>
+      <kind>method</kind>
+      <signature>def _is_silent(self, rms: float) -> bool</signature>
+      <path>backend/app/services/audio_extractor.py:112-122</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests use pytest with pytest-asyncio for async testing. Mock external APIs using unittest.mock.
+      Target >80% coverage for new code (existing AudioExtractor has 97% coverage).
+      Follow existing test patterns in test_audio_extractor.py.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_audio_extractor.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test successful transcription returns text string when Whisper API succeeds</idea>
+      <idea ac="AC1">Test whisper-1 model is used in API call</idea>
+      <idea ac="AC2">Test transcription preserves punctuation and sentence structure</idea>
+      <idea ac="AC3">Test silent audio (RMS below threshold) returns empty string without API call</idea>
+      <idea ac="AC3">Test Whisper returning empty response returns empty string</idea>
+      <idea ac="AC4">Test API timeout returns None and logs error</idea>
+      <idea ac="AC4">Test RateLimitError returns None and logs error</idea>
+      <idea ac="AC4">Test generic exception returns None and logs error</idea>
+      <idea ac="AC5">Test usage record created with provider="whisper"</idea>
+      <idea ac="AC5">Test cost calculated correctly (duration_seconds * $0.006 / 60)</idea>
+    </ideas>
+  </tests>
+</story-context>

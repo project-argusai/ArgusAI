@@ -1,0 +1,264 @@
+<story-context id="p3-7-1-implement-cost-tracking-service" v="1.0">
+  <metadata>
+    <epicId>P3-7</epicId>
+    <storyId>P3-7.1</storyId>
+    <title>Implement Cost Tracking Service</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-09</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-7-1-implement-cost-tracking-service.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>AI usage costs to be tracked accurately</iWant>
+    <soThat>I can monitor spending and make informed decisions about camera configurations</soThat>
+    <tasks>
+      <task id="1" acs="1,2">Create CostTracker Service
+        - Create backend/app/services/cost_tracker.py
+        - Define PROVIDER_COST_RATES configuration constant
+        - Implement calculate_cost(provider, input_tokens, output_tokens) method
+        - Implement calculate_multi_image_cost(provider, image_count, resolution) method
+        - Add configurable rate overrides via environment/settings
+        - Write unit tests for cost calculation
+      </task>
+      <task id="2" acs="1,4,5">Extend AIUsage Model
+        - Add estimated_cost field (Decimal, 6 places) to AIUsage model
+        - Add is_estimated field (Boolean) to AIUsage model - ALREADY EXISTS
+        - Add analysis_mode field if not already present - ALREADY EXISTS
+        - Add image_count field for multi-image tracking
+        - Create Alembic migration for new fields
+        - Add index on (created_at, camera_id, provider) for aggregation queries
+      </task>
+      <task id="3" acs="1,4,5">Integrate Cost Tracking into AIService
+        - Modify AIService._track_usage() to call CostTracker after each request
+        - Pass token usage from provider response to CostTracker
+        - Handle cases where token counts are missing
+        - Store calculated cost with AIUsage record
+        - Test integration with each provider
+      </task>
+      <task id="4" acs="3">Create AI Usage API Endpoint
+        - Add GET /api/v1/system/ai-usage endpoint to system.py
+        - Accept query params: start_date, end_date, group_by
+        - Return aggregated usage data with totals and breakdowns
+        - Create AIUsageResponse schema with aggregation structure
+        - Add endpoint tests
+      </task>
+      <task id="5" acs="6">Add Cost to Event Model
+        - Add ai_cost field to Event model (Decimal, nullable)
+        - Update EventProcessor to store cost from AIUsage
+        - Update EventResponse schema to include ai_cost
+        - Create migration for new field
+        - Update frontend IEvent type
+      </task>
+      <task id="6" acs="1,3,4">Write Integration Tests
+        - Test cost calculation accuracy for each provider
+        - Test multi-image cost calculation
+        - Test aggregation queries by date/camera/provider
+        - Test estimated cost flagging
+        - Test API endpoint returns correct data structure
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="AC1" name="Calculate and Store Cost Per AI Request">
+      Given an AI request completes with token usage, when usage is recorded, then CostTracker calculates estimated cost using provider-specific rates, stores cost in ai_usage table, and uses USD with 6 decimal places precision.
+    </ac>
+    <ac id="AC2" name="Support Provider-Specific Cost Rates">
+      Given cost rates by provider are configured, when cost calculation occurs, then uses appropriate rates: OpenAI $0.00015/$0.0006, Grok $0.0001/$0.0003, Claude $0.00025/$0.00125, Gemini free tier. Rates configurable via settings/environment.
+    </ac>
+    <ac id="AC3" name="Aggregate Usage by Multiple Dimensions">
+      Given daily usage aggregation is queried via GET /api/v1/system/ai-usage, then returns total cost aggregated by: Date (daily totals), Camera (per-camera breakdown), Provider, Analysis mode. Supports date range filtering (default: last 30 days).
+    </ac>
+    <ac id="AC4" name="Track Image/Token Costs for Multi-Image Requests">
+      Given a multi-image AI request (multi_frame or video_native mode), when cost is calculated, then accounts for additional image tokens (~85/765 tokens for OpenAI, ~1,334 for Claude) and total cost reflects actual multi-image usage.
+    </ac>
+    <ac id="AC5" name="Handle Missing Token Information">
+      Given provider doesn't return token counts, when usage is tracked, then estimate tokens based on image count and response length, flag estimate with is_estimated: true, use conservative estimates.
+    </ac>
+    <ac id="AC6" name="Store Cost Metadata with Events">
+      Given an event is processed with AI analysis, when event is saved, then includes estimated_cost field in event record and cost can be queried with event details.
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase3.md</path>
+        <title>Phase 3 PRD - Video Clip Analysis</title>
+        <section>Epic P3-7: Cost Monitoring Dashboard</section>
+        <snippet>FR32: System tracks AI API usage per request. FR33: System aggregates usage by camera, day, and provider. FR34: Dashboard displays current usage and costs.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epics</title>
+        <section>Epic P3-7: Cost Monitoring Dashboard</section>
+        <snippet>Story P3-7.1: Create CostTracker service that calculates estimated costs using provider-specific token rates. Extend AIUsage model with cost fields.</snippet>
+      </doc>
+      <doc>
+        <path>CLAUDE.md</path>
+        <title>Project Guide</title>
+        <section>Tech Stack and Architecture</section>
+        <snippet>Backend: FastAPI 0.115 + SQLAlchemy 2.0 + Alembic. AI Providers: OpenAI GPT-4o mini → xAI Grok 2 Vision → Anthropic Claude 3 Haiku → Google Gemini Flash (fallback order).</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/models/ai_usage.py</path>
+        <kind>model</kind>
+        <symbol>AIUsage</symbol>
+        <lines>1-35</lines>
+        <reason>Existing AIUsage model to extend with estimated_cost and image_count fields. Already has analysis_mode and is_estimated fields from Story P3-2.5.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>1-96</lines>
+        <reason>Event model needs ai_cost field added. Follow pattern from reanalyzed_at and other Phase 3 fields.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService._track_usage</symbol>
+        <lines>3374-3430</lines>
+        <reason>Existing usage tracking method to extend. Currently creates AIUsage records - needs to call CostTracker for cost calculation.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>COST_RATES, TOKENS_PER_IMAGE</symbol>
+        <lines>78-94</lines>
+        <reason>Existing cost rate constants and token estimates. Move to CostTracker service or import from there.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-967</lines>
+        <reason>System routes where GET /api/v1/system/ai-usage endpoint will be added. Follow existing patterns for AIProviderStats.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/system.py</path>
+        <kind>schema</kind>
+        <symbol>SystemSettings, RetentionPolicyResponse</symbol>
+        <lines>1-243</lines>
+        <reason>System schemas - add AIUsageResponse schema here following existing patterns.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse</symbol>
+        <lines>78-100</lines>
+        <reason>EventResponse schema needs ai_cost field added.</reason>
+      </file>
+      <file>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent</symbol>
+        <reason>Frontend event type needs ai_cost field added.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/audio_extractor.py</path>
+        <kind>service</kind>
+        <symbol>_track_whisper_usage</symbol>
+        <lines>482-510</lines>
+        <reason>Example of cost tracking pattern for Whisper transcription. Shows AIUsage creation with cost_estimate.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="alembic" version=">=1.14.0" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="openai" note="For GPT-4o mini" />
+        <package name="anthropic" note="For Claude 3 Haiku" />
+        <package name="google-generativeai" note="For Gemini Flash" />
+      </python>
+      <node>
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="typescript" version="^5" />
+        <package name="zod" version="^4.1.12" />
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="Dev Notes">Cost stored in USD with 6 decimal places (Decimal type, quantize to 0.000001)</constraint>
+    <constraint source="Dev Notes">AIUsage model already has analysis_mode and is_estimated fields - only add estimated_cost and image_count</constraint>
+    <constraint source="Architecture">Provider cost rates must be configurable via settings/environment for future rate changes</constraint>
+    <constraint source="PRD">Cost estimates should be accurate within 20% of actual costs (NFR12)</constraint>
+    <constraint source="Previous Story">Alembic migrations use sequential numbering - last was 021, use 022</constraint>
+    <constraint source="Architecture">Follow existing service layer patterns in backend/app/services/</constraint>
+    <constraint source="Architecture">Use existing AIProviderStats endpoint pattern for aggregation queries</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GET /api/v1/system/ai-usage</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/system/ai-usage?start_date={date}&amp;end_date={date}&amp;group_by={dimension}</signature>
+      <path>backend/app/api/v1/system.py</path>
+      <notes>New endpoint - follow pattern from get_ai_provider_stats</notes>
+    </interface>
+    <interface>
+      <name>AIUsageResponse</name>
+      <kind>Pydantic schema</kind>
+      <signature>
+        interface AIUsageResponse {
+          total_cost: number;
+          total_requests: number;
+          period: { start: string; end: string };
+          by_date: Array&lt;{ date: string; cost: number; requests: number }&gt;;
+          by_camera: Array&lt;{ camera_id: string; camera_name: string; cost: number }&gt;;
+          by_provider: Array&lt;{ provider: string; cost: number; requests: number }&gt;;
+          by_mode: Array&lt;{ mode: string; cost: number; requests: number }&gt;;
+        }
+      </signature>
+      <path>backend/app/schemas/system.py</path>
+    </interface>
+    <interface>
+      <name>CostTracker.calculate_cost</name>
+      <kind>Service method</kind>
+      <signature>def calculate_cost(provider: str, input_tokens: int, output_tokens: int) -&gt; Decimal</signature>
+      <path>backend/app/services/cost_tracker.py</path>
+      <notes>New service file to create</notes>
+    </interface>
+    <interface>
+      <name>CostTracker.calculate_multi_image_cost</name>
+      <kind>Service method</kind>
+      <signature>def calculate_multi_image_cost(provider: str, image_count: int, resolution: str = "low_res") -&gt; Decimal</signature>
+      <path>backend/app/services/cost_tracker.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with fixtures in conftest.py. Tests organized by type in backend/tests/ (test_api/, test_services/, test_models/). Frontend uses Vitest + React Testing Library. Test files follow pattern: test_{module}.py for backend, {Component}.test.tsx for frontend.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_cost_tracker.py (new)</location>
+      <location>backend/tests/test_api/test_system.py (extend)</location>
+      <location>frontend/__tests__/types/ (if needed)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test calculate_cost returns correct value for each provider with known token inputs</idea>
+      <idea ac="AC2">Test cost rates match expected values for all providers (OpenAI, Grok, Claude, Gemini)</idea>
+      <idea ac="AC2">Test rate override via settings/environment</idea>
+      <idea ac="AC3">Test aggregation by date returns correct daily totals</idea>
+      <idea ac="AC3">Test aggregation by camera returns per-camera breakdown</idea>
+      <idea ac="AC3">Test aggregation by provider returns per-provider costs</idea>
+      <idea ac="AC3">Test date range filtering with start_date and end_date params</idea>
+      <idea ac="AC4">Test multi-image cost includes image token overhead</idea>
+      <idea ac="AC4">Test different resolutions (low_res, high_res) for OpenAI</idea>
+      <idea ac="AC5">Test is_estimated=True when tokens are estimated</idea>
+      <idea ac="AC5">Test conservative token estimation logic</idea>
+      <idea ac="AC6">Test Event model includes ai_cost after AI processing</idea>
+      <idea ac="AC6">Test EventResponse includes ai_cost field</idea>
+    </ideas>
+  </tests>
+</story-context>

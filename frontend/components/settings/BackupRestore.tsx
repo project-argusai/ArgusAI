@@ -1,5 +1,5 @@
 /**
- * Backup and Restore Component (Story 6.4)
+ * Backup and Restore Component (Story 6.4, FF-007)
  *
  * Features:
  * - Create backup button with progress
@@ -7,6 +7,7 @@
  * - List available backups
  * - Restore from file upload
  * - Confirmation dialogs for destructive actions
+ * - FF-007: Selective backup/restore options
  */
 
 'use client';
@@ -23,14 +24,19 @@ import {
   CheckCircle2,
   Clock,
   FileArchive,
+  Database,
+  Image,
+  Settings,
 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
-import type { IBackupListItem, IValidationResponse } from '@/types/backup';
+import type { IBackupListItem, IValidationResponse, IBackupOptions, IRestoreOptions } from '@/types/backup';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,12 +74,26 @@ export function BackupRestore() {
   const [backups, setBackups] = useState<IBackupListItem[]>([]);
   const [backupsLoaded, setBackupsLoaded] = useState(false);
 
+  // FF-007: Backup options state
+  const [backupOptions, setBackupOptions] = useState<IBackupOptions>({
+    include_database: true,
+    include_thumbnails: true,
+    include_settings: true,
+  });
+
   // Restore state
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [validation, setValidation] = useState<IValidationResponse | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState(0);
+
+  // FF-007: Restore options state
+  const [restoreOptions, setRestoreOptions] = useState<IRestoreOptions>({
+    restore_database: true,
+    restore_thumbnails: true,
+    restore_settings: true,
+  });
 
   // Dialog state
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -100,11 +120,18 @@ export function BackupRestore() {
 
   // Create backup
   const handleCreateBackup = async () => {
+    // FF-007: Check that at least one option is selected
+    if (!backupOptions.include_database && !backupOptions.include_thumbnails && !backupOptions.include_settings) {
+      toast.error('Please select at least one component to backup');
+      return;
+    }
+
     try {
       setIsCreatingBackup(true);
       toast.info('Creating backup... This may take a moment.');
 
-      const result = await apiClient.backup.create();
+      // FF-007: Pass backup options
+      const result = await apiClient.backup.create(backupOptions);
 
       if (result.success) {
         toast.success('Backup created successfully!');
@@ -210,6 +237,13 @@ export function BackupRestore() {
   const handleRestore = async () => {
     if (!selectedFile || !validation?.valid) return;
 
+    // FF-007: Check that at least one option is selected
+    if (!restoreOptions.restore_database && !restoreOptions.restore_thumbnails && !restoreOptions.restore_settings) {
+      toast.error('Please select at least one component to restore');
+      setShowRestoreConfirm(false);
+      return;
+    }
+
     try {
       setIsRestoring(true);
       setRestoreProgress(10);
@@ -218,7 +252,8 @@ export function BackupRestore() {
       toast.info('Restoring from backup... Please wait.');
       setRestoreProgress(30);
 
-      const result = await apiClient.backup.restore(selectedFile);
+      // FF-007: Pass restore options
+      const result = await apiClient.backup.restore(selectedFile, restoreOptions);
       setRestoreProgress(90);
 
       if (result.success) {
@@ -270,8 +305,52 @@ export function BackupRestore() {
         <div className="space-y-3">
           <h4 className="font-medium">Create Backup</h4>
           <p className="text-sm text-muted-foreground">
-            Create a complete backup of your database, thumbnails, and settings.
+            Select which components to include in your backup.
           </p>
+
+          {/* FF-007: Backup options checkboxes */}
+          <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="backup-database"
+                checked={backupOptions.include_database}
+                onCheckedChange={(checked) =>
+                  setBackupOptions((prev) => ({ ...prev, include_database: !!checked }))
+                }
+              />
+              <Label htmlFor="backup-database" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Database className="h-4 w-4 text-muted-foreground" />
+                Database (events, cameras, alert rules)
+              </Label>
+            </div>
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="backup-thumbnails"
+                checked={backupOptions.include_thumbnails}
+                onCheckedChange={(checked) =>
+                  setBackupOptions((prev) => ({ ...prev, include_thumbnails: !!checked }))
+                }
+              />
+              <Label htmlFor="backup-thumbnails" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Image className="h-4 w-4 text-muted-foreground" />
+                Thumbnails (event images)
+              </Label>
+            </div>
+            <div className="flex items-center space-x-3">
+              <Checkbox
+                id="backup-settings"
+                checked={backupOptions.include_settings}
+                onCheckedChange={(checked) =>
+                  setBackupOptions((prev) => ({ ...prev, include_settings: !!checked }))
+                }
+              />
+              <Label htmlFor="backup-settings" className="flex items-center gap-2 text-sm cursor-pointer">
+                <Settings className="h-4 w-4 text-muted-foreground" />
+                System settings (excluding API keys)
+              </Label>
+            </div>
+          </div>
+
           <Button
             onClick={handleCreateBackup}
             disabled={isCreatingBackup}
@@ -448,6 +527,93 @@ export function BackupRestore() {
                 </div>
               )}
 
+              {/* FF-007: Show backup contents and restore options */}
+              {validation?.valid && validation.contents && (
+                <div className="space-y-3 p-3 rounded-lg border bg-muted/30">
+                  <p className="text-xs font-medium text-muted-foreground">Select components to restore:</p>
+                  <div className="space-y-2">
+                    <div className="flex items-center space-x-3">
+                      <Checkbox
+                        id="restore-database"
+                        checked={restoreOptions.restore_database}
+                        disabled={!validation.contents.has_database}
+                        onCheckedChange={(checked) =>
+                          setRestoreOptions((prev) => ({ ...prev, restore_database: !!checked }))
+                        }
+                      />
+                      <Label
+                        htmlFor="restore-database"
+                        className={`flex items-center gap-2 text-sm cursor-pointer ${
+                          !validation.contents.has_database ? 'opacity-50' : ''
+                        }`}
+                      >
+                        <Database className="h-4 w-4 text-muted-foreground" />
+                        Database
+                        {validation.contents.has_database ? (
+                          <span className="text-xs text-muted-foreground">
+                            ({formatBytes(validation.contents.database_size_bytes)})
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">(not in backup)</span>
+                        )}
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <Checkbox
+                        id="restore-thumbnails"
+                        checked={restoreOptions.restore_thumbnails}
+                        disabled={!validation.contents.has_thumbnails}
+                        onCheckedChange={(checked) =>
+                          setRestoreOptions((prev) => ({ ...prev, restore_thumbnails: !!checked }))
+                        }
+                      />
+                      <Label
+                        htmlFor="restore-thumbnails"
+                        className={`flex items-center gap-2 text-sm cursor-pointer ${
+                          !validation.contents.has_thumbnails ? 'opacity-50' : ''
+                        }`}
+                      >
+                        <Image className="h-4 w-4 text-muted-foreground" />
+                        Thumbnails
+                        {validation.contents.has_thumbnails ? (
+                          <span className="text-xs text-muted-foreground">
+                            ({validation.contents.thumbnails_count} images)
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">(not in backup)</span>
+                        )}
+                      </Label>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <Checkbox
+                        id="restore-settings"
+                        checked={restoreOptions.restore_settings}
+                        disabled={!validation.contents.has_settings}
+                        onCheckedChange={(checked) =>
+                          setRestoreOptions((prev) => ({ ...prev, restore_settings: !!checked }))
+                        }
+                      />
+                      <Label
+                        htmlFor="restore-settings"
+                        className={`flex items-center gap-2 text-sm cursor-pointer ${
+                          !validation.contents.has_settings ? 'opacity-50' : ''
+                        }`}
+                      >
+                        <Settings className="h-4 w-4 text-muted-foreground" />
+                        System settings
+                        {validation.contents.has_settings ? (
+                          <span className="text-xs text-muted-foreground">
+                            ({validation.contents.settings_count} settings)
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">(not in backup)</span>
+                        )}
+                      </Label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {validation?.warnings && validation.warnings.length > 0 && (
                 <div className="p-2 rounded bg-yellow-50 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-200 text-xs">
                   <p className="font-medium flex items-center gap-1">
@@ -511,16 +677,24 @@ export function BackupRestore() {
                 <AlertTriangle className="h-5 w-5 text-destructive" />
                 Confirm Restore
               </AlertDialogTitle>
-              <AlertDialogDescription className="space-y-2">
-                <p>
-                  This will <strong>replace all existing data</strong> with the backup contents.
-                </p>
-                <p>
-                  All current events, thumbnails, and settings will be permanently deleted.
-                </p>
-                <p className="font-medium">
-                  Are you sure you want to continue?
-                </p>
+              <AlertDialogDescription asChild>
+                <div className="space-y-3">
+                  <p>
+                    This will <strong>replace selected data</strong> with the backup contents.
+                  </p>
+                  {/* FF-007: Show what will be restored */}
+                  <div className="text-sm space-y-1">
+                    <p className="font-medium">Components to restore:</p>
+                    <ul className="list-disc list-inside text-muted-foreground">
+                      {restoreOptions.restore_database && <li>Database (events, cameras, alert rules)</li>}
+                      {restoreOptions.restore_thumbnails && <li>Thumbnails (event images)</li>}
+                      {restoreOptions.restore_settings && <li>System settings</li>}
+                    </ul>
+                  </div>
+                  <p className="font-medium text-destructive">
+                    Are you sure you want to continue?
+                  </p>
+                </div>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

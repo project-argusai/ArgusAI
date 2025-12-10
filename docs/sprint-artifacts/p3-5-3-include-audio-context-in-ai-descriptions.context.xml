@@ -1,0 +1,250 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P3-5</epicId>
+    <storyId>3</storyId>
+    <title>Include Audio Context in AI Descriptions</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-5-3-include-audio-context-in-ai-descriptions.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>AI descriptions to incorporate audio transcription</iWant>
+    <soThat>doorbell events include what was said, providing richer context for users</soThat>
+    <tasks>
+      <task id="1" ac="6">Add audio_transcription Field to Event Model
+        <subtask>Create Alembic migration to add `audio_transcription TEXT` column</subtask>
+        <subtask>Update Event SQLAlchemy model with `audio_transcription: Optional[str]`</subtask>
+        <subtask>Update EventResponse Pydantic schema to include `audio_transcription`</subtask>
+        <subtask>Run migration and verify column exists</subtask>
+      </task>
+      <task id="2" ac="1,2,3">Extend AI Prompts with Audio Context
+        <subtask>Modify prompt construction in `ai_service.py`</subtask>
+        <subtask>Add conditional audio section when transcription available</subtask>
+        <subtask>Update multi-frame prompt template</subtask>
+        <subtask>Update video-native prompt template</subtask>
+        <subtask>Ensure audio section is omitted when no transcription</subtask>
+      </task>
+      <task id="3" ac="4,5">Integrate Audio Extraction into Event Pipeline
+        <subtask>Modify `event_processor.py` to check `camera.is_doorbell` flag</subtask>
+        <subtask>For doorbell cameras: call `AudioExtractor.extract_audio()` on clip</subtask>
+        <subtask>If audio extracted: call `AudioExtractor.transcribe()` to get text</subtask>
+        <subtask>Pass transcription to AI service describe_*() methods</subtask>
+        <subtask>For non-doorbell cameras: skip audio extraction entirely</subtask>
+      </task>
+      <task id="4" ac="6">Update Event Storage with Transcription
+        <subtask>Modify `event_processor.py` to save `audio_transcription` to Event</subtask>
+        <subtask>Ensure transcription persists through event creation flow</subtask>
+        <subtask>Handle None/empty transcription (store as NULL)</subtask>
+      </task>
+      <task id="5" ac="1,2,3,4,5,6">Write Unit Tests
+        <subtask>Test AI prompt includes transcription when provided</subtask>
+        <subtask>Test AI prompt omits audio section when no transcription</subtask>
+        <subtask>Test doorbell camera triggers audio extraction</subtask>
+        <subtask>Test non-doorbell camera skips audio extraction</subtask>
+        <subtask>Test event record stores transcription correctly</subtask>
+        <subtask>Test event API returns transcription field</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="Include Transcription in AI Prompt for Doorbell Events">
+      <given>doorbell event with audio transcription available</given>
+      <when>AI description is generated</when>
+      <then>prompt includes: "Audio transcription: '{transcription}'" and AI incorporates speech into the description naturally</then>
+    </criterion>
+    <criterion id="AC2" title="Generate Combined Audio-Visual Descriptions">
+      <given>transcription "Amazon delivery" combined with video of person at door</given>
+      <when>AI processes combined input</when>
+      <then>description integrates spoken words naturally, e.g., "Delivery person arrived at front door, rang doorbell, and announced 'Amazon delivery'"</then>
+    </criterion>
+    <criterion id="AC3" title="Handle Events Without Audio Transcription">
+      <given>no audio or empty transcription</given>
+      <when>AI prompt is built</when>
+      <then>audio context section is omitted entirely; description based on video/frames only; no mention of "no audio"</then>
+    </criterion>
+    <criterion id="AC4" title="Enable Audio Processing Only for Doorbell Cameras">
+      <given>camera has `is_doorbell=true` flag</given>
+      <when>processing event for this camera</when>
+      <then>audio extraction is attempted automatically and transcription is passed to AI service</then>
+    </criterion>
+    <criterion id="AC5" title="Skip Audio Processing for Non-Doorbell Cameras">
+      <given>camera has `is_doorbell=false` or unset</given>
+      <when>processing event</when>
+      <then>audio extraction is NOT attempted; no performance penalty for regular cameras</then>
+    </criterion>
+    <criterion id="AC6" title="Store Transcription with Event Record">
+      <given>transcription is generated for an event</given>
+      <when>event is saved to database</when>
+      <then>`audio_transcription` field contains the transcription text and is retrievable via event API</then>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Epic P3-5: Audio Analysis for Doorbells - Story P3-5.3</section>
+        <snippet>Story covers FR25: "System includes audio context in AI description prompt". Integration with doorbell events using transcriptions from AudioExtractor.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-5-1-implement-audio-extraction-from-video-clips.md</path>
+        <title>Story P3-5.1</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>AudioExtractor service created with singleton pattern. WAV output: 16kHz, mono, 16-bit PCM. Audio level detection includes RMS and peak amplitude calculations.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-5-2-integrate-speech-to-text-transcription.md</path>
+        <title>Story P3-5.2</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>Implemented transcribe() async method in AudioExtractor. Uses Whisper API with "whisper-1" model. Silent detection with RMS threshold. Usage tracking to ai_usage table.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>AI Service Patterns</section>
+        <snippet>Multi-provider AI service with fallback chain. Prompt construction in _build_user_prompt() and _build_multi_image_prompt() methods. Custom prompts appended after system instructions.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <reason>Add audio_transcription field. Model already has provider_used, analysis_mode, fallback_reason fields. Pattern: Column(Text, nullable=True)</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse, EventCreate</symbol>
+        <reason>Add audio_transcription field to response schema. Follow existing pattern for optional text fields.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIProviderBase._build_user_prompt, _build_multi_image_prompt</symbol>
+        <lines>226-289</lines>
+        <reason>Modify prompt construction to conditionally append audio transcription. Follow existing custom_prompt pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor</symbol>
+        <reason>Integrate AudioExtractor calls for doorbell cameras. Add audio_transcription to event creation. Check camera.is_doorbell before extraction.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/audio_extractor.py</path>
+        <kind>service</kind>
+        <symbol>AudioExtractor.extract_audio, AudioExtractor.transcribe</symbol>
+        <reason>Use existing methods from P3-5.1 and P3-5.2. Singleton pattern: get_audio_extractor(). Both methods return Optional types.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera.is_doorbell</symbol>
+        <lines>70</lines>
+        <reason>Camera model already has is_doorbell Boolean field. Use this to determine if audio extraction should run.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_audio_extractor.py</path>
+        <kind>test</kind>
+        <symbol>test_audio_extractor</symbol>
+        <reason>Reference for testing patterns. 65 tests, 88% coverage. Mock OpenAI client for API tests.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_ai_service.py</path>
+        <kind>test</kind>
+        <symbol>test_ai_service</symbol>
+        <reason>Reference for AI service testing patterns. Mock providers, test prompt construction.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="alembic" version=">=1.14.0" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="openai" version=">=1.54.0" />
+        <package name="av" version=">=12.0.0" note="PyAV for audio extraction" />
+        <package name="numpy" />
+        <package name="pillow" version=">=10.0.0" />
+        <package name="pytest" version="7.4.3" />
+        <package name="pytest-asyncio" version="0.21.1" />
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Audio extraction/transcription failures must NOT block event processing. If transcription fails, continue with video-only description.</constraint>
+    <constraint source="architecture">Prompts constructed in ai_service.py. Custom prompts are APPENDED after system instructions, not replacing them.</constraint>
+    <constraint source="story">Non-doorbell cameras must skip audio extraction entirely - no performance penalty.</constraint>
+    <constraint source="story">Audio section must be completely omitted from prompts when no transcription (no "no audio detected" text).</constraint>
+    <constraint source="P3-5.2">AudioExtractor.transcribe() returns Optional[str]. Returns None on API errors, empty string for silent audio.</constraint>
+    <constraint source="database">New migration required for audio_transcription column. Column must be nullable (TEXT, default NULL).</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AudioExtractor.extract_audio</name>
+      <kind>async method</kind>
+      <signature>async def extract_audio(self, clip_path: Path) -> Optional[bytes]</signature>
+      <path>backend/app/services/audio_extractor.py</path>
+      <notes>Returns WAV bytes (16kHz mono) or None if no audio track/error. Use get_audio_extractor() singleton.</notes>
+    </interface>
+    <interface>
+      <name>AudioExtractor.transcribe</name>
+      <kind>async method</kind>
+      <signature>async def transcribe(self, audio_bytes: bytes) -> Optional[str]</signature>
+      <path>backend/app/services/audio_extractor.py</path>
+      <notes>Uses OpenAI Whisper API. Returns text or None on error, empty string for silent audio. Tracks usage to ai_usage table.</notes>
+    </interface>
+    <interface>
+      <name>Camera.is_doorbell</name>
+      <kind>model field</kind>
+      <signature>is_doorbell = Column(Boolean, default=False, nullable=False)</signature>
+      <path>backend/app/models/camera.py</path>
+      <notes>Check this field before attempting audio extraction. True for Protect doorbell cameras.</notes>
+    </interface>
+    <interface>
+      <name>AIProviderBase._build_multi_image_prompt</name>
+      <kind>method</kind>
+      <signature>def _build_multi_image_prompt(self, camera_name, timestamp, detected_objects, num_images, custom_prompt=None) -> str</signature>
+      <path>backend/app/services/ai_service.py</path>
+      <notes>Modify to accept optional audio_transcription parameter. Insert audio section before context suffix.</notes>
+    </interface>
+    <interface>
+      <name>Event API</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events/{id}</signature>
+      <path>backend/app/api/v1/events.py</path>
+      <notes>EventResponse schema needs audio_transcription field. No endpoint changes needed - schema update propagates automatically.</notes>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Use pytest with pytest-asyncio for async tests. Mock external APIs (OpenAI, AI providers) to avoid real API calls.
+      Follow existing patterns in test_audio_extractor.py and test_ai_service.py. Target >80% coverage.
+      Use SessionLocal mock pattern: mock target is `app.core.database.SessionLocal`.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_audio_extractor.py</location>
+      <location>backend/tests/test_services/test_ai_service.py</location>
+      <location>backend/tests/test_services/test_event_processor.py</location>
+      <location>backend/tests/test_api/test_events.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2">test_prompt_includes_audio_transcription - Mock AI provider, verify prompt contains "Audio transcription:" when transcription provided</idea>
+      <idea ac="3">test_prompt_omits_audio_when_empty - Verify audio section completely absent when transcription is None or empty</idea>
+      <idea ac="4">test_doorbell_camera_triggers_audio_extraction - Mock camera.is_doorbell=True, verify extract_audio called</idea>
+      <idea ac="5">test_non_doorbell_camera_skips_audio - Mock camera.is_doorbell=False, verify extract_audio NOT called</idea>
+      <idea ac="6">test_event_stores_transcription - Create event with transcription, verify field persisted in database</idea>
+      <idea ac="6">test_event_api_returns_transcription - GET event, verify audio_transcription in response</idea>
+      <idea ac="3,4">test_transcription_failure_continues_processing - Mock transcribe() returning None, verify event still created with video description</idea>
+    </ideas>
+  </tests>
+</story-context>

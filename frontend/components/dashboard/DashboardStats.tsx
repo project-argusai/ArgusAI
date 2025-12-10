@@ -1,16 +1,33 @@
 /**
  * Dashboard Stats component
  * Shows real-time statistics for events and cameras
+ * FF-006: Updated for WebSocket-based real-time updates
  */
 
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, Camera, Bell, TrendingUp } from 'lucide-react';
 
 export function DashboardStats() {
+  const queryClient = useQueryClient();
+
+  // FF-006: Subscribe to WebSocket for real-time event updates
+  const handleNewEvent = useCallback(() => {
+    // Invalidate event queries to refresh counts
+    queryClient.invalidateQueries({ queryKey: ['events', 'stats'] });
+    queryClient.invalidateQueries({ queryKey: ['events', 'today'] });
+  }, [queryClient]);
+
+  useWebSocket({
+    autoConnect: true,
+    onNewEvent: handleNewEvent,
+  });
+
   // Fetch total events count
   const { data: eventsData } = useQuery({
     queryKey: ['events', 'stats'],

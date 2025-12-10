@@ -106,6 +106,8 @@ class ProtectEventHandler:
         """Initialize event handler with empty event tracking."""
         # Track last event time per camera for deduplication (AC9)
         self._last_event_times: Dict[str, datetime] = {}
+        # Story P3-5.3: Track last audio transcription for passing to event storage
+        self._last_audio_transcription: Optional[str] = None
 
     async def handle_event(
         self,
@@ -143,19 +145,27 @@ class ProtectEventHandler:
 
             # Debug: Log raw motion/smart detection state for troubleshooting
             is_motion = getattr(new_obj, 'is_motion_currently_detected', None)
-            is_smart_detected = getattr(new_obj, 'is_smart_detected', None)
+            is_smart_detected = getattr(new_obj, 'is_smart_currently_detected', None)
+            is_person = getattr(new_obj, 'is_person_currently_detected', None)
+            is_vehicle = getattr(new_obj, 'is_vehicle_currently_detected', None)
+            is_package = getattr(new_obj, 'is_package_currently_detected', None)
+            is_animal = getattr(new_obj, 'is_animal_currently_detected', None)
             last_smart_event_ids = getattr(new_obj, 'last_smart_detect_event_ids', None)
             active_smart_types = getattr(new_obj, 'active_smart_detect_types', None)
             logger.debug(
                 f"WebSocket update for {model_type} {protect_camera_id[:8]}...: "
-                f"motion={is_motion}, is_smart_detected={is_smart_detected}, "
-                f"last_smart_event_ids={last_smart_event_ids}, active_types={active_smart_types}",
+                f"motion={is_motion}, smart={is_smart_detected}, "
+                f"person={is_person}, vehicle={is_vehicle}, package={is_package}, animal={is_animal}",
                 extra={
                     "event_type": "protect_ws_update",
                     "model_type": model_type,
                     "protect_camera_id": protect_camera_id,
                     "is_motion_currently_detected": is_motion,
-                    "is_smart_detected": is_smart_detected,
+                    "is_smart_currently_detected": is_smart_detected,
+                    "is_person_currently_detected": is_person,
+                    "is_vehicle_currently_detected": is_vehicle,
+                    "is_package_currently_detected": is_package,
+                    "is_animal_currently_detected": is_animal,
                     "last_smart_detect_event_ids": str(last_smart_event_ids) if last_smart_event_ids else None,
                     "active_smart_detect_types": str(active_smart_types) if active_smart_types else None
                 }
@@ -448,31 +458,39 @@ class ProtectEventHandler:
         if is_motion_detected:
             event_types.append("motion")
 
-        # Check for smart detection types
-        # IMPORTANT: 'active_smart_detect_types' returns CONFIGURED types, not currently detected types.
-        # We must check 'is_smart_detected' (bool) FIRST to confirm a detection is active,
-        # then use 'last_smart_detect_event_ids' to determine WHICH type(s) triggered the detection.
-        # If last_smart_detect_event_ids is empty but is_smart_detected is True, we fall back to
-        # using 'active_smart_detect_types' as those are the types that could have triggered.
-        is_smart_detected = getattr(obj, 'is_smart_detected', False)
-        if is_smart_detected:
-            # First try to get specific detection types from event IDs
+        # Check for smart detection types using individual detection flags
+        # These are the most reliable indicators of what was actually detected
+        smart_detect_checks = [
+            ('is_person_currently_detected', 'smart_detect_person'),
+            ('is_vehicle_currently_detected', 'smart_detect_vehicle'),
+            ('is_package_currently_detected', 'smart_detect_package'),
+            ('is_animal_currently_detected', 'smart_detect_animal'),
+        ]
+
+        for attr_name, event_key in smart_detect_checks:
+            if getattr(obj, attr_name, False):
+                if event_key in VALID_EVENT_TYPES:
+                    event_types.append(event_key)
+
+        # Also check is_smart_currently_detected as a fallback for other smart detection types
+        # This catches any smart detections not covered by the individual checks above
+        is_smart_detected = getattr(obj, 'is_smart_currently_detected', False)
+        if is_smart_detected and not any(e.startswith('smart_detect_') for e in event_types):
+            # No specific smart detection found yet, try to extract from last_smart_detect_event_ids
             last_smart_event_ids = getattr(obj, 'last_smart_detect_event_ids', {})
             if last_smart_event_ids:
-                # We have specific detection types
                 for detect_type in last_smart_event_ids.keys():
                     detect_value = getattr(detect_type, 'value', str(detect_type)).lower()
                     event_key = f"smart_detect_{detect_value}"
-                    if event_key in VALID_EVENT_TYPES:
+                    if event_key in VALID_EVENT_TYPES and event_key not in event_types:
                         event_types.append(event_key)
             else:
-                # Fallback: use active_smart_detect_types when is_smart_detected is True
-                # This means a smart detection occurred but we don't know the specific type
+                # Final fallback: use active_smart_detect_types
                 active_types = getattr(obj, 'active_smart_detect_types', set())
                 for detect_type in active_types:
                     detect_value = getattr(detect_type, 'value', str(detect_type)).lower()
                     event_key = f"smart_detect_{detect_value}"
-                    if event_key in VALID_EVENT_TYPES:
+                    if event_key in VALID_EVENT_TYPES and event_key not in event_types:
                         event_types.append(event_key)
 
         # Check for doorbell ring (specific to doorbells)
@@ -883,13 +901,18 @@ class ProtectEventHandler:
 
         Returns:
             AIResult with description, or None on complete failure
-            Also sets self._last_analysis_mode, self._last_frame_count, and self._last_fallback_reason for event storage
+            Also sets self._last_analysis_mode, self._last_frame_count, self._last_fallback_reason, and self._last_audio_transcription for event storage
         """
         # Story P3-3.5: Track analysis mode, frame count, and fallback chain for event storage
         self._last_analysis_mode: Optional[str] = None
         self._last_frame_count: Optional[int] = None
         self._last_fallback_reason: Optional[str] = None
         self._fallback_chain: List[str] = []  # Track each failure: ["video_native:provider_unsupported", ...]
+        # Story P3-5.3: Reset audio transcription for this event
+        self._last_audio_transcription: Optional[str] = None
+        # Story P3-7.5: Track extracted frames and timestamps for gallery storage
+        self._last_extracted_frames: List[bytes] = []
+        self._last_frame_timestamps: List[float] = []
 
         try:
             # Lazy import to avoid circular imports (same pattern as snapshot_service)
@@ -1522,7 +1545,8 @@ class ProtectEventHandler:
                 }
             )
 
-            frames = await frame_extractor.extract_frames(
+            # Story P3-7.5: Use extract_frames_with_timestamps to get both frames and timestamps
+            frames, timestamps = await frame_extractor.extract_frames_with_timestamps(
                 clip_path=clip_path,
                 frame_count=5,  # Default frame count
                 strategy="evenly_spaced",
@@ -1559,19 +1583,30 @@ class ProtectEventHandler:
                 # Story P2-4.1: Use doorbell-specific prompt for ring events
                 custom_prompt = DOORBELL_RING_PROMPT if is_doorbell_ring else None
 
+                # Story P3-5.3: Extract audio and transcribe for doorbell cameras
+                audio_transcription = None
+                if camera.is_doorbell:
+                    audio_transcription = await self._extract_and_transcribe_audio(clip_path, camera)
+
                 result = await ai_service.describe_images(
                     images=frames,
                     camera_name=camera.name,
                     timestamp=snapshot_result.timestamp.isoformat(),
                     detected_objects=[event_type],
                     sla_timeout_ms=10000,  # 10s SLA for multi-frame (higher than single-frame)
-                    custom_prompt=custom_prompt
+                    custom_prompt=custom_prompt,
+                    audio_transcription=audio_transcription  # Story P3-5.3
                 )
+                # Store transcription for later use when saving event
+                self._last_audio_transcription = audio_transcription
 
                 if result and result.success:
                     # Story P3-2.6 AC4: Record analysis mode and frame count
                     self._last_analysis_mode = "multi_frame"
                     self._last_frame_count = len(frames)
+                    # Story P3-7.5: Store frames and timestamps for gallery storage
+                    self._last_extracted_frames = frames
+                    self._last_frame_timestamps = timestamps
 
                     logger.info(
                         f"Multi-frame AI description generated for camera '{camera.name}': {result.description[:50]}...",
@@ -1741,10 +1776,11 @@ class ProtectEventHandler:
         protect_event_id: Optional[str],
         is_doorbell_ring: bool = False,
         fallback_reason: Optional[str] = None,
-        event_id_override: Optional[str] = None
+        event_id_override: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> Optional[Event]:
         """
-        Store Protect event in database (Story P2-3.3 AC5-9, P2-4.1 AC3, AC5, P3-1.4 AC2, P3-2.6 AC4).
+        Store Protect event in database (Story P2-3.3 AC5-9, P2-4.1 AC3, AC5, P3-1.4 AC2, P3-2.6 AC4, P3-5.3 AC6).
 
         Creates Event record with source_type='protect' and all AI/snapshot fields.
 
@@ -1758,6 +1794,7 @@ class ProtectEventHandler:
             is_doorbell_ring: Whether this is a doorbell ring event (Story P2-4.1)
             fallback_reason: Reason for fallback to snapshot (Story P3-1.4, e.g., "clip_download_failed")
             event_id_override: Pre-generated event ID to use (Story P3-1.4)
+            audio_transcription: Transcribed speech from doorbell audio (Story P3-5.3)
 
         Returns:
             Stored Event model or None on failure
@@ -1767,7 +1804,99 @@ class ProtectEventHandler:
             # Use existing fallback_reason if provided (from clip download), otherwise use AI fallback
             effective_fallback_reason = fallback_reason or getattr(self, '_last_fallback_reason', None)
 
-            # Create Event record (AC5-9, P2-4.1 AC3, AC5, P3-1.4 AC2, P3-2.6 AC4)
+            # Story P3-5.3 AC6: Get audio transcription from instance or parameter
+            effective_audio_transcription = audio_transcription or getattr(self, '_last_audio_transcription', None)
+
+            # Story P3-6.1: Determine low_confidence flag from AI confidence
+            ai_confidence = getattr(ai_result, 'ai_confidence', None)
+            low_confidence_from_ai = ai_confidence is not None and ai_confidence < 50
+
+            # Story P3-6.2 AC3, AC6: Detect vague descriptions (supplements AI confidence)
+            vague_reason = None
+            low_confidence_from_vague = False
+            try:
+                from app.services.description_quality import detect_vague_description
+                is_vague, vague_reason = detect_vague_description(ai_result.description)
+                if is_vague:
+                    low_confidence_from_vague = True
+                    logger.info(
+                        f"Vague description detected for camera '{camera.name}': {vague_reason}",
+                        extra={
+                            "event_type": "vague_description_detected",
+                            "camera_id": camera.id,
+                            "camera_name": camera.name,
+                            "vague_reason": vague_reason,
+                            "description_preview": ai_result.description[:50] if ai_result.description else None
+                        }
+                    )
+            except Exception as e:
+                # AC6: Detection errors must NOT block event processing
+                logger.warning(
+                    f"Vagueness detection error for camera '{camera.name}': {e}",
+                    extra={
+                        "event_type": "vagueness_detection_error",
+                        "camera_id": camera.id,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    }
+                )
+                # Default to not-vague if detection fails (benefit of doubt)
+                vague_reason = None
+                low_confidence_from_vague = False
+
+            # Story P3-6.1/P3-6.2 AC3: Combine AI confidence AND vagueness for final low_confidence flag
+            low_confidence = low_confidence_from_ai or low_confidence_from_vague
+
+            # Story P3-7.5: Check if we should store key frames for gallery display
+            key_frames_base64 = None
+            frame_timestamps = None
+            extracted_frames = getattr(self, '_last_extracted_frames', [])
+            extracted_timestamps = getattr(self, '_last_frame_timestamps', [])
+
+            if extracted_frames:
+                # Check store_analysis_frames setting (default: true)
+                from app.models.system_setting import SystemSetting
+                store_frames_setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == 'store_analysis_frames'
+                ).first()
+                # Default to True if setting doesn't exist
+                store_frames = store_frames_setting is None or store_frames_setting.value.lower() == 'true'
+
+                if store_frames:
+                    try:
+                        frame_extractor = get_frame_extractor()
+                        # Encode frames as smaller thumbnails (320px max width, 70% quality)
+                        encoded_frames = []
+                        for frame_bytes in extracted_frames:
+                            encoded = frame_extractor.encode_frame_for_storage(frame_bytes)
+                            if encoded:
+                                encoded_frames.append(encoded)
+
+                        if encoded_frames:
+                            key_frames_base64 = json.dumps(encoded_frames)
+                            frame_timestamps = json.dumps(extracted_timestamps)
+                            logger.info(
+                                f"Stored {len(encoded_frames)} key frames for event on camera '{camera.name}'",
+                                extra={
+                                    "event_type": "key_frames_stored",
+                                    "camera_id": camera.id,
+                                    "frame_count": len(encoded_frames),
+                                    "timestamps": extracted_timestamps
+                                }
+                            )
+                    except Exception as e:
+                        # Don't fail event storage if frame encoding fails
+                        logger.warning(
+                            f"Failed to encode key frames for storage: {e}",
+                            extra={
+                                "event_type": "key_frames_encode_error",
+                                "camera_id": camera.id,
+                                "error_type": type(e).__name__,
+                                "error_message": str(e)
+                            }
+                        )
+
+            # Create Event record (AC5-9, P2-4.1 AC3, AC5, P3-1.4 AC2, P3-2.6 AC4, P3-5.3 AC6, P3-6.1 AC3/AC6, P3-6.2 AC3/AC4, P3-7.1 AC6, P3-7.5 AC4)
             event = Event(
                 camera_id=camera.id,
                 timestamp=snapshot_result.timestamp,
@@ -1785,7 +1914,19 @@ class ProtectEventHandler:
                 fallback_reason=effective_fallback_reason,  # Story P3-1.4 AC2, P3-2.6 AC2/AC3
                 # Story P3-2.6 AC4: Record analysis mode and frame count
                 analysis_mode=getattr(self, '_last_analysis_mode', 'single_frame'),
-                frame_count_used=getattr(self, '_last_frame_count', None)
+                frame_count_used=getattr(self, '_last_frame_count', None),
+                # Story P3-5.3 AC6: Store audio transcription
+                audio_transcription=effective_audio_transcription,
+                # Story P3-6.1 AC3/AC6: Store AI confidence scoring
+                ai_confidence=ai_confidence,
+                low_confidence=low_confidence,
+                # Story P3-6.2 AC4: Store vagueness detection reason
+                vague_reason=vague_reason,
+                # Story P3-7.1 AC6: Store AI cost estimate
+                ai_cost=ai_result.cost_estimate,
+                # Story P3-7.5 AC4: Store key frames for gallery display
+                key_frames_base64=key_frames_base64,
+                frame_timestamps=frame_timestamps
             )
 
             # Story P3-1.4: Use pre-generated event ID if provided
@@ -1808,7 +1949,16 @@ class ProtectEventHandler:
                     # Story P3-2.6: Log analysis mode info
                     "analysis_mode": event.analysis_mode,
                     "frame_count_used": event.frame_count_used,
-                    "fallback_reason": event.fallback_reason
+                    "fallback_reason": event.fallback_reason,
+                    # Story P3-5.3: Log audio transcription info
+                    "has_audio_transcription": bool(event.audio_transcription),
+                    # Story P3-6.1: Log AI confidence info
+                    "ai_confidence": event.ai_confidence,
+                    "low_confidence": event.low_confidence,
+                    # Story P3-6.2: Log vagueness detection info
+                    "vague_reason": event.vague_reason,
+                    # Story P3-7.5: Log key frames info
+                    "has_key_frames": bool(event.key_frames_base64)
                 }
             )
 
@@ -1915,6 +2065,109 @@ class ProtectEventHandler:
                 }
             )
             db.rollback()
+            return None
+
+    async def _extract_and_transcribe_audio(
+        self,
+        clip_path: Path,
+        camera: Camera
+    ) -> Optional[str]:
+        """
+        Extract audio from video clip and transcribe speech (Story P3-5.3 AC4).
+
+        Only runs for doorbell cameras. Audio extraction/transcription failures
+        do NOT block event processing - we simply return None and continue
+        with video-only description.
+
+        Args:
+            clip_path: Path to video clip file
+            camera: Camera that captured the event
+
+        Returns:
+            Transcribed speech text, or None if extraction/transcription failed
+            or no speech detected
+        """
+        try:
+            from app.services.audio_extractor import get_audio_extractor
+
+            audio_extractor = get_audio_extractor()
+
+            logger.info(
+                f"Extracting audio from clip for doorbell camera '{camera.name}'",
+                extra={
+                    "event_type": "audio_extraction_start",
+                    "camera_id": camera.id,
+                    "clip_path": str(clip_path)
+                }
+            )
+
+            # Extract audio from clip (returns WAV bytes or None)
+            audio_bytes = await audio_extractor.extract_audio(clip_path)
+
+            if not audio_bytes:
+                logger.debug(
+                    f"No audio extracted from clip for camera '{camera.name}' (no audio track or error)",
+                    extra={
+                        "event_type": "audio_extraction_no_audio",
+                        "camera_id": camera.id
+                    }
+                )
+                return None
+
+            logger.info(
+                f"Audio extracted ({len(audio_bytes)} bytes), transcribing for camera '{camera.name}'",
+                extra={
+                    "event_type": "audio_transcription_start",
+                    "camera_id": camera.id,
+                    "audio_bytes": len(audio_bytes)
+                }
+            )
+
+            # Transcribe audio (returns text, empty string for silent audio, or None on error)
+            transcription = await audio_extractor.transcribe(audio_bytes)
+
+            if transcription is None:
+                logger.warning(
+                    f"Audio transcription failed for camera '{camera.name}'",
+                    extra={
+                        "event_type": "audio_transcription_failed",
+                        "camera_id": camera.id
+                    }
+                )
+                return None
+
+            if not transcription.strip():
+                logger.debug(
+                    f"Silent audio detected for camera '{camera.name}' (no speech)",
+                    extra={
+                        "event_type": "audio_transcription_silent",
+                        "camera_id": camera.id
+                    }
+                )
+                return None  # Don't pass empty transcription to AI
+
+            logger.info(
+                f"Audio transcription successful for camera '{camera.name}': '{transcription[:50]}...'",
+                extra={
+                    "event_type": "audio_transcription_success",
+                    "camera_id": camera.id,
+                    "transcription_preview": transcription[:100]
+                }
+            )
+
+            return transcription
+
+        except Exception as e:
+            # Audio failures should NEVER block event processing (Story P3-5.3 constraint)
+            logger.warning(
+                f"Audio extraction/transcription error for camera '{camera.name}': {e}",
+                extra={
+                    "event_type": "audio_extraction_error",
+                    "camera_id": camera.id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e)
+                }
+            )
             return None
 
     async def _broadcast_doorbell_ring(

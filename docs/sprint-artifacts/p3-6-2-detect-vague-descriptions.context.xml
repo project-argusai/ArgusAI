@@ -1,0 +1,189 @@
+<story-context id="p3-6-2-detect-vague-descriptions" v="1.0">
+  <metadata>
+    <epicId>P3-6</epicId>
+    <storyId>P3-6.2</storyId>
+    <title>Detect Vague Descriptions</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-6-2-detect-vague-descriptions.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to automatically detect vague AI descriptions</iWant>
+    <soThat>ambiguous events are flagged for review and users can identify uncertain analyses</soThat>
+    <tasks>
+      <task id="1" ac="1,2,5">Create Description Quality Module
+        <subtask>Create backend/app/services/description_quality.py</subtask>
+        <subtask>Implement detect_vague_description(description: str) -> tuple[bool, Optional[str]]</subtask>
+        <subtask>Define VAGUE_PHRASES constant with regex patterns</subtask>
+        <subtask>Add word count check for minimum length (10 words)</subtask>
+        <subtask>Add generic phrase detection patterns</subtask>
+        <subtask>Return (is_vague: bool, reason: Optional[str])</subtask>
+      </task>
+      <task id="2" ac="4">Add Vague Reason Field to Event Model
+        <subtask>Create Alembic migration to add vague_reason TEXT column to events</subtask>
+        <subtask>Update Event SQLAlchemy model with vague_reason field</subtask>
+        <subtask>Update EventCreate and EventResponse Pydantic schemas</subtask>
+        <subtask>Run migration and verify column exists</subtask>
+      </task>
+      <task id="3" ac="3,6">Integrate Detection into Event Pipeline
+        <subtask>Modify protect_event_handler.py to import description_quality</subtask>
+        <subtask>Call detect_vague_description() after AI response parsing</subtask>
+        <subtask>If vague detected: set low_confidence = True and vague_reason</subtask>
+        <subtask>Ensure detection errors are caught and logged (non-blocking)</subtask>
+      </task>
+      <task id="4" ac="1,2,3,4,5">Write Unit Tests
+        <subtask>Create backend/tests/test_services/test_description_quality.py</subtask>
+        <subtask>Test each vague phrase pattern is detected</subtask>
+        <subtask>Test short descriptions are flagged</subtask>
+        <subtask>Test specific descriptions pass through</subtask>
+        <subtask>Test vague_reason is set correctly</subtask>
+        <subtask>Test low_confidence flag is set on vague descriptions</subtask>
+      </task>
+      <task id="5" ac="6">Write Integration Tests
+        <subtask>Test vagueness detection runs in event pipeline</subtask>
+        <subtask>Test detection errors don't block event processing</subtask>
+        <subtask>Test vague events stored with correct flags</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="Detect Vague Phrase Patterns">
+      <given>An AI description text</given>
+      <when>Vagueness detection runs after AI response</when>
+      <then>Flags descriptions containing vague indicators: "appears to be", "possibly", "unclear", "cannot determine", "something", "motion detected" (without specifics), "might be", "could be", "seems like", "hard to tell"</then>
+      <and>Detection is case-insensitive</and>
+    </criterion>
+    <criterion id="AC2" title="Detect Insufficient Detail">
+      <given>An AI description text</given>
+      <when>Vagueness detection analyzes content</when>
+      <then>Flags descriptions that are too short (&lt;10 words) or generic without specific subjects</then>
+      <and>Logs the reason for flagging</and>
+    </criterion>
+    <criterion id="AC3" title="Set Low Confidence on Vague Descriptions">
+      <given>A description flagged as vague by pattern or length</given>
+      <when>Combined with AI confidence evaluation</when>
+      <then>event.low_confidence = True regardless of AI-reported score</then>
+      <and>Vagueness detection supplements (not replaces) AI confidence scoring</and>
+    </criterion>
+    <criterion id="AC4" title="Track Vagueness Reason">
+      <given>A vague description detected</given>
+      <when>Event is stored</when>
+      <then>Event includes vague_reason field explaining why flagged</then>
+      <and>Reason is human-readable (e.g., "Contains vague phrase: 'appears to be'")</and>
+    </criterion>
+    <criterion id="AC5" title="Allow Specific Descriptions Through">
+      <given>A specific description like "Person in blue jacket delivered package to front door"</given>
+      <when>Vagueness detection runs</when>
+      <then>NOT flagged as vague</then>
+      <and>Only AI confidence score determines low_confidence flag</and>
+    </criterion>
+    <criterion id="AC6" title="Integration with Event Pipeline">
+      <given>Vagueness detection module</given>
+      <when>Integrated into protect_event_handler</when>
+      <then>Runs after AI response parsing and before event storage</then>
+      <and>Does not block event processing on detection errors</and>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epic Breakdown" section="Story P3-6.2">
+        Story definition: Detect vague descriptions containing phrases like "appears to be", "possibly", etc. Covers FR28 (System detects vague or uncertain descriptions).
+      </doc>
+      <doc path="docs/PRD-phase3.md" title="Phase 3 PRD" section="Confidence Scoring (Growth)">
+        FR28: System detects vague or uncertain descriptions. FR29: Low-confidence events are flagged in the dashboard.
+      </doc>
+      <doc path="docs/sprint-artifacts/p3-6-1-extract-confidence-score-from-ai-responses.md" title="Previous Story P3-6.1" section="Dev Agent Record">
+        Implementation patterns: Created ai_confidence and low_confidence fields, migration 019, response parsing in ai_service.py, integration in protect_event_handler._store_protect_event().
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/protect_event_handler.py" kind="service" reason="Integration point - _store_protect_event() sets low_confidence based on ai_confidence, needs to add vagueness check">
+        <symbol>_store_protect_event</symbol>
+        <lines>1746-1859</lines>
+        <note>Currently sets low_confidence = ai_confidence &lt; 50. Vagueness detection should OR with this condition.</note>
+      </file>
+      <file path="backend/app/models/event.py" kind="model" reason="Add vague_reason field alongside existing ai_confidence and low_confidence">
+        <symbol>Event</symbol>
+        <lines>72-74</lines>
+        <note>Already has ai_confidence (INTEGER) and low_confidence (BOOLEAN) from P3-6.1</note>
+      </file>
+      <file path="backend/app/schemas/event.py" kind="schema" reason="Add vague_reason to EventCreate and EventResponse schemas">
+        <symbol>EventCreate, EventResponse</symbol>
+        <lines>36-37, 106-107</lines>
+        <note>Follow pattern from P3-6.1 adding ai_confidence and low_confidence</note>
+      </file>
+      <file path="backend/app/services/ai_service.py" kind="service" reason="Reference for _parse_confidence_response() pattern">
+        <symbol>_parse_confidence_response</symbol>
+        <lines>343-385</lines>
+        <note>Parsing happens here - vagueness detection runs on result.description AFTER parsing</note>
+      </file>
+      <file path="backend/tests/test_services/test_confidence_extraction.py" kind="test" reason="Test pattern reference - 30 comprehensive tests covering all ACs">
+        <note>Follow same pytest structure with fixtures and AC-organized test classes</note>
+      </file>
+      <file path="backend/alembic/versions/019_add_ai_confidence_to_events.py" kind="migration" reason="Migration pattern for adding new column to events table">
+        <note>Follow same pattern for 020_add_vague_reason.py</note>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="re" version="stdlib">Regular expressions for vague phrase pattern matching</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for Event model updates</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="pydantic" version=">=2.10.0">Schema validation</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="Story P3-6.1">Vagueness detection supplements (does not replace) AI confidence scoring. If ai_confidence &lt; 50 OR is_vague, then low_confidence = True.</constraint>
+    <constraint source="PRD-phase3.md">Detection must not block event processing - failures should log warnings and continue with event storage.</constraint>
+    <constraint source="Architecture">Follow service layer pattern - create standalone description_quality.py with pure functions, no database dependencies.</constraint>
+    <constraint source="Dev Notes">Use regex patterns for vague phrase detection with case-insensitive matching.</constraint>
+    <constraint source="Previous Story">Integration point is protect_event_handler._store_protect_event() - call detection AFTER AI response parsing, BEFORE database insert.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="detect_vague_description" kind="function" path="backend/app/services/description_quality.py">
+      <signature>def detect_vague_description(description: str) -> tuple[bool, Optional[str]]</signature>
+      <description>Returns (is_vague, reason) where reason explains why flagged or None if not vague</description>
+    </interface>
+    <interface name="Event.vague_reason" kind="model_field" path="backend/app/models/event.py">
+      <signature>vague_reason = Column(Text, nullable=True)</signature>
+      <description>Human-readable explanation of why description was flagged as vague</description>
+    </interface>
+    <interface name="_store_protect_event" kind="method" path="backend/app/services/protect_event_handler.py">
+      <signature>async def _store_protect_event(self, db, ai_result, snapshot_result, camera, event_type, protect_event_id, ...)</signature>
+      <description>Integration point - add vagueness detection call and set low_confidence/vague_reason</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests use pytest with pytest-asyncio for async tests. Test files in backend/tests/test_services/.
+      Follow test_confidence_extraction.py pattern: organize tests by AC in separate classes (e.g., TestVaguePhraseDetection, TestShortDescriptionDetection).
+      Use fixtures for reusable test data. Mock external dependencies. Target >80% coverage.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_description_quality.py</location>
+      <location>backend/tests/test_services/test_protect_event_handler.py (integration)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test each vague phrase pattern: "appears to be", "possibly", "unclear", "cannot determine", "something", "motion detected", "might be", "could be", "seems like", "hard to tell"</idea>
+      <idea ac="AC1">Test case-insensitive detection: "APPEARS TO BE", "Appears to Be"</idea>
+      <idea ac="AC2">Test short descriptions: "", "Motion.", "Something moved.", 5-word description</idea>
+      <idea ac="AC2">Test generic phrases: "activity detected", "movement observed"</idea>
+      <idea ac="AC3">Test vague description sets low_confidence=True even when ai_confidence=85</idea>
+      <idea ac="AC4">Test vague_reason format: "Contains vague phrase: 'appears to be'", "Description too short (5 words)"</idea>
+      <idea ac="AC5">Test specific description passes: "Person in blue jacket delivered package to front door"</idea>
+      <idea ac="AC6">Test detection error handling: exception in detect_vague_description doesn't block event storage</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -85,6 +85,40 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - Node.js 18+
 - UniFi Protect controller (optional, for native integration)
 
+### Automated Installation (Recommended)
+
+The easiest way to set up the application is using the installation script:
+
+```bash
+# Make the script executable
+chmod +x install.sh
+
+# Run full installation
+./install.sh
+
+# Or check dependencies only
+./install.sh --check
+
+# Or install specific components
+./install.sh --backend   # Backend only
+./install.sh --frontend  # Frontend only
+./install.sh --services  # Generate service files only
+```
+
+The installation script will:
+1. Check all required dependencies (Python 3.11+, Node.js 18+)
+2. Create Python virtual environment and install packages
+3. Install frontend dependencies and build
+4. Generate encryption key
+5. Initialize the database
+6. Print next steps for configuration
+
+After installation, visit `http://localhost:3000/setup` for the first-run setup wizard.
+
+### Manual Setup
+
+If you prefer manual installation:
+
 ### Backend Setup
 
 ```bash

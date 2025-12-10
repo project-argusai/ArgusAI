@@ -34,6 +34,7 @@ export interface ICorrelatedEvent {
 export interface IEvent {
   id: string;                     // UUID
   camera_id: string;              // UUID foreign key
+  camera_name?: string;           // Human-readable camera name for display (FF-003)
   timestamp: string;              // ISO 8601 datetime
   description: string;            // AI-generated description
   confidence: number;             // 0-100
@@ -56,6 +57,19 @@ export interface IEvent {
   analysis_mode?: AnalysisMode | null;  // Analysis mode used: single_frame, multi_frame, video_native
   frame_count_used?: number | null;     // Number of frames sent to AI (for multi_frame mode)
   fallback_reason?: string | null;      // Reason for fallback to lower mode (e.g., "clip_download_failed")
+  // Story P3-6.1: AI confidence scoring
+  ai_confidence?: number | null;        // AI self-reported confidence 0-100
+  // Story P3-6.2: Vague description detection
+  low_confidence?: boolean;             // True if ai_confidence < 50 OR description is vague
+  vague_reason?: string | null;         // Human-readable reason why flagged as vague
+  // Story P3-6.4: Re-analysis tracking
+  reanalyzed_at?: string | null;        // Timestamp of last re-analysis (null = never re-analyzed)
+  reanalysis_count?: number;            // Number of re-analyses performed
+  // Story P3-7.1: AI cost tracking
+  ai_cost?: number | null;              // Estimated cost in USD for AI analysis
+  // Story P3-7.5: Key frames for gallery display
+  key_frames_base64?: string[] | null;  // Base64-encoded key frames used for AI analysis
+  frame_timestamps?: number[] | null;   // Timestamps in seconds for each key frame
 }
 
 /**
@@ -70,6 +84,10 @@ export interface IEventFilters {
   min_confidence?: number;        // Minimum confidence score (0-100)
   source_type?: SourceType;       // Filter by event source (Phase 2)
   smart_detection_type?: SmartDetectionType; // Filter by smart detection type (Phase 2)
+  // Story P3-7.6: Analysis mode filtering
+  analysis_mode?: AnalysisMode;   // Filter by analysis mode
+  has_fallback?: boolean;         // Filter events with fallback_reason (True = has fallback)
+  low_confidence?: boolean;       // Filter by low confidence flag (True = uncertain descriptions)
 }
 
 /**
@@ -92,18 +110,39 @@ export type DetectedObject = 'person' | 'vehicle' | 'animal' | 'package' | 'unkn
 
 /**
  * Helper to get confidence level classification
+ * Story P3-6.3: Updated thresholds per AC1:
+ * - High: 80-100
+ * - Medium: 50-79
+ * - Low: 0-49
  */
 export function getConfidenceLevel(confidence: number): 'high' | 'medium' | 'low' {
-  if (confidence >= 90) return 'high';
-  if (confidence >= 70) return 'medium';
+  if (confidence >= 80) return 'high';
+  if (confidence >= 50) return 'medium';
   return 'low';
 }
 
 /**
  * Helper to get confidence color class
+ * Story P3-6.3: Updated thresholds per AC1
  */
 export function getConfidenceColor(confidence: number): string {
-  if (confidence >= 90) return 'text-green-600 bg-green-50';
-  if (confidence >= 70) return 'text-yellow-600 bg-yellow-50';
+  if (confidence >= 80) return 'text-green-600 bg-green-50';
+  if (confidence >= 50) return 'text-yellow-600 bg-yellow-50';
   return 'text-red-600 bg-red-50';
+}
+
+/**
+ * Story P3-6.3: AI confidence level type
+ */
+export type AIConfidenceLevel = 'high' | 'medium' | 'low';
+
+/**
+ * Story P3-6.3: Get AI confidence level from ai_confidence score
+ * Uses same thresholds as getConfidenceLevel for consistency
+ */
+export function getAIConfidenceLevel(aiConfidence: number | null | undefined): AIConfidenceLevel | null {
+  if (aiConfidence == null) return null;
+  if (aiConfidence >= 80) return 'high';
+  if (aiConfidence >= 50) return 'medium';
+  return 'low';
 }

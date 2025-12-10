@@ -1,5 +1,6 @@
 /**
  * App Shell - Protected layout wrapper (Story 6.3)
+ * FF-005: Mobile navigation uses top bar only (hamburger menu in Header)
  *
  * Handles authentication and conditionally renders:
  * - Login page: No header/sidebar, full screen
@@ -11,7 +12,6 @@
 import { usePathname } from 'next/navigation';
 import { Header } from '@/components/layout/Header';
 import { Sidebar } from '@/components/layout/Sidebar';
-import { MobileNav } from '@/components/layout/MobileNav';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 
 interface AppShellProps {
@@ -31,16 +31,16 @@ export function AppShell({ children }: AppShellProps) {
   }
 
   // Protected routes: wrap with auth check and full layout
+  // FF-005: Removed MobileNav (bottom bar) - mobile uses hamburger menu in Header instead
   return (
     <ProtectedRoute>
       <Header />
       <Sidebar />
-      <main className="min-h-screen bg-background pt-16 pb-16 lg:pb-0 lg:pl-60 transition-all duration-300">
+      <main className="min-h-screen bg-background pt-16 lg:pl-60 transition-all duration-300">
         <div className="container mx-auto">
           {children}
         </div>
       </main>
-      <MobileNav />
     </ProtectedRoute>
   );
 }

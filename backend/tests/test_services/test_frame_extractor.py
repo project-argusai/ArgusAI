@@ -886,3 +886,243 @@ class TestAllBlurryScenario:
             for frame in result:
                 assert frame[:2] == b'\xff\xd8', "Frame should be valid JPEG"
                 assert frame[-2:] == b'\xff\xd9', "Frame should be valid JPEG"
+
+
+class TestExtractFramesWithTimestamps:
+    """Test extract_frames_with_timestamps method (Story P3-7.5)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Reset singleton before each test"""
+        reset_frame_extractor()
+        self.extractor = FrameExtractor()
+        yield
+        reset_frame_extractor()
+
+    def _create_mock_container(self, total_frames: int = 150, fps: float = 30.0):
+        """Create a mock av container for testing"""
+        mock_container = MagicMock()
+        mock_stream = MagicMock()
+        mock_stream.frames = total_frames
+        mock_stream.average_rate = fps
+        mock_container.streams.video = [mock_stream]
+        mock_container.duration = (total_frames / fps) * 1_000_000
+
+        # Generate mock frames
+        mock_frames = []
+        for i in range(total_frames):
+            mock_frame = MagicMock()
+            # Create varied frames (not uniform solid colors)
+            frame_array = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+            mock_frame.to_ndarray.return_value = frame_array
+            mock_frames.append(mock_frame)
+
+        mock_container.decode.return_value = iter(mock_frames)
+        mock_container.__enter__ = MagicMock(return_value=mock_container)
+        mock_container.__exit__ = MagicMock(return_value=False)
+
+        return mock_container
+
+    @pytest.mark.asyncio
+    async def test_returns_frames_and_timestamps(self):
+        """P3-7.5 AC4: Method returns both frames and timestamps"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container(total_frames=150, fps=30.0)
+
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                Path("/test/video.mp4"),
+                frame_count=5
+            )
+
+            assert len(frames) == 5, "Should return 5 frames"
+            assert len(timestamps) == 5, "Should return 5 timestamps"
+            assert len(frames) == len(timestamps), "Frame count should match timestamp count"
+
+    @pytest.mark.asyncio
+    async def test_timestamps_are_floats(self):
+        """P3-7.5 AC4: Timestamps are float seconds"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container(total_frames=150, fps=30.0)
+
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                Path("/test/video.mp4"),
+                frame_count=5
+            )
+
+            for ts in timestamps:
+                assert isinstance(ts, float), "Timestamp should be float"
+                assert ts >= 0, "Timestamp should be non-negative"
+
+    @pytest.mark.asyncio
+    async def test_timestamps_increase_monotonically(self):
+        """P3-7.5: Timestamps should increase monotonically (evenly spaced)"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container(total_frames=150, fps=30.0)
+
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                Path("/test/video.mp4"),
+                frame_count=5
+            )
+
+            for i in range(1, len(timestamps)):
+                assert timestamps[i] > timestamps[i - 1], "Timestamps should increase"
+
+    @pytest.mark.asyncio
+    async def test_first_timestamp_near_zero(self):
+        """P3-7.5: First frame timestamp should be at or near 0"""
+        with patch("av.open") as mock_open:
+            mock_open.return_value = self._create_mock_container(total_frames=150, fps=30.0)
+
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                Path("/test/video.mp4"),
+                frame_count=5
+            )
+
+            assert timestamps[0] == 0.0 or timestamps[0] < 0.5, "First frame should be at start"
+
+    @pytest.mark.asyncio
+    async def test_empty_on_no_video_stream(self):
+        """P3-7.5: Returns empty lists when no video stream"""
+        mock_container = MagicMock()
+        mock_container.streams.video = []
+        mock_container.__enter__ = MagicMock(return_value=mock_container)
+        mock_container.__exit__ = MagicMock(return_value=False)
+
+        with patch("av.open") as mock_open:
+            mock_open.return_value = mock_container
+
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                Path("/test/video.mp4"),
+                frame_count=5
+            )
+
+            assert frames == [], "Should return empty frames"
+            assert timestamps == [], "Should return empty timestamps"
+
+    @pytest.mark.asyncio
+    async def test_empty_on_error(self):
+        """P3-7.5: Returns empty lists on error"""
+        with patch("av.open") as mock_open:
+            mock_open.side_effect = Exception("Test error")
+
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                Path("/test/video.mp4"),
+                frame_count=5
+            )
+
+            assert frames == [], "Should return empty frames on error"
+            assert timestamps == [], "Should return empty timestamps on error"
+
+
+class TestEncodeFrameForStorage:
+    """Test encode_frame_for_storage method (Story P3-7.5)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Reset singleton before each test"""
+        reset_frame_extractor()
+        self.extractor = FrameExtractor()
+        yield
+        reset_frame_extractor()
+
+    def _create_test_jpeg(self, width: int = 640, height: int = 480) -> bytes:
+        """Create a test JPEG image"""
+        from PIL import Image
+        import io
+
+        # Create a random image
+        img = Image.new('RGB', (width, height), color=(100, 100, 100))
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=85)
+        return buffer.getvalue()
+
+    def test_returns_base64_string(self):
+        """P3-7.5 AC4: Returns base64-encoded string"""
+        import base64
+
+        jpeg_bytes = self._create_test_jpeg()
+        result = self.extractor.encode_frame_for_storage(jpeg_bytes)
+
+        assert isinstance(result, str), "Should return string"
+        assert len(result) > 0, "Should not be empty"
+
+        # Verify it's valid base64
+        decoded = base64.b64decode(result)
+        assert decoded[:2] == b'\xff\xd8', "Decoded should be valid JPEG"
+
+    def test_reduces_image_size(self):
+        """P3-7.5: Resizes large images to max 320px width"""
+        import base64
+
+        # Create a large image (1280px wide)
+        jpeg_bytes = self._create_test_jpeg(width=1280, height=720)
+        result = self.extractor.encode_frame_for_storage(jpeg_bytes, max_width=320)
+
+        # Decode and check dimensions
+        from PIL import Image
+        import io
+
+        decoded = base64.b64decode(result)
+        img = Image.open(io.BytesIO(decoded))
+
+        assert img.width <= 320, "Width should be at most 320px"
+
+    def test_preserves_aspect_ratio(self):
+        """P3-7.5: Preserves aspect ratio when resizing"""
+        import base64
+        from PIL import Image
+        import io
+
+        # Create a 16:9 image
+        original_width, original_height = 1280, 720
+        jpeg_bytes = self._create_test_jpeg(width=original_width, height=original_height)
+        result = self.extractor.encode_frame_for_storage(jpeg_bytes, max_width=320)
+
+        decoded = base64.b64decode(result)
+        img = Image.open(io.BytesIO(decoded))
+
+        # Check aspect ratio is preserved (within rounding tolerance)
+        original_ratio = original_width / original_height
+        new_ratio = img.width / img.height
+        assert abs(original_ratio - new_ratio) < 0.1, "Aspect ratio should be preserved"
+
+    def test_applies_quality_setting(self):
+        """P3-7.5: Uses quality parameter for JPEG encoding"""
+        # Create a complex image (noisy) that will show compression differences
+        from PIL import Image
+        import io
+
+        img = Image.new('RGB', (320, 240))
+        # Add some noise/complexity to the image
+        import random
+        pixels = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+                  for _ in range(320 * 240)]
+        img.putdata(pixels)
+        buffer = io.BytesIO()
+        img.save(buffer, format='JPEG', quality=95)  # Save at high quality first
+        jpeg_bytes = buffer.getvalue()
+
+        result_high = self.extractor.encode_frame_for_storage(jpeg_bytes, quality=95)
+        result_low = self.extractor.encode_frame_for_storage(jpeg_bytes, quality=30)
+
+        # Lower quality should produce smaller output for complex images
+        assert len(result_low) < len(result_high), "Lower quality should be smaller"
+
+    def test_returns_empty_string_on_error(self):
+        """P3-7.5: Returns empty string on error"""
+        result = self.extractor.encode_frame_for_storage(b"invalid jpeg data")
+        assert result == "", "Should return empty string on error"
+
+    def test_default_parameters(self):
+        """P3-7.5: Default max_width=320 and quality=70"""
+        import base64
+        from PIL import Image
+        import io
+
+        jpeg_bytes = self._create_test_jpeg(width=640, height=480)
+        result = self.extractor.encode_frame_for_storage(jpeg_bytes)
+
+        decoded = base64.b64decode(result)
+        img = Image.open(io.BytesIO(decoded))
+
+        assert img.width <= 320, "Default max_width should be 320"

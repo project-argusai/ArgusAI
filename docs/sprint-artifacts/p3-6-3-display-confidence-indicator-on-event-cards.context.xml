@@ -1,0 +1,259 @@
+<story-context id="p3-6-3-display-confidence-indicator-on-event-cards" v="1.0">
+  <metadata>
+    <epicId>P3-6</epicId>
+    <storyId>P3-6.3</storyId>
+    <title>Display Confidence Indicator on Event Cards</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-6-3-display-confidence-indicator-on-event-cards.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user viewing the event timeline</asA>
+    <iWant>to see confidence indicators on event cards</iWant>
+    <soThat>I can identify events needing review and understand the reliability of AI descriptions</soThat>
+    <tasks>
+      <task id="1" acs="1,3,4">Create ConfidenceIndicator Component
+        <subtask>Create frontend/components/events/ConfidenceIndicator.tsx</subtask>
+        <subtask>Implement visual indicator with three states (high/medium/low)</subtask>
+        <subtask>Use icons from lucide-react (CheckCircle2, Circle, AlertTriangle)</subtask>
+        <subtask>Add color coding: green-500, amber-500, red-500</subtask>
+        <subtask>Implement Tooltip with confidence explanation</subtask>
+        <subtask>Handle null confidence gracefully (render nothing)</subtask>
+      </task>
+      <task id="2" acs="2,5">Add Low Confidence Warning
+        <subtask>Add low_confidence flag check to ConfidenceIndicator</subtask>
+        <subtask>Show additional warning icon when low_confidence = true</subtask>
+        <subtask>Include vague_reason in tooltip when present</subtask>
+        <subtask>Style warning to be subtle but noticeable</subtask>
+      </task>
+      <task id="3" acs="1,2,4">Integrate into EventCard Component
+        <subtask>Import ConfidenceIndicator into EventCard.tsx</subtask>
+        <subtask>Add to card metadata row (after analysis mode and AI provider badges)</subtask>
+        <subtask>Pass ai_confidence, low_confidence, and vague_reason props</subtask>
+        <subtask>Ensure responsive layout on mobile</subtask>
+      </task>
+      <task id="4" acs="6">Implement Accessibility
+        <subtask>Add aria-label to confidence indicator with full text</subtask>
+        <subtask>Ensure tooltip is keyboard accessible (focus trigger)</subtask>
+        <subtask>Add screen reader announcements</subtask>
+        <subtask>Test with VoiceOver/NVDA</subtask>
+      </task>
+      <task id="5" acs="1,2,3,4,5">Write Component Tests
+        <subtask>Create frontend/__tests__/components/events/ConfidenceIndicator.test.tsx</subtask>
+        <subtask>Test high confidence rendering (80-100)</subtask>
+        <subtask>Test medium confidence rendering (50-79)</subtask>
+        <subtask>Test low confidence rendering (0-49)</subtask>
+        <subtask>Test null confidence (no render)</subtask>
+        <subtask>Test low_confidence flag adds warning</subtask>
+        <subtask>Test vague_reason shows in tooltip</subtask>
+        <subtask>Test accessibility attributes present</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Display Confidence Score Indicator">
+      Given an event with a confidence score (ai_confidence)
+      When displayed in the timeline
+      Then shows confidence indicator with visual treatment:
+        - 80-100: Green checkmark icon (high confidence)
+        - 50-79: Yellow/amber dot icon (medium confidence)
+        - 0-49: Red warning triangle icon (low confidence)
+      And indicator is visible but subtle (doesn't dominate the card)
+    </ac>
+    <ac id="2" title="Display Low Confidence Warning">
+      Given an event flagged with low_confidence = True
+      When displayed in the timeline
+      Then shows subtle warning icon alongside confidence indicator
+      And tooltip explains: "AI was uncertain about this description"
+    </ac>
+    <ac id="3" title="Show Confidence Tooltip">
+      Given user hovers over confidence indicator
+      When tooltip appears
+      Then shows: "Confidence: {score}%" with explanation
+        - High: "High confidence - AI is certain about this description"
+        - Medium: "Medium confidence - Description may need verification"
+        - Low: "Low confidence - Consider re-analyzing this event"
+    </ac>
+    <ac id="4" title="Handle Missing Confidence">
+      Given confidence is null (legacy events or parsing failed)
+      When displayed in the timeline
+      Then no confidence indicator is shown (graceful absence)
+      And event card displays normally without the indicator
+    </ac>
+    <ac id="5" title="Show Vague Reason in Tooltip">
+      Given an event with vague_reason set (from P3-6.2)
+      When user hovers over low confidence indicator
+      Then tooltip includes vague reason: "Reason: {vague_reason}"
+      And this is shown below the confidence explanation
+    </ac>
+    <ac id="6" title="Accessibility Support">
+      Given confidence indicator on event card
+      When screen reader encounters it
+      Then announces confidence level (e.g., "High confidence: 92%")
+      And announces low confidence warning if applicable
+      And tooltip content is accessible via keyboard focus
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Epic P3-6: Confidence Scoring and Quality Indicators</section>
+        <snippet>Story P3-6.3 covers FR29 (flag low confidence) and FR40 (show confidence indicator). Shows confidence indicator with high (0.8-1.0), medium (0.5-0.8), and low (0.0-0.5) thresholds.</snippet>
+      </doc>
+      <doc>
+        <path>docs/ux-design-specification.md</path>
+        <title>UX Design Specification</title>
+        <section>Section 6 - EventCard Component</section>
+        <snippet>EventCard includes confidence score visual indicator. Color system: green-500 for success/high, orange-500 for warning/medium, red-500 for error/low. WCAG 2.1 Level AA compliance required.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-6-2-detect-vague-descriptions.md</path>
+        <title>Story P3-6.2: Detect Vague Descriptions</title>
+        <section>Dev Agent Record</section>
+        <snippet>Backend provides ai_confidence (0-100 INTEGER), low_confidence (BOOLEAN), vague_reason (TEXT). Low confidence logic: ai_confidence &lt; 50 OR is_vague. EventResponse schema includes all three fields.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <item>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <lines>1-213</lines>
+        <reason>Target component to integrate ConfidenceIndicator. Shows existing badge pattern with AnalysisModeBadge and AIProviderBadge in metadata row (lines 135-141).</reason>
+      </item>
+      <item>
+        <path>frontend/components/events/AnalysisModeBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>AnalysisModeBadge</symbol>
+        <lines>1-132</lines>
+        <reason>Reference pattern for badge component with Tooltip, icons, color coding, and accessibility. Follow same structure for ConfidenceIndicator.</reason>
+      </item>
+      <item>
+        <path>frontend/components/events/AIProviderBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>AIProviderBadge</symbol>
+        <lines>1-123</lines>
+        <reason>Reference pattern for badge with null handling, Tooltip content, sr-only text for accessibility.</reason>
+      </item>
+      <item>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent, getConfidenceLevel, getConfidenceColor</symbol>
+        <lines>1-110</lines>
+        <reason>Event interface - NEEDS UPDATE to add ai_confidence, low_confidence, vague_reason. Existing helpers getConfidenceLevel and getConfidenceColor can be reused/modified.</reason>
+      </item>
+      <item>
+        <path>frontend/__tests__/components/events/AnalysisModeBadge.test.tsx</path>
+        <kind>test</kind>
+        <symbol>AnalysisModeBadge tests</symbol>
+        <lines>1-212</lines>
+        <reason>Reference test pattern using vitest, TooltipProvider wrapper, userEvent for hover, accessibility tests. Follow same structure.</reason>
+      </item>
+      <item>
+        <path>frontend/__tests__/test-utils.tsx</path>
+        <kind>test-util</kind>
+        <symbol>mockEvent, render</symbol>
+        <lines>1-91</lines>
+        <reason>Test utilities - mockEvent factory needs update to include ai_confidence, low_confidence, vague_reason fields.</reason>
+      </item>
+      <item>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse</symbol>
+        <lines>78-140</lines>
+        <reason>Backend schema already includes ai_confidence (Optional[int], 0-100), low_confidence (bool, default False), vague_reason (Optional[str]). Frontend types need sync.</reason>
+      </item>
+      <item>
+        <path>frontend/components/ui/tooltip.tsx</path>
+        <kind>component</kind>
+        <symbol>Tooltip, TooltipTrigger, TooltipContent</symbol>
+        <reason>shadcn/ui Tooltip component already available. Use same pattern as AnalysisModeBadge.</reason>
+      </item>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package name="lucide-react" version="^0.553.0">Icons: CheckCircle2, Circle, AlertTriangle</package>
+        <package name="@radix-ui/react-tooltip" version="^1.2.8">Tooltip primitives</package>
+        <package name="tailwindcss" version="^4">Styling with color classes</package>
+        <package name="vitest" version="^4.0.15">Testing framework</package>
+        <package name="@testing-library/react" version="^16.3.0">Component testing</package>
+        <package name="@testing-library/user-event" version="^14.6.1">User interaction testing</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing badge pattern from AnalysisModeBadge - Tooltip wrapping, color-coded background, icon + text, sr-only accessibility text</constraint>
+    <constraint type="styling">Use color tokens from UX spec: green-500 (high), amber-500 (medium), red-500 (low). Keep indicator small (16-20px icons).</constraint>
+    <constraint type="accessibility">WCAG 2.1 Level AA: 4.5:1 contrast, keyboard accessible tooltip, aria-label with full confidence text, screen reader announcements</constraint>
+    <constraint type="null-handling">Return null when ai_confidence is null/undefined - graceful absence like AnalysisModeBadge</constraint>
+    <constraint type="data">Backend fields available: ai_confidence (0-100), low_confidence (boolean), vague_reason (text). Frontend IEvent interface needs sync.</constraint>
+    <constraint type="placement">Add to EventCard metadata row (line ~141) after AIProviderBadge, before SourceTypeBadge</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>ConfidenceIndicator Props</name>
+      <kind>component-props</kind>
+      <signature>interface ConfidenceIndicatorProps {
+  aiConfidence?: number | null;  // 0-100 or null
+  lowConfidence?: boolean;       // True if flagged low
+  vagueReason?: string | null;   // Explanation text
+}</signature>
+      <path>frontend/components/events/ConfidenceIndicator.tsx</path>
+    </interface>
+    <interface>
+      <name>IEvent (updated)</name>
+      <kind>typescript-interface</kind>
+      <signature>// Add to existing IEvent interface:
+ai_confidence?: number | null;   // AI self-reported confidence 0-100
+low_confidence?: boolean;        // True if uncertain
+vague_reason?: string | null;    // Why flagged as vague</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+    <interface>
+      <name>EventResponse API</name>
+      <kind>REST-endpoint</kind>
+      <signature>GET /api/v1/events/{id}
+Response includes:
+  - ai_confidence: Optional[int] (0-100)
+  - low_confidence: bool (default False)
+  - vague_reason: Optional[str]</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Testing uses Vitest with @testing-library/react. Components requiring providers (like Tooltip) need wrapper functions. Use userEvent.setup() for hover interactions. Test null/undefined prop handling by checking container.toBeEmptyDOMElement(). Follow accessibility testing pattern from AnalysisModeBadge.test.tsx - check for sr-only text, aria-labels, and keyboard accessibility.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/components/events/ConfidenceIndicator.test.tsx</location>
+      <location>frontend/__tests__/test-utils.tsx (update mockEvent)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test high confidence (85) renders green checkmark icon and bg-green-100 class</idea>
+      <idea ac="1">Test medium confidence (65) renders amber dot icon and bg-amber-100 class</idea>
+      <idea ac="1">Test low confidence (35) renders red warning triangle and bg-red-100 class</idea>
+      <idea ac="2">Test low_confidence=true adds additional warning icon regardless of score</idea>
+      <idea ac="2">Test tooltip shows "AI was uncertain" text when low_confidence=true</idea>
+      <idea ac="3">Test hover shows tooltip with "Confidence: 85%" format</idea>
+      <idea ac="3">Test tooltip shows appropriate explanation text per level</idea>
+      <idea ac="4">Test aiConfidence=null returns empty container</idea>
+      <idea ac="4">Test aiConfidence=undefined returns empty container</idea>
+      <idea ac="5">Test vagueReason shows "Reason: {text}" in tooltip when present</idea>
+      <idea ac="5">Test vagueReason not shown when null</idea>
+      <idea ac="6">Test sr-only text includes "High confidence: 85%"</idea>
+      <idea ac="6">Test sr-only text includes low confidence warning when applicable</idea>
+      <idea ac="6">Test component has cursor-help class for tooltip hint</idea>
+    </ideas>
+  </tests>
+</story-context>

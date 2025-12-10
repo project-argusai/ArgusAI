@@ -15,6 +15,9 @@ import { SmartDetectionBadge } from './SmartDetectionBadge';
 import { CorrelationIndicator } from './CorrelationIndicator';
 import { AnalysisModeBadge } from './AnalysisModeBadge';
 import { AIProviderBadge } from './AIProviderBadge';
+import { ConfidenceIndicator } from './ConfidenceIndicator';
+import { ReAnalyzeButton } from './ReAnalyzeButton';
+import { ReanalyzedIndicator } from './ReanalyzedIndicator';
 import { cn } from '@/lib/utils';
 
 interface EventCardProps {
@@ -24,6 +27,8 @@ interface EventCardProps {
   onCorrelatedEventClick?: (eventId: string) => void;
   /** Story P2-4.4: Whether this card is currently highlighted (from correlation scroll) */
   isHighlighted?: boolean;
+  /** Story P3-6.4: Callback when event is re-analyzed */
+  onReanalyze?: (updatedEvent: IEvent) => void;
 }
 
 const OBJECT_ICONS: Record<string, string> = {
@@ -48,6 +53,7 @@ export const EventCard = memo(function EventCard({
   onClick,
   onCorrelatedEventClick,
   isHighlighted = false,
+  onReanalyze,
 }: EventCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -101,11 +107,7 @@ export const EventCard = memo(function EventCard({
               src={thumbnailSrc}
               alt="Event thumbnail"
               className="w-full h-full object-cover"
-              onError={(e) => {
-                console.error('Image load failed:', thumbnailSrc, e);
-                setImageError(true);
-              }}
-              onLoad={() => console.log('Image loaded successfully:', thumbnailSrc)}
+              onError={() => setImageError(true)}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
@@ -121,7 +123,7 @@ export const EventCard = memo(function EventCard({
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <div className="flex items-center space-x-2">
               <Video className="w-4 h-4" />
-              <span>Camera {event.camera_id.slice(0, 8)}</span>
+              <span>{event.camera_name || `Camera ${event.camera_id.slice(0, 8)}`}</span>
             </div>
             <div className="flex items-center gap-2">
               <time
@@ -139,6 +141,19 @@ export const EventCard = memo(function EventCard({
               />
               {/* Story P3-4.5: AI Provider Badge */}
               <AIProviderBadge provider={event.provider_used} />
+              {/* Story P3-6.3: AI Confidence Indicator (AC1, AC2, AC3, AC4, AC5, AC6) */}
+              <ConfidenceIndicator
+                aiConfidence={event.ai_confidence}
+                lowConfidence={event.low_confidence}
+                vagueReason={event.vague_reason}
+              />
+              {/* Story P3-6.4: Re-analyzed Indicator (AC7) */}
+              <ReanalyzedIndicator reanalyzedAt={event.reanalyzed_at} />
+              {/* Story P3-6.4: Re-analyze Button for low confidence events (AC1) */}
+              <ReAnalyzeButton
+                event={event}
+                onReanalyze={onReanalyze}
+              />
               {event.source_type && (
                 <SourceTypeBadge sourceType={event.source_type} />
               )}

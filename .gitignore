@@ -211,3 +211,6 @@ backend/node_modules/
 
 # Application data directories
 backend/data/clips/
+
+# Generated service files (install.sh --services)
+services/

@@ -6,17 +6,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { ChevronUp, AlertCircle, Loader2, Filter } from 'lucide-react';
+import { ChevronUp, AlertCircle, Loader2, Filter, RefreshCw } from 'lucide-react';
 import { EventCard } from '@/components/events/EventCard';
 import { DoorbellEventCard } from '@/components/events/DoorbellEventCard';
 import { EventFilters } from '@/components/events/EventFilters';
 import { EventDetailModal } from '@/components/events/EventDetailModal';
-import { useEvents } from '@/lib/hooks/useEvents';
+import { useEvents, useInvalidateEvents } from '@/lib/hooks/useEvents';
+import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { apiClient } from '@/lib/api-client';
 import type { IEventFilters, IEvent } from '@/types/event';
 import type { ICamera } from '@/types/camera';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from 'sonner';
 
 // Helper: Parse URL params to filters
 function parseFiltersFromURL(searchParams: URLSearchParams): IEventFilters {
@@ -50,6 +52,22 @@ function parseFiltersFromURL(searchParams: URLSearchParams): IEventFilters {
     filters.smart_detection_type = smartDetectionType as 'person' | 'vehicle' | 'package' | 'animal' | 'motion' | 'ring';
   }
 
+  // Story P3-7.6: Analysis mode filters
+  const analysisMode = searchParams.get('analysis_mode');
+  if (analysisMode && ['single_frame', 'multi_frame', 'video_native'].includes(analysisMode)) {
+    filters.analysis_mode = analysisMode as 'single_frame' | 'multi_frame' | 'video_native';
+  }
+
+  const hasFallback = searchParams.get('has_fallback');
+  if (hasFallback === 'true') {
+    filters.has_fallback = true;
+  }
+
+  const lowConfidence = searchParams.get('low_confidence');
+  if (lowConfidence === 'true') {
+    filters.low_confidence = true;
+  }
+
   return filters;
 }
 
@@ -73,6 +91,16 @@ function filtersToURLParams(filters: IEventFilters): URLSearchParams {
   if (filters.smart_detection_type) {
     params.set('smart_detection_type', filters.smart_detection_type);
   }
+  // Story P3-7.6: Analysis mode filters
+  if (filters.analysis_mode) {
+    params.set('analysis_mode', filters.analysis_mode);
+  }
+  if (filters.has_fallback) {
+    params.set('has_fallback', 'true');
+  }
+  if (filters.low_confidence) {
+    params.set('low_confidence', 'true');
+  }
 
   return params;
 }
@@ -90,6 +118,30 @@ export default function EventsPage() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [cameras, setCameras] = useState<ICamera[]>([]);
+  const [newEventsCount, setNewEventsCount] = useState(0);
+  const invalidateEvents = useInvalidateEvents();
+
+  // FF-002: Subscribe to WebSocket for real-time updates
+  const handleNewEvent = useCallback((data: { event_id: string; camera_id: string; description: string | null }) => {
+    // Increment new events counter
+    setNewEventsCount((prev) => prev + 1);
+    // Show toast notification
+    toast.info('New event detected', {
+      description: data.description?.slice(0, 60) || 'A new event was captured',
+      duration: 3000,
+    });
+  }, []);
+
+  useWebSocket({
+    autoConnect: true,
+    onNewEvent: handleNewEvent,
+  });
+
+  // Handler to refresh and clear new events indicator
+  const handleRefresh = useCallback(() => {
+    setNewEventsCount(0);
+    invalidateEvents();
+  }, [invalidateEvents]);
 
   // Sync filters to URL params
   useEffect(() => {
@@ -176,16 +228,28 @@ export default function EventsPage() {
                   : 'No events found'}
               </p>
             </div>
-            {/* Mobile Filter Toggle */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="lg:hidden"
-            >
-              <Filter className="w-4 h-4 mr-2" />
-              Filters
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* FF-002: Refresh button with new events indicator */}
+              <Button
+                variant={newEventsCount > 0 ? 'default' : 'outline'}
+                size="sm"
+                onClick={handleRefresh}
+                className="relative"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                {newEventsCount > 0 ? `${newEventsCount} new` : 'Refresh'}
+              </Button>
+              {/* Mobile Filter Toggle */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowFilters(!showFilters)}
+                className="lg:hidden"
+              >
+                <Filter className="w-4 h-4 mr-2" />
+                Filters
+              </Button>
+            </div>
           </div>
         </div>
 

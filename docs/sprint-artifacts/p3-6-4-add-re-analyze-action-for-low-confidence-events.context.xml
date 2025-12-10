@@ -1,0 +1,348 @@
+<story-context id="p3-6-4-add-re-analyze-action-for-low-confidence-events" v="1.0">
+  <metadata>
+    <epicId>P3-6</epicId>
+    <storyId>P3-6.4</storyId>
+    <title>Add Re-Analyze Action for Low-Confidence Events</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-09</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-6-4-add-re-analyze-action-for-low-confidence-events.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user viewing events in the dashboard</asA>
+    <iWant>to re-analyze events with higher quality settings</iWant>
+    <soThat>uncertain descriptions can be improved with better analysis modes</soThat>
+    <tasks>
+      <task id="1" ac="3,6">Create Backend Re-Analyze Endpoint
+        - Add reanalyzed_at field to Event model (migration)
+        - Create POST /api/v1/events/{id}/reanalyze endpoint in events.py
+        - Implement re-analysis logic in EventProcessor service
+        - Add rate limiting (max 3 per event per hour)
+        - Return updated EventResponse with new fields
+        - Add unit tests for endpoint
+      </task>
+      <task id="2" ac="4,7">Update Event Model and Schema
+        - Add reanalyzed_at: DateTime field to Event model
+        - Add reanalysis_count: Integer field for rate limiting
+        - Create Alembic migration for new fields
+        - Update EventResponse schema to include reanalyzed_at
+        - Update frontend IEvent type to include reanalyzed_at
+      </task>
+      <task id="3" ac="1">Create ReAnalyzeButton Component
+        - Create frontend/components/events/ReAnalyzeButton.tsx
+        - Show button only when low_confidence = true
+        - Use RefreshCw icon from lucide-react
+        - Style to match existing action buttons
+        - Add loading state during re-analysis
+      </task>
+      <task id="4" ac="2">Create ReAnalyzeModal Component
+        - Create frontend/components/events/ReAnalyzeModal.tsx
+        - Display current analysis mode used
+        - Show available re-analysis options as radio buttons
+        - Disable unavailable options with explanations
+        - Show cost indicators ($/$$/$$$) per option
+        - Add confirm/cancel buttons
+      </task>
+      <task id="5" ac="1,4,5">Integrate Re-Analysis into EventCard
+        - Add ReAnalyzeButton to EventCard actions
+        - Connect to ReAnalyzeModal on click
+        - Handle API call and response
+        - Update event in UI on success
+        - Show success/error toasts
+        - Invalidate queries to refresh event list
+      </task>
+      <task id="6" ac="7">Show Re-Analysis Indicator
+        - Add "Re-analyzed" badge/indicator to EventCard
+        - Show in event detail view
+        - Display reanalyzed_at timestamp on hover
+      </task>
+      <task id="7" ac="1,2,4,5">Write Frontend Tests
+        - Test ReAnalyzeButton renders only for low confidence
+        - Test ReAnalyzeModal options based on camera type
+        - Test successful re-analysis flow
+        - Test error handling
+        - Test loading states
+      </task>
+      <task id="8" ac="3,6">Write Backend Integration Tests
+        - Test POST /api/v1/events/{id}/reanalyze endpoint
+        - Test rate limiting enforcement
+        - Test re-analysis with different modes
+        - Test error scenarios (event not found, clip unavailable)
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Display Re-Analyze Button on Low Confidence Events">
+      - Given an event card with low confidence (low_confidence = true)
+      - When displayed in the timeline or event detail
+      - Then shows a "Re-analyze" button/action
+      - And button is visible but doesn't dominate the card layout
+      - And button has appropriate icon (refresh/retry icon)
+    </ac>
+    <ac id="2" title="Show Re-Analysis Options Modal">
+      - Given user clicks "Re-analyze" button
+      - When modal opens
+      - Then offers re-analysis mode options (Multi-Frame, Video Native, same settings)
+      - And each option shows estimated cost indicator ($/$$/$$$)
+      - And shows current analysis mode that was used
+      - And disables unavailable options with explanation
+    </ac>
+    <ac id="3" title="Trigger Re-Analysis via API">
+      - Given user selects re-analysis option and confirms
+      - When "Confirm" is clicked
+      - Then POST /api/v1/events/{id}/reanalyze is called with {"analysis_mode": "selected_mode"}
+      - And loading state is shown on the button/modal
+      - And user cannot trigger multiple re-analyses simultaneously
+    </ac>
+    <ac id="4" title="Update Event with New Description">
+      - Given re-analysis completes successfully
+      - When new description is received
+      - Then event.description is updated with new AI description
+      - And event.ai_confidence is updated with new confidence score
+      - And event.analysis_mode reflects the mode used for re-analysis
+      - And event.reanalyzed_at timestamp is set
+      - And success toast notification is shown
+    </ac>
+    <ac id="5" title="Handle Re-Analysis Failure">
+      - Given re-analysis fails (API error, AI unavailable)
+      - When error occurs
+      - Then shows error toast with reason
+      - And original description is preserved (no data loss)
+      - And modal closes or shows retry option
+      - And event is not marked as reanalyzed
+    </ac>
+    <ac id="6" title="Backend Re-Analyze Endpoint">
+      - Given POST /api/v1/events/{id}/reanalyze is called
+      - When valid request with analysis_mode in body
+      - Then backend retrieves event, downloads clip (if Protect), processes with mode, updates event
+      - And handles rate limiting (max 3 re-analyses per event per hour)
+    </ac>
+    <ac id="7" title="Show Re-Analysis History">
+      - Given an event that has been re-analyzed
+      - When viewing event detail
+      - Then shows "Re-analyzed on {date}" indicator
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epics</title>
+        <section>Epic P3-6: Confidence Scoring - Story P3-6.4</section>
+        <snippet>Story P3-6.4 Add Re-Analyze Action for Low-Confidence Events - Implements FR30 for re-analyzing events with different analysis modes when confidence is low.</snippet>
+      </doc>
+      <doc>
+        <path>docs/prd.md</path>
+        <title>Product Requirements Document</title>
+        <section>FR30 - Re-analyze action</section>
+        <snippet>FR30 specifies users can re-analyze events with higher-quality analysis modes when descriptions are uncertain or vague.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-6-3-display-confidence-indicator-on-event-cards.md</path>
+        <title>Previous Story - Confidence Indicator</title>
+        <section>Dev Agent Record - Learnings</section>
+        <snippet>ConfidenceIndicator.tsx created at frontend/components/events/, IEvent already has ai_confidence and low_confidence fields. EventCard metadata row pattern established.</snippet>
+      </doc>
+      <doc>
+        <path>docs/ux-design-specification.md</path>
+        <title>UX Design Specification</title>
+        <section>Cost Indicators</section>
+        <snippet>Single Frame ($), Multi-Frame ($$), Video Native ($$$) - cost tier indicators for analysis modes.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>router</kind>
+        <symbol>events router</symbol>
+        <lines>1-979</lines>
+        <reason>Add POST /api/v1/events/{id}/reanalyze endpoint here. Follow existing patterns for get_event, create_event.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>1-91</lines>
+        <reason>Add reanalyzed_at and reanalysis_count fields. Already has ai_confidence, low_confidence, analysis_mode, vague_reason fields.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse, EventCreate</symbol>
+        <lines>78-141</lines>
+        <reason>Add reanalyzed_at to EventResponse schema. Create ReanalyzeRequest schema for endpoint body.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor</symbol>
+        <lines>130-186</lines>
+        <reason>Add reanalyze_event method that reuses process_event logic with analysis mode override.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/clip_service.py</path>
+        <kind>service</kind>
+        <symbol>ClipService</symbol>
+        <lines>82-100</lines>
+        <reason>Used for downloading Protect clips during re-analysis. Has download_clip method with retry logic.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService</symbol>
+        <reason>Has describe_image_with_mode() for multi-mode analysis. Called during re-analysis.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent, AnalysisMode</symbol>
+        <lines>34-64</lines>
+        <reason>Add reanalyzed_at field. Already has ai_confidence, low_confidence, analysis_mode, vague_reason.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <lines>47-100</lines>
+        <reason>Add ReAnalyzeButton to card actions. Already imports ConfidenceIndicator, follows badge pattern.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/events/ConfidenceIndicator.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfidenceIndicator</symbol>
+        <lines>1-146</lines>
+        <reason>Pattern for conditional rendering based on low_confidence. Use same Tooltip pattern for ReAnalyzeButton.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api-client</kind>
+        <symbol>apiClient methods</symbol>
+        <lines>1-100</lines>
+        <reason>Add reanalyzeEvent(eventId, analysisMode) method. Follow existing event API patterns.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Dialog</symbol>
+        <reason>shadcn/ui Dialog component for ReAnalyzeModal. Already in use throughout app.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/__tests__/test-utils.tsx</path>
+        <kind>test-utility</kind>
+        <symbol>mockEvent</symbol>
+        <reason>Extend mockEvent factory with reanalyzed_at field for testing.</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <backend>
+        <package name="fastapi" version="0.115.0">Web framework for API endpoint</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for Event model updates</package>
+        <package name="alembic" version=">=1.14.0">Database migrations for new fields</package>
+        <package name="pydantic" version=">=2.10.0">Schema validation for request/response</package>
+        <package name="slowapi" version=">=0.1.9">Rate limiting support</package>
+        <package name="tenacity" version=">=8.2.0">Retry logic for clip downloads</package>
+        <package name="pytest" version="7.4.3">Backend testing</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+      </backend>
+      <frontend>
+        <package name="@tanstack/react-query" version="^5.90.10">API mutations and cache invalidation</package>
+        <package name="@radix-ui/react-dialog" version="^1.1.15">Modal component base</package>
+        <package name="@radix-ui/react-radio-group" version="^1.3.8">Radio button group for mode selection</package>
+        <package name="@radix-ui/react-tooltip" version="^1.2.8">Tooltip for reanalyzed_at indicator</package>
+        <package name="lucide-react" version="^0.553.0">Icons (RefreshCw for button)</package>
+        <package name="sonner" version="^2.0.7">Toast notifications</package>
+        <package name="vitest" version="^4.0.15">Frontend testing</package>
+        <package name="@testing-library/react" version="^16.3.0">React component testing</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Add endpoint to existing events.py router following established patterns. Do not create new router files.</constraint>
+    <constraint type="architecture">Reuse EventProcessor.process_event() logic - do not duplicate AI processing code.</constraint>
+    <constraint type="architecture">Use ClipService for Protect clip downloads - do not create new download logic.</constraint>
+    <constraint type="rate-limiting">Enforce max 3 re-analyses per event per hour via reanalysis_count and reanalyzed_at tracking.</constraint>
+    <constraint type="mode-availability">Protect cameras: all modes (single_frame, multi_frame, video_native). RTSP/USB: single_frame only.</constraint>
+    <constraint type="data-integrity">Never lose original description on re-analysis failure. Always preserve previous state.</constraint>
+    <constraint type="ui-pattern">Follow ConfidenceIndicator pattern for conditional rendering based on low_confidence flag.</constraint>
+    <constraint type="ui-pattern">Use shadcn/ui Dialog and RadioGroup components for modal.</constraint>
+    <constraint type="testing">Backend: pytest with async support. Frontend: vitest with testing-library.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>POST /api/v1/events/{id}/reanalyze</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/events/{id}/reanalyze
+Body: {"analysis_mode": "single_frame" | "multi_frame" | "video_native"}
+Response: EventResponse (updated event)</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+    <interface>
+      <name>ReanalyzeRequest</name>
+      <kind>Pydantic schema</kind>
+      <signature>class ReanalyzeRequest(BaseModel):
+    analysis_mode: Literal["single_frame", "multi_frame", "video_native"]</signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface>
+      <name>reanalyzeEvent</name>
+      <kind>API client method</kind>
+      <signature>async reanalyzeEvent(eventId: string, analysisMode: AnalysisMode): Promise&lt;IEvent&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+    <interface>
+      <name>ReAnalyzeButtonProps</name>
+      <kind>React component props</kind>
+      <signature>interface ReAnalyzeButtonProps {
+  event: IEvent;
+  onReanalyze?: () => void;
+}</signature>
+      <path>frontend/components/events/ReAnalyzeButton.tsx</path>
+    </interface>
+    <interface>
+      <name>ReAnalyzeModalProps</name>
+      <kind>React component props</kind>
+      <signature>interface ReAnalyzeModalProps {
+  event: IEvent;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess?: (updatedEvent: IEvent) => void;
+}</signature>
+      <path>frontend/components/events/ReAnalyzeModal.tsx</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests. Test files in backend/tests/ organized by layer (test_api/, test_services/, test_integration/). Frontend uses vitest with @testing-library/react for component testing. Test files in frontend/__tests__/ mirroring component structure. Use mockEvent factory from test-utils.tsx for event fixtures.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_events.py</location>
+      <location>backend/tests/test_services/test_event_processor.py</location>
+      <location>backend/tests/test_integration/</location>
+      <location>frontend/__tests__/components/events/ReAnalyzeButton.test.tsx</location>
+      <location>frontend/__tests__/components/events/ReAnalyzeModal.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test ReAnalyzeButton renders only when event.low_confidence is true</idea>
+      <idea ac="1">Test ReAnalyzeButton does not render when low_confidence is false</idea>
+      <idea ac="2">Test ReAnalyzeModal shows correct options for Protect camera (all 3 modes)</idea>
+      <idea ac="2">Test ReAnalyzeModal disables multi_frame/video_native for RTSP/USB cameras</idea>
+      <idea ac="2">Test cost indicators display correctly ($/$$/$$$)</idea>
+      <idea ac="3">Test API call triggers with correct analysis_mode payload</idea>
+      <idea ac="3">Test loading state during re-analysis</idea>
+      <idea ac="4">Test event updates in UI after successful re-analysis</idea>
+      <idea ac="4">Test success toast notification appears</idea>
+      <idea ac="5">Test error toast appears on API failure</idea>
+      <idea ac="5">Test original description preserved on failure</idea>
+      <idea ac="6">Test POST /api/v1/events/{id}/reanalyze returns updated event</idea>
+      <idea ac="6">Test rate limiting returns 429 after 3 attempts per hour</idea>
+      <idea ac="6">Test 404 for non-existent event ID</idea>
+      <idea ac="7">Test "Re-analyzed" indicator shows when reanalyzed_at is set</idea>
+    </ideas>
+  </tests>
+</story-context>

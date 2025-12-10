@@ -12,6 +12,7 @@ from main import app
 from app.core.database import Base, get_db
 from app.models.system_setting import SystemSetting
 from app.models.event import Event
+from app.models.ai_usage import AIUsage
 from app.services import cleanup_service
 
 
@@ -60,6 +61,7 @@ def cleanup_database():
     try:
         db.query(SystemSetting).delete()
         db.query(Event).delete()
+        db.query(AIUsage).delete()
         db.commit()
     finally:
         db.close()
@@ -781,6 +783,164 @@ class TestAIProviderStatsEndpoint:
 
         assert data["total_events"] == 0
         assert data["events_per_provider"] == {}
+
+
+class TestAIUsageEndpoint:
+    """Test AI usage cost tracking endpoint (Story P3-7.1)"""
+
+    def test_get_ai_usage_empty(self):
+        """Test GET /system/ai-usage with no data returns zeros"""
+        response = client.get("/api/v1/system/ai-usage")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["total_cost"] == 0.0
+        assert data["total_requests"] == 0
+        assert "period" in data
+        assert data["by_date"] == []
+        assert data["by_camera"] == []
+        assert data["by_provider"] == []
+        assert data["by_mode"] == []
+
+    def test_get_ai_usage_with_data(self):
+        """Test GET /system/ai-usage returns aggregated usage data"""
+        # Create test AIUsage records
+        db = TestingSessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            usage_records = [
+                AIUsage(
+                    timestamp=now - timedelta(hours=1),
+                    provider="openai",
+                    success=True,
+                    tokens_used=1000,
+                    response_time_ms=500,
+                    cost_estimate=0.0005,
+                    analysis_mode="single_image"
+                ),
+                AIUsage(
+                    timestamp=now - timedelta(hours=2),
+                    provider="openai",
+                    success=True,
+                    tokens_used=2000,
+                    response_time_ms=600,
+                    cost_estimate=0.001,
+                    analysis_mode="multi_frame",
+                    image_count=5
+                ),
+                AIUsage(
+                    timestamp=now - timedelta(hours=3),
+                    provider="claude",
+                    success=True,
+                    tokens_used=1500,
+                    response_time_ms=700,
+                    cost_estimate=0.002,
+                    analysis_mode="single_image"
+                ),
+            ]
+            for record in usage_records:
+                db.add(record)
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/ai-usage")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Total cost should be sum of all cost_estimates
+        assert data["total_cost"] == pytest.approx(0.0035, rel=1e-4)
+        assert data["total_requests"] == 3
+
+        # Check by_provider aggregation
+        assert len(data["by_provider"]) == 2
+        providers_by_name = {p["provider"]: p for p in data["by_provider"]}
+        assert "openai" in providers_by_name
+        assert providers_by_name["openai"]["requests"] == 2
+        assert providers_by_name["openai"]["cost"] == pytest.approx(0.0015, rel=1e-4)
+        assert "claude" in providers_by_name
+        assert providers_by_name["claude"]["requests"] == 1
+
+        # Check by_mode aggregation
+        assert len(data["by_mode"]) == 2
+        modes_by_name = {m["mode"]: m for m in data["by_mode"]}
+        assert "single_image" in modes_by_name
+        assert modes_by_name["single_image"]["requests"] == 2
+        assert "multi_frame" in modes_by_name
+        assert modes_by_name["multi_frame"]["requests"] == 1
+
+        # Check by_date aggregation
+        assert len(data["by_date"]) == 1  # All same day
+
+    def test_get_ai_usage_date_filter(self):
+        """Test GET /system/ai-usage with date range filter"""
+        db = TestingSessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            usage_records = [
+                AIUsage(
+                    timestamp=now - timedelta(days=1),
+                    provider="openai",
+                    success=True,
+                    tokens_used=1000,
+                    response_time_ms=500,
+                    cost_estimate=0.0005,
+                    analysis_mode="single_image"
+                ),
+                AIUsage(
+                    timestamp=now - timedelta(days=10),
+                    provider="claude",
+                    success=True,
+                    tokens_used=2000,
+                    response_time_ms=600,
+                    cost_estimate=0.001,
+                    analysis_mode="single_image"
+                ),
+            ]
+            for record in usage_records:
+                db.add(record)
+            db.commit()
+        finally:
+            db.close()
+
+        # Filter to only last 5 days - use ISO format with Z suffix
+        start_dt = datetime.now(timezone.utc) - timedelta(days=5)
+        start_date = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        response = client.get(f"/api/v1/system/ai-usage?start_date={start_date}")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should only include the record from 1 day ago
+        assert data["total_requests"] == 1
+        assert data["total_cost"] == pytest.approx(0.0005, rel=1e-4)
+
+    def test_get_ai_usage_invalid_date_format(self):
+        """Test GET /system/ai-usage with invalid date format returns 400"""
+        response = client.get("/api/v1/system/ai-usage?start_date=not-a-date")
+
+        assert response.status_code == 400
+        assert "Invalid start_date format" in response.json()["detail"]
+
+    def test_get_ai_usage_response_structure(self):
+        """Test GET /system/ai-usage returns correct response structure"""
+        response = client.get("/api/v1/system/ai-usage")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify required fields
+        assert "total_cost" in data
+        assert "total_requests" in data
+        assert "period" in data
+        assert "start" in data["period"]
+        assert "end" in data["period"]
+        assert "by_date" in data
+        assert "by_camera" in data
+        assert "by_provider" in data
+        assert "by_mode" in data
 
 
 # Cleanup test database on module exit

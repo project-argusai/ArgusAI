@@ -82,6 +82,17 @@ class BackupInfo:
 
 
 @dataclass
+class BackupContents:
+    """Information about what's contained in a backup (FF-007)"""
+    has_database: bool = False
+    has_thumbnails: bool = False
+    has_settings: bool = False
+    database_size_bytes: int = 0
+    thumbnails_count: int = 0
+    settings_count: int = 0
+
+
+@dataclass
 class ValidationResult:
     """Result of backup validation"""
     valid: bool
@@ -89,6 +100,7 @@ class ValidationResult:
     app_version: Optional[str] = None
     backup_timestamp: Optional[str] = None
     warnings: List[str] = None
+    contents: Optional[BackupContents] = None  # FF-007: What's in the backup
 
     def __post_init__(self):
         if self.warnings is None:
@@ -140,15 +152,25 @@ class BackupService:
             }
         )
 
-    async def create_backup(self) -> BackupResult:
+    async def create_backup(
+        self,
+        include_database: bool = True,
+        include_thumbnails: bool = True,
+        include_settings: bool = True
+    ) -> BackupResult:
         """
-        Create a full system backup
+        Create a system backup with selective components (FF-007)
 
-        Creates a ZIP archive containing:
-        - database.db: SQLite database copy
+        Creates a ZIP archive containing selected components:
+        - database.db: SQLite database copy (if include_database=True)
         - metadata.json: Backup metadata (timestamp, version, counts)
-        - settings.json: System settings export
-        - thumbnails/: All event thumbnail images
+        - settings.json: System settings export (if include_settings=True)
+        - thumbnails/: All event thumbnail images (if include_thumbnails=True)
+
+        Args:
+            include_database: Include events, cameras, alert rules (default True)
+            include_thumbnails: Include thumbnail images (default True)
+            include_settings: Include system settings (default True)
 
         Returns:
             BackupResult with backup details and download URL
@@ -162,13 +184,19 @@ class BackupService:
 
         logger.info(
             "Starting backup creation",
-            extra={"timestamp": timestamp, "temp_dir": str(temp_dir)}
+            extra={
+                "timestamp": timestamp,
+                "temp_dir": str(temp_dir),
+                "include_database": include_database,
+                "include_thumbnails": include_thumbnails,
+                "include_settings": include_settings
+            }
         )
 
         try:
             # Check disk space
             disk_usage = shutil.disk_usage(self.backup_dir)
-            estimated_size = self._estimate_backup_size()
+            estimated_size = self._estimate_backup_size(include_database, include_thumbnails)
 
             if disk_usage.free < estimated_size * 2:  # Need 2x for temp + zip
                 return BackupResult(
@@ -182,23 +210,34 @@ class BackupService:
             # Create temp directory
             temp_dir.mkdir(parents=True, exist_ok=True)
 
-            # 1. Copy database
-            db_size = self._copy_database(temp_dir)
+            # 1. Copy database (if selected)
+            db_size = 0
+            if include_database:
+                db_size = self._copy_database(temp_dir)
 
-            # 2. Copy thumbnails
-            thumb_count, thumb_size = self._copy_thumbnails(temp_dir)
+            # 2. Copy thumbnails (if selected)
+            thumb_count, thumb_size = 0, 0
+            if include_thumbnails:
+                thumb_count, thumb_size = self._copy_thumbnails(temp_dir)
 
-            # 3. Export settings
-            settings_count = self._export_settings(temp_dir)
+            # 3. Export settings (if selected)
+            settings_count = 0
+            if include_settings:
+                settings_count = self._export_settings(temp_dir)
 
-            # 4. Create metadata
+            # 4. Create metadata (always included)
             metadata = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "app_version": APP_VERSION,
                 "database_size_bytes": db_size,
                 "thumbnails_count": thumb_count,
                 "thumbnails_size_bytes": thumb_size,
-                "settings_count": settings_count
+                "settings_count": settings_count,
+                "includes": {
+                    "database": include_database,
+                    "thumbnails": include_thumbnails,
+                    "settings": include_settings
+                }
             }
 
             with open(temp_dir / "metadata.json", "w") as f:
@@ -252,14 +291,18 @@ class BackupService:
                 message=f"Backup failed: {str(e)}"
             )
 
-    def _estimate_backup_size(self) -> int:
-        """Estimate total backup size in bytes"""
+    def _estimate_backup_size(
+        self,
+        include_database: bool = True,
+        include_thumbnails: bool = True
+    ) -> int:
+        """Estimate total backup size in bytes based on selected components"""
         size = 0
 
-        if self.database_path.exists():
+        if include_database and self.database_path.exists():
             size += self.database_path.stat().st_size
 
-        if self.thumbnails_dir.exists():
+        if include_thumbnails and self.thumbnails_dir.exists():
             for f in self.thumbnails_dir.rglob("*"):
                 if f.is_file():
                     size += f.stat().st_size
@@ -436,12 +479,35 @@ class BackupService:
                         "Some features may not work correctly."
                     )
 
+                # FF-007: Determine what's in the backup
+                includes = metadata.get("includes", {})
+                # Check file list for backwards compatibility with old backups
+                has_database = "database.db" in file_list
+                has_thumbnails = any(f.startswith("thumbnails/") for f in file_list)
+                has_settings = "settings.json" in file_list
+
+                # Override with metadata includes if present (new format)
+                if includes:
+                    has_database = includes.get("database", has_database)
+                    has_thumbnails = includes.get("thumbnails", has_thumbnails)
+                    has_settings = includes.get("settings", has_settings)
+
+                contents = BackupContents(
+                    has_database=has_database,
+                    has_thumbnails=has_thumbnails,
+                    has_settings=has_settings,
+                    database_size_bytes=metadata.get("database_size_bytes", 0),
+                    thumbnails_count=metadata.get("thumbnails_count", 0),
+                    settings_count=metadata.get("settings_count", 0)
+                )
+
                 return ValidationResult(
                     valid=True,
                     message="Backup is valid",
                     app_version=backup_version,
                     backup_timestamp=backup_timestamp,
-                    warnings=warnings
+                    warnings=warnings,
+                    contents=contents
                 )
 
         except json.JSONDecodeError:
@@ -459,22 +525,28 @@ class BackupService:
         self,
         zip_path: Path,
         stop_tasks_callback=None,
-        start_tasks_callback=None
+        start_tasks_callback=None,
+        restore_database: bool = True,
+        restore_thumbnails: bool = True,
+        restore_settings: bool = True
     ) -> RestoreResult:
         """
-        Restore system from backup ZIP
+        Restore system from backup ZIP with selective components (FF-007)
 
         Process:
         1. Validate ZIP structure
         2. Stop background tasks
-        3. Backup current database
-        4. Extract and replace files
+        3. Backup current database (if restoring database)
+        4. Extract and replace selected files
         5. Restart background tasks
 
         Args:
             zip_path: Path to backup ZIP file
             stop_tasks_callback: Async function to stop background tasks
             start_tasks_callback: Async function to restart background tasks
+            restore_database: Restore events, cameras, alert rules (default True)
+            restore_thumbnails: Restore thumbnail images (default True)
+            restore_settings: Restore system settings (default True)
 
         Returns:
             RestoreResult with restore status
@@ -485,7 +557,13 @@ class BackupService:
 
         logger.info(
             "Starting restore from backup",
-            extra={"zip_path": str(zip_path), "timestamp": timestamp}
+            extra={
+                "zip_path": str(zip_path),
+                "timestamp": timestamp,
+                "restore_database": restore_database,
+                "restore_thumbnails": restore_thumbnails,
+                "restore_settings": restore_settings
+            }
         )
 
         try:
@@ -500,14 +578,26 @@ class BackupService:
             if validation.warnings:
                 warnings.extend(validation.warnings)
 
+            # FF-007: Check if requested components exist in backup
+            if validation.contents:
+                if restore_database and not validation.contents.has_database:
+                    warnings.append("Database not included in this backup, skipping")
+                    restore_database = False
+                if restore_thumbnails and not validation.contents.has_thumbnails:
+                    warnings.append("Thumbnails not included in this backup, skipping")
+                    restore_thumbnails = False
+                if restore_settings and not validation.contents.has_settings:
+                    warnings.append("Settings not included in this backup, skipping")
+                    restore_settings = False
+
             # 2. Stop background tasks
             if stop_tasks_callback:
                 logger.info("Stopping background tasks for restore")
                 await stop_tasks_callback()
 
             try:
-                # 3. Backup current database
-                if self.database_path.exists():
+                # 3. Backup current database (if restoring database)
+                if restore_database and self.database_path.exists():
                     backup_db_path = self.data_dir / f"app.db.backup-{timestamp}"
                     shutil.copy2(self.database_path, backup_db_path)
                     logger.info(f"Current database backed up to {backup_db_path}")
@@ -518,10 +608,9 @@ class BackupService:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     zf.extractall(temp_dir)
 
-                # 5. Replace database
+                # 5. Replace database (if selected)
                 events_restored = 0
-                if (temp_dir / "database.db").exists():
-                    # Close any existing connections would be ideal here
+                if restore_database and (temp_dir / "database.db").exists():
                     shutil.copy2(temp_dir / "database.db", self.database_path)
                     logger.info("Database restored from backup")
 
@@ -533,9 +622,9 @@ class BackupService:
                     finally:
                         db.close()
 
-                # 6. Replace thumbnails
+                # 6. Replace thumbnails (if selected)
                 thumbnails_restored = 0
-                if (temp_dir / "thumbnails").exists():
+                if restore_thumbnails and (temp_dir / "thumbnails").exists():
                     # Clear existing thumbnails
                     if self.thumbnails_dir.exists():
                         shutil.rmtree(self.thumbnails_dir)
@@ -550,9 +639,9 @@ class BackupService:
 
                     logger.info(f"Thumbnails restored: {thumbnails_restored} files")
 
-                # 7. Import settings (non-encrypted only)
+                # 7. Import settings (if selected, non-encrypted only)
                 settings_restored = 0
-                if (temp_dir / "settings.json").exists():
+                if restore_settings and (temp_dir / "settings.json").exists():
                     settings_restored = self._import_settings(temp_dir / "settings.json")
 
                 # 8. Cleanup temp directory

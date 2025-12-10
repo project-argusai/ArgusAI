@@ -1,0 +1,191 @@
+<story-context id="p3-7-2-build-cost-dashboard-ui" v="1.0">
+  <metadata>
+    <epicId>P3-7</epicId>
+    <storyId>2</storyId>
+    <title>Build Cost Dashboard UI</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-09</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-7-2-build-cost-dashboard-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>a dashboard showing AI usage and costs</iWant>
+    <soThat>I can monitor spending patterns</soThat>
+    <tasks>
+      <task id="1" acs="2">Install Chart Library - Add recharts to dependencies</task>
+      <task id="2" acs="1,3,4">Create CostDashboard Component - Main dashboard with metrics cards, period selector, empty state</task>
+      <task id="3" acs="2">Implement Cost by Provider Chart - Pie chart with provider colors</task>
+      <task id="4" acs="2,5">Implement Cost by Camera Chart - Bar chart with drilldown capability</task>
+      <task id="5" acs="2">Implement Daily Trend Chart - Line chart for 30-day trend</task>
+      <task id="6" acs="1">Add AI Usage Tab to Settings Page - Integrate into existing tabs</task>
+      <task id="7" acs="1,2">Create TypeScript Types - AIUsage interfaces in types/settings.ts</task>
+      <task id="8" acs="1,2,3,4,5">Write Component Tests - Vitest tests for all states</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Dashboard Tab with Key Metrics">
+      Given settings page, when user navigates to "AI Usage" tab, then sees dashboard with:
+      Today's cost (prominent display), This month's cost, Total requests count, Period date range
+    </ac>
+    <ac id="2" title="Cost Breakdown Charts">
+      Given cost data available, when dashboard loads, then displays:
+      Cost by camera (bar chart), Cost by provider (pie chart), Daily trend (line chart, last 30 days)
+    </ac>
+    <ac id="3" title="Estimated Cost Indicator">
+      Given cost data includes estimated values, when dashboard displays costs,
+      then shows indicator for estimated vs actual costs and displays accuracy indicator per NFR12 (±20% accuracy)
+    </ac>
+    <ac id="4" title="Empty State Handling">
+      Given no usage data exists, when dashboard loads, then shows "No AI usage recorded yet"
+      and explains how usage tracking works and does not show empty charts
+    </ac>
+    <ac id="5" title="Camera Drilldown">
+      Given user clicks on camera in chart, when drilldown activates,
+      then shows detailed usage for that camera and breakdown by analysis mode
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epics" section="Epic P3-7: Cost Monitoring Dashboard">
+        Defines Story P3-7.2 acceptance criteria, FRs covered (FR34), and technical notes for dashboard implementation.
+      </doc>
+      <doc path="docs/PRD-phase3.md" title="Phase 3 PRD" section="FR34">
+        FR34: Display costs dashboard with today/monthly costs, charts by camera/provider, and daily trend.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture" section="Frontend Patterns">
+        Specifies React 19, Next.js 15 App Router, TanStack Query for server state, shadcn/ui components,
+        and Tailwind CSS 4 for styling.
+      </doc>
+      <doc path="docs/sprint-artifacts/p3-7-1-implement-cost-tracking-service.md" title="Previous Story P3-7.1" section="Dev Agent Record">
+        Backend complete: CostTracker service, GET /api/v1/system/ai-usage endpoint, AIUsageResponse schema.
+        Provider rates documented. API returns by_date, by_camera, by_provider, by_mode breakdowns.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/api/v1/system.py" kind="api-router" symbol="get_ai_usage" lines="985-1130" reason="Backend endpoint for AI usage data - shows request/response structure">
+        GET /api/v1/system/ai-usage endpoint with start_date/end_date query params. Returns AIUsageResponse with aggregated data.
+      </file>
+      <file path="backend/app/schemas/system.py" kind="schema" symbol="AIUsageResponse" lines="245-331" reason="Response schema defining the data structure frontend must handle">
+        AIUsageResponse, AIUsageByDate, AIUsageByCamera, AIUsageByProvider, AIUsageByMode, AIUsagePeriod schemas.
+      </file>
+      <file path="frontend/app/settings/page.tsx" kind="page" lines="1-957" reason="Settings page structure with 6 tabs - add 7th tab for AI Usage">
+        TabsList with grid-cols-6, existing tab patterns (general, ai, motion, data, protect, logs).
+        Uses ErrorBoundary for component isolation. Form with react-hook-form and zod validation.
+      </file>
+      <file path="frontend/components/settings/AIProviders.tsx" kind="component" reason="Reference for existing settings component pattern with provider status">
+        Example of settings component using useQuery, error handling, and provider-specific coloring.
+      </file>
+      <file path="frontend/lib/api-client.ts" kind="client" lines="1-150" reason="API client pattern - add getAIUsage method following existing patterns">
+        Uses apiFetch wrapper, typed responses, ApiError class. Add to settings namespace.
+      </file>
+      <file path="frontend/types/settings.ts" kind="types" lines="1-83" reason="Add AIUsage interfaces here following existing patterns">
+        Existing: AIProvider, AIProviderConfig, AIKeyTestRequest types. Add IAIUsageResponse etc.
+      </file>
+      <file path="frontend/components/ui/card.tsx" kind="ui-component" reason="Card component for metric displays">
+        Card, CardHeader, CardTitle, CardDescription, CardContent from shadcn/ui.
+      </file>
+      <file path="frontend/__tests__/components/events/ConfidenceIndicator.test.tsx" kind="test" reason="Reference for test patterns with TooltipProvider, userEvent">
+        Vitest + Testing Library patterns. Tests organized by AC. Uses renderWithTooltip wrapper.
+      </file>
+    </code>
+
+    <dependencies>
+      <node>
+        <package name="@tanstack/react-query" version="^5.90.10">Server state management for API calls</package>
+        <package name="react" version="19.2.0">React 19</package>
+        <package name="next" version="16.0.7">Next.js 16 with App Router</package>
+        <package name="lucide-react" version="^0.553.0">Icons - DollarSign for tab</package>
+        <package name="date-fns" version="^4.1.0">Date formatting utilities</package>
+        <package name="@radix-ui/react-tabs" version="^1.1.13">Tab components</package>
+        <package name="recharts" version="(TO ADD)">Charting library - NOT YET INSTALLED</package>
+      </node>
+      <dev>
+        <package name="vitest" version="^4.0.15">Test runner</package>
+        <package name="@testing-library/react" version="^16.3.0">React testing utilities</package>
+        <package name="@testing-library/user-event" version="^14.6.1">User interaction simulation</package>
+      </dev>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Follow existing settings page tab pattern with TabsTrigger/TabsContent</constraint>
+    <constraint type="architecture">Use TanStack Query useQuery hook for data fetching (not useEffect)</constraint>
+    <constraint type="architecture">Wrap new component with ErrorBoundary as done for AIProviders</constraint>
+    <constraint type="styling">Provider colors: OpenAI=#22c55e(green), Grok=#f97316(orange), Claude=#f59e0b(amber), Gemini=#3b82f6(blue)</constraint>
+    <constraint type="styling">Use shadcn/ui Card components for metric displays</constraint>
+    <constraint type="styling">Follow existing responsive patterns (hidden sm:inline for tab labels)</constraint>
+    <constraint type="data">API returns costs with 6 decimal precision - format to 2-4 decimals for display</constraint>
+    <constraint type="data">Period defaults to last 30 days if not specified</constraint>
+    <constraint type="data">by_camera may be empty array - handle gracefully</constraint>
+    <constraint type="testing">Tests in frontend/__tests__/components/settings/CostDashboard.test.tsx</constraint>
+    <constraint type="testing">Use TooltipProvider wrapper if using tooltips</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/system/ai-usage" kind="REST endpoint">
+      <signature>GET /api/v1/system/ai-usage?start_date=YYYY-MM-DD&amp;end_date=YYYY-MM-DD</signature>
+      <returns>
+        {
+          total_cost: number,
+          total_requests: number,
+          period: { start: string, end: string },
+          by_date: Array&lt;{ date: string, cost: number, requests: number }&gt;,
+          by_camera: Array&lt;{ camera_id: string, camera_name: string, cost: number, requests: number }&gt;,
+          by_provider: Array&lt;{ provider: string, cost: number, requests: number }&gt;,
+          by_mode: Array&lt;{ mode: string, cost: number, requests: number }&gt;
+        }
+      </returns>
+      <path>backend/app/api/v1/system.py:985</path>
+    </interface>
+    <interface name="TabsTrigger/TabsContent" kind="component">
+      <signature>TabsTrigger value="ai-usage" + TabsContent value="ai-usage"</signature>
+      <path>frontend/app/settings/page.tsx:266-291</path>
+    </interface>
+    <interface name="useQuery hook pattern" kind="function">
+      <signature>useQuery({ queryKey: ['ai-usage', period], queryFn: () =&gt; apiClient.settings.getAIUsage(params) })</signature>
+      <path>frontend/components/settings/AIProviders.tsx (reference)</path>
+    </interface>
+    <interface name="recharts PieChart" kind="component">
+      <signature>&lt;PieChart&gt;&lt;Pie data={data} dataKey="cost" nameKey="provider" /&gt;&lt;/PieChart&gt;</signature>
+      <note>Install recharts first: npm install recharts</note>
+    </interface>
+    <interface name="recharts BarChart" kind="component">
+      <signature>&lt;BarChart data={data}&gt;&lt;XAxis /&gt;&lt;YAxis /&gt;&lt;Bar dataKey="cost" onClick={handleDrilldown} /&gt;&lt;/BarChart&gt;</signature>
+    </interface>
+    <interface name="recharts LineChart" kind="component">
+      <signature>&lt;LineChart data={by_date}&gt;&lt;XAxis dataKey="date" /&gt;&lt;YAxis /&gt;&lt;Line dataKey="cost" /&gt;&lt;/LineChart&gt;</signature>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Vitest test runner with @testing-library/react. Tests organized by Acceptance Criteria.
+      Use describe() blocks named after ACs (e.g., "AC4: Handle Empty State").
+      Use userEvent for interactions, findBy* for async elements.
+      Wrap components needing context (TooltipProvider) in helper functions.
+      Test file naming: ComponentName.test.tsx in __tests__/components/settings/.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/components/settings/CostDashboard.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that AI Usage tab renders and is navigable from settings page</idea>
+      <idea ac="1">Test key metrics cards display total_cost, total_requests, period</idea>
+      <idea ac="2">Test pie chart renders with correct provider colors when data present</idea>
+      <idea ac="2">Test bar chart renders camera data and click handler is called on bar click</idea>
+      <idea ac="2">Test line chart renders 30-day trend with correct X/Y axis</idea>
+      <idea ac="3">Test estimated cost indicator displays when is_estimated flag present</idea>
+      <idea ac="4">Test empty state message shows when total_requests=0 and by_date is empty</idea>
+      <idea ac="4">Test charts are not rendered when no data available</idea>
+      <idea ac="5">Test drilldown modal/panel opens when camera bar is clicked</idea>
+      <idea ac="5">Test drilldown shows mode breakdown (single_frame, multi_frame, video_native)</idea>
+      <idea>Test loading state renders skeleton</idea>
+      <idea>Test error state when API fails</idea>
+    </ideas>
+  </tests>
+</story-context>

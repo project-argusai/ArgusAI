@@ -1,0 +1,182 @@
+<story-context id="p3-7-6-add-analysis-mode-filter-to-timeline" v="1.0">
+  <metadata>
+    <epicId>P3-7</epicId>
+    <storyId>6</storyId>
+    <title>Add Analysis Mode Filter to Timeline</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-10</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-7-6-add-analysis-mode-filter-to-timeline.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user viewing the event timeline</asA>
+    <iWant>to filter events by analysis mode</iWant>
+    <soThat>I can review events with specific analysis types and identify patterns</soThat>
+    <tasks>
+      <task id="1">Add Analysis Mode Query Parameters to Events API (AC: 6)</task>
+      <task id="2">Add Database Index for Analysis Mode (AC: 6)</task>
+      <task id="3">Create AnalysisModeFilter React Component (AC: 1, 2, 3)</task>
+      <task id="4">Integrate Filter into Timeline (AC: 1, 4, 5)</task>
+      <task id="5">Write Backend Tests (AC: 6)</task>
+      <task id="6">Write Frontend Tests (AC: 1, 4, 5)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Analysis Mode filter in timeline with options: All modes, Single Frame only, Multi-Frame only, Video Native only</ac>
+    <ac id="2">Fallback filter option shows events with non-null fallback_reason</ac>
+    <ac id="3">Low confidence filter option shows events with low_confidence=true</ac>
+    <ac id="4">Filter application shows only events matching selected analysis_mode</ac>
+    <ac id="5">Combined filters work correctly with camera, date, object type filters</ac>
+    <ac id="6">Backend API supports analysis_mode, has_fallback, low_confidence query params</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>Story P3-7.6: Add Analysis Mode Filter to Timeline</section>
+        <snippet>Filter events by analysis mode in timeline view. Options: All modes, Single Frame only, Multi-Frame only, Video Native only, With fallback, Low confidence.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase3.md</path>
+        <title>Phase 3 Epic Breakdown</title>
+        <section>FR41</section>
+        <snippet>Timeline supports filtering by analysis mode.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>router</kind>
+        <symbol>list_events</symbol>
+        <lines>255-467</lines>
+        <reason>Main events list endpoint to add analysis_mode, has_fallback, low_confidence query parameters</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventFilterParams</symbol>
+        <lines>247-278</lines>
+        <reason>Filter params schema - add analysis_mode, has_fallback, low_confidence fields</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>75-76, 81</lines>
+        <reason>Event model has analysis_mode, low_confidence fields already - add index</reason>
+      </file>
+      <file>
+        <path>frontend/app/events/page.tsx</path>
+        <kind>page</kind>
+        <symbol>EventsPage</symbol>
+        <lines>24-80</lines>
+        <reason>Events page URL param parsing - add analysis_mode filter handling</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/EventFilters.tsx</path>
+        <kind>component</kind>
+        <symbol>EventFilters</symbol>
+        <lines>1-406</lines>
+        <reason>Existing filter component - add AnalysisModeFilter section</reason>
+      </file>
+      <file>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEventFilters, AnalysisMode</symbol>
+        <lines>22, 78-87</lines>
+        <reason>Types for filters - add analysis_mode, has_fallback, low_confidence</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>service</kind>
+        <symbol>apiClient.events.list</symbol>
+        <reason>API client to add new filter params to events list call</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <node>
+        <package>react</package>
+        <version>19.x</version>
+      </node>
+      <node>
+        <package>next</package>
+        <version>15.x</version>
+      </node>
+      <node>
+        <package>@tanstack/react-query</package>
+        <version>^5</version>
+      </node>
+      <python>
+        <package>fastapi</package>
+        <version>0.115.x</version>
+      </python>
+      <python>
+        <package>sqlalchemy</package>
+        <version>2.0.x</version>
+      </python>
+      <python>
+        <package>alembic</package>
+        <version>1.x</version>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Follow existing filter pattern in EventFilters.tsx - checkbox-based selection</constraint>
+    <constraint>Backend API should support comma-separated analysis_mode values for multi-select</constraint>
+    <constraint>URL params should persist filter state across page refreshes</constraint>
+    <constraint>Index migration should follow existing pattern (026_add_key_frames was last)</constraint>
+    <constraint>Use Literal type validation in Pydantic schema for analysis_mode values</constraint>
+    <constraint>Filter component should integrate into existing Card layout in EventFilters</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Events List API</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events?analysis_mode={mode}&amp;has_fallback={bool}&amp;low_confidence={bool}</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+    <interface>
+      <name>EventFilterParams</name>
+      <kind>Pydantic schema</kind>
+      <signature>analysis_mode: Optional[str], has_fallback: Optional[bool], low_confidence: Optional[bool]</signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface>
+      <name>IEventFilters</name>
+      <kind>TypeScript interface</kind>
+      <signature>analysis_mode?: AnalysisMode; has_fallback?: boolean; low_confidence?: boolean;</signature>
+      <path>frontend/types/event.ts</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with SQLAlchemy test fixtures, mock database sessions.
+      Frontend: Vitest + React Testing Library, userEvent for interactions.
+      Follow existing test patterns in test_services/ and __tests__/components/events/.
+    </standards>
+    <locations>
+      <backend>backend/tests/test_api/test_events.py</backend>
+      <frontend>frontend/__tests__/components/events/</frontend>
+    </locations>
+    <ideas>
+      <idea ac="6">Test filtering events by analysis_mode=single_frame returns only single-frame events</idea>
+      <idea ac="6">Test filtering events by analysis_mode=multi_frame returns only multi-frame events</idea>
+      <idea ac="6">Test filtering events by analysis_mode=video_native returns only video-native events</idea>
+      <idea ac="6">Test has_fallback=true returns events with non-null fallback_reason</idea>
+      <idea ac="6">Test low_confidence=true returns events with low_confidence=true</idea>
+      <idea ac="5">Test combined filters (analysis_mode + camera_id) work together</idea>
+      <idea ac="1">Test AnalysisModeFilter renders all mode options</idea>
+      <idea ac="4">Test filter selection updates URL query params</idea>
+      <idea ac="4">Test filter state persists across page refresh</idea>
+    </ideas>
+  </tests>
+</story-context>

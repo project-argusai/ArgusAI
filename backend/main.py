@@ -31,6 +31,7 @@ from app.api.v1.websocket import router as websocket_router
 from app.api.v1.logs import router as logs_router
 from app.api.v1.auth import router as auth_router, ensure_admin_exists, limiter
 from app.api.v1.protect import router as protect_router  # Story P2-1.1: UniFi Protect
+from app.api.v1.system_notifications import router as system_notifications_router  # Story P3-7.4: Cost Alerts
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 from app.services.protect_service import get_protect_service  # Story P2-1.4: Protect WebSocket
@@ -498,6 +499,7 @@ app.include_router(websocket_router)  # Story 5.4 - WebSocket at /ws (no prefix)
 app.include_router(logs_router, prefix=settings.API_V1_PREFIX)  # Story 6.2 - Log retrieval
 app.include_router(auth_router, prefix=settings.API_V1_PREFIX)  # Story 6.3 - Authentication
 app.include_router(protect_router, prefix=settings.API_V1_PREFIX)  # Story P2-1.1 - UniFi Protect
+app.include_router(system_notifications_router, prefix=settings.API_V1_PREFIX)  # Story P3-7.4 - Cost Alerts
 
 # Thumbnail serving endpoint (with CORS support)
 from fastapi.responses import FileResponse, Response as FastAPIResponse

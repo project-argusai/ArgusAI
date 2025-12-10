@@ -37,12 +37,27 @@ from sqlalchemy.orm import Session
 from app.utils.encryption import decrypt_password
 from app.models.system_setting import SystemSetting
 from app.models.ai_usage import AIUsage
+from app.services.cost_tracker import get_cost_tracker
 
 logger = logging.getLogger(__name__)
 
 
 # Multi-frame analysis system prompt (Story P3-2.4)
 # Optimized for temporal narrative descriptions of video sequences
+# Story P3-6.1: Confidence scoring instruction appended to all prompts
+CONFIDENCE_INSTRUCTION = """
+
+After your description, rate your confidence in this description from 0 to 100, where:
+- 0-30: Very uncertain, limited visibility or unclear action
+- 31-50: Somewhat uncertain, some ambiguity
+- 51-70: Moderately confident
+- 71-90: Confident
+- 91-100: Very confident, clear view and obvious action
+
+Respond in this exact JSON format:
+{"description": "your detailed description here", "confidence": 85}"""
+
+
 MULTI_FRAME_SYSTEM_PROMPT = """You are analyzing a sequence of {num_frames} frames from a security camera video, shown in chronological order.
 
 Your task is to describe WHAT HAPPENED - focus on the narrative and action over time:
@@ -149,7 +164,7 @@ class AIProvider(Enum):
 class AIResult:
     """Result from AI description generation"""
     description: str
-    confidence: int  # 0-100
+    confidence: int  # 0-100 (computed from heuristics)
     objects_detected: List[str]  # person, vehicle, animal, package, unknown
     provider: str  # Which provider was used
     tokens_used: int
@@ -157,6 +172,8 @@ class AIResult:
     cost_estimate: float  # USD
     success: bool
     error: Optional[str] = None
+    # Story P3-6.1: AI self-reported confidence score
+    ai_confidence: Optional[int] = None  # 0-100 (from AI response, None if not provided)
 
 
 class AIProviderBase(ABC):
@@ -184,7 +201,8 @@ class AIProviderBase(ABC):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description from base64-encoded image
 
@@ -194,6 +212,7 @@ class AIProviderBase(ABC):
             timestamp: ISO 8601 timestamp
             detected_objects: List of detected object types
             custom_prompt: Optional custom prompt to override default (Story P2-4.1)
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
         """
         pass
 
@@ -204,7 +223,8 @@ class AIProviderBase(ABC):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description from multiple base64-encoded images (Story P3-2.3)
 
@@ -217,6 +237,7 @@ class AIProviderBase(ABC):
             timestamp: ISO 8601 timestamp of the first frame
             detected_objects: List of detected object types
             custom_prompt: Optional custom prompt to override default
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
 
         Returns:
             AIResult with combined description covering all frames
@@ -228,7 +249,8 @@ class AIProviderBase(ABC):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> str:
         """Build user prompt with context
 
@@ -239,6 +261,7 @@ class AIProviderBase(ABC):
             custom_prompt: Optional custom prompt to override the base description instruction
                           (from Settings → AI Provider Configuration → Description prompt,
                            or from Story P2-4.1 doorbell ring events)
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
         """
         # Build camera context
         context = f"\nContext: Camera '{camera_name}' at {timestamp}."
@@ -249,7 +272,17 @@ class AIProviderBase(ABC):
         # Otherwise use the default user_prompt_template
         base_prompt = custom_prompt if custom_prompt else self.user_prompt_template
 
-        return base_prompt + context
+        prompt = base_prompt + context
+
+        # Story P3-5.3: Add audio transcription if available
+        # Only include if transcription has actual content (not None, not empty string)
+        if audio_transcription and audio_transcription.strip():
+            prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
+
+        # Story P3-6.1: Add confidence instruction to all prompts
+        prompt += CONFIDENCE_INSTRUCTION
+
+        return prompt
 
     def _build_multi_image_prompt(
         self,
@@ -257,9 +290,10 @@ class AIProviderBase(ABC):
         timestamp: str,
         detected_objects: List[str],
         num_images: int,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> str:
-        """Build user prompt for multi-image analysis (Story P3-2.3, P3-2.4)
+        """Build user prompt for multi-image analysis (Story P3-2.3, P3-2.4, P3-5.3)
 
         Uses MULTI_FRAME_SYSTEM_PROMPT optimized for temporal narrative descriptions.
         Custom prompts are APPENDED after system instructions, not replacing them,
@@ -272,6 +306,7 @@ class AIProviderBase(ABC):
             num_images: Number of images being analyzed
             custom_prompt: Optional custom prompt to APPEND after system instructions
                           (from Settings → multi_frame_description_prompt or per-camera config)
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
         """
         # Build camera context suffix
         context = f"\n\nContext: Camera '{camera_name}' at {timestamp}."
@@ -286,7 +321,83 @@ class AIProviderBase(ABC):
         if custom_prompt:
             base_prompt += f"\n\nAdditional instructions: {custom_prompt}"
 
-        return base_prompt + context
+        prompt = base_prompt + context
+
+        # Story P3-5.3: Add audio transcription if available
+        # Only include if transcription has actual content (not None, not empty string)
+        if audio_transcription and audio_transcription.strip():
+            prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
+
+        # Story P3-6.1: Add confidence instruction to all prompts
+        prompt += CONFIDENCE_INSTRUCTION
+
+        return prompt
+
+    def _parse_confidence_response(self, response_text: str) -> tuple[str, Optional[int]]:
+        """Parse AI response for description and confidence score (Story P3-6.1)
+
+        Attempts to extract structured JSON response with description and confidence.
+        Falls back to plain text parsing if JSON is not found.
+
+        Args:
+            response_text: Raw response text from AI provider
+
+        Returns:
+            Tuple of (description, ai_confidence) where ai_confidence may be None
+        """
+        import json
+        import re
+
+        # Try JSON parsing first - use json.loads for proper handling of escapes
+        try:
+            # Look for JSON that starts with { and ends with }
+            brace_start = response_text.find('{')
+            brace_end = response_text.rfind('}')
+            if brace_start != -1 and brace_end > brace_start:
+                json_str = response_text[brace_start:brace_end + 1]
+                data = json.loads(json_str)
+                description = data.get('description', '').strip()
+                confidence = data.get('confidence')
+
+                if isinstance(confidence, (int, float)) and 0 <= confidence <= 100:
+                    if description:
+                        return description, int(confidence)
+
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            logger.debug(f"JSON parsing failed for confidence extraction: {e}")
+
+        # Check for truncated JSON response (incomplete description)
+        # Pattern: {"description": "some text without closing quote or brace
+        truncated_match = re.search(r'\{\s*"description"\s*:\s*"([^"]+)$', response_text, re.DOTALL)
+        if truncated_match:
+            # Response was truncated - extract what we have and note it
+            partial_desc = truncated_match.group(1).strip()
+            logger.warning(f"Detected truncated JSON response, extracting partial description: {partial_desc[:50]}...")
+            # Return partial description without confidence (since it was cut off)
+            return partial_desc, None
+
+        # Fallback: Try to extract confidence from plain text
+        # Look for patterns like "85% confident", "confidence: 85", "confidence is 85"
+        confidence_patterns = [
+            r'confidence[:\s]+(\d{1,3})(?:%|\b)',  # "confidence: 85" or "confidence 85%"
+            r'(\d{1,3})%?\s*confiden',  # "85% confident" or "85 confident"
+            r'confidence\s*(?:score|level|rating)?[:\s]*(\d{1,3})',  # "confidence score: 85"
+        ]
+
+        for pattern in confidence_patterns:
+            match = re.search(pattern, response_text, re.IGNORECASE)
+            if match:
+                try:
+                    confidence = int(match.group(1))
+                    if 0 <= confidence <= 100:
+                        logger.debug(f"Extracted confidence {confidence} from plain text")
+                        return response_text, confidence
+                except (ValueError, IndexError):
+                    continue
+
+        # No confidence found - return original text with None
+        logger.debug("No confidence score found in AI response")
+        return response_text, None
 
     def _extract_objects(self, description: str) -> List[str]:
         """Extract object types from description text"""
@@ -326,13 +437,14 @@ class OpenAIProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description using OpenAI GPT-4o mini"""
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt)
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription)
 
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -356,7 +468,10 @@ class OpenAIProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -387,6 +502,7 @@ class OpenAIProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -413,7 +529,8 @@ class OpenAIProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -478,14 +595,15 @@ class OpenAIProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description from multiple images using OpenAI GPT-4o mini (Story P3-2.3 AC2)"""
         start_time = time.time()
 
         try:
             user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt
+                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription
             )
 
             # Build content array with text prompt and multiple images
@@ -509,7 +627,10 @@ class OpenAIProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -538,6 +659,7 @@ class OpenAIProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -549,7 +671,8 @@ class OpenAIProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -854,13 +977,14 @@ class ClaudeProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description using Claude 3 Haiku"""
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt)
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription)
 
             response = await self.client.messages.create(
                 model=self.model,
@@ -888,7 +1012,10 @@ class ClaudeProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.content[0].text.strip()
+            raw_response = response.content[0].text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             input_tokens = response.usage.input_tokens
@@ -906,7 +1033,7 @@ class ClaudeProvider(AIProviderBase):
 
             logger.info(
                 f"Claude success: {elapsed_ms}ms, {tokens_used} tokens, ${cost:.6f}, "
-                f"confidence={confidence}"
+                f"confidence={confidence}, ai_confidence={ai_confidence}"
             )
 
             return AIResult(
@@ -917,7 +1044,8 @@ class ClaudeProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -942,14 +1070,15 @@ class ClaudeProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description from multiple images using Claude 3 Haiku (Story P3-2.3 AC3)"""
         start_time = time.time()
 
         try:
             user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt
+                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription
             )
 
             # Build content array with multiple image blocks followed by text
@@ -976,7 +1105,10 @@ class ClaudeProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.content[0].text.strip()
+            raw_response = response.content[0].text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             input_tokens = response.usage.input_tokens
@@ -1005,6 +1137,7 @@ class ClaudeProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1016,7 +1149,8 @@ class ClaudeProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1052,7 +1186,7 @@ class GeminiProvider(AIProviderBase):
     def __init__(self, api_key: str):
         super().__init__(api_key)
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-flash-preview-05-20')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
         self.cost_per_1k_tokens = 0.0001  # Approximate (free tier available)
 
     async def generate_description(
@@ -1061,13 +1195,14 @@ class GeminiProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description using Gemini Flash"""
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt)
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription)
             full_prompt = f"{self.system_prompt}\n\n{user_prompt}"
 
             # Decode base64 to bytes for Gemini
@@ -1077,13 +1212,22 @@ class GeminiProvider(AIProviderBase):
             response = await self.model.generate_content_async(
                 [full_prompt, image_part],
                 generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=300,
+                    max_output_tokens=500,
                     temperature=0.4
                 )
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.text.strip()
+
+            # Check if response was blocked by safety filters
+            if not response.candidates or not response.candidates[0].content.parts:
+                finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
+                raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
+
+            raw_response = response.text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Gemini doesn't provide detailed usage stats in all cases
             tokens_used = 150  # Estimate
@@ -1094,7 +1238,7 @@ class GeminiProvider(AIProviderBase):
 
             logger.info(
                 f"Gemini success: {elapsed_ms}ms, ~{tokens_used} tokens, ${cost:.6f}, "
-                f"confidence={confidence}"
+                f"confidence={confidence}, ai_confidence={ai_confidence}"
             )
 
             return AIResult(
@@ -1105,7 +1249,8 @@ class GeminiProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1129,14 +1274,15 @@ class GeminiProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description from multiple images using Gemini Flash (Story P3-2.3 AC4)"""
         start_time = time.time()
 
         try:
             user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt
+                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription
             )
             full_prompt = f"{self.system_prompt}\n\n{user_prompt}"
 
@@ -1156,7 +1302,16 @@ class GeminiProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.text.strip()
+
+            # Check if response was blocked by safety filters
+            if not response.candidates or not response.candidates[0].content.parts:
+                finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
+                raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
+
+            raw_response = response.text.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Gemini doesn't provide detailed usage stats in all cases
             # Estimate based on number of images (more images = more tokens)
@@ -1171,12 +1326,13 @@ class GeminiProvider(AIProviderBase):
                 extra={
                     "event_type": "ai_api_multi_image_success",
                     "provider": "gemini",
-                    "model": "gemini-2.5-flash-preview-05-20",
+                    "model": "gemini-2.5-flash",
                     "num_images": len(images_base64),
                     "response_time_ms": elapsed_ms,
                     "tokens_used": tokens_used,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1188,7 +1344,8 @@ class GeminiProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1198,7 +1355,7 @@ class GeminiProvider(AIProviderBase):
                 extra={
                     "event_type": "ai_api_multi_image_error",
                     "provider": "gemini",
-                    "model": "gemini-2.5-flash-preview-05-20",
+                    "model": "gemini-2.5-flash",
                     "num_images": len(images_base64),
                     "response_time_ms": elapsed_ms,
                     "error_type": type(e).__name__,
@@ -1434,7 +1591,16 @@ class GeminiProvider(AIProviderBase):
         )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
-        description = response.text.strip()
+
+        # Check if response was blocked by safety filters
+        if not response.candidates or not response.candidates[0].content.parts:
+            finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
+            raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
+
+        raw_response = response.text.strip()
+
+        # Story P3-6.1: Parse response for description and AI confidence
+        description, ai_confidence = self._parse_confidence_response(raw_response)
 
         # Estimate token usage: ~258 tokens/frame at 1fps
         estimated_frames = int(video_duration_seconds) if video_duration_seconds > 0 else 10
@@ -1455,7 +1621,8 @@ class GeminiProvider(AIProviderBase):
                 "response_time_ms": elapsed_ms,
                 "tokens_used": tokens_used,
                 "cost_usd": cost,
-                "confidence": confidence
+                "confidence": confidence,
+                "ai_confidence": ai_confidence
             }
         )
 
@@ -1467,7 +1634,8 @@ class GeminiProvider(AIProviderBase):
             tokens_used=tokens_used,
             response_time_ms=elapsed_ms,
             cost_estimate=cost,
-            success=True
+            success=True,
+            ai_confidence=ai_confidence
         )
 
     async def _describe_video_file_api(
@@ -1554,7 +1722,16 @@ class GeminiProvider(AIProviderBase):
         )
 
         elapsed_ms = int((time.time() - start_time) * 1000)
-        description = response.text.strip()
+
+        # Check if response was blocked by safety filters
+        if not response.candidates or not response.candidates[0].content.parts:
+            finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
+            raise ValueError(f"Response blocked by Gemini (finish_reason: {finish_reason})")
+
+        raw_response = response.text.strip()
+
+        # Story P3-6.1: Parse response for description and AI confidence
+        description, ai_confidence = self._parse_confidence_response(raw_response)
 
         # Estimate token usage
         estimated_frames = int(video_duration_seconds) if video_duration_seconds > 0 else 10
@@ -1575,7 +1752,8 @@ class GeminiProvider(AIProviderBase):
                 "response_time_ms": elapsed_ms,
                 "tokens_used": tokens_used,
                 "cost_usd": cost,
-                "confidence": confidence
+                "confidence": confidence,
+                "ai_confidence": ai_confidence
             }
         )
 
@@ -1593,7 +1771,8 @@ class GeminiProvider(AIProviderBase):
             tokens_used=tokens_used,
             response_time_ms=elapsed_ms,
             cost_estimate=cost,
-            success=True
+            success=True,
+            ai_confidence=ai_confidence
         )
 
     async def _get_video_duration(self, video_path: "Path") -> float:
@@ -1791,7 +1970,8 @@ class GrokProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description from multiple images using Grok Vision (Story P3-2.3 AC5)
 
@@ -1801,7 +1981,7 @@ class GrokProvider(AIProviderBase):
 
         try:
             user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt
+                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription
             )
 
             # Build content array with text prompt and multiple images (OpenAI-compatible format)
@@ -1825,7 +2005,10 @@ class GrokProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -1854,6 +2037,7 @@ class GrokProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1865,7 +2049,8 @@ class GrokProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -1900,13 +2085,14 @@ class GrokProvider(AIProviderBase):
         camera_name: str,
         timestamp: str,
         detected_objects: List[str],
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Generate description using xAI Grok Vision API"""
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt)
+            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription)
 
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -1930,7 +2116,10 @@ class GrokProvider(AIProviderBase):
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
-            description = response.choices[0].message.content.strip()
+            raw_response = response.choices[0].message.content.strip()
+
+            # Story P3-6.1: Parse response for description and AI confidence
+            description, ai_confidence = self._parse_confidence_response(raw_response)
 
             # Extract usage stats
             tokens_used = response.usage.total_tokens if response.usage else 0
@@ -1961,6 +2150,7 @@ class GrokProvider(AIProviderBase):
                     "output_tokens": output_tokens,
                     "cost_usd": cost,
                     "confidence": confidence,
+                    "ai_confidence": ai_confidence,
                 }
             )
 
@@ -1987,7 +2177,8 @@ class GrokProvider(AIProviderBase):
                 tokens_used=tokens_used,
                 response_time_ms=elapsed_ms,
                 cost_estimate=cost,
-                success=True
+                success=True,
+                ai_confidence=ai_confidence
             )
 
         except Exception as e:
@@ -2314,7 +2505,8 @@ class AIService:
         timestamp: Optional[str] = None,
         detected_objects: Optional[List[str]] = None,
         sla_timeout_ms: int = 5000,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """
         Generate natural language description from camera frame.
@@ -2329,6 +2521,7 @@ class AIService:
             detected_objects: Objects detected by motion detection
             sla_timeout_ms: Maximum time allowed in milliseconds (default: 5000ms = 5s)
             custom_prompt: Optional custom prompt to use instead of default (Story P2-4.1)
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
 
         Returns:
             AIResult with description, confidence, objects, and usage stats
@@ -2406,11 +2599,12 @@ class AIService:
                 timestamp,
                 detected_objects,
                 custom_prompt=effective_prompt,
-                provider_type=provider_enum
+                provider_type=provider_enum,
+                audio_transcription=audio_transcription
             )
 
-            # Track usage with analysis mode (Story P3-2.5)
-            self._track_usage(result, analysis_mode="single_image")
+            # Track usage with analysis mode (Story P3-2.5, P3-7.1)
+            self._track_usage(result, analysis_mode="single_image", image_count=1)
 
             if result.success:
                 total_elapsed_ms = int((time.time() - start_time) * 1000)
@@ -2456,7 +2650,8 @@ class AIService:
         timestamp: Optional[str] = None,
         detected_objects: Optional[List[str]] = None,
         sla_timeout_ms: int = 10000,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """
         Generate natural language description from multiple camera frames (Story P3-2.3 AC1).
@@ -2474,6 +2669,7 @@ class AIService:
             detected_objects: Objects detected by motion detection
             sla_timeout_ms: Maximum time allowed in milliseconds (default: 10000ms = 10s)
             custom_prompt: Optional custom prompt to use instead of default
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
 
         Returns:
             AIResult with combined description, confidence, objects, and usage stats
@@ -2627,7 +2823,8 @@ class AIService:
                 timestamp,
                 detected_objects,
                 custom_prompt=effective_prompt,
-                provider_type=provider_enum
+                provider_type=provider_enum,
+                audio_transcription=audio_transcription
             )
 
             # Track usage with multi_frame analysis mode (Story P3-2.5)
@@ -2650,7 +2847,12 @@ class AIService:
                     success=result.success,
                     error=result.error
                 )
-            self._track_usage(result, analysis_mode="multi_frame", is_estimated=is_estimated)
+            self._track_usage(
+                result,
+                analysis_mode="multi_frame",
+                is_estimated=is_estimated,
+                image_count=len(images_base64)
+            )
 
             if result.success:
                 total_elapsed_ms = int((time.time() - start_time) * 1000)
@@ -2858,8 +3060,13 @@ class AIService:
                     custom_prompt=effective_prompt
                 )
 
-                # Track usage with video_native analysis mode
-                self._track_usage(result, analysis_mode="video_native", is_estimated=True)
+                # Track usage with video_native analysis mode (no image_count for video)
+                self._track_usage(
+                    result,
+                    analysis_mode="video_native",
+                    is_estimated=True,
+                    image_count=None  # Video native doesn't use separate images
+                )
 
                 if result.success:
                     total_elapsed_ms = int((time.time() - start_time) * 1000)
@@ -3045,7 +3252,8 @@ class AIService:
         detected_objects: List[str],
         max_retries: int = 3,
         custom_prompt: Optional[str] = None,
-        provider_type: Optional[AIProvider] = None
+        provider_type: Optional[AIProvider] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Try API call with backoff for rate limits.
 
@@ -3066,7 +3274,8 @@ class AIService:
                 camera_name,
                 timestamp,
                 detected_objects,
-                custom_prompt=custom_prompt
+                custom_prompt=custom_prompt,
+                audio_transcription=audio_transcription
             )
 
             # Check if rate limited (429) or transient error (500/503)
@@ -3102,7 +3311,8 @@ class AIService:
         detected_objects: List[str],
         max_retries: int = 3,
         custom_prompt: Optional[str] = None,
-        provider_type: Optional[AIProvider] = None
+        provider_type: Optional[AIProvider] = None,
+        audio_transcription: Optional[str] = None
     ) -> AIResult:
         """Try multi-image API call with backoff for rate limits (Story P3-2.3).
 
@@ -3119,6 +3329,7 @@ class AIService:
             max_retries: Maximum number of retry attempts
             custom_prompt: Optional custom prompt
             provider_type: AIProvider enum for provider-specific logic
+            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
 
         Returns:
             AIResult from the provider
@@ -3136,7 +3347,8 @@ class AIService:
                 camera_name,
                 timestamp,
                 detected_objects,
-                custom_prompt=custom_prompt
+                custom_prompt=custom_prompt,
+                audio_transcription=audio_transcription
             )
 
             # Check if rate limited (429) or transient error (500/503)
@@ -3174,7 +3386,8 @@ class AIService:
         self,
         result: AIResult,
         analysis_mode: Optional[str] = None,
-        is_estimated: bool = False
+        is_estimated: bool = False,
+        image_count: Optional[int] = None
     ):
         """
         Track API usage by persisting to database.
@@ -3186,6 +3399,7 @@ class AIService:
             result: AIResult from provider with usage metadata
             analysis_mode: Type of analysis - "single_image" or "multi_frame" (Story P3-2.5)
             is_estimated: True if token count is estimated rather than from provider (Story P3-2.5)
+            image_count: Number of images in multi-image requests (Story P3-7.1)
         """
         if self.db is None:
             logger.warning("Database not configured, usage tracking disabled")
@@ -3201,7 +3415,8 @@ class AIService:
                 cost_estimate=result.cost_estimate,
                 error=result.error,
                 analysis_mode=analysis_mode,
-                is_estimated=is_estimated
+                is_estimated=is_estimated,
+                image_count=image_count
             )
 
             self.db.add(usage_record)
@@ -3213,11 +3428,13 @@ class AIService:
                 f"{result.tokens_used} tokens - "
                 f"${result.cost_estimate:.6f} - "
                 f"mode={analysis_mode or 'unknown'} - "
+                f"images={image_count or 1} - "
                 f"estimated={is_estimated}",
                 extra={
                     "provider": result.provider,
                     "tokens": result.tokens_used,
                     "analysis_mode": analysis_mode,
+                    "image_count": image_count,
                     "is_estimated": is_estimated
                 }
             )

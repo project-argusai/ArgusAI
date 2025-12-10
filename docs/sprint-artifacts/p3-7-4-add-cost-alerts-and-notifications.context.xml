@@ -1,0 +1,287 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P3-7</epicId>
+    <storyId>4</storyId>
+    <title>Add Cost Alerts and Notifications</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-10</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-7-4-add-cost-alerts-and-notifications.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>alerts when approaching cost limits</iWant>
+    <soThat>I can adjust settings before analysis stops</soThat>
+    <tasks>
+      <task id="1" acs="1,2,3,4,5">
+        <name>Create Cost Alert Service</name>
+        <subtasks>
+          <subtask>Create `backend/app/services/cost_alert_service.py`</subtask>
+          <subtask>Implement threshold tracking with state persistence</subtask>
+          <subtask>Track which thresholds already triggered for current period (day/month)</subtask>
+          <subtask>Methods: `check_and_notify()`, `reset_daily_alerts()`, `reset_monthly_alerts()`</subtask>
+          <subtask>Integrate with existing CostCapService for cap status</subtask>
+        </subtasks>
+      </task>
+      <task id="2" acs="1,5">
+        <name>Add Cost Alert Database Model</name>
+        <subtasks>
+          <subtask>Use SystemSetting keys for state tracking (no new table needed)</subtask>
+          <subtask>Track: `cost_alert_daily_50_date`, `cost_alert_daily_80_date`, `cost_alert_daily_100_date`</subtask>
+          <subtask>Track: `cost_alert_monthly_50_month`, `cost_alert_monthly_80_month`, `cost_alert_monthly_100_month`</subtask>
+        </subtasks>
+      </task>
+      <task id="3" acs="1,2,3,4">
+        <name>Integrate Alert Check into Event Pipeline</name>
+        <subtasks>
+          <subtask>Modify `event_processor.py` to call `CostAlertService.check_and_notify()` after AI usage recorded</subtask>
+          <subtask>Call after successful AI analysis (cost already logged)</subtask>
+          <subtask>Ensure check is lightweight (use cached cap status)</subtask>
+        </subtasks>
+      </task>
+      <task id="4" acs="1,2,3,4,6">
+        <name>Create Cost Alert Notifications</name>
+        <subtasks>
+          <subtask>Create new notification type for cost alerts (extend existing Notification model or create new)</subtask>
+          <subtask>Set appropriate notification types: 'info', 'warning', 'error'</subtask>
+          <subtask>Include actionable message with cost percentage and cap type</subtask>
+          <subtask>Include `action_url` pointing to settings/ai-usage tab</subtask>
+        </subtasks>
+      </task>
+      <task id="5" acs="6">
+        <name>Broadcast via WebSocket</name>
+        <subtasks>
+          <subtask>Use existing WebSocket infrastructure for real-time delivery</subtask>
+          <subtask>Broadcast `COST_ALERT` message type</subtask>
+          <subtask>Include notification payload for immediate UI update</subtask>
+          <subtask>Follow existing `ALERT_TRIGGERED` broadcast pattern in websocket_manager.py</subtask>
+        </subtasks>
+      </task>
+      <task id="6" acs="5">
+        <name>Daily/Monthly Reset Logic</name>
+        <subtasks>
+          <subtask>Implement reset on period change (midnight UTC for daily, first of month for monthly)</subtask>
+          <subtask>Call `reset_daily_alerts()` when new day detected</subtask>
+          <subtask>Call `reset_monthly_alerts()` when new month detected</subtask>
+          <subtask>Integrate reset check into `check_and_notify()` method</subtask>
+        </subtasks>
+      </task>
+      <task id="7" acs="1,2,3,4,5,6">
+        <name>Write Backend Tests</name>
+        <subtasks>
+          <subtask>Test threshold detection at 50%, 80%, 100%</subtask>
+          <subtask>Test notification creation for each threshold</subtask>
+          <subtask>Test alert state persistence and reset</subtask>
+          <subtask>Test WebSocket broadcast integration</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="50% Threshold Info Notification">
+      <given>cost reaches 50% of daily cap</given>
+      <when>threshold crossed</when>
+      <then>info notification created: "AI costs at 50% of daily cap"</then>
+      <and>notification stored in database for persistence</and>
+    </ac>
+    <ac id="2" title="80% Threshold Warning Notification">
+      <given>cost reaches 80% of daily cap</given>
+      <when>threshold crossed</when>
+      <then>warning notification created: "AI costs at 80% of daily cap"</then>
+      <and>shown prominently in UI notification dropdown</and>
+      <and>WebSocket broadcasts notification to connected clients</and>
+    </ac>
+    <ac id="3" title="100% Cap Reached Alert">
+      <given>cost reaches 100% of cap</given>
+      <when>analysis is paused</when>
+      <then>alert notification created: "AI analysis paused - daily cap reached"</then>
+      <and>notification includes action suggestion: "Increase cap in settings or wait until tomorrow"</and>
+      <and>WebSocket broadcasts immediately</and>
+    </ac>
+    <ac id="4" title="Monthly Cap Notifications">
+      <given>monthly cost thresholds (50%, 80%, 100%)</given>
+      <when>thresholds crossed</when>
+      <then>corresponding notifications sent for monthly cap</then>
+      <and>notifications differentiate between daily and monthly caps</and>
+    </ac>
+    <ac id="5" title="Notification Cycle Reset">
+      <given>user dismissed alert for current day</given>
+      <when>same threshold hit again next cycle (next day)</when>
+      <then>alert shown again</then>
+      <and>previous cycle dismissals do not affect new cycle</and>
+    </ac>
+    <ac id="6" title="Real-time WebSocket Delivery">
+      <given>cost threshold crossed</given>
+      <when>notification created</when>
+      <then>WebSocket message broadcast to all connected clients</then>
+      <and>UI notification dropdown updates without page refresh</and>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase3.md</path>
+        <title>Phase 3 PRD</title>
+        <section>FR36: Alert on approaching cost limits</section>
+        <snippet>System alerts users when approaching cost limits. FR37: System can pause AI analysis when cap is reached.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture</title>
+        <section>Event-Driven Architecture</section>
+        <snippet>Real-Time Updates via WebSocket notifications for live event feed. Alert triggered by event matching rule.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p3-7-3-implement-daily-monthly-cost-caps.md</path>
+        <title>P3-7.3 Story (Previous)</title>
+        <section>Completion Notes</section>
+        <snippet>CostCapService with 5-second cache TTL, is_approaching_cap(threshold=80.0) method, ICostCapStatus interface.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/cost_cap_service.py</path>
+        <kind>service</kind>
+        <symbol>CostCapService</symbol>
+        <lines>1-360</lines>
+        <reason>Core service to integrate with. Provides get_cap_status(), is_approaching_cap(), can_analyze() methods. Has 5-second cache TTL pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor._process_event</symbol>
+        <lines>535-700</lines>
+        <reason>Integration point: call check_and_notify() after AI analysis cost is recorded. Already imports get_cost_cap_service().</reason>
+      </file>
+      <file>
+        <path>backend/app/models/notification.py</path>
+        <kind>model</kind>
+        <symbol>Notification</symbol>
+        <lines>1-62</lines>
+        <reason>Existing notification model. Cost alerts need new type - may extend or create separate model for system notifications.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/system_setting.py</path>
+        <kind>model</kind>
+        <symbol>SystemSetting</symbol>
+        <lines>1-26</lines>
+        <reason>Key-value store for alert state tracking (e.g., cost_alert_daily_50_date).</reason>
+      </file>
+      <file>
+        <path>backend/app/services/websocket_manager.py</path>
+        <kind>service</kind>
+        <symbol>WebSocketManager.broadcast</symbol>
+        <lines>82-143</lines>
+        <reason>WebSocket broadcast pattern. Use broadcast() method with COST_ALERT type. Follow ALERT_TRIGGERED pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/notifications.py</path>
+        <kind>router</kind>
+        <symbol>NotificationResponse</symbol>
+        <lines>1-210</lines>
+        <reason>Notification API endpoints. May need to extend for cost alert type filtering.</reason>
+      </file>
+      <file>
+        <path>frontend/components/notifications/NotificationDropdown.tsx</path>
+        <kind>component</kind>
+        <symbol>NotificationDropdown</symbol>
+        <lines>1-239</lines>
+        <reason>Frontend notification display. Handles WebSocket updates via NotificationContext.</reason>
+      </file>
+      <file>
+        <path>frontend/types/settings.ts</path>
+        <kind>types</kind>
+        <symbol>ICostCapStatus</symbol>
+        <lines>138-147</lines>
+        <reason>Cost cap status type. May need ICostAlert type for notifications.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_cost_cap_service.py</path>
+        <kind>test</kind>
+        <symbol>TestCostCapService</symbol>
+        <lines>1-100</lines>
+        <reason>Test patterns for cost cap service. Follow mocking approach for new alert tests.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package>fastapi</package>
+        <package>sqlalchemy</package>
+        <package>pydantic</package>
+        <package>pytest</package>
+        <package>pytest-asyncio</package>
+      </python>
+      <node>
+        <package>@tanstack/react-query</package>
+        <package>date-fns</package>
+        <package>sonner</package>
+        <package>lucide-react</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing CostCapService caching pattern (5-second TTL) for performance</constraint>
+    <constraint type="pattern">Use SystemSetting key-value store for alert state (no new migration needed)</constraint>
+    <constraint type="pattern">WebSocket broadcast follows ALERT_TRIGGERED message pattern in websocket_manager.py</constraint>
+    <constraint type="pattern">Notifications use existing Notification model where possible</constraint>
+    <constraint type="layer">Cost alert checks should be lightweight - run after AI cost is recorded, not blocking</constraint>
+    <constraint type="testing">Follow test_cost_cap_service.py mocking patterns for new tests</constraint>
+    <constraint type="standard">All timestamps in UTC, date comparisons use datetime.now(timezone.utc)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>CostCapService.get_cap_status</name>
+      <kind>method</kind>
+      <signature>def get_cap_status(self, db: Session, use_cache: bool = True) -> CostCapStatus</signature>
+      <path>backend/app/services/cost_cap_service.py</path>
+    </interface>
+    <interface>
+      <name>CostCapService.is_approaching_cap</name>
+      <kind>method</kind>
+      <signature>def is_approaching_cap(self, db: Session, threshold: float = 80.0) -> tuple[bool, Optional[str]]</signature>
+      <path>backend/app/services/cost_cap_service.py</path>
+    </interface>
+    <interface>
+      <name>WebSocketManager.broadcast</name>
+      <kind>method</kind>
+      <signature>async def broadcast(self, message: Dict[str, Any]) -> int</signature>
+      <path>backend/app/services/websocket_manager.py</path>
+    </interface>
+    <interface>
+      <name>Notification Model</name>
+      <kind>SQLAlchemy model</kind>
+      <signature>id, event_id, rule_id, rule_name, event_description, thumbnail_url, read, created_at</signature>
+      <path>backend/app/models/notification.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/system/ai-cost-status</name>
+      <kind>REST endpoint</kind>
+      <signature>Returns ICostCapStatus with daily/monthly costs, caps, percentages, is_paused</signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend uses pytest with pytest-asyncio for async tests. Mock database sessions with MagicMock. Follow test_cost_cap_service.py patterns. Frontend uses Vitest with React Testing Library.</standards>
+    <locations>
+      <location>backend/tests/test_services/</location>
+      <location>frontend/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test CostAlertService.check_and_notify() creates info notification at 50% threshold</idea>
+      <idea ac="2">Test warning notification created at 80% threshold with correct message</idea>
+      <idea ac="3">Test error notification created at 100% with action suggestion text</idea>
+      <idea ac="4">Test monthly cap notifications differentiate from daily in message text</idea>
+      <idea ac="5">Test reset_daily_alerts() clears state; new day triggers fresh notifications</idea>
+      <idea ac="5">Test alert state persisted to SystemSetting and survives service restart</idea>
+      <idea ac="6">Test WebSocket broadcast called with COST_ALERT type after notification created</idea>
+      <idea ac="1,2,3">Test no duplicate notifications if threshold already triggered in same period</idea>
+      <idea ac="4">Test both daily and monthly can trigger independently (e.g., daily at 80%, monthly at 50%)</idea>
+    </ideas>
+  </tests>
+</story-context>

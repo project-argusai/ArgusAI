@@ -32,11 +32,19 @@ function AllProviders({ children }: WrapperProps) {
   )
 }
 
-// Custom render that includes all providers
+import userEvent from '@testing-library/user-event'
+
+// Custom render that includes all providers and returns user for interactions
 const customRender = (
   ui: ReactElement,
   options?: Omit<RenderOptions, 'wrapper'>
-) => render(ui, { wrapper: AllProviders, ...options })
+) => {
+  const user = userEvent.setup()
+  return {
+    user,
+    ...render(ui, { wrapper: AllProviders, ...options })
+  }
+}
 
 // Re-export everything from testing-library
 export * from '@testing-library/react'
@@ -74,6 +82,13 @@ export const mockEvent = (overrides = {}) => ({
   frame_count_used: 1,
   fallback_reason: null,
   created_at: new Date().toISOString(),
+  // Story P3-6.1 & P3-6.2: AI confidence fields
+  ai_confidence: 85,
+  low_confidence: false,
+  vague_reason: null,
+  // Story P3-6.4: Re-analysis fields
+  reanalyzed_at: null,
+  reanalysis_count: 0,
   ...overrides,
 })
 

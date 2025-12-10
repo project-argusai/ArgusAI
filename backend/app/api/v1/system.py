@@ -6,7 +6,7 @@ Endpoints for system-level configuration and monitoring:
     - Storage monitoring (GET /storage)
     - Backup and restore (POST /backup, GET /backup/{timestamp}/download, POST /restore)
 """
-from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile
+from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
@@ -22,7 +22,8 @@ from app.schemas.system import (
     RetentionPolicyResponse,
     StorageResponse,
     SystemSettings,
-    SystemSettingsUpdate
+    SystemSettingsUpdate,
+    CostCapStatus
 )
 from app.services.cleanup_service import get_cleanup_service
 from app.services.backup_service import get_backup_service, BackupResult, RestoreResult, BackupInfo, ValidationResult
@@ -497,12 +498,16 @@ async def update_settings(
 
         # Fields that should be saved WITHOUT the settings_ prefix
         # These are read directly by AI service (Story P2-5.2, P2-5.3)
+        # and cost cap service (Story P3-7.3)
         no_prefix_fields = {
             'ai_api_key_openai',
             'ai_api_key_grok',
             'ai_api_key_claude',
             'ai_api_key_gemini',
             'ai_provider_order',
+            'ai_daily_cost_cap',   # Story P3-7.3
+            'ai_monthly_cost_cap',  # Story P3-7.3
+            'store_analysis_frames',  # Story P3-7.5
         }
 
         for field_name, value in update_data.items():
@@ -967,8 +972,208 @@ async def get_ai_provider_stats(
 
 
 # ============================================================================
-# Backup and Restore API (Story 6.4)
+# AI Usage Cost Tracking API (Story P3-7.1)
 # ============================================================================
+
+
+from app.schemas.system import (
+    AIUsageResponse,
+    AIUsageByDate,
+    AIUsageByCamera,
+    AIUsageByProvider,
+    AIUsageByMode,
+    AIUsagePeriod
+)
+from app.models.ai_usage import AIUsage
+
+
+@router.get("/ai-usage", response_model=AIUsageResponse)
+async def get_ai_usage(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get AI usage and cost statistics (Story P3-7.1)
+
+    Returns aggregated AI usage data including costs broken down by date,
+    camera, provider, and analysis mode.
+
+    **Query Parameters:**
+    - `start_date`: Start date in ISO 8601 format (default: 30 days ago)
+    - `end_date`: End date in ISO 8601 format (default: now)
+
+    **Response:**
+    ```json
+    {
+        "total_cost": 0.0523,
+        "total_requests": 142,
+        "period": {
+            "start": "2025-11-09T00:00:00Z",
+            "end": "2025-12-09T23:59:59Z"
+        },
+        "by_date": [...],
+        "by_camera": [...],
+        "by_provider": [...],
+        "by_mode": [...]
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    - 400: Invalid date format
+    - 500: Internal server error
+    """
+    from app.models.event import Event
+    from app.models.camera import Camera
+    from sqlalchemy import func, cast, Date
+
+    try:
+        # Parse date range (default: last 30 days)
+        now = datetime.now(timezone.utc)
+        if end_date:
+            try:
+                end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid end_date format. Use ISO 8601 format."
+                )
+        else:
+            end_dt = now
+
+        if start_date:
+            try:
+                start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid start_date format. Use ISO 8601 format."
+                )
+        else:
+            start_dt = now - timedelta(days=30)
+
+        # Base query with date filter
+        base_query = db.query(AIUsage).filter(
+            AIUsage.timestamp >= start_dt,
+            AIUsage.timestamp <= end_dt
+        )
+
+        # Get all records for aggregation
+        records = base_query.all()
+
+        # Calculate totals
+        total_cost = sum(r.cost_estimate or 0.0 for r in records)
+        total_requests = len(records)
+
+        # Aggregate by date
+        by_date_dict = {}
+        for r in records:
+            date_key = r.timestamp.strftime("%Y-%m-%d")
+            if date_key not in by_date_dict:
+                by_date_dict[date_key] = {"cost": 0.0, "requests": 0}
+            by_date_dict[date_key]["cost"] += r.cost_estimate or 0.0
+            by_date_dict[date_key]["requests"] += 1
+
+        by_date = [
+            AIUsageByDate(date=date, cost=data["cost"], requests=data["requests"])
+            for date, data in sorted(by_date_dict.items(), reverse=True)
+        ]
+
+        # Aggregate by provider
+        by_provider_dict = {}
+        for r in records:
+            provider = r.provider or "unknown"
+            if provider not in by_provider_dict:
+                by_provider_dict[provider] = {"cost": 0.0, "requests": 0}
+            by_provider_dict[provider]["cost"] += r.cost_estimate or 0.0
+            by_provider_dict[provider]["requests"] += 1
+
+        by_provider = [
+            AIUsageByProvider(provider=provider, cost=data["cost"], requests=data["requests"])
+            for provider, data in sorted(by_provider_dict.items(), key=lambda x: x[1]["cost"], reverse=True)
+        ]
+
+        # Aggregate by analysis mode
+        by_mode_dict = {}
+        for r in records:
+            mode = r.analysis_mode or "unknown"
+            if mode not in by_mode_dict:
+                by_mode_dict[mode] = {"cost": 0.0, "requests": 0}
+            by_mode_dict[mode]["cost"] += r.cost_estimate or 0.0
+            by_mode_dict[mode]["requests"] += 1
+
+        by_mode = [
+            AIUsageByMode(mode=mode, cost=data["cost"], requests=data["requests"])
+            for mode, data in sorted(by_mode_dict.items(), key=lambda x: x[1]["cost"], reverse=True)
+        ]
+
+        # Note: AIUsage doesn't have camera_id directly - we'd need to join through Event
+        # For now, return empty list for by_camera (can be implemented if Event-AIUsage link exists)
+        by_camera = []
+
+        return AIUsageResponse(
+            total_cost=round(total_cost, 6),
+            total_requests=total_requests,
+            period=AIUsagePeriod(
+                start=start_dt.isoformat(),
+                end=end_dt.isoformat()
+            ),
+            by_date=by_date,
+            by_camera=by_camera,
+            by_provider=by_provider,
+            by_mode=by_mode
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting AI usage stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get AI usage statistics"
+        )
+
+
+# ============================================================================
+# Backup and Restore API (Story 6.4, FF-007)
+# ============================================================================
+
+
+class BackupOptions(BaseModel):
+    """Options for selective backup (FF-007)"""
+    include_database: bool = Field(default=True, description="Include events, cameras, alert rules")
+    include_thumbnails: bool = Field(default=True, description="Include thumbnail images")
+    include_settings: bool = Field(default=True, description="Include system settings")
+    include_ai_config: bool = Field(default=True, description="Include AI provider config (keys excluded)")
+    include_protect_config: bool = Field(default=True, description="Include Protect controller config")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "include_database": True,
+                "include_thumbnails": True,
+                "include_settings": True,
+                "include_ai_config": True,
+                "include_protect_config": True
+            }
+        }
+
+
+class RestoreOptions(BaseModel):
+    """Options for selective restore (FF-007)"""
+    restore_database: bool = Field(default=True, description="Restore events, cameras, alert rules")
+    restore_thumbnails: bool = Field(default=True, description="Restore thumbnail images")
+    restore_settings: bool = Field(default=True, description="Restore system settings")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "restore_database": True,
+                "restore_thumbnails": True,
+                "restore_settings": True
+            }
+        }
 
 
 class BackupResponse(BaseModel):
@@ -1038,6 +1243,16 @@ class BackupListResponse(BaseModel):
     total_count: int = Field(..., description="Total number of backups")
 
 
+class BackupContentsResponse(BaseModel):
+    """Information about what's contained in a backup (FF-007)"""
+    has_database: bool = Field(default=False, description="Backup includes database")
+    has_thumbnails: bool = Field(default=False, description="Backup includes thumbnails")
+    has_settings: bool = Field(default=False, description="Backup includes settings")
+    database_size_bytes: int = Field(default=0, description="Database size in bytes")
+    thumbnails_count: int = Field(default=0, description="Number of thumbnails")
+    settings_count: int = Field(default=0, description="Number of settings")
+
+
 class ValidationResponse(BaseModel):
     """Response from backup validation"""
     valid: bool = Field(..., description="Whether backup is valid")
@@ -1045,20 +1260,32 @@ class ValidationResponse(BaseModel):
     app_version: Optional[str] = Field(None, description="Backup app version")
     backup_timestamp: Optional[str] = Field(None, description="Backup creation time")
     warnings: List[str] = Field(default_factory=list, description="Validation warnings")
+    contents: Optional[BackupContentsResponse] = Field(None, description="What's in the backup (FF-007)")
 
 
 @router.post("/backup", response_model=BackupResponse)
-async def create_backup():
+async def create_backup(options: Optional[BackupOptions] = None):
     """
-    Create a full system backup
+    Create a system backup with optional selective components (FF-007)
 
-    Creates a ZIP archive containing:
-    - **database.db**: Complete SQLite database
+    Creates a ZIP archive containing selected components:
+    - **database.db**: Complete SQLite database (events, cameras, rules)
     - **thumbnails/**: All event thumbnail images
     - **settings.json**: System settings (API keys excluded for security)
     - **metadata.json**: Backup metadata (timestamp, version, file counts)
 
     The backup can be downloaded using the `download_url` in the response.
+
+    **Request Body (optional):**
+    ```json
+    {
+        "include_database": true,
+        "include_thumbnails": true,
+        "include_settings": true,
+        "include_ai_config": true,
+        "include_protect_config": true
+    }
+    ```
 
     **Response:**
     ```json
@@ -1078,7 +1305,13 @@ async def create_backup():
     """
     try:
         backup_service = get_backup_service()
-        result = await backup_service.create_backup()
+        # Use default options if none provided
+        opts = options or BackupOptions()
+        result = await backup_service.create_backup(
+            include_database=opts.include_database,
+            include_thumbnails=opts.include_thumbnails,
+            include_settings=opts.include_settings
+        )
 
         if not result.success:
             # Check if it's a disk space issue
@@ -1269,12 +1502,25 @@ async def validate_backup(file: UploadFile = File(...)):
             backup_service = get_backup_service()
             result = backup_service.validate_backup(tmp_path)
 
+            # FF-007: Include backup contents info
+            contents = None
+            if result.contents:
+                contents = BackupContentsResponse(
+                    has_database=result.contents.has_database,
+                    has_thumbnails=result.contents.has_thumbnails,
+                    has_settings=result.contents.has_settings,
+                    database_size_bytes=result.contents.database_size_bytes,
+                    thumbnails_count=result.contents.thumbnails_count,
+                    settings_count=result.contents.settings_count
+                )
+
             return ValidationResponse(
                 valid=result.valid,
                 message=result.message,
                 app_version=result.app_version,
                 backup_timestamp=result.backup_timestamp,
-                warnings=result.warnings or []
+                warnings=result.warnings or [],
+                contents=contents
             )
         finally:
             # Cleanup temp file
@@ -1289,22 +1535,30 @@ async def validate_backup(file: UploadFile = File(...)):
 
 
 @router.post("/restore", response_model=RestoreResponse)
-async def restore_from_backup(file: UploadFile = File(...)):
+async def restore_from_backup(
+    file: UploadFile = File(...),
+    restore_database: bool = Form(default=True),
+    restore_thumbnails: bool = Form(default=True),
+    restore_settings: bool = Form(default=True)
+):
     """
-    Restore system from a backup file
+    Restore system from a backup file with selective components (FF-007)
 
-    **WARNING: This operation will replace all existing data!**
+    **WARNING: This operation may replace existing data based on selected components!**
 
     Process:
     1. Validates the backup file
     2. Stops background tasks (camera capture, event processing)
-    3. Creates a backup of current database (for safety)
-    4. Replaces database, thumbnails, and settings
+    3. Creates a backup of current database (if restoring database)
+    4. Replaces selected components (database, thumbnails, settings)
     5. Restarts background tasks
 
     **Request:**
     - Content-Type: multipart/form-data
     - Field: file (ZIP file)
+    - Field: restore_database (boolean, default true)
+    - Field: restore_thumbnails (boolean, default true)
+    - Field: restore_settings (boolean, default true)
 
     **Response:**
     ```json
@@ -1383,11 +1637,14 @@ async def restore_from_backup(file: UploadFile = File(...)):
                 except Exception as e:
                     logger.warning(f"Error restarting tasks: {e}")
 
-            # Perform restore
+            # Perform restore with selective options (FF-007)
             result = await backup_service.restore_from_backup(
                 tmp_path,
                 stop_tasks_callback=stop_tasks,
-                start_tasks_callback=start_tasks
+                start_tasks_callback=start_tasks,
+                restore_database=restore_database,
+                restore_thumbnails=restore_thumbnails,
+                restore_settings=restore_settings
             )
 
             if not result.success:
@@ -1459,4 +1716,57 @@ async def delete_backup(timestamp: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete backup: {str(e)}"
+        )
+
+
+# Story P3-7.3: Cost Cap Status Endpoint
+from app.services.cost_cap_service import get_cost_cap_service
+from app.schemas.system import CostCapStatus as CostCapStatusSchema
+
+
+@router.get("/ai-cost-status", response_model=CostCapStatusSchema)
+async def get_ai_cost_status(db: Session = Depends(get_db)):
+    """
+    Get current AI cost cap status (Story P3-7.3)
+
+    Returns current daily and monthly costs, caps, percentages, and pause status.
+
+    **Response:**
+    ```json
+    {
+        "daily_cost": 0.75,
+        "daily_cap": 1.00,
+        "daily_percent": 75.0,
+        "monthly_cost": 12.50,
+        "monthly_cap": 20.00,
+        "monthly_percent": 62.5,
+        "is_paused": false,
+        "pause_reason": null
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    - 500: Internal server error
+    """
+    try:
+        cost_cap_service = get_cost_cap_service()
+        cap_status = cost_cap_service.get_cap_status(db, use_cache=False)
+
+        return CostCapStatusSchema(
+            daily_cost=cap_status.daily_cost,
+            daily_cap=cap_status.daily_cap,
+            daily_percent=cap_status.daily_percent,
+            monthly_cost=cap_status.monthly_cost,
+            monthly_cap=cap_status.monthly_cap,
+            monthly_percent=cap_status.monthly_percent,
+            is_paused=cap_status.is_paused,
+            pause_reason=cap_status.pause_reason
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting AI cost status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve AI cost status"
         )

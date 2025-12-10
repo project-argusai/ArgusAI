@@ -552,6 +552,224 @@ class FrameExtractor:
             return []
 
 
+    async def extract_frames_with_timestamps(
+        self,
+        clip_path: Path,
+        frame_count: int = 5,
+        strategy: str = "evenly_spaced",
+        filter_blur: bool = True
+    ) -> Tuple[List[bytes], List[float]]:
+        """
+        Extract frames from a video clip with their timestamps (Story P3-7.5).
+
+        Similar to extract_frames but also returns frame timestamps in seconds
+        for display in the key frames gallery.
+
+        Args:
+            clip_path: Path to the video file (MP4)
+            frame_count: Number of frames to extract (3-10, default 5)
+            strategy: Selection strategy (currently only "evenly_spaced")
+            filter_blur: If True (default), filter out blurry/empty frames
+
+        Returns:
+            Tuple of (frames, timestamps):
+            - frames: List of JPEG-encoded frame bytes
+            - timestamps: List of float seconds from video start for each frame
+        """
+        logger.info(
+            "Starting frame extraction with timestamps",
+            extra={
+                "event_type": "frame_extraction_with_timestamps_start",
+                "clip_path": str(clip_path),
+                "frame_count": frame_count
+            }
+        )
+
+        # Validate frame_count within bounds
+        if frame_count < FRAME_EXTRACT_MIN_COUNT:
+            frame_count = FRAME_EXTRACT_MIN_COUNT
+        elif frame_count > FRAME_EXTRACT_MAX_COUNT:
+            frame_count = FRAME_EXTRACT_MAX_COUNT
+
+        try:
+            with av.open(str(clip_path)) as container:
+                if not container.streams.video:
+                    logger.warning(
+                        "No video stream found in file",
+                        extra={
+                            "event_type": "frame_extraction_no_video",
+                            "clip_path": str(clip_path)
+                        }
+                    )
+                    return [], []
+
+                stream = container.streams.video[0]
+
+                # Get total frame count and frame rate for timestamp calculation
+                total_frames = stream.frames
+                fps = float(stream.average_rate) if stream.average_rate else 30.0
+
+                if total_frames is None or total_frames <= 0:
+                    if container.duration and stream.average_rate:
+                        duration_seconds = container.duration / 1_000_000.0
+                        total_frames = int(duration_seconds * fps)
+                    else:
+                        return [], []
+
+                if total_frames <= 0:
+                    return [], []
+
+                # Calculate which frames to extract
+                indices = self._calculate_frame_indices(total_frames, frame_count)
+                if not indices:
+                    return [], []
+
+                # Extract frames at calculated indices
+                # Store as tuples: (frame_index, quality_score, rgb_array, jpeg_bytes)
+                extracted_frames: List[Tuple[int, float, np.ndarray, bytes]] = []
+                current_frame_index = 0
+                indices_set = set(indices)
+
+                for frame in container.decode(video=0):
+                    if current_frame_index in indices_set:
+                        img_array = frame.to_ndarray(format='rgb24')
+                        quality_score = self._get_frame_quality_score(img_array)
+                        jpeg_bytes = self._encode_frame(img_array)
+
+                        extracted_frames.append(
+                            (current_frame_index, quality_score, img_array, jpeg_bytes)
+                        )
+
+                        indices_set.remove(current_frame_index)
+                        if not indices_set:
+                            break
+
+                    current_frame_index += 1
+
+                # Apply blur filtering if enabled
+                if filter_blur:
+                    usable_frames: List[Tuple[int, float, bytes]] = []
+                    unusable_frames: List[Tuple[int, float, bytes]] = []
+
+                    for frame_idx, quality_score, img_array, jpeg_bytes in extracted_frames:
+                        if self._is_frame_usable(img_array):
+                            usable_frames.append((frame_idx, quality_score, jpeg_bytes))
+                        else:
+                            unusable_frames.append((frame_idx, quality_score, jpeg_bytes))
+
+                    # Use usable frames first, then best unusable if needed
+                    if len(usable_frames) == 0:
+                        all_frames_sorted = sorted(
+                            extracted_frames,
+                            key=lambda x: x[1],
+                            reverse=True
+                        )
+                        count_to_return = max(
+                            min(frame_count, len(all_frames_sorted)),
+                            min(FRAME_EXTRACT_MIN_COUNT, len(all_frames_sorted))
+                        )
+                        final_frames = [
+                            (idx, jpeg_bytes)
+                            for idx, _, _, jpeg_bytes in all_frames_sorted[:count_to_return]
+                        ]
+                    elif len(usable_frames) >= frame_count:
+                        final_frames = [
+                            (idx, jpeg_bytes)
+                            for idx, _, jpeg_bytes in usable_frames[:frame_count]
+                        ]
+                    else:
+                        frames_needed = max(FRAME_EXTRACT_MIN_COUNT, frame_count) - len(usable_frames)
+                        if frames_needed > 0 and unusable_frames:
+                            unusable_sorted = sorted(
+                                unusable_frames,
+                                key=lambda x: x[1],
+                                reverse=True
+                            )
+                            for frame_idx, quality_score, jpeg_bytes in unusable_sorted[:frames_needed]:
+                                usable_frames.append((frame_idx, quality_score, jpeg_bytes))
+
+                        usable_frames.sort(key=lambda x: x[0])
+                        final_frames = [
+                            (idx, jpeg_bytes)
+                            for idx, _, jpeg_bytes in usable_frames
+                        ]
+                else:
+                    final_frames = [
+                        (idx, jpeg_bytes)
+                        for idx, _, _, jpeg_bytes in extracted_frames
+                    ]
+
+                # Sort by frame index and extract frames and timestamps
+                final_frames.sort(key=lambda x: x[0])
+                frames = [jpeg_bytes for _, jpeg_bytes in final_frames]
+                timestamps = [round(idx / fps, 2) for idx, _ in final_frames]
+
+                logger.info(
+                    f"Frame extraction with timestamps complete: {len(frames)} frames",
+                    extra={
+                        "event_type": "frame_extraction_with_timestamps_success",
+                        "clip_path": str(clip_path),
+                        "frames_extracted": len(frames),
+                        "timestamps": timestamps
+                    }
+                )
+
+                return frames, timestamps
+
+        except Exception as e:
+            logger.error(
+                f"Error extracting frames with timestamps: {e}",
+                extra={
+                    "event_type": "frame_extraction_with_timestamps_error",
+                    "clip_path": str(clip_path),
+                    "error_type": type(e).__name__,
+                    "error": str(e)
+                }
+            )
+            return [], []
+
+    def encode_frame_for_storage(self, frame_bytes: bytes, max_width: int = 320, quality: int = 70) -> str:
+        """
+        Re-encode a frame as a smaller thumbnail for database storage (Story P3-7.5).
+
+        Resizes frame to max_width and re-encodes at lower quality to minimize storage.
+
+        Args:
+            frame_bytes: JPEG-encoded frame bytes
+            max_width: Maximum thumbnail width (default 320px)
+            quality: JPEG quality 0-100 (default 70)
+
+        Returns:
+            Base64-encoded JPEG string (without data URI prefix)
+        """
+        import base64
+
+        try:
+            # Decode JPEG to PIL Image
+            img = Image.open(io.BytesIO(frame_bytes))
+
+            # Resize if needed (maintain aspect ratio)
+            if img.width > max_width:
+                ratio = max_width / img.width
+                new_size = (max_width, int(img.height * ratio))
+                img = img.resize(new_size, Image.LANCZOS)
+
+            # Encode as JPEG with lower quality
+            buffer = io.BytesIO()
+            img.save(buffer, format='JPEG', quality=quality)
+            return base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+        except Exception as e:
+            logger.error(
+                f"Error encoding frame for storage: {e}",
+                extra={
+                    "event_type": "frame_storage_encode_error",
+                    "error_type": type(e).__name__
+                }
+            )
+            return ""
+
+
 # Singleton instance
 _frame_extractor: Optional[FrameExtractor] = None
 

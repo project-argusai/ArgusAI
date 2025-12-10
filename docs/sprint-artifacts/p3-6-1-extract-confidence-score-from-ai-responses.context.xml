@@ -1,0 +1,203 @@
+<story-context id="p3-6-1-extract-confidence-score-from-ai-responses" v="1.0">
+  <metadata>
+    <epicId>P3-6</epicId>
+    <storyId>P3-6.1</storyId>
+    <title>Extract Confidence Score from AI Responses</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-6-1-extract-confidence-score-from-ai-responses.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>AI to return confidence scores with descriptions</iWant>
+    <soThat>uncertain descriptions can be identified and users can prioritize which events may need attention</soThat>
+    <tasks>
+      <task id="1" ac="6">Add Confidence Fields to Event Model
+        <subtask>Create Alembic migration to add ai_confidence INTEGER and low_confidence BOOLEAN columns</subtask>
+        <subtask>Update Event SQLAlchemy model with new fields</subtask>
+        <subtask>Update EventResponse Pydantic schema to include both fields</subtask>
+        <subtask>Run migration and verify columns exist</subtask>
+      </task>
+      <task id="2" ac="1,5">Modify AI Prompts to Request Confidence
+        <subtask>Update _build_user_prompt() to request confidence rating</subtask>
+        <subtask>Update _build_multi_image_prompt() to request confidence rating</subtask>
+        <subtask>Add response format instructions (JSON with description + confidence)</subtask>
+        <subtask>Ensure prompt changes apply to all providers</subtask>
+      </task>
+      <task id="3" ac="2,4,5">Implement Response Parsing for Confidence
+        <subtask>Create response parsing logic to extract confidence from AI responses</subtask>
+        <subtask>Handle JSON response format: {"description": "...", "confidence": 85}</subtask>
+        <subtask>Handle plain text with confidence mentioned (fallback parsing)</subtask>
+        <subtask>Validate confidence is 0-100, set to null if invalid</subtask>
+        <subtask>Add provider-specific parsing if needed</subtask>
+      </task>
+      <task id="4" ac="2,3,6">Integrate Confidence into Event Pipeline
+        <subtask>Modify protect_event_handler.py to capture confidence from AI response</subtask>
+        <subtask>Set low_confidence = True when confidence less than 50</subtask>
+        <subtask>Pass confidence through to event storage</subtask>
+        <subtask>Update _store_protect_event to save confidence fields</subtask>
+      </task>
+      <task id="5" ac="1,2,3,4,5,6">Write Unit Tests
+        <subtask>Test prompt includes confidence instruction</subtask>
+        <subtask>Test JSON response parsing extracts confidence</subtask>
+        <subtask>Test low_confidence flag set when score less than 50</subtask>
+        <subtask>Test null confidence handling</subtask>
+        <subtask>Test all providers return confidence</subtask>
+        <subtask>Test event stores confidence correctly</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="Prompt AI for Confidence Score">
+      Given AI analysis request (single-frame, multi-frame, or video)
+      When prompt is sent to any provider
+      Then includes instruction to rate confidence from 0 to 100
+      And requests structured response format with description and confidence
+    </criterion>
+    <criterion id="AC2" title="Parse Confidence from AI Response">
+      Given AI response with confidence value
+      When response is parsed
+      Then extracts description (text) and confidence (0-100 integer)
+      And validates confidence is within valid range
+      And stores both in event record
+    </criterion>
+    <criterion id="AC3" title="Flag Low Confidence Events">
+      Given AI returns confidence less than 50
+      When event is saved
+      Then flags event as low_confidence: true
+      And confidence value is stored for display
+    </criterion>
+    <criterion id="AC4" title="Handle Missing or Invalid Confidence">
+      Given AI does not return valid confidence
+      When parsing fails or confidence is missing
+      Then defaults to confidence: null
+      And event is NOT flagged as low confidence
+      And logs warning about missing confidence
+    </criterion>
+    <criterion id="AC5" title="Support All AI Providers">
+      Given confidence extraction logic
+      When applied to OpenAI, Claude, Gemini, and Grok responses
+      Then all providers return confidence scores consistently
+      And provider-specific response parsing handles variations
+    </criterion>
+    <criterion id="AC6" title="Store Confidence in Event Model">
+      Given event with confidence score
+      When event is saved to database
+      Then ai_confidence field (0-100) contains the score
+      And low_confidence boolean field is set appropriately
+      And both fields are retrievable via Event API
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epic Breakdown" section="Epic P3-6: Confidence Scoring">
+        Story P3-6.1 defines confidence extraction from AI responses with JSON response format and low_confidence flagging at threshold less than 50.
+      </doc>
+      <doc path="docs/PRD-phase3.md" title="Phase 3 PRD" section="FR27, FR31">
+        FR27: AI service returns confidence score with each description.
+        FR31: Confidence scores are stored with events for analytics.
+      </doc>
+      <doc path="CLAUDE.md" title="Project Overview" section="Event Processing Pipeline">
+        Describes event flow from camera capture through AI description to database storage.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" lines="1-83" reason="Add ai_confidence INTEGER and low_confidence BOOLEAN fields. Note: confidence field already exists (0-100) for existing object detection confidence."/>
+      <file path="backend/app/schemas/event.py" kind="schema" symbol="EventCreate, EventResponse" lines="1-140" reason="Add ai_confidence and low_confidence Optional fields to schemas for API serialization."/>
+      <file path="backend/app/services/ai_service.py" kind="service" symbol="_build_user_prompt, _build_multi_image_prompt" lines="230-312" reason="Modify prompts to request confidence rating in structured JSON format."/>
+      <file path="backend/app/services/ai_service.py" kind="service" symbol="OpenAIProvider, ClaudeProvider, GeminiProvider, GrokProvider" reason="All four providers need response parsing to extract confidence from AI responses."/>
+      <file path="backend/app/services/protect_event_handler.py" kind="service" symbol="_try_multi_frame_analysis, _store_protect_event" lines="1550-1620" reason="Capture confidence from AI result and pass to event storage."/>
+      <file path="backend/alembic/versions/" kind="migration" reason="Create migration 019 for ai_confidence and low_confidence columns."/>
+      <file path="backend/tests/test_services/test_audio_integration.py" kind="test" lines="1-413" reason="Reference pattern for testing AI prompt modifications and event storage."/>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0"/>
+        <package name="sqlalchemy" version=">=2.0.36"/>
+        <package name="alembic" version=">=1.14.0"/>
+        <package name="pydantic" version=">=2.10.0"/>
+        <package name="openai" version=">=1.0.0"/>
+        <package name="anthropic" version=">=0.18.0"/>
+        <package name="google-generativeai" version=">=0.5.0"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface name="AIResult" kind="dataclass" path="backend/app/services/ai_service.py">
+      <signature>
+@dataclass
+class AIResult:
+    success: bool
+    description: Optional[str] = None
+    confidence: int = 0  # Existing field - object detection confidence
+    provider: Optional[str] = None
+    response_time_ms: int = 0
+    error: Optional[str] = None
+    # P3-6.1: Add ai_confidence for self-reported AI confidence
+      </signature>
+      <note>AIResult already has confidence field for object detection. New field ai_confidence needed for AI self-reported confidence.</note>
+    </interface>
+    <interface name="Event Model Fields" kind="orm-column" path="backend/app/models/event.py">
+      <signature>
+# Story P3-6.1: AI confidence scoring
+ai_confidence = Column(Integer, nullable=True)  # 0-100 self-reported AI confidence
+low_confidence = Column(Boolean, nullable=False, default=False)  # True if ai_confidence less than 50
+      </signature>
+    </interface>
+    <interface name="Confidence Response Format" kind="json-schema">
+      <signature>
+{
+  "description": "Natural language description of the event",
+  "confidence": 85  // Integer 0-100
+}
+      </signature>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint type="naming">Use ai_confidence (not confidence) to avoid conflict with existing confidence field in Event model</constraint>
+    <constraint type="threshold">Low confidence threshold is 50 (ai_confidence less than 50 sets low_confidence=True)</constraint>
+    <constraint type="error-handling">Missing or invalid confidence should NOT block event processing - default to null</constraint>
+    <constraint type="backward-compatibility">Existing events without ai_confidence should display normally (null = no indicator)</constraint>
+    <constraint type="provider-consistency">All 4 AI providers (OpenAI, Claude, Gemini, Grok) must support confidence extraction</constraint>
+    <constraint type="prompt-format">Request JSON response format with description and confidence keys</constraint>
+    <constraint type="validation">Confidence must be 0-100 integer; reject floats or out-of-range values</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Tests use pytest with pytest-asyncio for async functions. Mock AI provider responses using unittest.mock.
+      Follow pattern from test_audio_integration.py: test classes per feature area, fixtures for database and model setup.
+      Coverage target: 80% minimum.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_confidence_extraction.py</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">test_prompt_includes_confidence_instruction - verify prompt text contains confidence request</idea>
+      <idea ac="1">test_prompt_requests_json_format - verify JSON response format is requested</idea>
+      <idea ac="2">test_parse_json_confidence_success - extract confidence from valid JSON</idea>
+      <idea ac="2">test_parse_embedded_json_confidence - extract from text with embedded JSON</idea>
+      <idea ac="3">test_low_confidence_flag_set_below_50 - verify flag when ai_confidence less than 50</idea>
+      <idea ac="3">test_low_confidence_flag_not_set_above_50 - verify flag false when ai_confidence 50 or above</idea>
+      <idea ac="4">test_null_confidence_on_missing_value - verify null when AI omits confidence</idea>
+      <idea ac="4">test_null_confidence_on_invalid_value - verify null when confidence out of range</idea>
+      <idea ac="4">test_low_confidence_false_when_null - verify flag false when confidence is null</idea>
+      <idea ac="5">test_openai_provider_confidence_parsing - OpenAI-specific response format</idea>
+      <idea ac="5">test_claude_provider_confidence_parsing - Claude-specific response format</idea>
+      <idea ac="5">test_gemini_provider_confidence_parsing - Gemini-specific response format</idea>
+      <idea ac="5">test_grok_provider_confidence_parsing - Grok-specific response format</idea>
+      <idea ac="6">test_event_model_has_ai_confidence_field - verify model field exists</idea>
+      <idea ac="6">test_event_stores_ai_confidence_in_db - verify persistence</idea>
+      <idea ac="6">test_event_api_returns_ai_confidence - verify API response includes field</idea>
+    </ideas>
+  </tests>
+</story-context>

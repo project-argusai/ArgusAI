@@ -22,6 +22,8 @@ import {
   Download,
   Trash2,
   Shield,
+  FileText,
+  DollarSign,
 } from 'lucide-react';
 
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
@@ -44,6 +46,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { ConfirmDialog } from '@/components/settings/ConfirmDialog';
 import { BackupRestore } from '@/components/settings/BackupRestore';
 import { AIProviders } from '@/components/settings/AIProviders';
+import { LogViewer } from '@/components/settings/LogViewer';
+import { CostDashboard } from '@/components/settings/CostDashboard';
 import { ControllerForm, type ControllerData, DeleteControllerDialog, DiscoveredCameraList } from '@/components/protect';
 import { useQuery } from '@tanstack/react-query';
 import type { AIProvider } from '@/types/settings';
@@ -261,7 +265,7 @@ export default function SettingsPage() {
         <form onSubmit={form.handleSubmit(handleSave)}>
           <Tabs defaultValue={initialTab} className="space-y-6">
             {/* Tab Navigation */}
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-7">
               <TabsTrigger value="general" className="flex items-center gap-2">
                 <Globe className="h-4 w-4" />
                 <span className="hidden sm:inline">General</span>
@@ -269,6 +273,10 @@ export default function SettingsPage() {
               <TabsTrigger value="ai" className="flex items-center gap-2">
                 <Brain className="h-4 w-4" />
                 <span className="hidden sm:inline">AI Models</span>
+              </TabsTrigger>
+              <TabsTrigger value="ai-usage" className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4" />
+                <span className="hidden sm:inline">AI Usage</span>
               </TabsTrigger>
               <TabsTrigger value="motion" className="flex items-center gap-2">
                 <Eye className="h-4 w-4" />
@@ -281,6 +289,10 @@ export default function SettingsPage() {
               <TabsTrigger value="protect" className="flex items-center gap-2">
                 <Shield className="h-4 w-4" />
                 <span className="hidden sm:inline">Protect</span>
+              </TabsTrigger>
+              <TabsTrigger value="logs" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                <span className="hidden sm:inline">Logs</span>
               </TabsTrigger>
             </TabsList>
 
@@ -460,6 +472,13 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* AI Usage Tab - Story P3-7.2 */}
+            <TabsContent value="ai-usage" className="space-y-4">
+              <ErrorBoundary context="AI Usage Dashboard">
+                <CostDashboard />
+              </ErrorBoundary>
             </TabsContent>
 
             {/* Motion Detection Tab */}
@@ -909,6 +928,11 @@ export default function SettingsPage() {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* Logs Tab - FF-001 */}
+            <TabsContent value="logs" className="space-y-4">
+              <LogViewer />
             </TabsContent>
           </Tabs>
 

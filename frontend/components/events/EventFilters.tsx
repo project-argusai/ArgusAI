@@ -5,8 +5,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Search, X, Calendar, Camera, Tag, Gauge, Shield, Bell } from 'lucide-react';
-import type { IEventFilters, DetectedObject, SourceType, SmartDetectionType } from '@/types/event';
+import { Search, X, Calendar, Camera, Tag, Gauge, Shield, Bell, Layers, AlertTriangle } from 'lucide-react';
+import type { IEventFilters, DetectedObject, SourceType, SmartDetectionType, AnalysisMode } from '@/types/event';
 import type { ICamera } from '@/types/camera';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,13 @@ const SMART_DETECTION_TYPES: { value: SmartDetectionType; label: string; icon?: 
   { value: 'motion', label: 'Motion' },
 ];
 
+// Story P3-7.6: Analysis mode filter options
+const ANALYSIS_MODE_TYPES: { value: AnalysisMode; label: string; description: string }[] = [
+  { value: 'single_frame', label: 'Single Frame', description: 'Snapshot analysis' },
+  { value: 'multi_frame', label: 'Multi-Frame', description: 'Sequence analysis' },
+  { value: 'video_native', label: 'Video Native', description: 'Full video analysis' },
+];
+
 const DATE_PRESETS = [
   { label: 'Last 24 hours', value: 24 },
   { label: 'Last 7 days', value: 24 * 7 },
@@ -63,6 +70,12 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
   const [selectedSmartDetection, setSelectedSmartDetection] = useState<SmartDetectionType | null>(
     filters.smart_detection_type || null
   );
+  // Story P3-7.6: Analysis mode filter state
+  const [selectedAnalysisMode, setSelectedAnalysisMode] = useState<AnalysisMode | null>(
+    filters.analysis_mode || null
+  );
+  const [hasFallback, setHasFallback] = useState<boolean>(filters.has_fallback || false);
+  const [lowConfidenceOnly, setLowConfidenceOnly] = useState<boolean>(filters.low_confidence || false);
 
   // Debounce search input
   const debouncedSearch = useDebounce(searchInput, 500);
@@ -180,6 +193,36 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
     });
   };
 
+  // Story P3-7.6: Handle analysis mode selection (single select - radio behavior)
+  const handleAnalysisModeSelect = (mode: AnalysisMode) => {
+    // Toggle off if already selected, otherwise select
+    const newValue = selectedAnalysisMode === mode ? null : mode;
+    setSelectedAnalysisMode(newValue);
+
+    onFiltersChange({
+      ...filters,
+      analysis_mode: newValue || undefined,
+    });
+  };
+
+  // Story P3-7.6: Handle fallback filter toggle
+  const handleFallbackToggle = (checked: boolean) => {
+    setHasFallback(checked);
+    onFiltersChange({
+      ...filters,
+      has_fallback: checked || undefined,
+    });
+  };
+
+  // Story P3-7.6: Handle low confidence filter toggle
+  const handleLowConfidenceToggle = (checked: boolean) => {
+    setLowConfidenceOnly(checked);
+    onFiltersChange({
+      ...filters,
+      low_confidence: checked || undefined,
+    });
+  };
+
   // Clear all filters
   const handleClearAll = () => {
     setSearchInput('');
@@ -188,6 +231,9 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
     setSelectedObjects(new Set());
     setSelectedSources(new Set());
     setSelectedSmartDetection(null);
+    setSelectedAnalysisMode(null);
+    setHasFallback(false);
+    setLowConfidenceOnly(false);
     setCustomDateRange({ start: '', end: '' });
     onFiltersChange({});
   };
@@ -200,6 +246,9 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
     selectedObjects.size > 0 ||
     selectedSources.size > 0 ||
     selectedSmartDetection !== null ||
+    selectedAnalysisMode !== null ||
+    hasFallback ||
+    lowConfidenceOnly ||
     customDateRange.start ||
     customDateRange.end;
 
@@ -349,6 +398,65 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
               </label>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Story P3-7.6: Analysis Mode Filter */}
+      <div className="space-y-3">
+        <label className="flex items-center text-sm font-medium">
+          <Layers className="w-4 h-4 mr-2" />
+          Analysis Mode
+        </label>
+        <div className="space-y-2">
+          {ANALYSIS_MODE_TYPES.map((mode) => (
+            <div key={mode.value} className="flex items-center space-x-2">
+              <Checkbox
+                id={`analysis-${mode.value}`}
+                checked={selectedAnalysisMode === mode.value}
+                onCheckedChange={() => handleAnalysisModeSelect(mode.value)}
+              />
+              <label
+                htmlFor={`analysis-${mode.value}`}
+                className="text-sm cursor-pointer flex-1"
+              >
+                <span>{mode.label}</span>
+                <span className="text-xs text-muted-foreground ml-1">({mode.description})</span>
+              </label>
+            </div>
+          ))}
+        </div>
+
+        {/* Fallback and Low Confidence filters */}
+        <div className="pt-2 border-t border-border space-y-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-fallback"
+              checked={hasFallback}
+              onCheckedChange={(checked) => handleFallbackToggle(checked === true)}
+            />
+            <label
+              htmlFor="filter-fallback"
+              className="text-sm cursor-pointer flex-1"
+            >
+              <span className="text-amber-600">With fallback</span>
+              <span className="text-xs text-muted-foreground ml-1">(downgraded mode)</span>
+            </label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="filter-low-confidence"
+              checked={lowConfidenceOnly}
+              onCheckedChange={(checked) => handleLowConfidenceToggle(checked === true)}
+            />
+            <label
+              htmlFor="filter-low-confidence"
+              className="text-sm cursor-pointer flex-1 flex items-center"
+            >
+              <AlertTriangle className="w-3 h-3 mr-1 text-orange-500" />
+              <span className="text-orange-600">Low confidence</span>
+              <span className="text-xs text-muted-foreground ml-1">(uncertain)</span>
+            </label>
+          </div>
         </div>
       </div>
 

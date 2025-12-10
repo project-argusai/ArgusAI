@@ -241,6 +241,10 @@ class SystemSettingsUpdate(BaseModel):
     thumbnail_storage: Optional[Literal["filesystem", "database"]] = None
     auto_cleanup: Optional[bool] = None
 
+    # Story P3-7.3: Cost Cap Settings
+    ai_daily_cost_cap: Optional[float] = Field(None, ge=0, description="Daily cost cap in USD (null = no limit)")
+    ai_monthly_cost_cap: Optional[float] = Field(None, ge=0, description="Monthly cost cap in USD (null = no limit)")
+
 
 # Story P3-7.1: AI Usage Response Schemas for Cost Tracking
 
@@ -327,5 +331,41 @@ class AIUsageResponse(BaseModel):
                     {"mode": "single_image", "cost": 0.0234, "requests": 89},
                     {"mode": "multi_frame", "cost": 0.0289, "requests": 53}
                 ]
+            }
+        }
+
+
+# Story P3-7.3: Cost Cap Status Schema
+
+class CostCapStatus(BaseModel):
+    """
+    Response schema for cost cap status endpoint.
+
+    Story P3-7.3: Implement Daily/Monthly Cost Caps.
+
+    Provides current cost usage and cap status for enforcement and UI display.
+    """
+    daily_cost: float = Field(..., description="Current day's total cost in USD")
+    daily_cap: Optional[float] = Field(None, description="Daily cap in USD (null = no limit)")
+    daily_percent: float = Field(..., description="Percentage of daily cap used (0 if no cap)")
+    monthly_cost: float = Field(..., description="Current month's total cost in USD")
+    monthly_cap: Optional[float] = Field(None, description="Monthly cap in USD (null = no limit)")
+    monthly_percent: float = Field(..., description="Percentage of monthly cap used (0 if no cap)")
+    is_paused: bool = Field(..., description="True if AI analysis is paused due to cap")
+    pause_reason: Optional[Literal["cost_cap_daily", "cost_cap_monthly"]] = Field(
+        None, description="Reason for pause (null if not paused)"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "daily_cost": 0.75,
+                "daily_cap": 1.00,
+                "daily_percent": 75.0,
+                "monthly_cost": 12.50,
+                "monthly_cap": 20.00,
+                "monthly_percent": 62.5,
+                "is_paused": False,
+                "pause_reason": None
             }
         }

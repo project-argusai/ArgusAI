@@ -22,7 +22,8 @@ from app.schemas.system import (
     RetentionPolicyResponse,
     StorageResponse,
     SystemSettings,
-    SystemSettingsUpdate
+    SystemSettingsUpdate,
+    CostCapStatus
 )
 from app.services.cleanup_service import get_cleanup_service
 from app.services.backup_service import get_backup_service, BackupResult, RestoreResult, BackupInfo, ValidationResult
@@ -497,12 +498,15 @@ async def update_settings(
 
         # Fields that should be saved WITHOUT the settings_ prefix
         # These are read directly by AI service (Story P2-5.2, P2-5.3)
+        # and cost cap service (Story P3-7.3)
         no_prefix_fields = {
             'ai_api_key_openai',
             'ai_api_key_grok',
             'ai_api_key_claude',
             'ai_api_key_gemini',
             'ai_provider_order',
+            'ai_daily_cost_cap',   # Story P3-7.3
+            'ai_monthly_cost_cap',  # Story P3-7.3
         }
 
         for field_name, value in update_data.items():
@@ -1711,4 +1715,57 @@ async def delete_backup(timestamp: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete backup: {str(e)}"
+        )
+
+
+# Story P3-7.3: Cost Cap Status Endpoint
+from app.services.cost_cap_service import get_cost_cap_service
+from app.schemas.system import CostCapStatus as CostCapStatusSchema
+
+
+@router.get("/ai-cost-status", response_model=CostCapStatusSchema)
+async def get_ai_cost_status(db: Session = Depends(get_db)):
+    """
+    Get current AI cost cap status (Story P3-7.3)
+
+    Returns current daily and monthly costs, caps, percentages, and pause status.
+
+    **Response:**
+    ```json
+    {
+        "daily_cost": 0.75,
+        "daily_cap": 1.00,
+        "daily_percent": 75.0,
+        "monthly_cost": 12.50,
+        "monthly_cap": 20.00,
+        "monthly_percent": 62.5,
+        "is_paused": false,
+        "pause_reason": null
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    - 500: Internal server error
+    """
+    try:
+        cost_cap_service = get_cost_cap_service()
+        cap_status = cost_cap_service.get_cap_status(db, use_cache=False)
+
+        return CostCapStatusSchema(
+            daily_cost=cap_status.daily_cost,
+            daily_cap=cap_status.daily_cap,
+            daily_percent=cap_status.daily_percent,
+            monthly_cost=cap_status.monthly_cost,
+            monthly_cap=cap_status.monthly_cap,
+            monthly_percent=cap_status.monthly_percent,
+            is_paused=cap_status.is_paused,
+            pause_reason=cap_status.pause_reason
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting AI cost status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve AI cost status"
         )

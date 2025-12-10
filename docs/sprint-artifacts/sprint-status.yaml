@@ -209,7 +209,7 @@ development_status:
   epic-p3-7: backlog
   p3-7-1-implement-cost-tracking-service: done
   p3-7-2-build-cost-dashboard-ui: done
-  p3-7-3-implement-daily-monthly-cost-caps: backlog
+  p3-7-3-implement-daily-monthly-cost-caps: done
   p3-7-4-add-cost-alerts-and-notifications: backlog
   p3-7-5-display-key-frames-gallery-on-event-detail: backlog
   p3-7-6-add-analysis-mode-filter-to-timeline: backlog

@@ -1,0 +1,161 @@
+<story-context id="p3-7-3-implement-daily-monthly-cost-caps" v="1.0">
+  <metadata>
+    <epicId>P3-7</epicId>
+    <storyId>3</storyId>
+    <title>Implement Daily/Monthly Cost Caps</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-09</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p3-7-3-implement-daily-monthly-cost-caps.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to set cost caps to prevent surprise bills</iWant>
+    <soThat>AI analysis stops before exceeding my budget</soThat>
+    <tasks>
+      <task id="1" ac="1">Add Cost Cap Settings to Database - ai_daily_cost_cap and ai_monthly_cost_cap fields</task>
+      <task id="2" ac="2,3,4,5">Create CostCapService Backend - is_within_daily_cap(), is_within_monthly_cap(), get_cap_status()</task>
+      <task id="3" ac="3">Integrate Cap Check into Event Pipeline - modify event_processor.py</task>
+      <task id="4" ac="1,2,4">Create Cost Cap API Endpoints - GET /api/v1/system/ai-cost-status</task>
+      <task id="5" ac="1">Build Cost Cap Settings UI Component - CostCapSettings.tsx</task>
+      <task id="6" ac="2,5">Display Cap Status in Dashboard - warning banners, progress indicators</task>
+      <task id="7" ac="4">Implement Automatic Resume Logic - period change detection</task>
+      <task id="8" ac="1">Add TypeScript Types - ICostCapStatus interface</task>
+      <task id="9" ac="1,2,3,4,5">Write Tests - backend and frontend coverage</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="Cost Cap Configuration UI">
+      Configure daily cap, monthly cap, or "No limit" option in settings
+    </criterion>
+    <criterion id="AC2" title="Warning Threshold Notifications">
+      Warning notification and dashboard indicator at 80% of cap
+    </criterion>
+    <criterion id="AC3" title="Cap Enforcement - Pause Analysis">
+      Skip AI analysis when cap reached, set event.analysis_skipped_reason
+    </criterion>
+    <criterion id="AC4" title="Automatic Resume on New Period">
+      Resume analysis at midnight UTC when daily cap resets
+    </criterion>
+    <criterion id="AC5" title="Monthly Cap Enforcement">
+      Skip analysis with reason "cost_cap_monthly" when monthly limit reached
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase3.md" title="Phase 3 Epics" section="Epic P3-7: Cost Monitoring Dashboard">
+        Story P3-7.3 covers FR35 (set cost caps), FR36 (alert on approaching limits), FR37 (pause on cap reached)
+      </doc>
+      <doc path="docs/PRD-phase3.md" title="Phase 3 PRD" section="Cost Monitoring">
+        FR35: Users can set daily/monthly cost caps. FR36: System alerts when approaching limits. FR37: System pauses AI when cap reached.
+      </doc>
+      <doc path="docs/sprint-artifacts/p3-7-1-implement-cost-tracking-service.md" title="Story P3-7.1" section="Cost Tracking Service">
+        CostTracker service implemented. GET /api/v1/system/ai-usage endpoint available. AIUsage model tracks per-request costs.
+      </doc>
+      <doc path="docs/sprint-artifacts/p3-7-2-build-cost-dashboard-ui.md" title="Story P3-7.2" section="Cost Dashboard UI">
+        CostDashboard component at frontend/components/settings/CostDashboard.tsx. recharts for charts. formatCost() helper. AI Usage tab in settings.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/cost_tracker.py" kind="service" symbol="CostTracker" reason="Provides cost calculation and aggregation - use for daily/monthly totals">
+        CostTracker class with calculate_cost(), calculate_multi_image_cost(). Provider rates defined. get_cost_tracker() singleton accessor.
+      </file>
+      <file path="backend/app/models/ai_usage.py" kind="model" symbol="AIUsage" reason="Stores per-request costs - query for aggregation by date/month">
+        AIUsage model with timestamp, provider, cost_estimate, analysis_mode, is_estimated, image_count fields.
+      </file>
+      <file path="backend/app/schemas/system.py" kind="schema" symbol="SystemSettings, AIUsageResponse" reason="Add cost cap fields to SystemSettings and SystemSettingsUpdate schemas">
+        SystemSettings with retention_days, motion settings. AIUsageResponse with by_date, by_camera, by_provider, by_mode aggregations.
+      </file>
+      <file path="backend/app/api/v1/system.py" kind="router" symbol="router" reason="Add GET /api/v1/system/ai-cost-status endpoint here">
+        System router with /retention, /storage, /backup, /settings endpoints. SENSITIVE_SETTING_KEYS for encrypted values.
+      </file>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor" reason="Integrate cap check before AI analysis call">
+        Event processing pipeline - add cap check before calling AI service.
+      </file>
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" reason="Add analysis_skipped_reason field">
+        Event model - add VARCHAR field for analysis_skipped_reason.
+      </file>
+      <file path="frontend/components/settings/CostDashboard.tsx" kind="component" symbol="CostDashboard" reason="Add cap status display and settings section">
+        ~650 lines with recharts charts, formatCost(), period selector, useQuery for getAIUsage.
+      </file>
+      <file path="frontend/types/settings.ts" kind="types" symbol="IAIUsageResponse, SystemSettings" reason="Add ICostCapStatus interface">
+        TypeScript interfaces for settings and AI usage. Add cost cap status types.
+      </file>
+      <file path="frontend/lib/api-client.ts" kind="api" symbol="apiClient.settings" reason="Add getCostStatus method">
+        API client with settings.getAIUsage(), settings.update(). Add settings.getCostStatus().
+      </file>
+    </code>
+
+    <dependencies>
+      <node>
+        <package>recharts</package><version>^3.5.1</version><reason>Charts for cap progress visualization</reason>
+      </node>
+      <node>
+        <package>@tanstack/react-query</package><version>^5.x</version><reason>Data fetching with useQuery</reason>
+      </node>
+      <python>
+        <package>fastapi</package><version>^0.115</version><reason>API framework</reason>
+      </python>
+      <python>
+        <package>sqlalchemy</package><version>^2.0</version><reason>ORM for database models</reason>
+      </python>
+      <python>
+        <package>alembic</package><version>^1.13</version><reason>Database migrations</reason>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="NFR13">Real-time enforcement - cap check must happen before every AI analysis</constraint>
+    <constraint source="Performance">Use 5-second cache TTL for cap status to minimize DB queries</constraint>
+    <constraint source="Architecture">Store caps in SystemSettings (key-value) or add dedicated columns</constraint>
+    <constraint source="Timezone">Use UTC for midnight calculations (period boundaries)</constraint>
+    <constraint source="UI Pattern">Follow existing CostDashboard patterns with shadcn/ui components</constraint>
+    <constraint source="API Pattern">Cost cap fields should be part of existing /settings endpoint for consistency</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/system/ai-cost-status" kind="REST endpoint">
+      <signature>GET /api/v1/system/ai-cost-status -> ICostCapStatus</signature>
+      <returns>{ daily_cost, daily_cap, daily_percent, monthly_cost, monthly_cap, monthly_percent, is_paused, pause_reason }</returns>
+    </interface>
+    <interface name="CostCapService" kind="service class">
+      <signature>is_within_daily_cap(db: Session) -> bool</signature>
+      <signature>is_within_monthly_cap(db: Session) -> bool</signature>
+      <signature>get_cap_status(db: Session) -> CostCapStatus</signature>
+      <signature>get_daily_cost(db: Session) -> Decimal</signature>
+      <signature>get_monthly_cost(db: Session) -> Decimal</signature>
+    </interface>
+    <interface name="ICostCapStatus" kind="TypeScript interface" path="frontend/types/settings.ts">
+      <signature>{ daily_cost: number; daily_cap: number | null; daily_percent: number; monthly_cost: number; monthly_cap: number | null; monthly_percent: number; is_paused: boolean; pause_reason: string | null; }</signature>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Frontend: Vitest with React Testing Library.
+      Follow existing test patterns in backend/tests/ and frontend/__tests__/.
+      Mock external services (AI providers) in unit tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_cost_cap_service.py</location>
+      <location>backend/tests/test_services/test_event_processor.py</location>
+      <location>frontend/__tests__/components/settings/CostCapSettings.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test cap settings are persisted to database</idea>
+      <idea ac="2">Test warning notification triggered at 80% threshold</idea>
+      <idea ac="3">Test AI analysis skipped when daily cap exceeded</idea>
+      <idea ac="3">Test event.analysis_skipped_reason is set correctly</idea>
+      <idea ac="4">Test analysis resumes after midnight UTC</idea>
+      <idea ac="5">Test monthly cap enforcement separate from daily</idea>
+      <idea>Test cache invalidation when cap settings updated</idea>
+      <idea>Test UI displays progress bar correctly</idea>
+      <idea>Test "No limit" setting (null cap)</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -70,6 +70,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+import { CostCapSettings } from './CostCapSettings';
+
 // Provider colors matching existing UI patterns
 const PROVIDER_COLORS: Record<string, string> = {
   openai: '#22c55e',   // green-500
@@ -417,6 +419,9 @@ export function CostDashboard() {
           </SelectContent>
         </Select>
       </div>
+
+      {/* Cost Cap Settings - Story P3-7.3 */}
+      <CostCapSettings />
 
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

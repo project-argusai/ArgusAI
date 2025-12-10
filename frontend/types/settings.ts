@@ -130,3 +130,18 @@ export interface IAIUsageQueryParams {
   start_date?: string;
   end_date?: string;
 }
+
+/**
+ * Cost Cap Status for enforcement and UI display
+ * Story P3-7.3: Implement Daily/Monthly Cost Caps
+ */
+export interface ICostCapStatus {
+  daily_cost: number;
+  daily_cap: number | null;  // null = no limit
+  daily_percent: number;     // 0-100, 0 if no cap
+  monthly_cost: number;
+  monthly_cap: number | null;
+  monthly_percent: number;
+  is_paused: boolean;
+  pause_reason: 'cost_cap_daily' | 'cost_cap_monthly' | null;
+}

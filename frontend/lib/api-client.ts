@@ -22,6 +22,7 @@ import type {
   DeleteDataResponse,
   IAIUsageResponse,
   IAIUsageQueryParams,
+  ICostCapStatus,
 } from '@/types/settings';
 import type {
   IAlertRule,
@@ -471,6 +472,29 @@ export const apiClient = {
       const queryString = searchParams.toString();
       const endpoint = `/system/ai-usage${queryString ? `?${queryString}` : ''}`;
       return apiFetch<IAIUsageResponse>(endpoint);
+    },
+
+    /**
+     * Get AI cost cap status (Story P3-7.3)
+     * @returns Current cost cap status including daily/monthly costs, caps, and pause state
+     */
+    getCostCapStatus: async (): Promise<ICostCapStatus> => {
+      return apiFetch<ICostCapStatus>('/system/ai-cost-status');
+    },
+
+    /**
+     * Update cost cap settings (Story P3-7.3)
+     * @param caps Object with daily_cap and/or monthly_cap (null for no limit)
+     * @returns Updated settings
+     */
+    updateCostCaps: async (caps: {
+      ai_daily_cost_cap?: number | null;
+      ai_monthly_cost_cap?: number | null;
+    }): Promise<SystemSettings> => {
+      return apiFetch<SystemSettings>('/system/settings', {
+        method: 'PUT',
+        body: JSON.stringify(caps),
+      });
     },
   },
 

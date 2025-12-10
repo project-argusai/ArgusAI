@@ -40,6 +40,7 @@ from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService
+from app.services.cost_cap_service import get_cost_cap_service
 from app.core.database import SessionLocal
 
 logger = logging.getLogger(__name__)
@@ -552,6 +553,39 @@ class EventProcessor:
             True if processing succeeded, False otherwise
         """
         try:
+            # Story P3-7.3: Check cost caps before AI analysis
+            cost_cap_service = get_cost_cap_service()
+            db = SessionLocal()
+            try:
+                can_analyze, skip_reason = cost_cap_service.can_analyze(db)
+            finally:
+                db.close()
+
+            if not can_analyze:
+                logger.info(
+                    f"AI analysis skipped for camera {event.camera_name} due to {skip_reason}",
+                    extra={"camera_id": event.camera_id, "skip_reason": skip_reason}
+                )
+                self.metrics.increment_error(f"cost_cap_{skip_reason}")
+
+                # Store event without AI description, with skip reason
+                thumbnail_base64 = self._generate_thumbnail(event.frame)
+                event_data = {
+                    "camera_id": event.camera_id,
+                    "timestamp": event.timestamp.isoformat(),
+                    "description": f"AI analysis paused - {skip_reason.replace('_', ' ')}",
+                    "confidence": 0,
+                    "objects_detected": event.detected_objects,
+                    "thumbnail_base64": thumbnail_base64,
+                    "alert_triggered": False,
+                    "provider_used": None,
+                    "description_retry_needed": True,  # Can retry when cap resets
+                    "analysis_skipped_reason": skip_reason  # Story P3-7.3: Track skip reason
+                }
+
+                success = await self._store_event_with_retry(event_data, max_retries=3)
+                return success
+
             # Step 1: Generate AI description
             logger.debug(f"Worker {worker_id}: Calling AI service for camera {event.camera_name}")
 

@@ -39,6 +39,7 @@ class Event(Base):
         reanalyzed_at: Timestamp of last re-analysis (Story P3-6.4)
         reanalysis_count: Number of re-analyses performed for rate limiting (Story P3-6.4)
         ai_cost: Estimated cost in USD for AI analysis (Story P3-7.1)
+        analysis_skipped_reason: Reason AI analysis was skipped - "cost_cap_daily"/"cost_cap_monthly" (Story P3-7.3)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -83,6 +84,8 @@ class Event(Base):
     reanalysis_count = Column(Integer, nullable=False, default=0)  # Number of re-analyses performed (for rate limiting)
     # Story P3-7.1: AI cost tracking
     ai_cost = Column(Float, nullable=True)  # Estimated cost in USD for AI analysis (null = not tracked)
+    # Story P3-7.3: Cost cap enforcement - analysis skip reason
+    analysis_skipped_reason = Column(String(50), nullable=True)  # "cost_cap_daily", "cost_cap_monthly" (null = not skipped)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

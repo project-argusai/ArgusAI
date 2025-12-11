@@ -1,0 +1,264 @@
+<story-context id="p4-3-2-similarity-search" v="1.0">
+  <metadata>
+    <epicId>P4-3</epicId>
+    <storyId>P4-3.2</storyId>
+    <title>Similarity Search</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-11</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-3-2-similarity-search.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security system user</asA>
+    <iWant>the system to find visually similar past events when a new event occurs</iWant>
+    <soThat>I can see patterns like recurring visitors and understand if someone has been seen before</soThat>
+    <tasks>
+      <task id="1" ac="1">Add SimilarityService with cosine similarity
+        <subtask>Create backend/app/services/similarity_service.py</subtask>
+        <subtask>Implement cosine_similarity(embedding1: list[float], embedding2: list[float]) -> float</subtask>
+        <subtask>Use numpy for efficient vector operations</subtask>
+        <subtask>Handle edge cases (zero vectors, dimension mismatch)</subtask>
+      </task>
+      <task id="2" ac="2,3,4,5,11,12">Implement find_similar_events method
+        <subtask>Add find_similar_events(db, event_id, limit=10, min_similarity=0.7, time_window_days=30, camera_id=None) method</subtask>
+        <subtask>Load source event embedding from EmbeddingService</subtask>
+        <subtask>Query event_embeddings table within time window</subtask>
+        <subtask>Calculate similarity scores for all candidates</subtask>
+        <subtask>Filter by min_similarity threshold</subtask>
+        <subtask>Sort by similarity descending</subtask>
+        <subtask>Exclude source event from results</subtask>
+        <subtask>Apply camera_id filter if provided</subtask>
+        <subtask>Return top-N results with metadata</subtask>
+      </task>
+      <task id="3" ac="6,7,10">Add similarity search API endpoint
+        <subtask>Create GET /api/v1/context/similar/{event_id} in context.py</subtask>
+        <subtask>Add query parameters: limit, min_similarity, time_window_days, camera_id</subtask>
+        <subtask>Define response schema with: event_id, similarity_score, thumbnail_url, description, timestamp, camera_name</subtask>
+        <subtask>Return 404 if event not found or no embedding exists</subtask>
+        <subtask>Include proper documentation/OpenAPI schema</subtask>
+      </task>
+      <task id="4" ac="8">Optimize query performance
+        <subtask>Load all candidate embeddings in single query (batch loading)</subtask>
+        <subtask>Use numpy vectorized operations for batch similarity calculation</subtask>
+        <subtask>Add timing instrumentation to measure query performance</subtask>
+        <subtask>Consider adding index on created_at for time window filtering</subtask>
+        <subtask>Profile with 10,000 embeddings to verify &lt;100ms target</subtask>
+      </task>
+      <task id="5" ac="9">Handle empty/edge cases gracefully
+        <subtask>Return empty list (not error) when no similar events found</subtask>
+        <subtask>Handle event with no embedding appropriately</subtask>
+        <subtask>Handle empty database (no embeddings at all)</subtask>
+      </task>
+      <task id="6" ac="1,4,5,9,11">Write unit tests
+        <subtask>Test cosine similarity calculation with known vectors</subtask>
+        <subtask>Test identical vectors return 1.0</subtask>
+        <subtask>Test orthogonal vectors return 0.0</subtask>
+        <subtask>Test threshold filtering</subtask>
+        <subtask>Test time window filtering</subtask>
+        <subtask>Test source event exclusion</subtask>
+        <subtask>Test empty results handling</subtask>
+        <subtask>Mock embeddings for fast tests</subtask>
+      </task>
+      <task id="7" ac="2,3,6,7,8,10,12">Write integration tests
+        <subtask>Test find_similar_events with real database</subtask>
+        <subtask>Test result ordering by similarity</subtask>
+        <subtask>Test API endpoint returns correct schema</subtask>
+        <subtask>Test 404 for missing event/embedding</subtask>
+        <subtask>Test camera_id filtering</subtask>
+        <subtask>Performance test with large dataset</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Cosine similarity function calculates correct similarity scores between embeddings (Verification: Unit test with known vectors - orthogonal=0, identical=1)</criterion>
+    <criterion id="2">find_similar_events(event_id, limit, min_similarity, time_window_days) returns top-N similar events (Verification: Integration test with sample embeddings)</criterion>
+    <criterion id="3">Results sorted by similarity score (highest first) (Verification: Verify ordering in test)</criterion>
+    <criterion id="4">Configurable minimum similarity threshold (default 0.7) filters low-relevance results (Verification: Test with threshold filtering)</criterion>
+    <criterion id="5">Configurable time window limits search to recent events (default 30 days) (Verification: Test time window filtering)</criterion>
+    <criterion id="6">API endpoint GET /api/v1/context/similar/{event_id} returns similar events (Verification: API test returns proper JSON)</criterion>
+    <criterion id="7">Similar event response includes: event_id, similarity_score, thumbnail_url, description, timestamp (Verification: Schema validation test)</criterion>
+    <criterion id="8">Query performance &lt;100ms for top-10 results with up to 10,000 embeddings (Verification: Performance benchmark test)</criterion>
+    <criterion id="9">Empty result returned (not error) when no similar events found above threshold (Verification: Test with isolated embedding)</criterion>
+    <criterion id="10">404 returned when source event has no embedding (Verification: API error handling test)</criterion>
+    <criterion id="11">Exclude source event from results (don't return itself as "similar") (Verification: Logic test)</criterion>
+    <criterion id="12">Support optional camera_id filter to limit search to same camera (Verification: Test camera filtering)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD - Intelligent Context &amp; Smart Home</title>
+        <section>Temporal Context, FR1-FR5</section>
+        <snippet>FR2: System identifies recurring visitors based on appearance similarity. Context lookup adds &lt;500ms to event processing. Embedding search efficient with vector indexing.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics - Temporal Context Engine</title>
+        <section>Epic P4-3, Story P4-3.2</section>
+        <snippet>Implement cosine similarity search, create efficient vector indexing, find similar events within time window, optimize for sub-500ms queries.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>System Architecture</title>
+        <section>Phase 4 Additions, ADR-P4-003</section>
+        <snippet>ADR-P4-003: pgvector extension for PostgreSQL, fall back to SQLite with numpy. Similarity Search target: &lt;100ms for top-10 similar. Use IVFFlat index with pgvector.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>System Architecture</title>
+        <section>Phase 4 API Contracts - Context API</section>
+        <snippet>GET /api/v1/context/similar/{event_id} - Find events similar to specified event. Query params: limit=10, min_similarity=0.7, days_back=30. Response includes event_id, similarity_score, timestamp, description.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>System Architecture</title>
+        <section>Phase 4 Service Architecture</section>
+        <snippet>Event Created → Embedding Service → Similarity Service (find similar past events within time window) → Context Service → AI Service (enhanced prompt)</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p4-3-1-event-embedding-generation.md</path>
+        <title>Previous Story P4-3.1 - Event Embedding Generation</title>
+        <section>Dev Agent Record</section>
+        <snippet>EmbeddingService available via get_embedding_service(). Embeddings stored as JSON arrays in SQLite Text column. Use get_embedding_vector(db, event_id) to retrieve embeddings.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/services/embedding_service.py</path>
+        <kind>service</kind>
+        <symbol>EmbeddingService</symbol>
+        <lines>36-378</lines>
+        <reason>Core service from P4-3.1 that stores and retrieves embeddings. Use get_embedding_vector() method to get source embedding for similarity comparison.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/embedding_service.py</path>
+        <kind>function</kind>
+        <symbol>get_embedding_service</symbol>
+        <lines>340-358</lines>
+        <reason>Singleton accessor for EmbeddingService. SimilarityService should use this for dependency injection.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/event_embedding.py</path>
+        <kind>model</kind>
+        <symbol>EventEmbedding</symbol>
+        <lines>25-80</lines>
+        <reason>SQLAlchemy model for embeddings. Query this table for candidate embeddings in time window. Has event_id, embedding (JSON), model_version, created_at columns.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>9-107</lines>
+        <reason>Event model with embedding relationship. Response needs: id, description, timestamp, thumbnail_path/thumbnail_base64, camera_id. Join with Camera for camera_name.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/context.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-258</lines>
+        <reason>Existing context API router from P4-3.1. Add the GET /similar/{event_id} endpoint here following established patterns.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/core/database.py</path>
+        <kind>module</kind>
+        <symbol>get_db</symbol>
+        <reason>Database session dependency for FastAPI endpoints. Use for db: Session = Depends(get_db).</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_services/test_embedding_service.py</path>
+        <kind>test</kind>
+        <symbol>TestEmbeddingStorage</symbol>
+        <lines>194-307</lines>
+        <reason>Test patterns for database fixtures and embedding storage tests. Follow this pattern for SimilarityService tests.</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <python>
+        <package name="numpy" version="(via sentence-transformers)">Used for efficient vector operations - dot product, norm calculation, batch cosine similarity</package>
+        <package name="sentence-transformers" version=">=2.2.0">Already installed for CLIP embeddings. numpy included as transitive dependency.</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database queries, already in use</package>
+        <package name="fastapi" version="[standard]==0.115.0">Web framework, already in use</package>
+        <package name="pydantic" version=">=2.10.0">Request/response schema validation</package>
+        <package name="pytest" version="==7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="==0.21.1">Async test support</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="performance">Query performance must be &lt;100ms for top-10 results with up to 10,000 embeddings (ADR-P4-003, AC8)</constraint>
+    <constraint type="architecture">Use SQLite + numpy cosine similarity for MVP (ADR-P4-003). No pgvector dependency required.</constraint>
+    <constraint type="pattern">Follow singleton pattern established by EmbeddingService: global _similarity_service with get_similarity_service() accessor</constraint>
+    <constraint type="pattern">Service should accept EmbeddingService via dependency injection in constructor</constraint>
+    <constraint type="database">Embeddings stored as JSON arrays in Text column. Use json.loads() to deserialize before numpy operations.</constraint>
+    <constraint type="api">Add endpoint to existing context.py router. Use /api/v1/context/similar/{event_id} path.</constraint>
+    <constraint type="testing">Follow test patterns from test_embedding_service.py - use in-memory SQLite, mock external dependencies</constraint>
+    <constraint type="error-handling">Return empty list for no matches (AC9), 404 for missing event/embedding (AC10). Never error on valid queries with no results.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GET /api/v1/context/similar/{event_id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/context/similar/{event_id}?limit=10&amp;min_similarity=0.7&amp;time_window_days=30&amp;camera_id=optional</signature>
+      <path>backend/app/api/v1/context.py</path>
+    </interface>
+    <interface>
+      <name>SimilarityService.find_similar_events</name>
+      <kind>async method</kind>
+      <signature>async def find_similar_events(self, db: Session, event_id: str, limit: int = 10, min_similarity: float = 0.7, time_window_days: int = 30, camera_id: Optional[str] = None) -> list[SimilarEvent]</signature>
+      <path>backend/app/services/similarity_service.py</path>
+    </interface>
+    <interface>
+      <name>cosine_similarity</name>
+      <kind>function</kind>
+      <signature>def cosine_similarity(vec1: list[float], vec2: list[float]) -> float</signature>
+      <path>backend/app/services/similarity_service.py</path>
+    </interface>
+    <interface>
+      <name>batch_cosine_similarity</name>
+      <kind>function</kind>
+      <signature>def batch_cosine_similarity(query: list[float], candidates: list[list[float]]) -> list[float]</signature>
+      <path>backend/app/services/similarity_service.py</path>
+    </interface>
+    <interface>
+      <name>EmbeddingService.get_embedding_vector</name>
+      <kind>async method (existing)</kind>
+      <signature>async def get_embedding_vector(self, db: Session, event_id: str) -> Optional[list[float]]</signature>
+      <path>backend/app/services/embedding_service.py</path>
+    </interface>
+    <interface>
+      <name>SimilarEventResponse</name>
+      <kind>Pydantic schema</kind>
+      <signature>class SimilarEventResponse(BaseModel): event_id: str, similarity_score: float, thumbnail_url: str, description: str, timestamp: datetime, camera_name: str, camera_id: str</signature>
+      <path>backend/app/api/v1/context.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Testing follows pytest patterns with pytest-asyncio for async tests. Unit tests mock external dependencies (CLIP model, database). Integration tests use in-memory SQLite with real ORM operations. API tests use FastAPI TestClient (httpx). Target coverage: 70%+ for new code. Tests organized by type: test_services/ for unit tests, test_integration/ for integration tests, test_api/ for API endpoint tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_similarity_service.py</location>
+      <location>backend/tests/test_integration/test_similarity_integration.py</location>
+      <location>backend/tests/test_api/test_similarity_api.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test cosine_similarity with orthogonal vectors (expect 0.0), identical vectors (expect 1.0), and random known vectors with pre-calculated expected result</idea>
+      <idea ac="1">Test cosine_similarity edge cases: zero vector handling (return 0.0), dimension mismatch (raise ValueError)</idea>
+      <idea ac="2,3">Test find_similar_events returns results sorted by similarity score descending</idea>
+      <idea ac="4">Test min_similarity threshold filtering: create embeddings with known similarities above and below threshold</idea>
+      <idea ac="5">Test time_window_days filtering: create events outside window, verify excluded</idea>
+      <idea ac="6,7">API test: verify GET endpoint returns correct JSON schema with all required fields</idea>
+      <idea ac="8">Performance test: generate 10,000 random embeddings, measure query time &lt;100ms</idea>
+      <idea ac="9">Test empty results: create isolated embedding with no similar events, verify empty list returned (not error)</idea>
+      <idea ac="10">Test 404: request similar for non-existent event_id, event with no embedding</idea>
+      <idea ac="11">Test source exclusion: verify source event never in results even if most similar to itself</idea>
+      <idea ac="12">Test camera_id filter: create events from multiple cameras, verify filter works</idea>
+    </ideas>
+  </tests>
+</story-context>

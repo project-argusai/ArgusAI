@@ -145,6 +145,262 @@ class MQTTDiscoveryService:
 
         return config
 
+    def generate_status_sensor_config(
+        self,
+        camera: Camera,
+        topic_prefix: str = "liveobject"
+    ) -> Dict[str, Any]:
+        """
+        Generate Home Assistant discovery payload for camera status sensor (P4-2.5, AC1, AC9).
+
+        Args:
+            camera: Camera model instance
+            topic_prefix: MQTT topic prefix
+
+        Returns:
+            Dictionary ready for JSON serialization to discovery topic.
+        """
+        camera_id = str(camera.id)
+        device_identifier = f"liveobject_{camera_id}"
+
+        # Build topics
+        state_topic = f"{topic_prefix}/camera/{camera_id}/status"
+        availability_topic = f"{topic_prefix}/status"
+
+        return {
+            "name": f"{camera.name} Status",
+            "unique_id": f"liveobject_{camera_id}_status",
+            "object_id": f"liveobject_{camera_id}_status",
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.status }}",
+            "json_attributes_topic": state_topic,
+            "availability_topic": availability_topic,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "icon": "mdi:camera",
+            "device": {
+                "identifiers": [device_identifier],
+                "name": camera.name,
+                "manufacturer": "Live Object AI",
+                "model": "AI Classifier",
+                "sw_version": APP_VERSION,
+            }
+        }
+
+    def generate_last_event_sensor_config(
+        self,
+        camera: Camera,
+        topic_prefix: str = "liveobject"
+    ) -> Dict[str, Any]:
+        """
+        Generate Home Assistant discovery payload for last event timestamp sensor (P4-2.5, AC2).
+
+        Args:
+            camera: Camera model instance
+            topic_prefix: MQTT topic prefix
+
+        Returns:
+            Dictionary ready for JSON serialization to discovery topic.
+        """
+        camera_id = str(camera.id)
+        device_identifier = f"liveobject_{camera_id}"
+
+        state_topic = f"{topic_prefix}/camera/{camera_id}/last_event"
+        availability_topic = f"{topic_prefix}/status"
+
+        return {
+            "name": f"{camera.name} Last Event",
+            "unique_id": f"liveobject_{camera_id}_last_event",
+            "object_id": f"liveobject_{camera_id}_last_event",
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.timestamp }}",
+            "json_attributes_topic": state_topic,
+            "json_attributes_template": "{{ {'event_id': value_json.event_id, 'description': value_json.description_snippet, 'smart_detection_type': value_json.smart_detection_type} | tojson }}",
+            "device_class": "timestamp",
+            "availability_topic": availability_topic,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "icon": "mdi:clock-outline",
+            "device": {
+                "identifiers": [device_identifier],
+                "name": camera.name,
+                "manufacturer": "Live Object AI",
+                "model": "AI Classifier",
+                "sw_version": APP_VERSION,
+            }
+        }
+
+    def generate_events_today_sensor_config(
+        self,
+        camera: Camera,
+        topic_prefix: str = "liveobject"
+    ) -> Dict[str, Any]:
+        """
+        Generate Home Assistant discovery payload for events today counter (P4-2.5, AC3).
+
+        Args:
+            camera: Camera model instance
+            topic_prefix: MQTT topic prefix
+
+        Returns:
+            Dictionary ready for JSON serialization to discovery topic.
+        """
+        camera_id = str(camera.id)
+        device_identifier = f"liveobject_{camera_id}"
+
+        state_topic = f"{topic_prefix}/camera/{camera_id}/counts"
+        availability_topic = f"{topic_prefix}/status"
+
+        return {
+            "name": f"{camera.name} Events Today",
+            "unique_id": f"liveobject_{camera_id}_events_today",
+            "object_id": f"liveobject_{camera_id}_events_today",
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.events_today }}",
+            "unit_of_measurement": "events",
+            "state_class": "total",
+            "availability_topic": availability_topic,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "icon": "mdi:counter",
+            "device": {
+                "identifiers": [device_identifier],
+                "name": camera.name,
+                "manufacturer": "Live Object AI",
+                "model": "AI Classifier",
+                "sw_version": APP_VERSION,
+            }
+        }
+
+    def generate_events_week_sensor_config(
+        self,
+        camera: Camera,
+        topic_prefix: str = "liveobject"
+    ) -> Dict[str, Any]:
+        """
+        Generate Home Assistant discovery payload for events this week counter (P4-2.5, AC3).
+
+        Args:
+            camera: Camera model instance
+            topic_prefix: MQTT topic prefix
+
+        Returns:
+            Dictionary ready for JSON serialization to discovery topic.
+        """
+        camera_id = str(camera.id)
+        device_identifier = f"liveobject_{camera_id}"
+
+        state_topic = f"{topic_prefix}/camera/{camera_id}/counts"
+        availability_topic = f"{topic_prefix}/status"
+
+        return {
+            "name": f"{camera.name} Events This Week",
+            "unique_id": f"liveobject_{camera_id}_events_week",
+            "object_id": f"liveobject_{camera_id}_events_week",
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.events_this_week }}",
+            "unit_of_measurement": "events",
+            "state_class": "total",
+            "availability_topic": availability_topic,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "icon": "mdi:calendar-week",
+            "device": {
+                "identifiers": [device_identifier],
+                "name": camera.name,
+                "manufacturer": "Live Object AI",
+                "model": "AI Classifier",
+                "sw_version": APP_VERSION,
+            }
+        }
+
+    def generate_activity_binary_sensor_config(
+        self,
+        camera: Camera,
+        topic_prefix: str = "liveobject"
+    ) -> Dict[str, Any]:
+        """
+        Generate Home Assistant discovery payload for activity binary sensor (P4-2.5, AC4).
+
+        Args:
+            camera: Camera model instance
+            topic_prefix: MQTT topic prefix
+
+        Returns:
+            Dictionary ready for JSON serialization to discovery topic.
+        """
+        camera_id = str(camera.id)
+        device_identifier = f"liveobject_{camera_id}"
+
+        state_topic = f"{topic_prefix}/camera/{camera_id}/activity"
+        availability_topic = f"{topic_prefix}/status"
+
+        return {
+            "name": f"{camera.name} Activity",
+            "unique_id": f"liveobject_{camera_id}_activity",
+            "object_id": f"liveobject_{camera_id}_activity",
+            "state_topic": state_topic,
+            "value_template": "{{ value_json.state }}",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "device_class": "motion",
+            "availability_topic": availability_topic,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "device": {
+                "identifiers": [device_identifier],
+                "name": camera.name,
+                "manufacturer": "Live Object AI",
+                "model": "AI Classifier",
+                "sw_version": APP_VERSION,
+            }
+        }
+
+    def get_status_discovery_topic(
+        self,
+        camera_id: str,
+        discovery_prefix: str = "homeassistant"
+    ) -> str:
+        """Get the discovery topic for camera status sensor."""
+        sensor_id = f"liveobject_{camera_id}_status"
+        return f"{discovery_prefix}/sensor/{sensor_id}/config"
+
+    def get_last_event_discovery_topic(
+        self,
+        camera_id: str,
+        discovery_prefix: str = "homeassistant"
+    ) -> str:
+        """Get the discovery topic for last event sensor."""
+        sensor_id = f"liveobject_{camera_id}_last_event"
+        return f"{discovery_prefix}/sensor/{sensor_id}/config"
+
+    def get_events_today_discovery_topic(
+        self,
+        camera_id: str,
+        discovery_prefix: str = "homeassistant"
+    ) -> str:
+        """Get the discovery topic for events today sensor."""
+        sensor_id = f"liveobject_{camera_id}_events_today"
+        return f"{discovery_prefix}/sensor/{sensor_id}/config"
+
+    def get_events_week_discovery_topic(
+        self,
+        camera_id: str,
+        discovery_prefix: str = "homeassistant"
+    ) -> str:
+        """Get the discovery topic for events this week sensor."""
+        sensor_id = f"liveobject_{camera_id}_events_week"
+        return f"{discovery_prefix}/sensor/{sensor_id}/config"
+
+    def get_activity_discovery_topic(
+        self,
+        camera_id: str,
+        discovery_prefix: str = "homeassistant"
+    ) -> str:
+        """Get the discovery topic for activity binary sensor."""
+        sensor_id = f"liveobject_{camera_id}_activity"
+        return f"{discovery_prefix}/binary_sensor/{sensor_id}/config"
+
     def get_discovery_topic(
         self,
         camera_id: str,
@@ -172,14 +428,22 @@ class MQTTDiscoveryService:
         config: Optional[MQTTConfig] = None
     ) -> bool:
         """
-        Publish discovery configuration for a single camera (AC1).
+        Publish discovery configuration for a single camera (AC1, AC5, AC7).
+
+        Publishes all sensor types:
+        - Event sensor (main AI events)
+        - Status sensor (online/offline)
+        - Last event timestamp sensor
+        - Events today counter
+        - Events this week counter
+        - Activity binary sensor
 
         Args:
             camera: Camera to publish discovery for
             config: MQTT configuration (loads from DB if not provided)
 
         Returns:
-            True if published successfully, False otherwise.
+            True if all published successfully, False otherwise.
         """
         # Load config if not provided
         if config is None:
@@ -200,47 +464,70 @@ class MQTTDiscoveryService:
             logger.warning("Cannot publish discovery: MQTT not connected")
             return False
 
-        # Generate payload
-        payload = self.generate_sensor_config(
-            camera,
-            topic_prefix=config.topic_prefix
-        )
+        camera_id = str(camera.id)
+        all_success = True
 
-        # Get discovery topic
-        topic = self.get_discovery_topic(
-            str(camera.id),
-            discovery_prefix=config.discovery_prefix
-        )
+        # List of (config_generator, topic_generator, sensor_type) tuples
+        sensor_configs = [
+            (self.generate_sensor_config, self.get_discovery_topic, "event"),
+            (self.generate_status_sensor_config, self.get_status_discovery_topic, "status"),
+            (self.generate_last_event_sensor_config, self.get_last_event_discovery_topic, "last_event"),
+            (self.generate_events_today_sensor_config, self.get_events_today_discovery_topic, "events_today"),
+            (self.generate_events_week_sensor_config, self.get_events_week_discovery_topic, "events_week"),
+            (self.generate_activity_binary_sensor_config, self.get_activity_discovery_topic, "activity"),
+        ]
 
-        # Publish with QoS 1 and retain=True per HA spec
-        success = await self.mqtt_service.publish(
-            topic=topic,
-            payload=payload,
-            qos=1,
-            retain=True
-        )
+        for config_generator, topic_generator, sensor_type in sensor_configs:
+            try:
+                # Generate payload
+                payload = config_generator(camera, topic_prefix=config.topic_prefix)
 
-        if success:
-            self._published_cameras.add(str(camera.id))
+                # Get discovery topic
+                topic = topic_generator(camera_id, discovery_prefix=config.discovery_prefix)
+
+                # Publish with QoS 1 and retain=True per HA spec
+                success = await self.mqtt_service.publish(
+                    topic=topic,
+                    payload=payload,
+                    qos=1,
+                    retain=True
+                )
+
+                if not success:
+                    all_success = False
+                    logger.warning(
+                        f"Failed to publish {sensor_type} discovery for camera {camera.name}",
+                        extra={
+                            "event_type": "mqtt_discovery_failed",
+                            "camera_id": camera_id,
+                            "sensor_type": sensor_type
+                        }
+                    )
+            except Exception as e:
+                all_success = False
+                logger.error(
+                    f"Error publishing {sensor_type} discovery for camera {camera.name}: {e}",
+                    extra={
+                        "event_type": "mqtt_discovery_error",
+                        "camera_id": camera_id,
+                        "sensor_type": sensor_type,
+                        "error": str(e)
+                    }
+                )
+
+        if all_success:
+            self._published_cameras.add(camera_id)
             logger.info(
-                f"Published discovery config for camera {camera.name}",
+                f"Published all discovery configs for camera {camera.name}",
                 extra={
                     "event_type": "mqtt_discovery_published",
-                    "camera_id": str(camera.id),
+                    "camera_id": camera_id,
                     "camera_name": camera.name,
-                    "topic": topic
-                }
-            )
-        else:
-            logger.warning(
-                f"Failed to publish discovery for camera {camera.name}",
-                extra={
-                    "event_type": "mqtt_discovery_failed",
-                    "camera_id": str(camera.id)
+                    "sensor_types": ["event", "status", "last_event", "events_today", "events_week", "activity"]
                 }
             )
 
-        return success
+        return all_success
 
     async def publish_all_discovery_configs(self) -> int:
         """
@@ -306,9 +593,9 @@ class MQTTDiscoveryService:
         config: Optional[MQTTConfig] = None
     ) -> bool:
         """
-        Remove discovery config for a camera (AC4).
+        Remove all discovery configs for a camera (AC4).
 
-        Publishes empty payload to discovery topic to remove the sensor
+        Publishes empty payload to all discovery topics to remove sensors
         from Home Assistant.
 
         Args:
@@ -316,7 +603,7 @@ class MQTTDiscoveryService:
             config: MQTT configuration (loads from DB if not provided)
 
         Returns:
-            True if removal published, False otherwise.
+            True if all removals published, False otherwise.
         """
         # Load config if not provided
         if config is None:
@@ -334,31 +621,41 @@ class MQTTDiscoveryService:
             self._published_cameras.discard(camera_id)
             return False
 
-        # Get discovery topic
-        topic = self.get_discovery_topic(
-            camera_id,
-            discovery_prefix=config.discovery_prefix
-        )
+        # List of topic generators for all sensor types
+        topic_generators = [
+            self.get_discovery_topic,
+            self.get_status_discovery_topic,
+            self.get_last_event_discovery_topic,
+            self.get_events_today_discovery_topic,
+            self.get_events_week_discovery_topic,
+            self.get_activity_discovery_topic,
+        ]
 
-        # Publish empty payload to remove sensor (HA Discovery spec)
+        all_success = True
+
+        # Publish empty payload to remove sensors (HA Discovery spec)
         # Note: Empty string payload with retain=True removes the retained message
         try:
             if self.mqtt_service._client:
-                result = self.mqtt_service._client.publish(
-                    topic,
-                    payload="",
-                    qos=1,
-                    retain=True
-                )
+                for topic_generator in topic_generators:
+                    topic = topic_generator(camera_id, discovery_prefix=config.discovery_prefix)
+                    result = self.mqtt_service._client.publish(
+                        topic,
+                        payload="",
+                        qos=1,
+                        retain=True
+                    )
+                    if result.rc != 0:
+                        all_success = False
 
-                if result.rc == 0:
+                if all_success:
                     self._published_cameras.discard(camera_id)
                     logger.info(
-                        f"Removed discovery config for camera {camera_id}",
+                        f"Removed all discovery configs for camera {camera_id}",
                         extra={
                             "event_type": "mqtt_discovery_removed",
                             "camera_id": camera_id,
-                            "topic": topic
+                            "sensor_types": ["event", "status", "last_event", "events_today", "events_week", "activity"]
                         }
                     )
                     return True

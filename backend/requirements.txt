@@ -42,6 +42,9 @@ pywebpush>=2.0.0  # Web Push with VAPID authentication
 # MQTT Integration (Phase 4 - Home Assistant)
 paho-mqtt>=2.0.0  # MQTT client for Home Assistant integration
 
+# Temporal Context Engine (Phase 4 - Story P4-3.1)
+sentence-transformers>=2.2.0  # CLIP model for image embeddings
+
 # Logging and Monitoring
 python-json-logger>=2.0.0
 prometheus_client>=0.19.0

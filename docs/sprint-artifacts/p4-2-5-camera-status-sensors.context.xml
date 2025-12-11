@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Story Context: P4-2.5 Camera Status Sensors -->
+<!-- Generated: 2025-12-11 -->
+<!-- Epic: P4-2 Home Assistant Integration -->
+<story-context story-id="P4-2.5" story-key="p4-2-5-camera-status-sensors">
+
+  <metadata>
+    <title>Camera Status Sensors</title>
+    <epic>P4-2: Home Assistant Integration</epic>
+    <previous-story>P4-2.4 Integration Settings UI (done)</previous-story>
+    <user-story>
+      <as-a>Home Assistant user</as-a>
+      <i-want>camera status sensors published to MQTT including online/offline status, last event timestamp, and event counts</i-want>
+      <so-that>I can create automations based on camera health and activity levels, and monitor my security system status from Home Assistant</so-that>
+    </user-story>
+  </metadata>
+
+  <acceptance-criteria>
+    <ac id="1">Online/offline status sensor published for each camera</ac>
+    <ac id="2">Last event timestamp sensor updates when new events occur</ac>
+    <ac id="3">Event count sensors (today, this week) show accurate counts</ac>
+    <ac id="4">Binary sensor triggers on recent activity (event in last 5 minutes)</ac>
+    <ac id="5">Discovery configs published for all new sensor types</ac>
+    <ac id="6">Status sensors use correct MQTT topic format: {topic_prefix}/camera/{camera_id}/status</ac>
+    <ac id="7">All sensors grouped under same device in Home Assistant</ac>
+    <ac id="8">Sensors update within 5 seconds of state change</ac>
+    <ac id="9">Offline cameras show "unavailable" in Home Assistant</ac>
+    <ac id="10">Event count sensors reset at midnight (daily) and Monday (weekly)</ac>
+  </acceptance-criteria>
+
+  <architecture-context>
+    <component-flow>
+      <flow name="camera-status">
+        Camera State Change → CameraService → MQTTService.publish_camera_status()
+                                                     ↓
+                                           MQTT Topic: liveobject/camera/{id}/status
+      </flow>
+      <flow name="event-timestamp">
+        Event Created → EventProcessor → MQTTService.publish_last_event_timestamp()
+                                                     ↓
+                                           MQTT Topic: liveobject/camera/{id}/last_event
+      </flow>
+    </component-flow>
+
+    <mqtt-topics>
+      <topic name="status" path="{topic_prefix}/camera/{camera_id}/status">Online/offline/unavailable status</topic>
+      <topic name="last_event" path="{topic_prefix}/camera/{camera_id}/last_event">Last event timestamp + details</topic>
+      <topic name="counts" path="{topic_prefix}/camera/{camera_id}/counts">Event counts (today/week)</topic>
+      <topic name="activity" path="{topic_prefix}/camera/{camera_id}/activity">Binary activity sensor (ON/OFF)</topic>
+    </mqtt-topics>
+  </architecture-context>
+
+  <existing-code-references>
+    <!-- Files to MODIFY -->
+    <file path="backend/app/services/mqtt_service.py" action="modify">
+      <purpose>Add camera status sensor methods: publish_camera_status(), publish_last_event_timestamp(), publish_event_counts(), publish_activity_state()</purpose>
+      <key-methods>
+        <method name="publish" line="301-388">Existing publish method to reuse for status sensors</method>
+        <method name="get_event_topic" line="748-770">Pattern for topic generation - copy for status topics</method>
+        <method name="serialize_event_for_mqtt" line="818-910">Existing serializer pattern - create similar for status payloads</method>
+      </key-methods>
+      <integration-point>Add on_connect callback registration for status sensor discovery publish</integration-point>
+      <service-singleton>get_mqtt_service() returns MQTTService singleton (line 791-801)</service-singleton>
+    </file>
+
+    <file path="backend/app/services/mqtt_discovery_service.py" action="modify">
+      <purpose>Add discovery configs for status/timestamp/counts/activity sensors</purpose>
+      <key-methods>
+        <method name="generate_sensor_config" line="73-146">Pattern for HA discovery payloads - extend for new sensor types</method>
+        <method name="get_discovery_topic" line="148-167">Topic generation pattern</method>
+        <method name="publish_discovery_config" line="169-243">Single camera discovery publish pattern</method>
+        <method name="publish_all_discovery_configs" line="245-301">All cameras discovery publish</method>
+      </key-methods>
+      <device-grouping>All sensors must use same device identifiers (line 137-143) for HA grouping</device-grouping>
+      <discovery-topic-format>homeassistant/sensor/liveobject_{camera_id}_{sensor_type}/config</discovery-topic-format>
+    </file>
+
+    <file path="backend/app/services/event_processor.py" action="modify">
+      <purpose>Hook publish_last_event_timestamp() and publish_activity_state() after event storage</purpose>
+      <key-methods>
+        <method name="_publish_event_to_mqtt" line="921-950">Existing MQTT publish pattern - add status publish after event</method>
+      </key-methods>
+      <integration-point>After Step 7 (MQTT event publish) at line 740-785, add status sensor publishes</integration-point>
+    </file>
+
+    <file path="backend/app/services/camera_service.py" action="modify">
+      <purpose>Hook camera status changes to MQTTService.publish_camera_status()</purpose>
+      <key-methods>
+        <method name="start_camera" line="70-157">Add status publish on camera start</method>
+        <method name="stop_camera" line="159-222">Add status publish on camera stop</method>
+        <method name="_update_status" line="538-552">Hook to publish MQTT status on state changes</method>
+        <method name="get_camera_status" line="554-565">Pattern for status retrieval</method>
+      </key-methods>
+      <status-states>starting, connected, disconnected, error (line 116-120, 150-155)</status-states>
+    </file>
+
+    <!-- Files to CREATE -->
+    <file path="backend/app/schemas/mqtt.py" action="create">
+      <purpose>Pydantic schemas for MQTT payloads</purpose>
+      <schemas>
+        <schema name="CameraStatusPayload">
+          camera_id: str, camera_name: str, status: Literal["online", "offline", "unavailable"],
+          source_type: str, last_updated: datetime
+        </schema>
+        <schema name="CameraCountsPayload">
+          camera_id: str, camera_name: str, events_today: int, events_this_week: int, last_updated: datetime
+        </schema>
+        <schema name="CameraActivityPayload">
+          camera_id: str, state: Literal["ON", "OFF"], last_event_at: Optional[datetime]
+        </schema>
+        <schema name="LastEventPayload">
+          camera_id: str, camera_name: str, event_id: str, timestamp: datetime,
+          description_snippet: str, smart_detection_type: Optional[str]
+        </schema>
+      </schemas>
+    </file>
+
+    <!-- Test files to CREATE -->
+    <file path="backend/tests/test_services/test_mqtt_status_sensors.py" action="create">
+      <purpose>Unit tests for status sensor MQTT publishing</purpose>
+    </file>
+  </existing-code-references>
+
+  <key-interfaces>
+    <interface name="MQTTService">
+      <location>backend/app/services/mqtt_service.py</location>
+      <methods>
+        <method signature="async def publish(topic: str, payload: dict, qos: Optional[int], retain: Optional[bool]) -> bool">Publish JSON payload to MQTT topic</method>
+        <method signature="def is_connected -> bool">Check if MQTT client is connected</method>
+        <method signature="def get_event_topic(camera_id: str) -> str">Get event topic for camera</method>
+        <method signature="def set_on_connect_callback(callback: Callable[[], None]) -> None">Register connection callback</method>
+      </methods>
+      <singleton>get_mqtt_service() returns singleton instance</singleton>
+    </interface>
+
+    <interface name="MQTTDiscoveryService">
+      <location>backend/app/services/mqtt_discovery_service.py</location>
+      <methods>
+        <method signature="def generate_sensor_config(camera: Camera, topic_prefix: str) -> Dict[str, Any]">Generate HA discovery payload</method>
+        <method signature="def get_discovery_topic(camera_id: str, discovery_prefix: str) -> str">Get discovery topic path</method>
+        <method signature="async def publish_discovery_config(camera: Camera, config: Optional[MQTTConfig]) -> bool">Publish single camera discovery</method>
+        <method signature="async def publish_all_discovery_configs() -> int">Publish all cameras discovery</method>
+      </methods>
+      <singleton>get_discovery_service() returns singleton instance</singleton>
+    </interface>
+
+    <interface name="CameraService">
+      <location>backend/app/services/camera_service.py</location>
+      <methods>
+        <method signature="def get_camera_status(camera_id: str) -> Optional[dict]">Get camera status dict</method>
+        <method signature="def get_all_camera_status() -> Dict[str, dict]">Get all camera statuses</method>
+      </methods>
+      <status-dict>{ "status": str, "last_frame_time": Optional[datetime], "error": Optional[str] }</status-dict>
+    </interface>
+
+    <interface name="EventProcessor">
+      <location>backend/app/services/event_processor.py</location>
+      <methods>
+        <method signature="async def _publish_event_to_mqtt(mqtt_service, topic, payload, event_id) -> None">Fire-and-forget MQTT publish</method>
+      </methods>
+      <integration-point>After event storage (line 740), add status sensor updates</integration-point>
+    </interface>
+  </key-interfaces>
+
+  <database-models>
+    <model name="MQTTConfig">
+      <location>backend/app/models/mqtt_config.py</location>
+      <fields>
+        <field name="topic_prefix" type="str">Default: "liveobject"</field>
+        <field name="discovery_prefix" type="str">Default: "homeassistant"</field>
+        <field name="discovery_enabled" type="bool">Toggle for HA discovery</field>
+        <field name="qos" type="int">0, 1, or 2</field>
+        <field name="retain_messages" type="bool">Retain flag for publishes</field>
+      </fields>
+    </model>
+
+    <model name="Camera">
+      <location>backend/app/models/camera.py</location>
+      <fields>
+        <field name="id" type="str">Camera UUID</field>
+        <field name="name" type="str">Human-readable name</field>
+        <field name="source_type" type="str">'rtsp', 'usb', or 'protect'</field>
+        <field name="is_enabled" type="bool">Camera enabled flag</field>
+        <field name="is_doorbell" type="bool">Doorbell camera flag</field>
+      </fields>
+    </model>
+
+    <model name="Event">
+      <location>backend/app/models/event.py</location>
+      <fields>
+        <field name="camera_id" type="str">FK to Camera</field>
+        <field name="timestamp" type="datetime">Event occurrence time</field>
+        <field name="description" type="str">AI-generated description</field>
+      </fields>
+      <note>Query for count calculations: filter by camera_id and timestamp range</note>
+    </model>
+  </database-models>
+
+  <dependencies>
+    <python-packages>
+      <package name="paho-mqtt" version=">=2.0.0">MQTT client (already in requirements.txt)</package>
+      <package name="apscheduler" version=">=3.10.4">For scheduled count updates (already in requirements.txt)</package>
+    </python-packages>
+  </dependencies>
+
+  <home-assistant-discovery>
+    <sensor-types>
+      <sensor type="sensor" entity="status">
+        <discovery-topic>homeassistant/sensor/liveobject_{camera_id}_status/config</discovery-topic>
+        <state-topic>{topic_prefix}/camera/{camera_id}/status</state-topic>
+        <value-template>{{ value_json.status }}</value-template>
+        <device-class>None (custom)</device-class>
+      </sensor>
+
+      <sensor type="sensor" entity="last_event">
+        <discovery-topic>homeassistant/sensor/liveobject_{camera_id}_last_event/config</discovery-topic>
+        <state-topic>{topic_prefix}/camera/{camera_id}/last_event</state-topic>
+        <value-template>{{ value_json.timestamp }}</value-template>
+        <device-class>timestamp</device-class>
+        <attributes>event_id, description_snippet</attributes>
+      </sensor>
+
+      <sensor type="sensor" entity="events_today">
+        <discovery-topic>homeassistant/sensor/liveobject_{camera_id}_events_today/config</discovery-topic>
+        <state-topic>{topic_prefix}/camera/{camera_id}/counts</state-topic>
+        <value-template>{{ value_json.events_today }}</value-template>
+        <device-class>None</device-class>
+        <unit-of-measurement>events</unit-of-measurement>
+      </sensor>
+
+      <sensor type="sensor" entity="events_week">
+        <discovery-topic>homeassistant/sensor/liveobject_{camera_id}_events_week/config</discovery-topic>
+        <state-topic>{topic_prefix}/camera/{camera_id}/counts</state-topic>
+        <value-template>{{ value_json.events_this_week }}</value-template>
+        <device-class>None</device-class>
+        <unit-of-measurement>events</unit-of-measurement>
+      </sensor>
+
+      <sensor type="binary_sensor" entity="activity">
+        <discovery-topic>homeassistant/binary_sensor/liveobject_{camera_id}_activity/config</discovery-topic>
+        <state-topic>{topic_prefix}/camera/{camera_id}/activity</state-topic>
+        <value-template>{{ value_json.state }}</value-template>
+        <payload-on>ON</payload-on>
+        <payload-off>OFF</payload-off>
+        <device-class>motion</device-class>
+      </sensor>
+    </sensor-types>
+
+    <device-grouping>
+      <note>All sensors MUST use same device identifiers to group under single device in HA</note>
+      <example>
+        {
+          "device": {
+            "identifiers": ["liveobject_{camera_id}"],
+            "name": "{camera_name}",
+            "manufacturer": "Live Object AI",
+            "model": "AI Classifier"
+          }
+        }
+      </example>
+    </device-grouping>
+  </home-assistant-discovery>
+
+  <test-patterns>
+    <existing-test path="backend/tests/test_services/test_mqtt_service.py">
+      <pattern>Mock paho.mqtt.client for unit tests</pattern>
+      <pattern>Test publish() return values</pattern>
+      <pattern>Test connection state handling</pattern>
+    </existing-test>
+
+    <existing-test path="backend/tests/test_services/test_mqtt_discovery_service.py">
+      <pattern>Test discovery payload generation</pattern>
+      <pattern>Test discovery topic format</pattern>
+      <pattern>Test publish with mock MQTT client</pattern>
+    </existing-test>
+
+    <existing-test path="backend/tests/test_api/test_integrations.py">
+      <pattern>Test MQTT config CRUD endpoints</pattern>
+      <pattern>Test connection test endpoint</pattern>
+    </existing-test>
+  </test-patterns>
+
+  <previous-story-learnings>
+    <learning story="P4-2.4">MQTTService singleton via get_mqtt_service() dependency</learning>
+    <learning story="P4-2.4">MQTTSettings.tsx component available for UI additions</learning>
+    <learning story="P4-2.3">Event publishing uses fire-and-forget asyncio.create_task()</learning>
+    <learning story="P4-2.2">Discovery configs use retain=True and QoS 1</learning>
+    <learning story="P4-2.2">Device block must have consistent identifiers for grouping</learning>
+    <learning story="P4-2.1">Always check is_connected before publishing</learning>
+  </previous-story-learnings>
+
+  <implementation-notes>
+    <note priority="high">Activity sensor needs timeout mechanism - use APScheduler to set OFF after 5 minutes</note>
+    <note priority="high">Event counts need scheduled refresh (every 5 min) plus immediate update on new event</note>
+    <note priority="medium">Count reset at midnight requires scheduler job checking time boundaries</note>
+    <note priority="medium">Status must be "unavailable" (not "offline") when camera capture thread stops</note>
+    <note priority="low">Consider caching count queries to avoid DB hits on every status check</note>
+  </implementation-notes>
+
+</story-context>

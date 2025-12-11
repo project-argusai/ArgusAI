@@ -783,6 +783,125 @@ class EventProcessor:
                     extra={"error": str(mqtt_error), "event_id": event_id}
                 )
 
+            # Step 8: Publish camera status sensors to MQTT (Story P4-2.5)
+            try:
+                from app.services.mqtt_service import get_mqtt_service
+
+                mqtt_service = get_mqtt_service()
+
+                if mqtt_service.is_connected:
+                    # Get stored event for full details
+                    with SessionLocal() as sensor_db:
+                        stored_event = sensor_db.query(Event).filter(Event.id == event_id).first()
+                        if stored_event:
+                            # Publish last event timestamp (AC2, AC8)
+                            asyncio.create_task(
+                                mqtt_service.publish_last_event_timestamp(
+                                    camera_id=event.camera_id,
+                                    camera_name=event.camera_name,
+                                    event_id=str(event_id),
+                                    timestamp=stored_event.timestamp,
+                                    description=ai_result.description,
+                                    smart_detection_type=stored_event.smart_detection_type
+                                )
+                            )
+
+                            # Publish activity state ON (AC4)
+                            asyncio.create_task(
+                                mqtt_service.publish_activity_state(
+                                    camera_id=event.camera_id,
+                                    state="ON",
+                                    last_event_at=stored_event.timestamp
+                                )
+                            )
+
+                            # Publish updated event counts (AC3)
+                            # Import the helper function for count calculation
+                            from app.services.mqtt_status_service import get_camera_event_counts
+                            counts = await get_camera_event_counts(event.camera_id)
+                            asyncio.create_task(
+                                mqtt_service.publish_event_counts(
+                                    camera_id=event.camera_id,
+                                    camera_name=event.camera_name,
+                                    events_today=counts["events_today"],
+                                    events_this_week=counts["events_this_week"]
+                                )
+                            )
+
+                            logger.debug(
+                                f"Status sensor publish tasks created for event {event_id}",
+                                extra={
+                                    "event_id": event_id,
+                                    "camera_id": event.camera_id
+                                }
+                            )
+            except Exception as status_error:
+                # Status sensor failures must not block event processing
+                logger.warning(
+                    f"Failed to publish status sensors: {status_error}",
+                    extra={"error": str(status_error), "event_id": event_id}
+                )
+
+            # Step 9: Generate embedding for temporal context (Story P4-3.1)
+            # AC2: Embedding generated for each new event thumbnail
+            # AC7: Graceful fallback if embedding generation fails
+            try:
+                from app.services.embedding_service import get_embedding_service
+
+                embedding_service = get_embedding_service()
+
+                # AC10: Works for both base64 and file-path thumbnails
+                # Extract thumbnail bytes from stored event or thumbnail_base64
+                embedding_bytes = None
+
+                if thumbnail_base64:
+                    # Already have base64 from earlier in the pipeline
+                    import base64 as b64
+                    # Strip data URI prefix if present
+                    b64_str = thumbnail_base64
+                    if b64_str.startswith("data:"):
+                        comma_idx = b64_str.find(",")
+                        if comma_idx != -1:
+                            b64_str = b64_str[comma_idx + 1:]
+                    embedding_bytes = b64.b64decode(b64_str)
+
+                if embedding_bytes:
+                    # Generate embedding
+                    embedding_vector = await embedding_service.generate_embedding(embedding_bytes)
+
+                    # Store embedding in database (AC3: stored in event_embeddings table)
+                    with SessionLocal() as embed_db:
+                        await embedding_service.store_embedding(
+                            db=embed_db,
+                            event_id=event_id,
+                            embedding=embedding_vector,
+                        )
+
+                    logger.debug(
+                        f"Embedding generated and stored for event {event_id}",
+                        extra={
+                            "event_id": event_id,
+                            "camera_id": event.camera_id,
+                            "embedding_dim": len(embedding_vector),
+                        }
+                    )
+                else:
+                    logger.debug(
+                        f"No thumbnail available for embedding generation (event {event_id})",
+                        extra={"event_id": event_id}
+                    )
+
+            except Exception as embedding_error:
+                # AC7: Graceful fallback - embedding failures must not block event creation
+                logger.warning(
+                    f"Embedding generation failed for event {event_id}: {embedding_error}",
+                    extra={
+                        "event_id": event_id,
+                        "camera_id": event.camera_id,
+                        "error": str(embedding_error),
+                    }
+                )
+
             logger.info(
                 f"Event processed successfully for camera {event.camera_name}",
                 extra={

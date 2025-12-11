@@ -783,6 +783,314 @@ class MQTTService:
         import os
         return os.environ.get("API_BASE_URL", "http://localhost:8000").rstrip("/")
 
+    # ===========================================================================
+    # Camera Status Sensor Methods (Story P4-2.5)
+    # ===========================================================================
+
+    def get_status_topic(self, camera_id: str) -> str:
+        """
+        Get MQTT topic for camera status (Story P4-2.5, AC6).
+
+        Args:
+            camera_id: Camera UUID string
+
+        Returns:
+            Topic string in format: {topic_prefix}/camera/{camera_id}/status
+        """
+        import re
+        prefix = self._config.topic_prefix if self._config else "liveobject"
+        sanitized_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(camera_id))
+        return f"{prefix}/camera/{sanitized_id}/status"
+
+    def get_last_event_topic(self, camera_id: str) -> str:
+        """
+        Get MQTT topic for last event timestamp (Story P4-2.5, AC2).
+
+        Args:
+            camera_id: Camera UUID string
+
+        Returns:
+            Topic string in format: {topic_prefix}/camera/{camera_id}/last_event
+        """
+        import re
+        prefix = self._config.topic_prefix if self._config else "liveobject"
+        sanitized_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(camera_id))
+        return f"{prefix}/camera/{sanitized_id}/last_event"
+
+    def get_counts_topic(self, camera_id: str) -> str:
+        """
+        Get MQTT topic for event counts (Story P4-2.5, AC3).
+
+        Args:
+            camera_id: Camera UUID string
+
+        Returns:
+            Topic string in format: {topic_prefix}/camera/{camera_id}/counts
+        """
+        import re
+        prefix = self._config.topic_prefix if self._config else "liveobject"
+        sanitized_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(camera_id))
+        return f"{prefix}/camera/{sanitized_id}/counts"
+
+    def get_activity_topic(self, camera_id: str) -> str:
+        """
+        Get MQTT topic for activity binary sensor (Story P4-2.5, AC4).
+
+        Args:
+            camera_id: Camera UUID string
+
+        Returns:
+            Topic string in format: {topic_prefix}/camera/{camera_id}/activity
+        """
+        import re
+        prefix = self._config.topic_prefix if self._config else "liveobject"
+        sanitized_id = re.sub(r'[^a-zA-Z0-9_-]', '', str(camera_id))
+        return f"{prefix}/camera/{sanitized_id}/activity"
+
+    async def publish_camera_status(
+        self,
+        camera_id: str,
+        camera_name: str,
+        status: str,
+        source_type: str
+    ) -> bool:
+        """
+        Publish camera online/offline/unavailable status to MQTT (AC1, AC9).
+
+        Args:
+            camera_id: Camera UUID
+            camera_name: Human-readable camera name
+            status: Status string ('online', 'offline', 'unavailable')
+            source_type: Camera type ('rtsp', 'usb', 'protect')
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        from app.schemas.mqtt import CameraStatusPayload
+
+        if not self._connected or not self._client:
+            logger.debug(f"Cannot publish camera status: MQTT not connected")
+            return False
+
+        # Validate and normalize status
+        valid_statuses = {"online", "offline", "unavailable"}
+        normalized_status = status.lower()
+        if normalized_status not in valid_statuses:
+            # Map common status values to valid ones
+            status_map = {
+                "connected": "online",
+                "starting": "online",
+                "disconnected": "offline",
+                "error": "unavailable",
+                "stopped": "unavailable"
+            }
+            normalized_status = status_map.get(normalized_status, "unavailable")
+
+        # Build payload
+        payload = CameraStatusPayload(
+            camera_id=camera_id,
+            camera_name=camera_name,
+            status=normalized_status,
+            source_type=source_type,
+            last_updated=datetime.now(timezone.utc)
+        )
+
+        topic = self.get_status_topic(camera_id)
+
+        # Publish with retain=True so HA gets status on connect
+        success = await self.publish(
+            topic=topic,
+            payload=payload.model_dump(mode='json'),
+            qos=1,
+            retain=True
+        )
+
+        if success:
+            logger.debug(
+                f"Published camera status to MQTT",
+                extra={
+                    "event_type": "mqtt_camera_status_published",
+                    "camera_id": camera_id,
+                    "status": normalized_status,
+                    "topic": topic
+                }
+            )
+
+        return success
+
+    async def publish_last_event_timestamp(
+        self,
+        camera_id: str,
+        camera_name: str,
+        event_id: str,
+        timestamp: datetime,
+        description: str,
+        smart_detection_type: Optional[str] = None
+    ) -> bool:
+        """
+        Publish last event timestamp to MQTT (AC2, AC8).
+
+        Args:
+            camera_id: Camera UUID
+            camera_name: Human-readable camera name
+            event_id: UUID of the event
+            timestamp: When the event occurred
+            description: Event description (will be truncated to 100 chars)
+            smart_detection_type: Detection type if available
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        from app.schemas.mqtt import LastEventPayload
+
+        if not self._connected or not self._client:
+            logger.debug(f"Cannot publish last event: MQTT not connected")
+            return False
+
+        # Truncate description to 100 chars
+        description_snippet = description[:100] if description else ""
+
+        payload = LastEventPayload(
+            camera_id=camera_id,
+            camera_name=camera_name,
+            event_id=event_id,
+            timestamp=timestamp,
+            description_snippet=description_snippet,
+            smart_detection_type=smart_detection_type
+        )
+
+        topic = self.get_last_event_topic(camera_id)
+
+        success = await self.publish(
+            topic=topic,
+            payload=payload.model_dump(mode='json'),
+            qos=1,
+            retain=True
+        )
+
+        if success:
+            logger.debug(
+                f"Published last event timestamp to MQTT",
+                extra={
+                    "event_type": "mqtt_last_event_published",
+                    "camera_id": camera_id,
+                    "event_id": event_id,
+                    "topic": topic
+                }
+            )
+
+        return success
+
+    async def publish_event_counts(
+        self,
+        camera_id: str,
+        camera_name: str,
+        events_today: int,
+        events_this_week: int
+    ) -> bool:
+        """
+        Publish event counts to MQTT (AC3).
+
+        Args:
+            camera_id: Camera UUID
+            camera_name: Human-readable camera name
+            events_today: Number of events since midnight
+            events_this_week: Number of events since Monday 00:00
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        from app.schemas.mqtt import CameraCountsPayload
+
+        if not self._connected or not self._client:
+            logger.debug(f"Cannot publish event counts: MQTT not connected")
+            return False
+
+        payload = CameraCountsPayload(
+            camera_id=camera_id,
+            camera_name=camera_name,
+            events_today=events_today,
+            events_this_week=events_this_week,
+            last_updated=datetime.now(timezone.utc)
+        )
+
+        topic = self.get_counts_topic(camera_id)
+
+        success = await self.publish(
+            topic=topic,
+            payload=payload.model_dump(mode='json'),
+            qos=1,
+            retain=True
+        )
+
+        if success:
+            logger.debug(
+                f"Published event counts to MQTT",
+                extra={
+                    "event_type": "mqtt_event_counts_published",
+                    "camera_id": camera_id,
+                    "events_today": events_today,
+                    "events_this_week": events_this_week,
+                    "topic": topic
+                }
+            )
+
+        return success
+
+    async def publish_activity_state(
+        self,
+        camera_id: str,
+        state: str,
+        last_event_at: Optional[datetime] = None
+    ) -> bool:
+        """
+        Publish activity binary sensor state to MQTT (AC4).
+
+        Args:
+            camera_id: Camera UUID
+            state: Activity state ('ON' or 'OFF')
+            last_event_at: Timestamp of most recent event
+
+        Returns:
+            True if published successfully, False otherwise.
+        """
+        from app.schemas.mqtt import CameraActivityPayload
+
+        if not self._connected or not self._client:
+            logger.debug(f"Cannot publish activity state: MQTT not connected")
+            return False
+
+        # Normalize state
+        normalized_state = "ON" if state.upper() == "ON" else "OFF"
+
+        payload = CameraActivityPayload(
+            camera_id=camera_id,
+            state=normalized_state,
+            last_event_at=last_event_at
+        )
+
+        topic = self.get_activity_topic(camera_id)
+
+        success = await self.publish(
+            topic=topic,
+            payload=payload.model_dump(mode='json'),
+            qos=1,
+            retain=True
+        )
+
+        if success:
+            logger.debug(
+                f"Published activity state to MQTT",
+                extra={
+                    "event_type": "mqtt_activity_published",
+                    "camera_id": camera_id,
+                    "state": normalized_state,
+                    "topic": topic
+                }
+            )
+
+        return success
+
 
 # Global singleton instance
 _mqtt_service: Optional[MQTTService] = None

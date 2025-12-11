@@ -34,11 +34,13 @@ from app.api.v1.protect import router as protect_router  # Story P2-1.1: UniFi P
 from app.api.v1.system_notifications import router as system_notifications_router  # Story P3-7.4: Cost Alerts
 from app.api.v1.push import router as push_router  # Story P4-1.1: Web Push
 from app.api.v1.integrations import router as integrations_router  # Story P4-2.1: MQTT
+from app.api.v1.context import router as context_router  # Story P4-3.1: Embeddings
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 from app.services.protect_service import get_protect_service  # Story P2-1.4: Protect WebSocket
 from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_service  # Story P4-2.1: MQTT
 from app.services.mqtt_discovery_service import initialize_discovery_service, get_discovery_service  # Story P4-2.2: HA Discovery
+from app.services.mqtt_status_service import initialize_status_sensors  # Story P4-2.5: Camera Status Sensors
 
 # Application version
 APP_VERSION = "1.0.0"
@@ -385,6 +387,14 @@ async def lifespan(app: FastAPI):
             "MQTT discovery service initialized",
             extra={"event_type": "mqtt_discovery_init_complete"}
         )
+
+        # Initialize MQTT status sensors (Story P4-2.5)
+        # Publishes initial camera statuses and sets up scheduler for count updates
+        await initialize_status_sensors()
+        logger.info(
+            "MQTT status sensors initialized",
+            extra={"event_type": "mqtt_status_sensors_init_complete"}
+        )
     except Exception as e:
         # MQTT failure should not prevent app startup
         logger.warning(
@@ -541,6 +551,7 @@ app.include_router(protect_router, prefix=settings.API_V1_PREFIX)  # Story P2-1.
 app.include_router(system_notifications_router, prefix=settings.API_V1_PREFIX)  # Story P3-7.4 - Cost Alerts
 app.include_router(push_router, prefix=settings.API_V1_PREFIX)  # Story P4-1.1 - Web Push
 app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)  # Story P4-2.1 - MQTT
+app.include_router(context_router, prefix=settings.API_V1_PREFIX)  # Story P4-3.1 - Embeddings
 
 # Thumbnail serving endpoint (with CORS support)
 from fastapi.responses import FileResponse, Response as FastAPIResponse

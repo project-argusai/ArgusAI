@@ -11,6 +11,7 @@ from app.models.system_notification import SystemNotification
 from app.models.push_subscription import PushSubscription
 from app.models.notification_preference import NotificationPreference
 from app.models.mqtt_config import MQTTConfig
+from app.models.event_embedding import EventEmbedding
 
 __all__ = [
     "ProtectController",
@@ -26,4 +27,5 @@ __all__ = [
     "PushSubscription",
     "NotificationPreference",
     "MQTTConfig",
+    "EventEmbedding",
 ]

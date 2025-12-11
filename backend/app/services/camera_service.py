@@ -216,6 +216,28 @@ class CameraService:
             except Exception as e:
                 logger.error(f"Error cleaning up motion detection for camera {camera_id}: {e}", exc_info=True)
 
+            # Publish unavailable status to MQTT (Story P4-2.5, AC9)
+            try:
+                if self._main_event_loop and self._main_event_loop.is_running():
+                    from app.services.mqtt_status_service import publish_camera_status_update
+                    from app.core.database import SessionLocal
+                    from app.models.camera import Camera
+
+                    with SessionLocal() as db:
+                        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+                        if camera:
+                            asyncio.run_coroutine_threadsafe(
+                                publish_camera_status_update(
+                                    camera_id=camera_id,
+                                    camera_name=camera.name,
+                                    status="unavailable",
+                                    source_type=camera.source_type or camera.type or "rtsp"
+                                ),
+                                self._main_event_loop
+                            )
+            except Exception as e:
+                logger.debug(f"Failed to publish MQTT unavailable status: {e}")
+
             logger.info(f"Stopped camera {camera_id}")
 
         except Exception as e:
@@ -550,6 +572,42 @@ class CameraService:
                 "last_frame_time": datetime.now(timezone.utc) if status == "connected" else None,
                 "error": error
             }
+
+        # Publish status to MQTT (Story P4-2.5, AC1, AC9)
+        # This is called from capture thread, so schedule async task on main loop
+        try:
+            if self._main_event_loop and self._main_event_loop.is_running():
+                from app.services.mqtt_status_service import publish_camera_status_update
+                from app.core.database import SessionLocal
+                from app.models.camera import Camera
+
+                # Get camera details from database
+                with SessionLocal() as db:
+                    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+                    if camera:
+                        camera_name = camera.name
+                        source_type = camera.source_type or camera.type or "rtsp"
+                    else:
+                        # Fallback if camera not found
+                        camera_name = f"Camera {camera_id[:8]}"
+                        source_type = "rtsp"
+
+                asyncio.run_coroutine_threadsafe(
+                    publish_camera_status_update(
+                        camera_id=camera_id,
+                        camera_name=camera_name,
+                        status=status,
+                        source_type=source_type
+                    ),
+                    self._main_event_loop
+                )
+                logger.debug(
+                    f"Queued MQTT status update for camera {camera_id}: {status}",
+                    extra={"camera_id": camera_id, "status": status}
+                )
+        except Exception as e:
+            # MQTT status updates should not block camera operations
+            logger.debug(f"Failed to queue MQTT status update: {e}")
 
     def get_camera_status(self, camera_id: str) -> Optional[dict]:
         """

@@ -95,6 +95,7 @@ class Event(Base):
 
     # Relationships
     camera = relationship("Camera", back_populates="events")
+    embedding = relationship("EventEmbedding", back_populates="event", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint('confidence >= 0 AND confidence <= 100', name='check_confidence_range'),

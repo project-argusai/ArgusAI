@@ -236,13 +236,13 @@ development_status:
   p4-2-2-home-assistant-discovery: done
   p4-2-3-event-publishing: done
   p4-2-4-integration-settings-ui: done
-  p4-2-5-camera-status-sensors: backlog
+  p4-2-5-camera-status-sensors: done
   epic-p4-2-retrospective: optional
 
   # Epic P4-3: Temporal Context Engine
   epic-p4-3: backlog
-  p4-3-1-event-embedding-generation: backlog
-  p4-3-2-similarity-search: backlog
+  p4-3-1-event-embedding-generation: done
+  p4-3-2-similarity-search: done
   p4-3-3-recurring-visitor-detection: backlog
   p4-3-4-context-enhanced-ai-prompts: backlog
   p4-3-5-pattern-detection: backlog

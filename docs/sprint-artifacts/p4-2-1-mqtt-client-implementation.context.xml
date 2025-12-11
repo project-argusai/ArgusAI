@@ -1,0 +1,207 @@
+<story-context id="p4-2-1-mqtt-client-implementation" v="1.0">
+  <metadata>
+    <epicId>P4-2</epicId>
+    <storyId>P4-2.1</storyId>
+    <title>MQTT Client Implementation</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-10</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-2-1-mqtt-client-implementation.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator deploying Live Object AI Classifier</asA>
+    <iWant>the backend to connect to an MQTT broker with auto-reconnect</iWant>
+    <soThat>events can be published to Home Assistant and other MQTT subscribers reliably</soThat>
+    <tasks>
+      <task id="1" ac="1">Add paho-mqtt dependency to requirements.txt</task>
+      <task id="2" ac="6">Create MQTT configuration model with encrypted credentials</task>
+      <task id="3" ac="1,2,4,7">Implement MQTTService with Paho client, auto-reconnect, QoS</task>
+      <task id="4" ac="3">Create event payload serializer for MQTT</task>
+      <task id="5" ac="5,6">Add MQTT API endpoints (config, status, test)</task>
+      <task id="6" ac="5">Add Prometheus metrics for MQTT</task>
+      <task id="7" ac="1,2">Integrate with app lifecycle (startup/shutdown)</task>
+      <task id="8" ac="all">Write unit and integration tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Paho MQTT client connects to configured broker with username/password auth</criterion>
+    <criterion id="2">Auto-reconnect activates on connection loss with exponential backoff (1s to 60s max)</criterion>
+    <criterion id="3">Event payloads serialized correctly to JSON with all required fields</criterion>
+    <criterion id="4">QoS levels 0, 1, 2 configurable and respected</criterion>
+    <criterion id="5">Connection status tracked and queryable via API</criterion>
+    <criterion id="6">MQTT configuration stored in database with encrypted credentials</criterion>
+    <criterion id="7">Connection/disconnection logged at INFO level, errors at WARNING</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p4-2.md</path>
+        <title>Epic P4-2 Technical Specification</title>
+        <section>Services and Modules, Data Models</section>
+        <snippet>MQTTService class with connect(), disconnect(), publish() methods. MQTTConfig model with broker_host, port, username, encrypted password, topic_prefix, qos, enabled fields.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD</title>
+        <section>FR15-FR18 Home Assistant Integration</section>
+        <snippet>System publishes events to MQTT broker. Home Assistant discovers sensors automatically. Events include structured data for automation triggers.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>System Architecture</title>
+        <section>Phase 4 Additions - MQTT Bridge</section>
+        <snippet>Paho MQTT client for publishing. Home Assistant MQTT Discovery payloads. Event serialization to JSON. Connection management with auto-reconnect.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Epic P4-2: Home Assistant Integration</section>
+        <snippet>Story P4-2.1: MQTT Client Implementation - Add Paho MQTT client, implement connection management with auto-reconnect, create event serialization, add MQTT configuration in settings.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/models/protect_controller.py</path>
+        <kind>model</kind>
+        <symbol>ProtectController</symbol>
+        <lines>13-103</lines>
+        <reason>Reference pattern for encrypted credential storage. Shows password encryption using @validates decorator and get_decrypted_password() method. Use same pattern for MQTT password.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/push_subscription.py</path>
+        <kind>model</kind>
+        <symbol>PushSubscription</symbol>
+        <lines>9-98</lines>
+        <reason>Recent Phase 4 model showing current SQLAlchemy patterns. Reference for table structure and __repr__ patterns.</reason>
+      </file>
+      <file>
+        <path>backend/app/utils/encryption.py</path>
+        <kind>utility</kind>
+        <symbol>encrypt_password, decrypt_password</symbol>
+        <lines>19-129</lines>
+        <reason>REUSE these functions for MQTT password encryption. Uses Fernet AES-256 with 'encrypted:' prefix convention.</reason>
+      </file>
+      <file>
+        <path>backend/app/core/metrics.py</path>
+        <kind>metrics</kind>
+        <symbol>Counter, Gauge, Histogram, REGISTRY</symbol>
+        <lines>1-60</lines>
+        <reason>Add MQTT metrics to existing registry. Follow same pattern: Counter for messages/errors, Gauge for connection status.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entrypoint</kind>
+        <symbol>lifespan, startup, shutdown</symbol>
+        <lines>1-80</lines>
+        <reason>Add MQTT service initialization on startup and graceful disconnect on shutdown. Follow pattern of protect_service initialization.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/protect_service.py</path>
+        <kind>service</kind>
+        <symbol>ProtectService</symbol>
+        <lines>82</lines>
+        <reason>Reference pattern for connection management service with auto-reconnect. Similar lifecycle pattern needed for MQTT.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/protect.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <reason>Reference pattern for integration API endpoints (config CRUD, test connection, status).</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="paho-mqtt" version=">=2.0.0" status="to-add">MQTT client library for Home Assistant integration</package>
+        <package name="fastapi" version="0.115.0" status="existing">Web framework</package>
+        <package name="sqlalchemy" version=">=2.0.36" status="existing">ORM for database models</package>
+        <package name="cryptography" version="44.0.1" status="existing">Fernet encryption for credentials</package>
+        <package name="prometheus_client" version=">=0.19.0" status="existing">Metrics collection</package>
+        <package name="alembic" version=">=1.14.0" status="existing">Database migrations</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="performance">MQTT publish must not block event processing - target &lt;100ms latency</constraint>
+    <constraint type="reliability">Connection failures must not crash application. Auto-reconnect with exponential backoff.</constraint>
+    <constraint type="security">Broker credentials encrypted at rest using existing Fernet encryption (backend/app/utils/encryption.py)</constraint>
+    <constraint type="pattern">Service class pattern - follow existing services like ProtectService, CameraService</constraint>
+    <constraint type="pattern">Database model pattern - use SQLAlchemy 2.0 Mapped[] syntax, @validates for encryption</constraint>
+    <constraint type="logging">Use structured JSON logging via app.core.logging_config. INFO for connection events, WARNING for errors.</constraint>
+    <constraint type="async">Use asyncio patterns. Paho MQTT client uses background thread - bridge with asyncio.run_in_executor() if needed.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>MQTTService</name>
+      <kind>service-class</kind>
+      <signature>
+class MQTTService:
+    async def connect(self) -> bool
+    async def disconnect(self) -> None
+    async def publish(self, topic: str, payload: dict, qos: int = 1) -> bool
+    @property
+    def is_connected(self) -> bool
+    @property
+    def status(self) -> dict  # {connected, broker, last_connected_at, messages_published, last_error}
+      </signature>
+      <path>backend/app/services/mqtt_service.py (to create)</path>
+    </interface>
+    <interface>
+      <name>MQTT Config API</name>
+      <kind>REST-endpoint</kind>
+      <signature>
+GET    /api/v1/integrations/mqtt/config   → MQTTConfigResponse (password omitted)
+PUT    /api/v1/integrations/mqtt/config   → MQTTConfigResponse (triggers reconnect)
+GET    /api/v1/integrations/mqtt/status   → {connected, broker, last_connected_at, messages_published, last_error}
+POST   /api/v1/integrations/mqtt/test     → {success: bool, message: str}
+      </signature>
+      <path>backend/app/api/v1/integrations.py (to create)</path>
+    </interface>
+    <interface>
+      <name>serialize_event_for_mqtt</name>
+      <kind>function</kind>
+      <signature>
+def serialize_event_for_mqtt(event: Event) -> dict:
+    """Returns: {event_id, camera_id, camera_name, description, objects_detected, confidence, source_type, smart_detection_type, timestamp, thumbnail_url}"""
+      </signature>
+      <path>backend/app/services/mqtt_service.py (to create)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Python tests use pytest with pytest-asyncio for async code. Tests in backend/tests/ organized by type:
+      - test_services/ for service unit tests
+      - test_api/ for API endpoint tests
+      - test_models/ for model tests
+      Coverage target: 70%+ for new code. Use unittest.mock for external dependencies (MQTT broker).
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_mqtt_service.py</location>
+      <location>backend/tests/test_api/test_integrations.py</location>
+      <location>backend/tests/test_models/test_mqtt_config.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test connection with valid credentials (mock broker)</idea>
+      <idea ac="1">Test connection failure with invalid host</idea>
+      <idea ac="1">Test authentication failure with wrong credentials</idea>
+      <idea ac="2">Test auto-reconnect triggers after disconnect event</idea>
+      <idea ac="2">Test exponential backoff delays (1, 2, 4, 8, ... 60)</idea>
+      <idea ac="3">Test event payload contains all required fields</idea>
+      <idea ac="3">Test UUID and datetime serialization in payload</idea>
+      <idea ac="4">Test QoS 0, 1, 2 passed to client.publish()</idea>
+      <idea ac="5">Test GET /api/v1/integrations/mqtt/status returns connection state</idea>
+      <idea ac="5">Test PUT /api/v1/integrations/mqtt/config triggers reconnect</idea>
+      <idea ac="6">Test password is encrypted in database (starts with 'encrypted:')</idea>
+      <idea ac="6">Test config API response does not include password</idea>
+      <idea ac="7">Test INFO log on successful connection</idea>
+      <idea ac="7">Test WARNING log on connection failure</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -39,6 +39,9 @@ uiprotect>=6.0.0  # UniFi Protect API client
 # Web Push Notifications (Phase 4)
 pywebpush>=2.0.0  # Web Push with VAPID authentication
 
+# MQTT Integration (Phase 4 - Home Assistant)
+paho-mqtt>=2.0.0  # MQTT client for Home Assistant integration
+
 # Logging and Monitoring
 python-json-logger>=2.0.0
 prometheus_client>=0.19.0

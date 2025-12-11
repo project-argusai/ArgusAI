@@ -33,9 +33,11 @@ from app.api.v1.auth import router as auth_router, ensure_admin_exists, limiter
 from app.api.v1.protect import router as protect_router  # Story P2-1.1: UniFi Protect
 from app.api.v1.system_notifications import router as system_notifications_router  # Story P3-7.4: Cost Alerts
 from app.api.v1.push import router as push_router  # Story P4-1.1: Web Push
+from app.api.v1.integrations import router as integrations_router  # Story P4-2.1: MQTT
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 from app.services.protect_service import get_protect_service  # Story P2-1.4: Protect WebSocket
+from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_service  # Story P4-2.1: MQTT
 
 # Application version
 APP_VERSION = "1.0.0"
@@ -367,6 +369,20 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
 
+    # Initialize MQTT service (Story P4-2.1, AC1, AC2)
+    try:
+        await initialize_mqtt_service()
+        logger.info(
+            "MQTT service initialized",
+            extra={"event_type": "mqtt_init_complete"}
+        )
+    except Exception as e:
+        # MQTT failure should not prevent app startup
+        logger.warning(
+            f"MQTT initialization failed (non-fatal): {e}",
+            extra={"event_type": "mqtt_init_failed", "error": str(e)}
+        )
+
     logger.info(
         "Application startup complete",
         extra={
@@ -384,7 +400,20 @@ async def lifespan(app: FastAPI):
         extra={"event_type": "app_shutdown_start", "version": APP_VERSION}
     )
 
-    # Disconnect Protect controllers first (Story P2-1.4, AC5)
+    # Disconnect MQTT service (Story P4-2.1)
+    try:
+        await shutdown_mqtt_service()
+        logger.info(
+            "MQTT service disconnected",
+            extra={"event_type": "mqtt_shutdown_complete"}
+        )
+    except Exception as e:
+        logger.error(
+            f"Error disconnecting MQTT: {e}",
+            extra={"event_type": "mqtt_shutdown_error", "error": str(e)}
+        )
+
+    # Disconnect Protect controllers (Story P2-1.4, AC5)
     # Must happen before other services shutdown
     try:
         await protect_service.disconnect_all(timeout=10.0)
@@ -502,6 +531,7 @@ app.include_router(auth_router, prefix=settings.API_V1_PREFIX)  # Story 6.3 - Au
 app.include_router(protect_router, prefix=settings.API_V1_PREFIX)  # Story P2-1.1 - UniFi Protect
 app.include_router(system_notifications_router, prefix=settings.API_V1_PREFIX)  # Story P3-7.4 - Cost Alerts
 app.include_router(push_router, prefix=settings.API_V1_PREFIX)  # Story P4-1.1 - Web Push
+app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)  # Story P4-2.1 - MQTT
 
 # Thumbnail serving endpoint (with CORS support)
 from fastapi.responses import FileResponse, Response as FastAPIResponse

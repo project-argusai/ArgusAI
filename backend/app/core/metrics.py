@@ -189,6 +189,34 @@ push_subscriptions_active = Gauge(
 )
 
 # ============================================================================
+# MQTT Integration Metrics (Story P4-2.1)
+# ============================================================================
+
+mqtt_connection_status = Gauge(
+    'mqtt_connection_status',
+    'MQTT connection status (0=disconnected, 1=connected)',
+    registry=REGISTRY
+)
+
+mqtt_messages_published_total = Counter(
+    'mqtt_messages_published_total',
+    'Total MQTT messages published',
+    registry=REGISTRY
+)
+
+mqtt_publish_errors_total = Counter(
+    'mqtt_publish_errors_total',
+    'Total MQTT publish errors',
+    registry=REGISTRY
+)
+
+mqtt_reconnect_attempts_total = Counter(
+    'mqtt_reconnect_attempts_total',
+    'Total MQTT reconnect attempts',
+    registry=REGISTRY
+)
+
+# ============================================================================
 # System Resource Metrics
 # ============================================================================
 
@@ -390,6 +418,31 @@ def update_push_subscription_count(count: int):
         count: Number of active subscriptions
     """
     push_subscriptions_active.set(count)
+
+
+def update_mqtt_connection_status(connected: bool):
+    """
+    Update MQTT connection status metric.
+
+    Args:
+        connected: Whether MQTT is connected
+    """
+    mqtt_connection_status.set(1 if connected else 0)
+
+
+def record_mqtt_message_published():
+    """Record a successful MQTT message publish."""
+    mqtt_messages_published_total.inc()
+
+
+def record_mqtt_publish_error():
+    """Record an MQTT publish error."""
+    mqtt_publish_errors_total.inc()
+
+
+def record_mqtt_reconnect_attempt():
+    """Record an MQTT reconnect attempt."""
+    mqtt_reconnect_attempts_total.inc()
 
 
 def update_system_metrics():

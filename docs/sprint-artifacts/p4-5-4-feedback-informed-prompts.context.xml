@@ -1,0 +1,218 @@
+<story-context id="p4-5-4-feedback-informed-prompts" v="1.0">
+  <metadata>
+    <epicId>P4-5</epicId>
+    <storyId>4</storyId>
+    <title>Feedback-Informed Prompts</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-12</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-5-4-feedback-informed-prompts.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security administrator</asA>
+    <iWant>the AI description prompts to be automatically improved based on user feedback patterns</iWant>
+    <soThat>the AI generates more accurate descriptions that address common misidentifications and user corrections</soThat>
+    <tasks>
+      <task id="1" title="Create FeedbackAnalysisService" ac="1,2,10">
+        <subtask>Create backend/app/services/feedback_analysis_service.py</subtask>
+        <subtask>Implement analyze_correction_patterns() method to extract common themes</subtask>
+        <subtask>Implement categorize_feedback() to classify corrections (object, action, detail, context)</subtask>
+        <subtask>Add minimum sample threshold (10) before generating suggestions</subtask>
+        <subtask>Write unit tests for pattern extraction logic</subtask>
+      </task>
+      <task id="2" title="Create Prompt Insights API" ac="3">
+        <subtask>Add GET /api/v1/feedback/prompt-insights endpoint to feedback router</subtask>
+        <subtask>Return structure: { suggestions: [], camera_insights: {}, sample_count: int, confidence: float }</subtask>
+        <subtask>Filter insights by camera_id query parameter</subtask>
+        <subtask>Include example corrections that led to each suggestion</subtask>
+        <subtask>Write API tests</subtask>
+      </task>
+      <task id="3" title="Create PromptSuggestion schema and storage" ac="7">
+        <subtask>Create backend/app/schemas/prompt_insight.py with Pydantic models</subtask>
+        <subtask>Add prompt_history table via Alembic migration for tracking prompt evolution</subtask>
+        <subtask>Store: prompt_version, prompt_text, created_at, accuracy_before, accuracy_after, source</subtask>
+        <subtask>Add applied_suggestions JSON field to track which suggestions were used</subtask>
+      </task>
+      <task id="4" title="Implement suggestion acceptance workflow" ac="5">
+        <subtask>Add POST /api/v1/feedback/prompt-insights/apply endpoint</subtask>
+        <subtask>Accept suggestion_id, merge suggestion into current description_prompt</subtask>
+        <subtask>Create new prompt_history record</subtask>
+        <subtask>Update settings_description_prompt in SystemSetting</subtask>
+      </task>
+      <task id="5" title="Implement A/B testing infrastructure" ac="6">
+        <subtask>Add ab_test_enabled and ab_test_prompt settings</subtask>
+        <subtask>Modify AIService to randomly select prompt 50/50 when A/B enabled</subtask>
+        <subtask>Tag events with prompt_variant field (control/experiment)</subtask>
+        <subtask>Add endpoint to get A/B test results: GET /api/v1/feedback/ab-test/results</subtask>
+      </task>
+      <task id="6" title="Implement per-camera prompt suggestions" ac="8">
+        <subtask>Extend FeedbackAnalysisService to analyze by camera_id</subtask>
+        <subtask>Generate camera-specific suggestions for cameras with accuracy less than 70%</subtask>
+        <subtask>Add camera_prompt_override field to Camera model (migration)</subtask>
+        <subtask>Modify AIService to use camera-specific prompt if set</subtask>
+      </task>
+      <task id="7" title="Create Prompt Insights UI" ac="4,9">
+        <subtask>Create frontend/components/settings/PromptInsights.tsx component</subtask>
+        <subtask>Display suggestion cards with: category, suggestion text, example corrections, confidence</subtask>
+        <subtask>Add Apply and Dismiss buttons per suggestion</subtask>
+        <subtask>Show accuracy trend with prompt change markers on chart</subtask>
+        <subtask>Add to AccuracyDashboard as new section below TopCorrections</subtask>
+      </task>
+      <task id="8" title="Create usePromptInsights hook" ac="4">
+        <subtask>Create frontend/hooks/usePromptInsights.ts</subtask>
+        <subtask>Fetch from /api/v1/feedback/prompt-insights</subtask>
+        <subtask>Mutation for applying suggestions</subtask>
+        <subtask>Handle loading and error states</subtask>
+      </task>
+      <task id="9" title="Write integration tests" ac="1-10">
+        <subtask>Test end-to-end flow: feedback to analysis to suggestion to apply to improved prompt</subtask>
+        <subtask>Test A/B test flag toggles prompt selection</subtask>
+        <subtask>Test per-camera override propagates to AI requests</subtask>
+        <subtask>Test minimum sample threshold prevents premature suggestions</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Prompt Analysis Service analyzes feedback corrections to identify common patterns</criterion>
+    <criterion id="2">System identifies top correction categories (misidentified objects, wrong actions, missing details)</criterion>
+    <criterion id="3">Prompt Enhancement API endpoint returns improvement suggestions based on feedback</criterion>
+    <criterion id="4">Settings UI displays AI prompt improvement suggestions</criterion>
+    <criterion id="5">Admin can accept/reject suggested prompt improvements</criterion>
+    <criterion id="6">A/B testing flag allows comparing original vs enhanced prompts</criterion>
+    <criterion id="7">Prompt evolution is documented in system settings</criterion>
+    <criterion id="8">Per-camera prompt customization based on camera-specific feedback</criterion>
+    <criterion id="9">Feedback statistics show before/after accuracy for prompt changes</criterion>
+    <criterion id="10">Prompt suggestions are generated from minimum 10 feedback samples</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase4.md" title="Phase 4 Epics" section="Epic P4-5: User Feedback and Learning">
+        Story P4-5.4: Feedback-Informed Prompts - Analyze common corrections, identify prompt improvement opportunities, A/B test prompt variations, document prompt evolution.
+      </doc>
+      <doc path="docs/PRD-phase4.md" title="Phase 4 PRD" section="FR25">
+        Feedback influences future prompt engineering - system tracks accuracy metrics per camera, corrections inform refinements.
+      </doc>
+      <doc path="docs/architecture.md" title="Architecture Document" section="AI Service">
+        Multi-provider AI fallback chain (OpenAI, Grok, Claude, Gemini). AIService supports description_prompt customization via SystemSettings with automatic fallback.
+      </doc>
+      <doc path="docs/sprint-artifacts/p4-5-3-accuracy-dashboard.md" title="Story P4-5.3 Accuracy Dashboard" section="Dev Agent Record">
+        Previous story learnings: Stats API available, TopCorrections component, AccuracyDashboard structure, useFeedbackStats hook pattern, test patterns.
+      </doc>
+    </docs>
+
+    <code>
+      <artifact path="backend/app/services/ai_service.py" kind="service" symbol="AIService" lines="2246,2365-2371,2536-2541">
+        Main AI service with description_prompt support. Uses settings_description_prompt from SystemSetting. Pattern to extend for A/B testing and camera-specific prompts.
+      </artifact>
+      <artifact path="backend/app/api/v1/feedback.py" kind="api-router" symbol="router" lines="1-261">
+        Existing feedback stats endpoint. Pattern to follow for prompt-insights endpoint. Has camera_id, start_date, end_date filtering.
+      </artifact>
+      <artifact path="backend/app/models/event_feedback.py" kind="model" symbol="EventFeedback" lines="1-71">
+        Feedback model with rating, correction, camera_id fields. Source data for pattern analysis.
+      </artifact>
+      <artifact path="backend/app/schemas/feedback.py" kind="schema" symbol="FeedbackStatsResponse" lines="88-118">
+        Response schema for stats API with feedback_by_camera, daily_trend, top_corrections. Pattern for PromptInsightsResponse.
+      </artifact>
+      <artifact path="backend/app/models/camera.py" kind="model" symbol="Camera">
+        Camera model to extend with camera_prompt_override field for per-camera prompts.
+      </artifact>
+      <artifact path="frontend/components/settings/AccuracyDashboard.tsx" kind="component" symbol="AccuracyDashboard">
+        Main dashboard component where PromptInsights will be added as new section. Follow existing patterns.
+      </artifact>
+      <artifact path="frontend/components/settings/TopCorrections.tsx" kind="component" symbol="TopCorrections">
+        Existing corrections list component. PromptInsights extends this with actionable suggestions.
+      </artifact>
+      <artifact path="frontend/hooks/useFeedbackStats.ts" kind="hook" symbol="useFeedbackStats" lines="1-38">
+        TanStack Query hook pattern to follow for usePromptInsights hook.
+      </artifact>
+      <artifact path="frontend/lib/api-client.ts" kind="api-client" symbol="apiClient.feedback.getStats">
+        API client method pattern. Add apiClient.feedback.getPromptInsights and applyPromptSuggestion.
+      </artifact>
+      <artifact path="frontend/types/event.ts" kind="types" symbol="IFeedbackStats" lines="47-86">
+        TypeScript types for feedback. Add IPromptInsight and related types.
+      </artifact>
+      <artifact path="backend/tests/test_api/test_feedback.py" kind="test" symbol="test_get_feedback_stats">
+        Existing API test patterns to follow for prompt insights endpoint tests.
+      </artifact>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework for API endpoints</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database models</package>
+        <package name="alembic" version=">=1.14.0">Database migrations for prompt_history table</package>
+        <package name="pydantic" version=">=2.10.0">Request/response validation schemas</package>
+        <package name="openai" version=">=1.54.0">Primary AI provider</package>
+        <package name="anthropic" version=">=0.39.0">Claude AI provider</package>
+        <package name="google-generativeai" version=">=0.8.0">Gemini AI provider</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+      </python>
+      <node>
+        <package name="@tanstack/react-query" version="^5.90.10">Server state management for hooks</package>
+        <package name="recharts" version="^3.5.1">Charts for accuracy trends</package>
+        <package name="lucide-react" version="^0.553.0">Icons for UI</package>
+        <package name="vitest" version="^4.0.15">Frontend testing</package>
+        <package name="@testing-library/react" version="^16.3.0">Component testing</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing service layer pattern: business logic in services/, API routes in api/v1/, models in models/, schemas in schemas/</constraint>
+    <constraint type="pattern">Frontend: TanStack Query for data fetching, shadcn/ui components, TypeScript strict mode</constraint>
+    <constraint type="testing">Backend: pytest with pytest-asyncio, minimum 70% coverage for new code</constraint>
+    <constraint type="testing">Frontend: Vitest with React Testing Library, test loading/error/success states</constraint>
+    <constraint type="business">Minimum 10 feedback samples required before generating suggestions</constraint>
+    <constraint type="security">API keys in SystemSetting are Fernet encrypted - do not log</constraint>
+    <constraint type="performance">Stats API should respond in under 200ms with 10,000+ records</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/feedback/prompt-insights" kind="REST endpoint">
+      <signature>GET /api/v1/feedback/prompt-insights?camera_id={optional}</signature>
+      <response>{ suggestions: PromptSuggestion[], camera_insights: Record&lt;string, CameraInsight&gt;, sample_count: int, confidence: float }</response>
+    </interface>
+    <interface name="POST /api/v1/feedback/prompt-insights/apply" kind="REST endpoint">
+      <signature>POST /api/v1/feedback/prompt-insights/apply { suggestion_id: string }</signature>
+      <response>{ success: bool, new_prompt: string, prompt_version: int }</response>
+    </interface>
+    <interface name="GET /api/v1/feedback/ab-test/results" kind="REST endpoint">
+      <signature>GET /api/v1/feedback/ab-test/results?start_date={optional}&amp;end_date={optional}</signature>
+      <response>{ control: AccuracyStats, experiment: AccuracyStats, winner: string, confidence: float }</response>
+    </interface>
+    <interface name="FeedbackAnalysisService" kind="Python class">
+      <signature>class FeedbackAnalysisService: analyze_correction_patterns(db: Session, camera_id: Optional[str]) -&gt; List[PromptSuggestion]</signature>
+    </interface>
+    <interface name="AIService._select_prompt" kind="Python method">
+      <signature>def _select_prompt(self, camera_id: Optional[str] = None) -&gt; Tuple[str, str]: Returns (prompt, variant)</signature>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Use TestClient for API endpoint testing. Mock external services. Follow existing patterns in backend/tests/.
+      Frontend: Vitest with @testing-library/react. Test component rendering, loading states, error states, user interactions. Follow patterns in frontend/__tests__/.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_feedback_analysis_service.py</location>
+      <location>backend/tests/test_api/test_feedback.py (extend)</location>
+      <location>frontend/__tests__/components/settings/PromptInsights.test.tsx</location>
+      <location>frontend/__tests__/hooks/usePromptInsights.test.ts</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test analyze_correction_patterns extracts object/action/detail/context categories</idea>
+      <idea ac="2">Test categorize_feedback correctly classifies common correction patterns</idea>
+      <idea ac="3">Test GET /api/v1/feedback/prompt-insights returns valid suggestions structure</idea>
+      <idea ac="4">Test PromptInsights component renders suggestions with Apply/Dismiss buttons</idea>
+      <idea ac="5">Test POST /api/v1/feedback/prompt-insights/apply updates SystemSetting</idea>
+      <idea ac="6">Test AIService selects control/experiment prompt 50/50 when A/B enabled</idea>
+      <idea ac="7">Test prompt_history table stores prompt evolution with accuracy metrics</idea>
+      <idea ac="8">Test camera_prompt_override is used by AIService when set</idea>
+      <idea ac="9">Test trend chart shows markers for prompt change dates</idea>
+      <idea ac="10">Test no suggestions generated with fewer than 10 feedback samples</idea>
+    </ideas>
+  </tests>
+</story-context>

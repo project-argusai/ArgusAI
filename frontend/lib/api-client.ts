@@ -15,6 +15,11 @@ import type {
   IEventsResponse,
   IEventFeedback,  // Story P4-5.1
   IFeedbackStats,  // Story P4-5.2
+  IPromptInsightsResponse,  // Story P4-5.4
+  IApplySuggestionRequest,  // Story P4-5.4
+  IApplySuggestionResponse,  // Story P4-5.4
+  IABTestResultsResponse,  // Story P4-5.4
+  IPromptHistoryResponse,  // Story P4-5.4
 } from '@/types/event';
 import type {
   SystemSettings,
@@ -487,6 +492,73 @@ export const apiClient = {
       const endpoint = `/feedback/stats${queryString ? `?${queryString}` : ''}`;
 
       return apiFetch<IFeedbackStats>(endpoint);
+    },
+
+    /**
+     * Get prompt improvement suggestions based on feedback analysis (Story P4-5.4)
+     * @param params Optional filter: camera_id
+     * @returns Prompt insights with suggestions and camera-specific analysis
+     */
+    getPromptInsights: async (params?: {
+      camera_id?: string;
+    }): Promise<IPromptInsightsResponse> => {
+      const queryParams = new URLSearchParams();
+      if (params?.camera_id) queryParams.append('camera_id', params.camera_id);
+
+      const queryString = queryParams.toString();
+      const endpoint = `/feedback/prompt-insights${queryString ? `?${queryString}` : ''}`;
+
+      return apiFetch<IPromptInsightsResponse>(endpoint);
+    },
+
+    /**
+     * Apply a prompt suggestion (Story P4-5.4)
+     * @param data Suggestion ID and optional camera ID
+     * @returns Result with new prompt and version
+     */
+    applySuggestion: async (data: IApplySuggestionRequest): Promise<IApplySuggestionResponse> => {
+      return apiFetch<IApplySuggestionResponse>('/feedback/prompt-insights/apply', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /**
+     * Get A/B test results (Story P4-5.4)
+     * @param params Optional date range filters
+     * @returns A/B test statistics with winner determination
+     */
+    getABTestResults: async (params?: {
+      start_date?: string;
+      end_date?: string;
+    }): Promise<IABTestResultsResponse> => {
+      const queryParams = new URLSearchParams();
+      if (params?.start_date) queryParams.append('start_date', params.start_date);
+      if (params?.end_date) queryParams.append('end_date', params.end_date);
+
+      const queryString = queryParams.toString();
+      const endpoint = `/feedback/ab-test/results${queryString ? `?${queryString}` : ''}`;
+
+      return apiFetch<IABTestResultsResponse>(endpoint);
+    },
+
+    /**
+     * Get prompt history (Story P4-5.4)
+     * @param params Optional filter: camera_id, limit
+     * @returns Prompt history entries
+     */
+    getPromptHistory: async (params?: {
+      camera_id?: string;
+      limit?: number;
+    }): Promise<IPromptHistoryResponse> => {
+      const queryParams = new URLSearchParams();
+      if (params?.camera_id) queryParams.append('camera_id', params.camera_id);
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+
+      const queryString = queryParams.toString();
+      const endpoint = `/feedback/prompt-history${queryString ? `?${queryString}` : ''}`;
+
+      return apiFetch<IPromptHistoryResponse>(endpoint);
     },
   },
 

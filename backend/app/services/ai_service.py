@@ -174,6 +174,8 @@ class AIResult:
     error: Optional[str] = None
     # Story P3-6.1: AI self-reported confidence score
     ai_confidence: Optional[int] = None  # 0-100 (from AI response, None if not provided)
+    # Story P4-5.4: A/B test variant tracking
+    prompt_variant: Optional[str] = None  # 'control', 'experiment', or None
 
 
 class AIProviderBase(ABC):
@@ -2244,6 +2246,10 @@ class AIService:
         self.providers: Dict[AIProvider, Optional[AIProviderBase]] = {}
         self.db: Optional[Session] = None  # Database session for usage tracking
         self.description_prompt: Optional[str] = None  # Custom description prompt from settings
+        # Story P4-5.4: A/B testing and camera-specific prompts
+        self.ab_test_enabled: bool = False  # A/B test mode flag
+        self.ab_test_prompt: Optional[str] = None  # Experiment prompt for A/B testing
+        self.camera_prompts: Dict[str, str] = {}  # Camera-specific prompt overrides
 
     def _estimate_image_tokens(self, provider: str, num_images: int, resolution: str = "default") -> int:
         """
@@ -2355,7 +2361,9 @@ class AIService:
                     'ai_api_key_grok',
                     'ai_api_key_claude',
                     'ai_api_key_gemini',
-                    'settings_description_prompt'  # Custom description prompt from AI Provider Configuration
+                    'settings_description_prompt',  # Custom description prompt from AI Provider Configuration
+                    'settings_ab_test_enabled',  # Story P4-5.4: A/B test toggle
+                    'settings_ab_test_prompt',  # Story P4-5.4: Experiment prompt
                 ])
             ).all()
 
@@ -2369,6 +2377,26 @@ class AIService:
             else:
                 self.description_prompt = None
                 logger.info("Using default description prompt")
+
+            # Story P4-5.4: Load A/B test settings
+            if 'settings_ab_test_enabled' in keys:
+                self.ab_test_enabled = keys['settings_ab_test_enabled'].lower() == 'true'
+                logger.info(f"A/B test mode: {'enabled' if self.ab_test_enabled else 'disabled'}")
+            if 'settings_ab_test_prompt' in keys and keys['settings_ab_test_prompt']:
+                self.ab_test_prompt = keys['settings_ab_test_prompt']
+                logger.info(f"A/B test experiment prompt loaded: '{self.ab_test_prompt[:50]}...'")
+
+            # Story P4-5.4: Load camera-specific prompt overrides
+            from app.models.camera import Camera
+            cameras_with_overrides = db.query(Camera).filter(
+                Camera.prompt_override.isnot(None)
+            ).all()
+            self.camera_prompts = {
+                cam.id: cam.prompt_override
+                for cam in cameras_with_overrides
+            }
+            if self.camera_prompts:
+                logger.info(f"Loaded {len(self.camera_prompts)} camera-specific prompt overrides")
 
             # Decrypt and configure each provider
             openai_key = None
@@ -2498,6 +2526,59 @@ class AIService:
             logger.warning(f"Failed to load provider order from database: {e}, using default")
             return default_order
 
+    def _select_prompt_and_variant(
+        self,
+        camera_id: Optional[str] = None,
+        custom_prompt: Optional[str] = None
+    ) -> tuple:
+        """
+        Select the appropriate prompt based on camera override, A/B test, or settings.
+
+        Story P4-5.4: Implements prompt selection logic for A/B testing and
+        camera-specific overrides.
+
+        Priority order:
+        1. Explicit custom_prompt parameter (e.g., doorbell ring prompts)
+        2. Camera-specific override (if camera_id provided and has override)
+        3. A/B test selection (if A/B test enabled, 50/50 random)
+        4. Global description_prompt from settings
+        5. None (use provider's default prompt)
+
+        Args:
+            camera_id: Optional camera ID to check for override
+            custom_prompt: Explicit custom prompt (highest priority)
+
+        Returns:
+            Tuple of (prompt_text, variant)
+            - prompt_text: The selected prompt or None
+            - variant: 'control', 'experiment', or None (if no A/B test)
+        """
+        import random
+
+        # 1. If explicit custom_prompt provided, use it (no variant tracking)
+        if custom_prompt is not None:
+            return (custom_prompt, None)
+
+        # 2. Check camera-specific override
+        if camera_id and camera_id in self.camera_prompts:
+            logger.debug(f"Using camera-specific prompt override for camera {camera_id[:8]}")
+            return (self.camera_prompts[camera_id], None)
+
+        # 3. A/B test selection
+        if self.ab_test_enabled and self.ab_test_prompt:
+            is_experiment = random.random() < 0.5
+            variant = 'experiment' if is_experiment else 'control'
+            prompt = self.ab_test_prompt if is_experiment else self.description_prompt
+            logger.debug(f"A/B test: selected '{variant}' variant")
+            return (prompt, variant)
+
+        # 4. Global description_prompt from settings
+        if self.description_prompt:
+            return (self.description_prompt, None)
+
+        # 5. No custom prompt
+        return (None, None)
+
     async def generate_description(
         self,
         frame: np.ndarray,
@@ -2506,7 +2587,8 @@ class AIService:
         detected_objects: Optional[List[str]] = None,
         sla_timeout_ms: int = 5000,
         custom_prompt: Optional[str] = None,
-        audio_transcription: Optional[str] = None
+        audio_transcription: Optional[str] = None,
+        camera_id: Optional[str] = None
     ) -> AIResult:
         """
         Generate natural language description from camera frame.
@@ -2522,9 +2604,11 @@ class AIService:
             sla_timeout_ms: Maximum time allowed in milliseconds (default: 5000ms = 5s)
             custom_prompt: Optional custom prompt to use instead of default (Story P2-4.1)
             audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
+            camera_id: Optional camera ID for camera-specific prompts/A/B testing (Story P4-5.4)
 
         Returns:
             AIResult with description, confidence, objects, and usage stats
+            Note: AIResult.prompt_variant contains A/B test variant if applicable
         """
         start_time = time.time()
 
@@ -2533,12 +2617,13 @@ class AIService:
         if detected_objects is None:
             detected_objects = []
 
-        # Use custom prompt from settings if no explicit custom_prompt provided
-        # This allows the AI Provider Configuration "Description prompt" setting to be used
-        effective_prompt = custom_prompt
-        if effective_prompt is None and self.description_prompt:
-            effective_prompt = self.description_prompt
-            logger.debug(f"Using description prompt from settings: '{effective_prompt[:50]}...'")
+        # Story P4-5.4: Select prompt based on camera override, A/B test, or settings
+        effective_prompt, prompt_variant = self._select_prompt_and_variant(
+            camera_id=camera_id,
+            custom_prompt=custom_prompt
+        )
+        if effective_prompt:
+            logger.debug(f"Using selected prompt: '{effective_prompt[:50]}...', variant={prompt_variant}")
 
         # Preprocess image
         image_base64 = self._preprocess_image(frame)

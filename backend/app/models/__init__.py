@@ -16,6 +16,7 @@ from app.models.recognized_entity import RecognizedEntity, EntityEvent
 from app.models.camera_activity_pattern import CameraActivityPattern
 from app.models.activity_summary import ActivitySummary
 from app.models.event_feedback import EventFeedback
+from app.models.prompt_history import PromptHistory
 
 __all__ = [
     "ProtectController",
@@ -37,4 +38,5 @@ __all__ = [
     "CameraActivityPattern",
     "ActivitySummary",
     "EventFeedback",
+    "PromptHistory",
 ]

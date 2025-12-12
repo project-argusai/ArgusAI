@@ -202,3 +202,118 @@ export function getAIConfidenceLevel(aiConfidence: number | null | undefined): A
   if (aiConfidence >= 50) return 'medium';
   return 'low';
 }
+
+// ==============================================================================
+// Story P4-5.4: Prompt Insights Types
+// ==============================================================================
+
+/**
+ * Correction categories identified by feedback analysis
+ */
+export type CorrectionCategory =
+  | 'object_misidentification'
+  | 'action_wrong'
+  | 'missing_detail'
+  | 'context_error'
+  | 'general';
+
+/**
+ * A suggestion for improving the AI description prompt
+ */
+export interface IPromptSuggestion {
+  id: string;
+  category: CorrectionCategory;
+  suggestion_text: string;
+  example_corrections: string[];
+  confidence: number;     // 0.0 to 1.0
+  impact_score: number;   // 0.0 to 1.0
+  camera_id?: string | null;
+}
+
+/**
+ * Per-camera analysis insights
+ */
+export interface ICameraInsight {
+  camera_id: string;
+  camera_name: string;
+  accuracy_rate: number;  // 0 to 100
+  sample_count: number;
+  top_categories: CorrectionCategory[];
+  suggestions: IPromptSuggestion[];
+}
+
+/**
+ * Response from GET /api/v1/feedback/prompt-insights
+ */
+export interface IPromptInsightsResponse {
+  suggestions: IPromptSuggestion[];
+  camera_insights: Record<string, ICameraInsight>;
+  sample_count: number;
+  confidence: number;     // 0.0 to 1.0
+  min_samples_met: boolean;
+}
+
+/**
+ * Request body for POST /api/v1/feedback/prompt-insights/apply
+ */
+export interface IApplySuggestionRequest {
+  suggestion_id: string;
+  camera_id?: string | null;
+}
+
+/**
+ * Response from POST /api/v1/feedback/prompt-insights/apply
+ */
+export interface IApplySuggestionResponse {
+  success: boolean;
+  new_prompt: string;
+  prompt_version: number;
+  message: string;
+}
+
+/**
+ * A/B test accuracy statistics for one variant
+ */
+export interface IABTestAccuracyStats {
+  variant: 'control' | 'experiment';
+  event_count: number;
+  helpful_count: number;
+  not_helpful_count: number;
+  accuracy_rate: number;  // 0 to 100
+}
+
+/**
+ * Response from GET /api/v1/feedback/ab-test/results
+ */
+export interface IABTestResultsResponse {
+  control: IABTestAccuracyStats;
+  experiment: IABTestAccuracyStats;
+  winner: 'control' | 'experiment' | null;
+  confidence: number;     // 0.0 to 1.0
+  is_significant: boolean;
+  message: string;
+}
+
+/**
+ * A prompt history entry
+ */
+export interface IPromptHistoryEntry {
+  id: string;
+  prompt_version: number;
+  prompt_text: string;
+  source: 'manual' | 'suggestion' | 'ab_test';
+  applied_suggestions?: string[] | null;
+  accuracy_before?: number | null;
+  accuracy_after?: number | null;
+  camera_id?: string | null;
+  created_at: string;
+}
+
+/**
+ * Response from GET /api/v1/feedback/prompt-history
+ */
+export interface IPromptHistoryResponse {
+  entries: IPromptHistoryEntry[];
+  current_version: number;
+  total_count: number;
+}

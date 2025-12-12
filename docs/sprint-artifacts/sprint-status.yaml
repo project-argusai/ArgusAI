@@ -263,7 +263,7 @@ development_status:
   p4-5-1-feedback-collection-ui: done
   p4-5-2-feedback-storage-and-api: done
   p4-5-3-accuracy-dashboard: done
-  p4-5-4-feedback-informed-prompts: backlog
+  p4-5-4-feedback-informed-prompts: done
   epic-p4-5-retrospective: optional
 
   # Epic P4-6: Voice Assistant Integration (Growth)

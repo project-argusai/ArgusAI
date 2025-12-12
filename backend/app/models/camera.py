@@ -70,6 +70,8 @@ class Camera(Base):
     is_doorbell = Column(Boolean, default=False, nullable=False)
     # Phase 3: Analysis mode for AI processing
     analysis_mode = Column(String(20), default='single_frame', nullable=False, index=True)
+    # Phase 4 (P4-5.4): Per-camera custom prompt override based on feedback analysis
+    prompt_override = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 

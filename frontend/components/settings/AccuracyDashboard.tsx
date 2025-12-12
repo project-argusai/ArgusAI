@@ -43,6 +43,7 @@ import {
 import { CameraAccuracyTable } from './CameraAccuracyTable';
 import { AccuracyTrendChart } from './AccuracyTrendChart';
 import { TopCorrections } from './TopCorrections';
+import { PromptInsights } from './PromptInsights';  // Story P4-5.4
 
 // Period options for date filtering
 type PeriodOption = '7d' | '30d' | '90d' | 'all';
@@ -374,6 +375,9 @@ export function AccuracyDashboard() {
         {/* Top corrections */}
         <TopCorrections corrections={stats.top_corrections} />
       </div>
+
+      {/* Story P4-5.4: Prompt improvement suggestions */}
+      <PromptInsights cameraId={selectedCamera === 'all' ? undefined : selectedCamera} />
 
       {/* Camera breakdown table */}
       <CameraAccuracyTable feedbackByCamera={stats.feedback_by_camera} />

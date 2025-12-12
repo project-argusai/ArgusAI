@@ -1,0 +1,268 @@
+<story-context id="p4-4-1-summary-generation-service" v="1.0">
+  <metadata>
+    <epicId>P4-4</epicId>
+    <storyId>1</storyId>
+    <title>Summary Generation Service</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-12</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-4-1-summary-generation-service.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security user</asA>
+    <iWant>an automated service that generates natural language summaries of activity for configurable time periods</iWant>
+    <soThat>I can quickly understand "what happened" without scrolling through individual events, receiving digestible narrative summaries like "Quiet day - just the mail carrier at 2pm"</soThat>
+    <tasks>
+      <task id="1" acs="1,3,4,7,8,9">
+        Create SummaryService class
+        - Create backend/app/services/summary_service.py
+        - Implement generate_summary(start_time, end_time, camera_ids=None) async method
+        - Query events using SQLAlchemy with date range filter (follow events.py pattern)
+        - Handle edge cases: zero events, single event, many events (50+)
+        - Group events by camera, object_type, hour of day
+        - Implement event sampling for large datasets
+      </task>
+      <task id="2" acs="5,6,10">
+        Build LLM prompt for summary generation
+        - Create summary-specific system prompt (natural narrative style)
+        - Build user prompt with time context, event counts, categories, notable events
+        - Ensure narrative format output
+        - Include examples in prompt for consistent output style
+      </task>
+      <task id="3" acs="2,11">
+        Integrate with AIService for LLM calls
+        - Adapt AIService for text-only generation (no image)
+        - Implement fallback chain (OpenAI -> Grok -> Claude -> Gemini)
+        - Track token usage and cost via CostTracker
+        - Handle AI provider errors gracefully
+      </task>
+      <task id="4" acs="16">
+        Create database models for summary storage
+        - Create backend/app/models/activity_summary.py with ActivitySummary model
+        - Create Alembic migration for new table
+        - Add model to backend/app/models/__init__.py
+      </task>
+      <task id="5" acs="13,14,15,16">
+        Create API endpoints
+        - Create backend/app/api/v1/summaries.py router
+        - Implement POST /api/v1/summaries/generate
+        - Implement GET /api/v1/summaries/daily?date=YYYY-MM-DD
+        - Add input validation (date range, future date limits)
+        - Register router in main.py
+      </task>
+      <task id="6" acs="16">
+        Add response schemas
+        - Create Pydantic models: SummaryGenerateRequest, SummaryResponse, DailySummaryResponse
+      </task>
+      <task id="7" acs="9,12">
+        Implement performance optimization
+        - Event sampling for large datasets (keep alerts, doorbell, first/last + samples)
+        - Cache generated summaries
+        - Timeout handling for LLM calls
+      </task>
+      <task id="8" acs="1-11,15">
+        Write unit tests
+        - Test generate_summary with various event counts
+        - Test event grouping logic
+        - Test prompt construction
+        - Test edge cases and validation
+      </task>
+      <task id="9" acs="12,13,14">
+        Write integration tests
+        - Test API endpoints
+        - Test performance (60s limit for 200 events)
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">SummaryService exists at backend/app/services/summary_service.py with generate_summary(start_time, end_time, camera_ids=None) method</ac>
+    <ac id="2">Summary generation uses existing AI providers (OpenAI/Grok/Claude/Gemini) via AIService with fallback chain</ac>
+    <ac id="3">Service queries events for time period using existing Event model and list_events pattern</ac>
+    <ac id="4">Events are grouped and categorized (by camera, by object type, by time of day) before LLM processing</ac>
+    <ac id="5">LLM prompt includes event count, categories, notable events, and time context</ac>
+    <ac id="6">Generated summaries are natural language narratives, not bullet lists</ac>
+    <ac id="7">Edge case: Zero events returns appropriate "No activity" summary without LLM call</ac>
+    <ac id="8">Edge case: Single event produces simple description referencing that event</ac>
+    <ac id="9">Edge case: Many events (50+) are intelligently sampled/summarized to avoid token limits</ac>
+    <ac id="10">Summary includes statistical summary (total events, breakdown by type)</ac>
+    <ac id="11">Cost tracking: Summary generation cost tracked via CostTracker (ai_cost field pattern)</ac>
+    <ac id="12">Performance: Summary generation completes within 60 seconds for up to 200 events</ac>
+    <ac id="13">API endpoint POST /api/v1/summaries/generate accepts time_period params and returns summary</ac>
+    <ac id="14">API endpoint GET /api/v1/summaries/daily?date=YYYY-MM-DD returns summary for specific day</ac>
+    <ac id="15">API returns 400 error for invalid date ranges (end before start, future dates > 1 day)</ac>
+    <ac id="16">Response schema includes: summary_text, period_start, period_end, event_count, generated_at</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD</title>
+        <section>Activity Summaries (FR6-FR9)</section>
+        <snippet>FR6: System generates natural language daily summaries. FR7: System sends digest notifications at configurable times. FR8: Summaries include event counts, highlights, and anomalies.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Epic P4-4: Activity Summaries and Digests</section>
+        <snippet>Story P4-4.1: Create LLM-based summary generator, process events for time period, generate natural language narrative, handle edge cases (no events, many events).</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture</title>
+        <section>Phase 4 Additions - Digest Generator</section>
+        <snippet>LLM-based summary generation, scheduled job (daily/weekly), template system for formatting, delivery via configured channels. Digest generation completes within 60 seconds.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIProviderBase, generate_description, generate_multi_image_description</symbol>
+        <lines>1-300</lines>
+        <reason>Core AI provider infrastructure with multi-provider fallback chain. Needs adaptation for text-only summary generation.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/cost_tracker.py</path>
+        <kind>service</kind>
+        <symbol>CostTracker, calculate_cost, get_cost_tracker</symbol>
+        <lines>1-250</lines>
+        <reason>Cost tracking infrastructure for AI requests. Use for tracking summary generation costs.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>router</kind>
+        <symbol>list_events, EventListResponse</symbol>
+        <lines>255-350</lines>
+        <reason>Event listing with date range filtering pattern. Copy pattern for summary event queries.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/context.py</path>
+        <kind>router</kind>
+        <symbol>APIRouter, Pydantic models</symbol>
+        <lines>1-100</lines>
+        <reason>Recent API router pattern for Phase 4. Follow same structure for summaries router.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>1-108</lines>
+        <reason>Event model with all fields for summary aggregation: objects_detected, alert_triggered, is_doorbell_ring, smart_detection_type, camera_id, timestamp.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/__init__.py</path>
+        <kind>module</kind>
+        <symbol>model exports</symbol>
+        <lines>1-37</lines>
+        <reason>Model registration pattern. Add ActivitySummary to exports.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>app</kind>
+        <symbol>router registration</symbol>
+        <lines>1-50</lines>
+        <reason>Router registration pattern. Add summaries_router to include_router calls.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/entity_service.py</path>
+        <kind>service</kind>
+        <symbol>EntityService, get_entity_service</symbol>
+        <reason>Recent service pattern from P4-3. Follow similar singleton pattern for SummaryService.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework for API endpoints</package>
+        <package name="pydantic" version="2.10.0">Request/response validation</package>
+        <package name="sqlalchemy" version="2.0.36">Database ORM for event queries</package>
+        <package name="openai" version="1.54.0">Primary AI provider for summaries</package>
+        <package name="anthropic" version="0.39.0">Fallback AI provider</package>
+        <package name="google-generativeai" version="0.8.0">Fallback AI provider</package>
+        <package name="apscheduler" version="3.10.4">Future: scheduled digest generation (P4-4.2)</package>
+        <package name="alembic" version="1.14.0">Database migrations</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="docs/PRD-phase4.md#NFR2">Digest generation completes within 60 seconds</constraint>
+    <constraint source="docs/architecture.md">AI provider fallback chain: OpenAI -> Grok -> Claude -> Gemini</constraint>
+    <constraint source="backend/app/services/ai_service.py">AIService provides vision-focused methods; text-only method needs to be added</constraint>
+    <constraint source="codebase pattern">Services use singleton pattern with get_*_service() factory functions</constraint>
+    <constraint source="codebase pattern">API routers use FastAPI APIRouter with prefix and tags</constraint>
+    <constraint source="codebase pattern">Database models inherit from Base, use UUID primary keys</constraint>
+    <constraint source="codebase pattern">All new models require Alembic migration</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AIProviderBase.generate_description</name>
+      <kind>abstract method</kind>
+      <signature>async def generate_description(self, image_base64: str, camera_name: str, timestamp: str, detected_objects: List[str], custom_prompt: Optional[str] = None, audio_transcription: Optional[str] = None) -> AIResult</signature>
+      <path>backend/app/services/ai_service.py:198-217</path>
+    </interface>
+    <interface>
+      <name>CostTracker.calculate_cost</name>
+      <kind>method</kind>
+      <signature>def calculate_cost(self, provider: str, input_tokens: int, output_tokens: int) -> Decimal</signature>
+      <path>backend/app/services/cost_tracker.py:104-135</path>
+    </interface>
+    <interface>
+      <name>list_events (GET /api/v1/events)</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events?start_time=datetime&amp;end_time=datetime&amp;camera_id=uuid&amp;limit=int&amp;offset=int</signature>
+      <path>backend/app/api/v1/events.py:255-299</path>
+    </interface>
+    <interface>
+      <name>SummaryService.generate_summary (TO CREATE)</name>
+      <kind>method</kind>
+      <signature>async def generate_summary(self, db: Session, start_time: datetime, end_time: datetime, camera_ids: Optional[List[str]] = None) -> SummaryResult</signature>
+      <path>backend/app/services/summary_service.py (new file)</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/summaries/generate (TO CREATE)</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/summaries/generate { start_time: datetime, end_time: datetime, camera_ids?: list[str] } -> SummaryResponse</signature>
+      <path>backend/app/api/v1/summaries.py (new file)</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/summaries/daily (TO CREATE)</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/summaries/daily?date=YYYY-MM-DD -> SummaryResponse</signature>
+      <path>backend/app/api/v1/summaries.py (new file)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio for async tests. Services are tested via unit tests in backend/tests/test_services/ with mocked dependencies. API endpoints are tested in backend/tests/test_api/ with HTTPX TestClient. Integration tests in backend/tests/test_integration/ test full flows. Coverage target is 70%+ for new code. Mock AI responses for deterministic testing.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_summary_service.py (new)</location>
+      <location>backend/tests/test_api/test_summaries.py (new)</location>
+      <location>backend/tests/test_services/*.py (existing patterns)</location>
+      <location>backend/tests/test_api/*.py (existing patterns)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test SummaryService instantiation and method signature</idea>
+      <idea ac="2">Test AI fallback chain integration with mocked providers</idea>
+      <idea ac="3">Test event date range filtering returns correct events</idea>
+      <idea ac="4">Test event grouping by camera, object_type, hour</idea>
+      <idea ac="5">Test prompt includes all required elements</idea>
+      <idea ac="6">Test output format is narrative (integration test with actual LLM)</idea>
+      <idea ac="7">Test zero events returns "No activity" without LLM call</idea>
+      <idea ac="8">Test single event produces simple description</idea>
+      <idea ac="9">Test 100+ events are sampled intelligently</idea>
+      <idea ac="10">Test stats calculation (total, breakdown by type)</idea>
+      <idea ac="11">Test cost tracking records cost in result</idea>
+      <idea ac="12">Performance test: 200 events completes in &lt;60s</idea>
+      <idea ac="13">Test POST /summaries/generate endpoint</idea>
+      <idea ac="14">Test GET /summaries/daily endpoint</idea>
+      <idea ac="15">Test 400 for end_time before start_time</idea>
+      <idea ac="16">Test response schema fields</idea>
+    </ideas>
+  </tests>
+</story-context>

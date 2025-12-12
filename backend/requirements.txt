@@ -39,6 +39,9 @@ uiprotect>=6.0.0  # UniFi Protect API client
 # Web Push Notifications (Phase 4)
 pywebpush>=2.0.0  # Web Push with VAPID authentication
 
+# Email Delivery (Phase 4 - Story P4-4.3)
+aiosmtplib>=3.0.0  # Async SMTP client for digest email delivery
+
 # MQTT Integration (Phase 4 - Home Assistant)
 paho-mqtt>=2.0.0  # MQTT client for Home Assistant integration
 

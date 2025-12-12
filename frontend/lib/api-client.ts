@@ -1600,6 +1600,120 @@ export const apiClient = {
       });
     },
   },
+
+  // ============================================================================
+  // Entity Management (Story P4-3.6)
+  // ============================================================================
+  entities: {
+    /**
+     * Get all recognized entities with pagination and filtering
+     * @param params Query parameters (limit, offset, entity_type, named_only)
+     * @returns List of entities with total count
+     */
+    list: async (params?: {
+      limit?: number;
+      offset?: number;
+      entity_type?: 'person' | 'vehicle' | 'unknown';
+      named_only?: boolean;
+    }): Promise<{
+      entities: Array<{
+        id: string;
+        entity_type: string;
+        name: string | null;
+        first_seen_at: string;
+        last_seen_at: string;
+        occurrence_count: number;
+      }>;
+      total: number;
+    }> => {
+      const searchParams = new URLSearchParams();
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      if (params?.entity_type) searchParams.set('entity_type', params.entity_type);
+      if (params?.named_only) searchParams.set('named_only', 'true');
+
+      const queryString = searchParams.toString();
+      return apiFetch(`/context/entities${queryString ? `?${queryString}` : ''}`);
+    },
+
+    /**
+     * Get a single entity with recent events
+     * @param entityId UUID of the entity
+     * @param eventLimit Maximum number of recent events to include (default 10)
+     * @returns Entity detail with recent events
+     * @throws ApiError with 404 if not found
+     */
+    getById: async (entityId: string, eventLimit?: number): Promise<{
+      id: string;
+      entity_type: string;
+      name: string | null;
+      first_seen_at: string;
+      last_seen_at: string;
+      occurrence_count: number;
+      created_at: string;
+      updated_at: string;
+      recent_events: Array<{
+        id: string;
+        timestamp: string;
+        description: string;
+        thumbnail_url: string | null;
+        camera_id: string;
+        similarity_score: number;
+      }>;
+    }> => {
+      const params = eventLimit ? `?event_limit=${eventLimit}` : '';
+      return apiFetch(`/context/entities/${entityId}${params}`);
+    },
+
+    /**
+     * Update an entity's name
+     * @param entityId UUID of the entity
+     * @param data Update data with name
+     * @returns Updated entity
+     * @throws ApiError with 404 if not found
+     */
+    update: async (entityId: string, data: { name: string | null }): Promise<{
+      id: string;
+      entity_type: string;
+      name: string | null;
+      first_seen_at: string;
+      last_seen_at: string;
+      occurrence_count: number;
+    }> => {
+      return apiFetch(`/context/entities/${entityId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /**
+     * Delete an entity
+     * Unlinks all associated events (events are not deleted)
+     * @param entityId UUID of the entity
+     * @throws ApiError with 404 if not found
+     */
+    delete: async (entityId: string): Promise<void> => {
+      const url = `${API_BASE_URL}${API_V1_PREFIX}/context/entities/${entityId}`;
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      const token = getAuthToken();
+      if (token) {
+        (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers,
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
+      // 204 No Content - no body to parse
+    },
+  },
 };
 
 // Story P2-2.1: Camera Discovery Types
@@ -1660,3 +1774,13 @@ export type {
   IPushSubscriptionsListResponse,
   IPushTestResponse,
 } from '@/types/push';
+
+// Story P4-3.6: Entity Types (re-exported from types/entity.ts)
+export type {
+  IEntity,
+  IEntityDetail,
+  IEntityListResponse,
+  IEntityQueryParams,
+  IEntityUpdateRequest,
+  EntityType,
+} from '@/types/entity';

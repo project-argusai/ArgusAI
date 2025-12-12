@@ -122,6 +122,7 @@ This project uses the BMAD Method. Slash commands available:
 - `/bmad:bmm:workflows:dev-story` - Execute story implementation
 - `/bmad:bmm:workflows:create-story` - Create next story from epics
 - `/bmad:bmm:workflows:story-context` - Assemble story context
+- `/bmad:bmm:workflows:yolo` - Creates story, context and executes implementation
 - `/bmad:bmm:agents:dev` - Activate dev agent
 
 ## Key Patterns

@@ -35,6 +35,8 @@ from app.api.v1.system_notifications import router as system_notifications_route
 from app.api.v1.push import router as push_router  # Story P4-1.1: Web Push
 from app.api.v1.integrations import router as integrations_router  # Story P4-2.1: MQTT
 from app.api.v1.context import router as context_router  # Story P4-3.1: Embeddings
+from app.api.v1.summaries import router as summaries_router  # Story P4-4.1: Activity Summaries
+from app.api.v1.digests import router as digests_router  # Story P4-4.2: Daily Digest Scheduler
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
 from app.services.protect_service import get_protect_service  # Story P2-1.4: Protect WebSocket
@@ -42,6 +44,7 @@ from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_ser
 from app.services.mqtt_discovery_service import initialize_discovery_service, get_discovery_service  # Story P4-2.2: HA Discovery
 from app.services.mqtt_status_service import initialize_status_sensors  # Story P4-2.5: Camera Status Sensors
 from app.services.pattern_service import get_pattern_service  # Story P4-3.5: Pattern Detection
+from app.services.digest_scheduler import initialize_digest_scheduler, shutdown_digest_scheduler  # Story P4-4.2: Digest Scheduler
 
 # Application version
 APP_VERSION = "1.0.0"
@@ -446,6 +449,20 @@ async def lifespan(app: FastAPI):
             extra={"event_type": "mqtt_init_failed", "error": str(e)}
         )
 
+    # Initialize Digest Scheduler (Story P4-4.2)
+    try:
+        await initialize_digest_scheduler()
+        logger.info(
+            "Digest scheduler initialized",
+            extra={"event_type": "digest_scheduler_init_complete"}
+        )
+    except Exception as e:
+        # Digest scheduler failure should not prevent app startup
+        logger.warning(
+            f"Digest scheduler initialization failed (non-fatal): {e}",
+            extra={"event_type": "digest_scheduler_init_failed", "error": str(e)}
+        )
+
     logger.info(
         "Application startup complete",
         extra={
@@ -462,6 +479,19 @@ async def lifespan(app: FastAPI):
         "Application shutting down",
         extra={"event_type": "app_shutdown_start", "version": APP_VERSION}
     )
+
+    # Shutdown Digest Scheduler (Story P4-4.2)
+    try:
+        await shutdown_digest_scheduler()
+        logger.info(
+            "Digest scheduler stopped",
+            extra={"event_type": "digest_scheduler_shutdown_complete"}
+        )
+    except Exception as e:
+        logger.error(
+            f"Error stopping digest scheduler: {e}",
+            extra={"event_type": "digest_scheduler_shutdown_error", "error": str(e)}
+        )
 
     # Disconnect MQTT service (Story P4-2.1)
     try:
@@ -596,6 +626,8 @@ app.include_router(system_notifications_router, prefix=settings.API_V1_PREFIX)  
 app.include_router(push_router, prefix=settings.API_V1_PREFIX)  # Story P4-1.1 - Web Push
 app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)  # Story P4-2.1 - MQTT
 app.include_router(context_router, prefix=settings.API_V1_PREFIX)  # Story P4-3.1 - Embeddings
+app.include_router(summaries_router, prefix=settings.API_V1_PREFIX)  # Story P4-4.1 - Activity Summaries
+app.include_router(digests_router, prefix=settings.API_V1_PREFIX)  # Story P4-4.2 - Daily Digest Scheduler
 
 # Thumbnail serving endpoint (with CORS support)
 from fastapi.responses import FileResponse, Response as FastAPIResponse

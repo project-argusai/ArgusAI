@@ -1,0 +1,240 @@
+<story-context id="p4-4-3" v="1.0">
+  <metadata>
+    <epicId>P4-4</epicId>
+    <storyId>P4-4.3</storyId>
+    <title>Digest Delivery</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-12</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-4-3-digest-delivery.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security user</asA>
+    <iWant>daily activity digests delivered via my preferred channels (email, push notification, or in-app)</iWant>
+    <soThat>I can receive a convenient summary of my home's activity without needing to check the dashboard, with flexibility in how I'm notified</soThat>
+    <tasks>
+      <task id="1">Create DeliveryService with deliver_digest(digest_id, channels) method</task>
+      <task id="2">Implement email delivery using aiosmtplib with SMTP configuration</task>
+      <task id="3">Implement push notification delivery reusing PushNotificationService</task>
+      <task id="4">Implement in-app notification using Notification model</task>
+      <task id="5">Add delivery settings (channels, email recipients, SMTP config)</task>
+      <task id="6">Integrate delivery with DigestScheduler and track delivery status</task>
+      <task id="7">Write unit tests for all delivery channels</task>
+      <task id="8">Write integration tests for API and performance</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">DeliveryService exists at backend/app/services/delivery_service.py with deliver_digest(digest_id, channels) method</criterion>
+    <criterion id="2">Email delivery implemented using aiosmtplib library with SMTP configuration</criterion>
+    <criterion id="3">Push notification delivery reuses existing push infrastructure (pywebpush) from P4-1</criterion>
+    <criterion id="4">In-app notification created in Notification table when digest generated</criterion>
+    <criterion id="5">Settings include digest_delivery_channels (list of: email, push, in_app)</criterion>
+    <criterion id="6">Settings include digest_email_recipients (comma-separated email addresses)</criterion>
+    <criterion id="7">Settings API GET/PUT /api/v1/settings includes digest delivery configuration</criterion>
+    <criterion id="8">Digest email includes formatted summary text, event counts, and highlights</criterion>
+    <criterion id="9">Push notification includes truncated summary (max 200 chars) and link to full digest</criterion>
+    <criterion id="10">Delivery failures logged with error details, do not crash scheduler</criterion>
+    <criterion id="11">Delivery status tracked and returned via GET /api/v1/digests/{id}</criterion>
+    <criterion id="12">At least one delivery channel must be enabled when digest scheduling is enabled</criterion>
+    <criterion id="13">Push notifications delivered within 5 seconds of digest generation (NFR2)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD</title>
+        <section>FR7</section>
+        <snippet>System sends digest notifications at configurable times. Digest delivery supports email delivery option, push notification with summary, in-app digest viewing, and configurable delivery channels.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD</title>
+        <section>NFR2 Performance</section>
+        <snippet>Push notifications delivered within 5 seconds. Digest generation completes within 60 seconds. MQTT publishing adds less than 100ms latency.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Story P4-4.3: Digest Delivery</section>
+        <snippet>Email delivery option, push notification with summary, in-app digest viewing, configurable delivery channels.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p4-4-2-daily-digest-scheduler.md</path>
+        <title>Previous Story: Daily Digest Scheduler</title>
+        <section>Dev Agent Record</section>
+        <snippet>DigestScheduler uses APScheduler with AsyncIOScheduler. run_scheduled_digest() returns SummaryResult. ActivitySummary model has digest_type column. Settings use SystemSetting key-value pairs.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/digest_scheduler.py</path>
+        <kind>service</kind>
+        <symbol>DigestScheduler</symbol>
+        <lines>1-447</lines>
+        <reason>Main service to extend with delivery call after run_scheduled_digest()</reason>
+      </file>
+      <file>
+        <path>backend/app/services/summary_service.py</path>
+        <kind>service</kind>
+        <symbol>SummaryService, SummaryResult</symbol>
+        <lines>1-850</lines>
+        <reason>Provides SummaryResult dataclass and generate_summary() method used by DigestScheduler</reason>
+      </file>
+      <file>
+        <path>backend/app/services/push_notification_service.py</path>
+        <kind>service</kind>
+        <symbol>PushNotificationService, send_event_notification, broadcast_notification</symbol>
+        <lines>1-841</lines>
+        <reason>Reuse for push delivery channel - broadcast_notification sends to all subscriptions</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/digests.py</path>
+        <kind>router</kind>
+        <symbol>DigestResponse, DigestStatusResponse</symbol>
+        <lines>1-297</lines>
+        <reason>Existing digest API - extend DigestResponse with delivery_status field</reason>
+      </file>
+      <file>
+        <path>backend/app/models/activity_summary.py</path>
+        <kind>model</kind>
+        <symbol>ActivitySummary</symbol>
+        <lines>1-145</lines>
+        <reason>Database model for summaries - add delivery_status column</reason>
+      </file>
+      <file>
+        <path>backend/app/models/notification.py</path>
+        <kind>model</kind>
+        <symbol>Notification</symbol>
+        <lines>1-62</lines>
+        <reason>Model for in-app notifications - adapt pattern for digest notifications</reason>
+      </file>
+      <file>
+        <path>backend/app/models/system_setting.py</path>
+        <kind>model</kind>
+        <symbol>SystemSetting</symbol>
+        <reason>Key-value settings storage - add digest delivery and SMTP settings</reason>
+      </file>
+      <file>
+        <path>backend/app/models/push_subscription.py</path>
+        <kind>model</kind>
+        <symbol>PushSubscription</symbol>
+        <reason>Push subscription model - query for broadcast</reason>
+      </file>
+      <file>
+        <path>backend/app/utils/encryption.py</path>
+        <kind>utility</kind>
+        <symbol>encrypt_password, decrypt_password</symbol>
+        <reason>Encrypt SMTP password using existing Fernet encryption</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entrypoint</kind>
+        <symbol>app, lifespan</symbol>
+        <reason>Register any new initialization for delivery service</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_digest_scheduler.py</path>
+        <kind>test</kind>
+        <symbol>test_*</symbol>
+        <reason>Existing tests - follow patterns for delivery tests</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_digests.py</path>
+        <kind>test</kind>
+        <symbol>test_*</symbol>
+        <reason>Existing API tests - extend for delivery_status</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework</package>
+        <package name="sqlalchemy" version=">=2.0.36">Database ORM</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="apscheduler" version=">=3.10.4">Task scheduling for digests</package>
+        <package name="pywebpush" version=">=2.0.0">Web Push notifications - reuse for push channel</package>
+        <package name="aiosmtplib" version="(to add)">Async SMTP client for email delivery</package>
+        <package name="cryptography" version="44.0.1">Encryption for SMTP password</package>
+        <package name="pydantic" version=">=2.10.0">Data validation</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+        <package name="pytest-asyncio" version="0.21.1">Async test support</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface>
+      <name>DigestScheduler.run_scheduled_digest</name>
+      <kind>async method</kind>
+      <signature>async def run_scheduled_digest(self, target_date: Optional[date] = None) -> Optional[SummaryResult]</signature>
+      <path>backend/app/services/digest_scheduler.py</path>
+      <notes>Extend to call DeliveryService after successful generation</notes>
+    </interface>
+    <interface>
+      <name>PushNotificationService.broadcast_notification</name>
+      <kind>async method</kind>
+      <signature>async def broadcast_notification(self, title: str, body: str, data: Optional[Dict[str, Any]] = None, ...) -> List[NotificationResult]</signature>
+      <path>backend/app/services/push_notification_service.py</path>
+      <notes>Reuse for push digest delivery - sends to all subscriptions</notes>
+    </interface>
+    <interface>
+      <name>GET /api/v1/digests/{id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/digests/{digest_id} -> DigestResponse</signature>
+      <path>backend/app/api/v1/digests.py</path>
+      <notes>Extend DigestResponse to include delivery_status field</notes>
+    </interface>
+    <interface>
+      <name>GET/PUT /api/v1/settings</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/settings -> SystemSettingsResponse</signature>
+      <path>backend/app/api/v1/system.py</path>
+      <notes>Add digest_delivery_channels, digest_email_recipients, SMTP fields</notes>
+    </interface>
+    <interface>
+      <name>SummaryResult</name>
+      <kind>dataclass</kind>
+      <signature>@dataclass SummaryResult: summary_text, period_start, period_end, event_count, stats, ai_cost, provider_used, ...</signature>
+      <path>backend/app/services/summary_service.py</path>
+      <notes>Data available for formatting email and push notifications</notes>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint source="PRD-phase4.md#NFR2">Push notifications must be delivered within 5 seconds of digest generation</constraint>
+    <constraint source="PRD-phase4.md#NFR3">Delivery failures must not crash the scheduler - graceful degradation</constraint>
+    <constraint source="architecture">Use existing encryption utils for SMTP password storage</constraint>
+    <constraint source="architecture">Follow singleton pattern for DeliveryService like other services</constraint>
+    <constraint source="previous-story">Reuse PushNotificationService - do not recreate push infrastructure</constraint>
+    <constraint source="previous-story">Store settings in SystemSetting table as key-value pairs</constraint>
+    <constraint source="testing">Follow existing test patterns from test_digest_scheduler.py</constraint>
+    <constraint source="coding-standards">Use type hints, docstrings, and structured logging throughout</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests. Tests are organized in test_services/ for unit tests and test_api/ for integration tests. Mock external dependencies (SMTP, push providers). Follow existing patterns from test_digest_scheduler.py (25 unit tests) and test_digests.py (14 integration tests). Target 70%+ code coverage for new code.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_delivery_service.py</location>
+      <location>backend/tests/test_api/test_digests.py (extend)</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2">Test DeliveryService.deliver_digest with mocked SMTP - verify email constructed and sent</idea>
+      <idea ac="2,8">Test email template rendering - verify summary text, event counts, highlights included</idea>
+      <idea ac="3,9">Test push delivery - verify truncation to 200 chars, correct payload format</idea>
+      <idea ac="4">Test in-app notification creation - verify Notification record created with correct fields</idea>
+      <idea ac="5,6,7">Test settings API includes new delivery configuration fields</idea>
+      <idea ac="10">Test error handling - simulate SMTP failure, verify no exception propagation, logging</idea>
+      <idea ac="11">Test delivery_status field in DigestResponse</idea>
+      <idea ac="12">Test validation - enabling scheduling requires at least one delivery channel</idea>
+      <idea ac="13">Test performance - measure push delivery latency is under 5 seconds</idea>
+      <idea>Test partial failure - one channel fails, others succeed</idea>
+      <idea>Test multiple email recipients parsing and delivery</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -1,6 +1,6 @@
 # Story P4-3.6: Entity Management UI
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 

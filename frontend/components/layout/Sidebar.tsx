@@ -8,7 +8,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Calendar, Video, Bell, Settings, ChevronLeft, ChevronRight, User, LogOut, KeyRound, Circle } from 'lucide-react';
+import { Home, Calendar, Video, Bell, Settings, ChevronLeft, ChevronRight, User, LogOut, KeyRound, Circle, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -35,6 +35,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home },
   { name: 'Events', href: '/events', icon: Calendar },
   { name: 'Cameras', href: '/cameras', icon: Video },
+  { name: 'Entities', href: '/entities', icon: Users },
   { name: 'Rules', href: '/rules', icon: Bell },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];

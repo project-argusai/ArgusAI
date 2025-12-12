@@ -246,14 +246,14 @@ development_status:
   p4-3-3-recurring-visitor-detection: done
   p4-3-4-context-enhanced-ai-prompts: done
   p4-3-5-pattern-detection: done
-  p4-3-6-entity-management-ui: ready-for-dev
+  p4-3-6-entity-management-ui: done
   epic-p4-3-retrospective: optional
 
   # Epic P4-4: Activity Summaries & Digests
   epic-p4-4: backlog
-  p4-4-1-summary-generation-service: backlog
-  p4-4-2-daily-digest-scheduler: backlog
-  p4-4-3-digest-delivery: backlog
+  p4-4-1-summary-generation-service: done
+  p4-4-2-daily-digest-scheduler: done
+  p4-4-3-digest-delivery: done
   p4-4-4-summary-ui-in-dashboard: backlog
   p4-4-5-on-demand-summary-generation: backlog
   epic-p4-4-retrospective: optional

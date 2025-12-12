@@ -1,0 +1,146 @@
+/**
+ * EntityCard component - displays individual entity in the entities list (Story P4-3.6)
+ * Shows thumbnail, name, type badge, occurrence count, and timestamps
+ */
+
+'use client';
+
+import { memo } from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import { User, Car, HelpCircle } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import type { IEntity } from '@/types/entity';
+
+interface EntityCardProps {
+  entity: IEntity;
+  /** Thumbnail URL from the most recent event */
+  thumbnailUrl?: string | null;
+  onClick: () => void;
+}
+
+/**
+ * Get icon for entity type
+ */
+function getEntityTypeIcon(entityType: string) {
+  switch (entityType) {
+    case 'person':
+      return <User className="h-3.5 w-3.5" />;
+    case 'vehicle':
+      return <Car className="h-3.5 w-3.5" />;
+    default:
+      return <HelpCircle className="h-3.5 w-3.5" />;
+  }
+}
+
+/**
+ * Get badge variant for entity type
+ */
+function getEntityTypeBadgeVariant(entityType: string): 'default' | 'secondary' | 'outline' {
+  switch (entityType) {
+    case 'person':
+      return 'default';
+    case 'vehicle':
+      return 'secondary';
+    default:
+      return 'outline';
+  }
+}
+
+// Parse timestamp as UTC
+function parseUTCTimestamp(timestamp: string): Date {
+  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
+    ? timestamp
+    : timestamp.replace(' ', 'T') + 'Z';
+  return new Date(ts);
+}
+
+export const EntityCard = memo(function EntityCard({
+  entity,
+  thumbnailUrl,
+  onClick,
+}: EntityCardProps) {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  // Build full thumbnail URL if path is relative
+  const fullThumbnailUrl = thumbnailUrl
+    ? thumbnailUrl.startsWith('http')
+      ? thumbnailUrl
+      : `${apiUrl}${thumbnailUrl}`
+    : null;
+
+  const firstSeenDate = parseUTCTimestamp(entity.first_seen_at);
+  const lastSeenDate = parseUTCTimestamp(entity.last_seen_at);
+  const lastSeenRelative = formatDistanceToNow(lastSeenDate, { addSuffix: true });
+
+  // Display name with fallback
+  const displayName = entity.name || `Unknown ${entity.entity_type}`;
+  const isNamed = !!entity.name;
+
+  return (
+    <Card
+      className={cn(
+        'overflow-hidden cursor-pointer transition-all hover:shadow-md hover:border-blue-300',
+        'flex flex-col'
+      )}
+      onClick={onClick}
+    >
+      {/* Thumbnail Section */}
+      <div className="relative w-full h-40 bg-gray-100">
+        {fullThumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={fullThumbnailUrl}
+            alt={`${displayName} thumbnail`}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              // Hide broken image
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
+            {entity.entity_type === 'person' ? (
+              <User className="w-12 h-12 text-gray-400" />
+            ) : entity.entity_type === 'vehicle' ? (
+              <Car className="w-12 h-12 text-gray-400" />
+            ) : (
+              <HelpCircle className="w-12 h-12 text-gray-400" />
+            )}
+          </div>
+        )}
+
+        {/* Entity Type Badge - positioned in corner */}
+        <div className="absolute top-2 right-2">
+          <Badge variant={getEntityTypeBadgeVariant(entity.entity_type)} className="gap-1">
+            {getEntityTypeIcon(entity.entity_type)}
+            <span className="capitalize">{entity.entity_type}</span>
+          </Badge>
+        </div>
+      </div>
+
+      {/* Entity Details */}
+      <div className="p-4 space-y-2">
+        {/* Name */}
+        <h3 className={cn(
+          'font-medium text-base truncate',
+          !isNamed && 'text-muted-foreground italic'
+        )}>
+          {displayName}
+        </h3>
+
+        {/* Occurrence count */}
+        <p className="text-sm text-muted-foreground">
+          Seen {entity.occurrence_count} time{entity.occurrence_count !== 1 ? 's' : ''}
+        </p>
+
+        {/* Timestamps */}
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>Last seen: {lastSeenRelative}</p>
+          <p>First seen: {firstSeenDate.toLocaleDateString()}</p>
+        </div>
+      </div>
+    </Card>
+  );
+});

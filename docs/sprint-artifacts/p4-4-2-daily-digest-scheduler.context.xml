@@ -1,0 +1,186 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P4-4</epicId>
+    <storyId>2</storyId>
+    <title>Daily Digest Scheduler</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-12</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-4-2-daily-digest-scheduler.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security user</asA>
+    <iWant>the system to automatically generate and store daily activity summaries at a configurable time each day</iWant>
+    <soThat>I can review a pre-generated digest of yesterday's activity without waiting for it to be created on-demand, ensuring consistent daily reporting of my home's security events</soThat>
+    <tasks>
+      <task id="1" acs="1,2,9">Create DigestScheduler service with APScheduler integration</task>
+      <task id="2" acs="3,4,7,8">Implement digest generation logic with idempotency and error handling</task>
+      <task id="3" acs="5">Add digest settings to Settings model (enabled, time)</task>
+      <task id="4" acs="10,11">Create digest API endpoints (trigger, status)</task>
+      <task id="5" acs="6,9">Integrate scheduler with application lifecycle</task>
+      <task id="6" acs="4">Update ActivitySummary model with digest_type column</task>
+      <task id="7" acs="1-8">Write unit tests</task>
+      <task id="8" acs="6,9,10,11,12">Write integration tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">DigestScheduler service exists at backend/app/services/digest_scheduler.py with schedule_daily_digest() and run_scheduled_digest() methods</ac>
+    <ac id="2">Scheduler uses APScheduler to run digest generation at configurable time (default: 6:00 AM)</ac>
+    <ac id="3">Digest generation calls existing SummaryService.generate_summary() for previous day (midnight to midnight)</ac>
+    <ac id="4">Generated digests stored in ActivitySummary table with digest_type='daily' marker</ac>
+    <ac id="5">System settings include digest_schedule_enabled (bool) and digest_schedule_time (HH:MM) fields</ac>
+    <ac id="6">Settings API GET/PUT /api/v1/settings includes digest scheduling configuration</ac>
+    <ac id="7">Scheduler gracefully handles failures (logs error, does not crash, retries next day)</ac>
+    <ac id="8">Scheduler skips generation if digest for that date already exists (idempotent)</ac>
+    <ac id="9">Scheduler starts on application startup when digest_schedule_enabled=True</ac>
+    <ac id="10">Manual trigger API POST /api/v1/digests/trigger forces immediate digest generation</ac>
+    <ac id="11">Digest status API GET /api/v1/digests/status returns last generation info and next scheduled time</ac>
+    <ac id="12">Digest generation completes within 60 seconds (NFR2)</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>ArgusAI Phase 4 PRD</title>
+        <section>Activity Summaries</section>
+        <snippet>FR7: System sends digest notifications at configurable times. NFR2: Digest generation completes within 60 seconds.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Epic P4-4: Activity Summaries &amp; Digests</section>
+        <snippet>Story P4-4.2: Daily Digest Scheduler - Implement scheduled digest generation, configure delivery time, track generation status.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p4-4-1-summary-generation-service.md</path>
+        <title>Previous Story: Summary Generation Service</title>
+        <section>Completion Notes</section>
+        <snippet>SummaryService created at backend/app/services/summary_service.py with generate_summary() method. 42 tests passing. Edge cases handled.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/summary_service.py</path>
+        <kind>service</kind>
+        <symbol>SummaryService</symbol>
+        <lines>78-350</lines>
+        <reason>Core summary generation service to reuse - DO NOT recreate. Call generate_summary(db, start_time, end_time, camera_ids)</reason>
+      </file>
+      <file>
+        <path>backend/app/models/activity_summary.py</path>
+        <kind>model</kind>
+        <symbol>ActivitySummary</symbol>
+        <lines>1-133</lines>
+        <reason>Database model for storing summaries. EXTEND with digest_type column.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/system_setting.py</path>
+        <kind>model</kind>
+        <symbol>SystemSetting</symbol>
+        <lines>1-26</lines>
+        <reason>Key-value settings storage. Add digest_schedule_enabled and digest_schedule_time keys.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/summaries.py</path>
+        <kind>router</kind>
+        <symbol>summaries_router</symbol>
+        <lines>1-470</lines>
+        <reason>Reference for API patterns - follow same style for digests router.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entrypoint</kind>
+        <symbol>scheduler, scheduled_cleanup_job</symbol>
+        <lines>1-150</lines>
+        <reason>Application startup with APScheduler already initialized. Follow pattern for digest scheduler integration.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_summary_service.py</path>
+        <kind>test</kind>
+        <symbol>TestSummaryService</symbol>
+        <lines>1-500</lines>
+        <reason>27 unit tests for SummaryService. Follow patterns for DigestScheduler tests.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_summaries.py</path>
+        <kind>test</kind>
+        <symbol>Test*Endpoint</symbol>
+        <lines>1-400</lines>
+        <reason>15 API integration tests. Follow patterns for digests API tests.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package>apscheduler&gt;=3.10.4</package>
+        <package>sqlalchemy&gt;=2.0.36</package>
+        <package>fastapi[standard]==0.115.0</package>
+        <package>pydantic&gt;=2.10.0</package>
+        <package>pytest==7.4.3</package>
+        <package>pytest-asyncio==0.21.1</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow singleton pattern with get_*_service() factory function (see summary_service.py)</constraint>
+    <constraint type="pattern">Use APScheduler AsyncIOScheduler with CronTrigger for scheduling</constraint>
+    <constraint type="database">Add digest_type column to activity_summaries table via Alembic migration</constraint>
+    <constraint type="performance">Digest generation must complete within 60 seconds (NFR2)</constraint>
+    <constraint type="testing">Unit tests with mocked dependencies, integration tests for API endpoints</constraint>
+    <constraint type="integration">Reuse existing SummaryService - do not recreate summary generation logic</constraint>
+    <constraint type="lifecycle">Scheduler must start on app startup and stop cleanly on shutdown</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>SummaryService.generate_summary</name>
+      <kind>async method</kind>
+      <signature>async def generate_summary(db: Session, start_time: datetime, end_time: datetime, camera_ids: Optional[List[str]] = None) -> SummaryResult</signature>
+      <path>backend/app/services/summary_service.py:200</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/digests/trigger</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/digests/trigger { date?: string } -> { digest: SummaryResponse, message: string }</signature>
+      <path>backend/app/api/v1/digests.py (NEW)</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/digests/status</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/digests/status -> { enabled: bool, schedule_time: string, last_run: datetime?, next_run: datetime?, last_status: string }</signature>
+      <path>backend/app/api/v1/digests.py (NEW)</path>
+    </interface>
+    <interface>
+      <name>DigestScheduler</name>
+      <kind>service class</kind>
+      <signature>class DigestScheduler: schedule_daily_digest(time: str), run_scheduled_digest(), start(), stop(), get_status()</signature>
+      <path>backend/app/services/digest_scheduler.py (NEW)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Unit tests use pytest with pytest-asyncio. Mock external dependencies (APScheduler, SummaryService, database).
+      Integration tests use FastAPI TestClient with mocked database session via dependency override.
+      Follow patterns from test_summary_service.py (27 tests) and test_summaries.py (15 tests).
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_digest_scheduler.py</location>
+      <location>backend/tests/test_api/test_digests.py</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2">Test scheduler initialization with default time and custom time</idea>
+      <idea ac="3">Test run_scheduled_digest calls SummaryService with correct date range (yesterday midnight-midnight)</idea>
+      <idea ac="4">Test digest_type='daily' marker set on generated summaries</idea>
+      <idea ac="7">Test error handling - verify exception doesn't propagate, logging occurs</idea>
+      <idea ac="8">Test idempotency - skip generation when digest already exists for date</idea>
+      <idea ac="9">Test scheduler auto-start when enabled in settings</idea>
+      <idea ac="10">Test POST /digests/trigger endpoint creates digest immediately</idea>
+      <idea ac="11">Test GET /digests/status returns correct schedule info</idea>
+      <idea ac="12">Test digest generation completes within 60s timeout</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -6,7 +6,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Video, Calendar, Bell, Settings, Menu, Home, User, Circle, LogOut, KeyRound } from 'lucide-react';
+import { Video, Calendar, Bell, Settings, Menu, Home, User, Circle, LogOut, KeyRound, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -33,6 +33,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: Home, available: true },
   { name: 'Events', href: '/events', icon: Calendar, available: true },
   { name: 'Cameras', href: '/cameras', icon: Video, available: true },
+  { name: 'Entities', href: '/entities', icon: Users, available: true },
   { name: 'Rules', href: '/rules', icon: Bell, available: true },
   { name: 'Settings', href: '/settings', icon: Settings, available: true },
 ];

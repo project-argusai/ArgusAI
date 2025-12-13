@@ -1,5 +1,5 @@
 """
-HomeKit configuration module (Story P4-6.1)
+HomeKit configuration module (Story P4-6.1, P4-6.2)
 
 Defines HomeKit-related settings for the HAP-python accessory server.
 """
@@ -17,6 +17,10 @@ DEFAULT_BRIDGE_NAME = "ArgusAI"
 
 # Default manufacturer
 DEFAULT_MANUFACTURER = "ArgusAI"
+
+# Story P4-6.2: Motion reset defaults
+DEFAULT_MOTION_RESET_SECONDS = 30
+DEFAULT_MAX_MOTION_DURATION = 300  # 5 minutes
 
 
 def generate_pincode() -> str:
@@ -46,6 +50,8 @@ class HomekitConfig:
         manufacturer: Manufacturer name shown in Home app
         persist_dir: Directory for storing pairing state
         pincode: 8-digit pairing code in XXX-XX-XXX format
+        motion_reset_seconds: Seconds before motion sensor resets to False (Story P4-6.2)
+        max_motion_duration: Maximum duration for continuous motion (Story P4-6.2)
     """
     enabled: bool = False
     port: int = DEFAULT_HOMEKIT_PORT
@@ -53,6 +59,8 @@ class HomekitConfig:
     manufacturer: str = DEFAULT_MANUFACTURER
     persist_dir: str = "data/homekit"
     pincode: Optional[str] = None
+    motion_reset_seconds: int = DEFAULT_MOTION_RESET_SECONDS
+    max_motion_duration: int = DEFAULT_MAX_MOTION_DURATION
 
     @property
     def persist_file(self) -> str:
@@ -82,6 +90,8 @@ def get_homekit_config() -> HomekitConfig:
         HOMEKIT_MANUFACTURER: Manufacturer name (default: ArgusAI)
         HOMEKIT_PERSIST_DIR: Directory for state persistence (default: data/homekit)
         HOMEKIT_PINCODE: Pairing code in XXX-XX-XXX format (auto-generated if not set)
+        HOMEKIT_MOTION_RESET_SECONDS: Motion sensor reset timeout (default: 30)
+        HOMEKIT_MAX_MOTION_DURATION: Max continuous motion duration (default: 300)
 
     Returns:
         HomekitConfig: Configuration instance
@@ -93,4 +103,6 @@ def get_homekit_config() -> HomekitConfig:
         manufacturer=os.getenv("HOMEKIT_MANUFACTURER", DEFAULT_MANUFACTURER),
         persist_dir=os.getenv("HOMEKIT_PERSIST_DIR", "data/homekit"),
         pincode=os.getenv("HOMEKIT_PINCODE"),
+        motion_reset_seconds=int(os.getenv("HOMEKIT_MOTION_RESET_SECONDS", str(DEFAULT_MOTION_RESET_SECONDS))),
+        max_motion_duration=int(os.getenv("HOMEKIT_MAX_MOTION_DURATION", str(DEFAULT_MAX_MOTION_DURATION))),
     )

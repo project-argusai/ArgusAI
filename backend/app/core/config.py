@@ -28,13 +28,15 @@ class Settings(BaseSettings):
     MAX_CAMERAS: int = 1  # MVP limitation
     DEFAULT_FRAME_RATE: int = 5
 
-    # HomeKit Integration (Story P4-6.1)
+    # HomeKit Integration (Story P4-6.1, P4-6.2)
     HOMEKIT_ENABLED: bool = False
     HOMEKIT_PORT: int = 51826
     HOMEKIT_BRIDGE_NAME: str = "ArgusAI"
     HOMEKIT_MANUFACTURER: str = "ArgusAI"
     HOMEKIT_PERSIST_DIR: str = "data/homekit"
     HOMEKIT_PINCODE: str | None = None  # Auto-generated if not set
+    HOMEKIT_MOTION_RESET_SECONDS: int = 30  # Story P4-6.2: Motion sensor reset timeout
+    HOMEKIT_MAX_MOTION_DURATION: int = 300  # Story P4-6.2: Max motion duration (5 min)
 
     model_config = SettingsConfigDict(
         env_file=".env",

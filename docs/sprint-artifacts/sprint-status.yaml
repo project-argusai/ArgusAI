@@ -269,7 +269,7 @@ development_status:
   # Epic P4-6: Voice Assistant Integration (Growth)
   epic-p4-6: backlog
   p4-6-1-homekit-accessory-server: done
-  p4-6-2-homekit-motion-events: backlog
+  p4-6-2-homekit-motion-events: done
   p4-6-3-voice-query-api: backlog
   epic-p4-6-retrospective: optional
 

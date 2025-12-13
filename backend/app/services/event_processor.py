@@ -1016,7 +1016,30 @@ class EventProcessor:
                     }
                 )
 
-            # Step 10: Match or create entity and link to event (Story P4-3.3, P4-3.4)
+            # Step 10: Trigger HomeKit motion sensor (Story P4-6.2)
+            try:
+                from app.services.homekit_service import get_homekit_service
+
+                homekit_service = get_homekit_service()
+
+                # Only trigger if HomeKit is running (AC6: error resilience)
+                if homekit_service.is_running:
+                    # Fire and forget - use asyncio.create_task for non-blocking (AC1: <1s)
+                    asyncio.create_task(
+                        self._trigger_homekit_motion(homekit_service, event.camera_id, event_id)
+                    )
+                    logger.debug(
+                        f"HomeKit motion trigger task created for event {event_id}",
+                        extra={"event_id": event_id, "camera_id": event.camera_id}
+                    )
+            except Exception as homekit_error:
+                # HomeKit failures must not block event processing (AC6)
+                logger.warning(
+                    f"Failed to create HomeKit motion trigger task: {homekit_error}",
+                    extra={"error": str(homekit_error), "event_id": event_id}
+                )
+
+            # Step 11: Match or create entity and link to event (Story P4-3.3, P4-3.4)
             # Note: Step 3 did a read-only match for context. Now we do the full
             # match_or_create_entity to actually link/create the entity-event relationship.
             # AC11: Entity matching integrated into event pipeline
@@ -1209,6 +1232,61 @@ class EventProcessor:
 
         logger.error(f"Event storage failed after {max_retries + 1} attempts")
         return None
+
+    async def _trigger_homekit_motion(
+        self,
+        homekit_service,
+        camera_id: str,
+        event_id: str
+    ) -> None:
+        """
+        Trigger HomeKit motion sensor (Story P4-6.2).
+
+        This is a fire-and-forget async task. Errors are logged but not propagated.
+
+        Args:
+            homekit_service: HomekitService instance
+            camera_id: Camera identifier
+            event_id: Event ID for logging
+
+        Note:
+            - Trigger happens within 1s of event creation (AC1)
+            - Non-blocking, runs as background task (AC6)
+            - Errors don't propagate to caller (AC6)
+        """
+        try:
+            # trigger_motion handles timer reset internally (AC2, AC3)
+            success = homekit_service.trigger_motion(camera_id, event_id=event_id)
+
+            if success:
+                logger.info(
+                    f"HomeKit motion triggered for event",
+                    extra={
+                        "event_type": "homekit_motion_triggered",
+                        "event_id": event_id,
+                        "camera_id": camera_id
+                    }
+                )
+            else:
+                logger.debug(
+                    f"HomeKit motion trigger returned False (no sensor for camera)",
+                    extra={
+                        "event_type": "homekit_motion_no_sensor",
+                        "event_id": event_id,
+                        "camera_id": camera_id
+                    }
+                )
+        except Exception as e:
+            # HomeKit errors must not propagate (AC6)
+            logger.warning(
+                f"HomeKit motion trigger failed for event {event_id}: {e}",
+                extra={
+                    "event_type": "homekit_motion_error",
+                    "event_id": event_id,
+                    "camera_id": camera_id,
+                    "error": str(e)
+                }
+            )
 
     async def _publish_event_to_mqtt(
         self,

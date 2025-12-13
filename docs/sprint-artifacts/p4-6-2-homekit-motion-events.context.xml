@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context story="p4-6-2-homekit-motion-events" generated="2025-12-12">
+  <summary>
+    Wire AI-detected events to HomeKit motion sensors with auto-reset timers.
+    Events from event_processor trigger motion on camera's HomeKit sensor.
+    Motion resets after configurable timeout (default 30s).
+  </summary>
+
+  <key-files>
+    <file path="backend/app/services/homekit_service.py" role="primary">
+      HomeKit service - add timer-based motion trigger/reset
+    </file>
+    <file path="backend/app/services/homekit_accessories.py" role="primary">
+      CameraMotionSensor - already has trigger_motion/clear_motion methods
+    </file>
+    <file path="backend/app/services/event_processor.py" role="integration">
+      Event pipeline - add HomeKit trigger call after event stored
+    </file>
+    <file path="backend/app/core/config.py" role="config">
+      Add HOMEKIT_MOTION_RESET_SECONDS config
+    </file>
+    <file path="backend/app/config/homekit.py" role="config">
+      Add motion_reset_seconds to HomekitConfig
+    </file>
+  </key-files>
+
+  <existing-implementation>
+    <homekit-service>
+      - HomekitService class with start/stop lifecycle
+      - _sensors dict maps camera_id -> CameraMotionSensor
+      - trigger_motion(camera_id) exists but no timer reset
+      - clear_motion(camera_id) exists
+      - No integration with event_processor yet
+    </homekit-service>
+    <camera-motion-sensor>
+      - CameraMotionSensor class wraps HAP-python Accessory
+      - set_motion(detected: bool) updates HAP characteristic
+      - trigger_motion() calls set_motion(True)
+      - clear_motion() calls set_motion(False)
+    </camera-motion-sensor>
+    <event-processor>
+      - _process_event() handles full pipeline
+      - Already has fire-and-forget pattern for MQTT, push notifications
+      - Event stored with event_id returned
+      - Good pattern to follow for HomeKit integration
+    </event-processor>
+  </existing-implementation>
+
+  <implementation-approach>
+    <step n="1">Add HOMEKIT_MOTION_RESET_SECONDS to config.py and homekit.py</step>
+    <step n="2">Add asyncio timer dict to HomekitService for per-camera reset timers</step>
+    <step n="3">Update trigger_motion() to start/reset timer for motion clear</step>
+    <step n="4">Add camera_id mapping for Protect (MAC) vs RTSP/USB (camera.id)</step>
+    <step n="5">In event_processor._process_event(), call homekit trigger after event stored</step>
+    <step n="6">Add fire-and-forget pattern like MQTT publishing</step>
+    <step n="7">Write unit tests for timer behavior</step>
+  </implementation-approach>
+
+  <acceptance-criteria-mapping>
+    <ac1>Event creates motion trigger - integrate in event_processor after _store_event_with_retry</ac1>
+    <ac2>Motion reset timer - asyncio timer in HomekitService</ac2>
+    <ac3>Rapid events - each trigger cancels/restarts timer</ac3>
+    <ac4>Camera mapping - Protect uses mac_address, RTSP/USB uses camera_id</ac4>
+    <ac5>State sync - on restart, all motion sensors False</ac5>
+    <ac6>Error resilience - try/except around HomeKit calls, log and continue</ac6>
+    <ac7>Tests - test_homekit_motion.py</ac7>
+  </acceptance-criteria-mapping>
+</story-context>

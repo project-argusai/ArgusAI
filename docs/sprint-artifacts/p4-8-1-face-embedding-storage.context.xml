@@ -1,0 +1,289 @@
+<story-context id="p4-8-1-face-embedding-storage" v="1.0">
+  <metadata>
+    <epicId>P4-8</epicId>
+    <storyId>P4-8.1</storyId>
+    <title>Face Embedding Storage</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-13</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-8-1-face-embedding-storage.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security user</asA>
+    <iWant>the system to detect and store face embeddings from event thumbnails</iWant>
+    <soThat>I can later identify and name recurring people for personalized alerts like "John is at the door"</soThat>
+    <tasks>
+      <task id="1">Create FaceDetectionService using OpenCV DNN face detector</task>
+      <task id="2">Create FaceEmbedding database model and Alembic migration</task>
+      <task id="3">Create FaceEmbeddingService for face-specific embedding generation</task>
+      <task id="4">Add privacy settings (face_recognition_enabled toggle)</task>
+      <task id="5">Create Face API endpoints (GET, DELETE for event faces)</task>
+      <task id="6">Integrate face processing into event pipeline</task>
+      <task id="7">Download OpenCV face detection model files</task>
+      <task id="8">Write comprehensive tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Face Detection Service">
+      <requirement>Create FaceDetectionService class using OpenCV DNN face detector</requirement>
+      <requirement>Detect faces in event thumbnail images</requirement>
+      <requirement>Return bounding box coordinates for each detected face</requirement>
+      <requirement>Filter detections by confidence threshold (default 0.5)</requirement>
+      <requirement>Handle multiple faces in a single image</requirement>
+      <requirement>Handle images with no faces gracefully (return empty list)</requirement>
+    </ac>
+    <ac id="2" title="Face Region Extraction">
+      <requirement>Crop face regions from original thumbnail using detected bounding boxes</requirement>
+      <requirement>Add configurable padding around face (default 20%)</requirement>
+      <requirement>Resize cropped faces to standard size (160x160 or 224x224)</requirement>
+      <requirement>Return face region as bytes for embedding generation</requirement>
+    </ac>
+    <ac id="3" title="Face Embedding Model">
+      <requirement>Create FaceEmbeddingService class for face-specific embeddings</requirement>
+      <requirement>Use existing CLIP model on cropped face region (simpler approach)</requirement>
+      <requirement>Generate 512-dimensional embeddings (consistent with existing infrastructure)</requirement>
+      <requirement>Track model version for future migration</requirement>
+    </ac>
+    <ac id="4" title="Face Embedding Database Storage">
+      <requirement>Create FaceEmbedding database model</requirement>
+      <requirement>Fields: id, event_id, entity_id (nullable), embedding (JSON), bounding_box (JSON), confidence, model_version, created_at</requirement>
+      <requirement>Foreign key to events table with CASCADE delete</requirement>
+      <requirement>Optional foreign key to recognized_entities</requirement>
+      <requirement>Create Alembic migration for new table</requirement>
+    </ac>
+    <ac id="5" title="Privacy Controls">
+      <requirement>Add face_recognition_enabled to system settings (default: false)</requirement>
+      <requirement>API endpoint to enable/disable face recognition</requirement>
+      <requirement>API endpoint to delete all face embeddings</requirement>
+      <requirement>Check privacy setting before processing faces</requirement>
+      <requirement>Clear logging of when face data is created/deleted</requirement>
+    </ac>
+    <ac id="6" title="Pipeline Integration">
+      <requirement>Integrate face detection into event processing pipeline</requirement>
+      <requirement>Only process faces when face_recognition_enabled is true</requirement>
+      <requirement>Process faces asynchronously (non-blocking)</requirement>
+      <requirement>Store face embeddings after event creation</requirement>
+      <requirement>Log face detection results (count found, confidence scores)</requirement>
+    </ac>
+    <ac id="7" title="API Endpoints">
+      <requirement>GET /api/v1/context/faces/{event_id} - Get face embeddings for an event</requirement>
+      <requirement>DELETE /api/v1/context/faces/{event_id} - Delete face data for an event</requirement>
+      <requirement>DELETE /api/v1/context/faces - Delete all face embeddings (admin)</requirement>
+      <requirement>Include face count in event detail response</requirement>
+    </ac>
+    <ac id="8" title="Testing">
+      <requirement>Unit tests for FaceDetectionService (detection, no-face, multi-face)</requirement>
+      <requirement>Unit tests for FaceEmbeddingService (embedding generation)</requirement>
+      <requirement>Integration tests for face pipeline</requirement>
+      <requirement>Test privacy controls (disabled blocks processing)</requirement>
+      <requirement>Test with real images from test fixtures</requirement>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD</title>
+        <section>Epic P4-8: Person &amp; Vehicle Recognition</section>
+        <snippet>Face embeddings stored locally only (never cloud). User can delete all historical context data. Configurable retention for context data.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Epic P4-8: Person &amp; Vehicle Recognition (Growth)</section>
+        <snippet>Story P4-8.1: Face Embedding Storage - Extract face regions from thumbnails, generate face embeddings, store with privacy controls, handle no-face scenarios.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture</title>
+        <section>Phase 4 Additions - ADR-P4-001</section>
+        <snippet>Use CLIP ViT-B/32 for image embeddings. 512-dimensional embeddings (good balance). ~100ms inference time per image. Privacy-first: Face embeddings stored locally only.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/services/embedding_service.py</path>
+        <kind>service</kind>
+        <symbol>EmbeddingService</symbol>
+        <lines>1-378</lines>
+        <reason>Existing CLIP embedding service to reuse for face embeddings. Has lazy model loading, async embedding generation, database storage patterns.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/event_embedding.py</path>
+        <kind>model</kind>
+        <symbol>EventEmbedding</symbol>
+        <lines>1-81</lines>
+        <reason>Database model pattern for embedding storage. FaceEmbedding model should follow similar structure.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/recognized_entity.py</path>
+        <kind>model</kind>
+        <symbol>RecognizedEntity, EntityEvent</symbol>
+        <lines>1-184</lines>
+        <reason>Entity model that FaceEmbedding will link to. Has reference_embedding field and entity_type enum.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/motion_detection_service.py</path>
+        <kind>service</kind>
+        <symbol>MotionDetectionService</symbol>
+        <lines>1-100</lines>
+        <reason>Shows OpenCV cv2 usage patterns. Singleton service pattern. Face detection will use similar cv2.dnn approach.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor</symbol>
+        <lines>1-150</lines>
+        <reason>Event processing pipeline where face detection will be integrated. Uses asyncio.create_task for non-blocking processing.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/context.py</path>
+        <kind>router</kind>
+        <symbol>router, embedding endpoints</symbol>
+        <lines>1-1036</lines>
+        <reason>Context API endpoints to extend with face endpoints. Has embedding status, entity management, similarity search patterns.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>router</kind>
+        <symbol>system settings</symbol>
+        <reason>System settings API where face_recognition_enabled will be added. Has no_prefix_fields pattern for settings services access.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/system.py</path>
+        <kind>schema</kind>
+        <symbol>SystemSettingsUpdate</symbol>
+        <reason>Settings schema to extend with face_recognition_enabled field.</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM and database</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="opencv-python" version=">=4.12.0">Image processing and face detection (cv2.dnn module)</package>
+        <package name="pillow" version=">=10.0.0">Image manipulation</package>
+        <package name="sentence-transformers" version=">=2.2.0">CLIP model for embeddings</package>
+        <package name="numpy">Array operations for image processing</package>
+      </python>
+      <frontend>
+        <package name="next" version="15">React framework</package>
+        <package name="react" version="19">UI library</package>
+        <package name="@tanstack/react-query">Server state management</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="privacy" priority="critical">
+      Face embeddings must be stored locally only - never sent to cloud AI providers or external services.
+    </constraint>
+    <constraint type="privacy" priority="critical">
+      Face recognition feature must be opt-in (disabled by default). User must explicitly enable.
+    </constraint>
+    <constraint type="privacy" priority="high">
+      Users must be able to delete all face data at any time via API or settings UI.
+    </constraint>
+    <constraint type="architecture">
+      Use existing CLIP model from EmbeddingService for face embeddings (no additional model downloads required).
+    </constraint>
+    <constraint type="architecture">
+      Face processing must be non-blocking - use asyncio.create_task() pattern from existing embedding pipeline.
+    </constraint>
+    <constraint type="architecture">
+      Follow singleton service pattern from EmbeddingService for FaceDetectionService and FaceEmbeddingService.
+    </constraint>
+    <constraint type="performance">
+      Face detection should complete in &lt;200ms per image (OpenCV DNN is fast, ~50ms typical).
+    </constraint>
+    <constraint type="database">
+      FaceEmbedding model must have CASCADE delete on event_id foreign key. Entity_id should use SET NULL.
+    </constraint>
+    <constraint type="testing">
+      Tests must use real test images in fixtures directory. Create face_single.jpg, face_multiple.jpg, no_face.jpg.
+    </constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="FaceDetectionService" kind="class">
+      <signature>
+class FaceDetectionService:
+    CONFIDENCE_THRESHOLD: float = 0.5
+
+    def detect_faces(self, image_bytes: bytes) -> list[FaceDetection]
+    def extract_face_region(self, image_bytes: bytes, bbox: BoundingBox, padding: float = 0.2) -> bytes
+      </signature>
+      <path>backend/app/services/face_detection_service.py (new)</path>
+    </interface>
+    <interface name="FaceEmbeddingService" kind="class">
+      <signature>
+class FaceEmbeddingService:
+    async def process_event_faces(self, db: Session, event_id: str, thumbnail_bytes: bytes) -> list[str]
+    async def get_face_embeddings(self, db: Session, event_id: str) -> list[dict]
+    async def delete_event_faces(self, db: Session, event_id: str) -> int
+    async def delete_all_faces(self, db: Session) -> int
+      </signature>
+      <path>backend/app/services/face_embedding_service.py (new)</path>
+    </interface>
+    <interface name="FaceEmbedding" kind="model">
+      <signature>
+class FaceEmbedding(Base):
+    __tablename__ = "face_embeddings"
+    id: str  # UUID primary key
+    event_id: str  # FK events(id) ON DELETE CASCADE
+    entity_id: Optional[str]  # FK recognized_entities(id) ON DELETE SET NULL
+    embedding: str  # JSON array of 512 floats
+    bounding_box: str  # JSON: {x, y, width, height}
+    confidence: float  # Detection confidence 0.0-1.0
+    model_version: str  # e.g., "clip-ViT-B-32-v1"
+    created_at: datetime
+      </signature>
+      <path>backend/app/models/face_embedding.py (new)</path>
+    </interface>
+    <interface name="Face API Endpoints" kind="REST">
+      <signature>
+GET  /api/v1/context/faces/{event_id}  -> FaceEmbeddingsResponse
+DELETE /api/v1/context/faces/{event_id}  -> 204 No Content
+DELETE /api/v1/context/faces  -> DeleteFacesResponse (count deleted)
+      </signature>
+      <path>backend/app/api/v1/context.py (extend)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio for async tests. Follow existing test patterns in
+      backend/tests/test_services/ and backend/tests/test_api/. Use SQLite in-memory database for
+      tests. Mock external services. Frontend uses Vitest with React Testing Library.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_face_detection_service.py (new)</location>
+      <location>backend/tests/test_services/test_face_embedding_service.py (new)</location>
+      <location>backend/tests/test_api/test_context_faces.py (new)</location>
+      <location>backend/tests/fixtures/images/ (new - test images)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test face detection on image with single face - verify bbox returned</idea>
+      <idea ac="1">Test face detection on image with multiple faces - verify all faces detected</idea>
+      <idea ac="1">Test face detection on image with no faces - verify empty list returned</idea>
+      <idea ac="1">Test confidence threshold filtering - low confidence faces filtered out</idea>
+      <idea ac="2">Test face region extraction with padding - verify dimensions</idea>
+      <idea ac="2">Test face region extraction handles edge cases (face near image border)</idea>
+      <idea ac="3">Test face embedding generation produces 512-dim vector</idea>
+      <idea ac="3">Test embedding model version is tracked correctly</idea>
+      <idea ac="4">Test FaceEmbedding model CRUD operations</idea>
+      <idea ac="4">Test CASCADE delete when event is deleted</idea>
+      <idea ac="4">Test SET NULL when entity is deleted</idea>
+      <idea ac="5">Test face_recognition_enabled setting toggle</idea>
+      <idea ac="5">Test face processing blocked when setting disabled</idea>
+      <idea ac="5">Test delete all face embeddings endpoint</idea>
+      <idea ac="6">Test face processing runs asynchronously (non-blocking)</idea>
+      <idea ac="6">Test face count logged in event processing</idea>
+      <idea ac="7">Test GET faces endpoint returns correct data</idea>
+      <idea ac="7">Test DELETE faces endpoint removes data</idea>
+    </ideas>
+  </tests>
+</story-context>

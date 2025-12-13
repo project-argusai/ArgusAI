@@ -17,6 +17,7 @@ from app.models.camera_activity_pattern import CameraActivityPattern
 from app.models.activity_summary import ActivitySummary
 from app.models.event_feedback import EventFeedback
 from app.models.prompt_history import PromptHistory
+from app.models.face_embedding import FaceEmbedding
 
 __all__ = [
     "ProtectController",
@@ -39,4 +40,5 @@ __all__ = [
     "ActivitySummary",
     "EventFeedback",
     "PromptHistory",
+    "FaceEmbedding",
 ]

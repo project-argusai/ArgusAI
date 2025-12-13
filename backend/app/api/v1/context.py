@@ -1033,3 +1033,198 @@ async def calculate_anomaly_score(
         severity=result.severity,
         has_baseline=result.has_baseline,
     )
+
+
+# Story P4-8.1: Face Embedding API Endpoints
+from app.services.face_embedding_service import get_face_embedding_service, FaceEmbeddingService
+
+
+class FaceEmbeddingResponse(BaseModel):
+    """Response model for a single face embedding."""
+    id: str = Field(description="UUID of the face embedding")
+    event_id: str = Field(description="UUID of the associated event")
+    entity_id: Optional[str] = Field(default=None, description="UUID of linked entity (if any)")
+    bounding_box: dict = Field(description="Face bounding box: {x, y, width, height}")
+    confidence: float = Field(ge=0.0, le=1.0, description="Face detection confidence")
+    model_version: str = Field(description="Model version used for embedding")
+    created_at: str = Field(description="When the face embedding was created (ISO 8601)")
+
+
+class FaceEmbeddingsResponse(BaseModel):
+    """Response model for face embeddings list."""
+    event_id: str = Field(description="UUID of the event")
+    face_count: int = Field(description="Number of face embeddings")
+    faces: list[FaceEmbeddingResponse] = Field(description="List of face embeddings")
+
+
+class DeleteFacesResponse(BaseModel):
+    """Response model for face deletion."""
+    deleted_count: int = Field(description="Number of face embeddings deleted")
+    message: str = Field(description="Status message")
+
+
+class FaceStatsResponse(BaseModel):
+    """Response model for face embedding statistics."""
+    total_face_embeddings: int = Field(description="Total face embeddings in database")
+    face_recognition_enabled: bool = Field(description="Whether face recognition is enabled")
+    model_version: str = Field(description="Current face embedding model version")
+
+
+@router.get("/faces/{event_id}", response_model=FaceEmbeddingsResponse)
+async def get_face_embeddings(
+    event_id: str,
+    db: Session = Depends(get_db),
+    face_service: FaceEmbeddingService = Depends(get_face_embedding_service),
+):
+    """
+    Get all face embeddings for an event.
+
+    Story P4-8.1: Face Embedding Storage (AC7)
+
+    Returns face embeddings detected in the event thumbnail, including
+    bounding box coordinates and confidence scores.
+
+    Args:
+        event_id: UUID of the event
+        db: Database session
+        face_service: Face embedding service instance
+
+    Returns:
+        FaceEmbeddingsResponse with list of face embeddings
+
+    Raises:
+        404: If event not found
+    """
+    # Verify event exists
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    faces = await face_service.get_face_embeddings(db, event_id)
+
+    return FaceEmbeddingsResponse(
+        event_id=event_id,
+        face_count=len(faces),
+        faces=[
+            FaceEmbeddingResponse(
+                id=f["id"],
+                event_id=f["event_id"],
+                entity_id=f.get("entity_id"),
+                bounding_box=f["bounding_box"],
+                confidence=f["confidence"],
+                model_version=f["model_version"],
+                created_at=f["created_at"],
+            )
+            for f in faces
+        ],
+    )
+
+
+@router.delete("/faces/{event_id}", response_model=DeleteFacesResponse)
+async def delete_event_faces(
+    event_id: str,
+    db: Session = Depends(get_db),
+    face_service: FaceEmbeddingService = Depends(get_face_embedding_service),
+):
+    """
+    Delete all face embeddings for an event.
+
+    Story P4-8.1: Face Embedding Storage (AC7)
+
+    Removes face embedding data for a specific event. Event itself is not deleted.
+
+    Args:
+        event_id: UUID of the event
+        db: Database session
+        face_service: Face embedding service instance
+
+    Returns:
+        DeleteFacesResponse with count of deleted embeddings
+
+    Raises:
+        404: If event not found
+    """
+    # Verify event exists
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    count = await face_service.delete_event_faces(db, event_id)
+
+    return DeleteFacesResponse(
+        deleted_count=count,
+        message=f"Deleted {count} face embedding(s) for event {event_id}"
+    )
+
+
+@router.delete("/faces", response_model=DeleteFacesResponse)
+async def delete_all_faces(
+    db: Session = Depends(get_db),
+    face_service: FaceEmbeddingService = Depends(get_face_embedding_service),
+):
+    """
+    Delete all face embeddings from the database.
+
+    Story P4-8.1: Face Embedding Storage (AC5)
+
+    Privacy control endpoint - allows users to clear all stored face data.
+    This is an admin-level operation that removes ALL face embeddings.
+
+    Args:
+        db: Database session
+        face_service: Face embedding service instance
+
+    Returns:
+        DeleteFacesResponse with count of deleted embeddings
+    """
+    count = await face_service.delete_all_faces(db)
+
+    logger.info(
+        "All face embeddings deleted via API",
+        extra={
+            "event_type": "all_faces_deleted_api",
+            "count": count,
+        }
+    )
+
+    return DeleteFacesResponse(
+        deleted_count=count,
+        message=f"Deleted all {count} face embedding(s) from database"
+    )
+
+
+@router.get("/faces/stats", response_model=FaceStatsResponse)
+async def get_face_stats(
+    db: Session = Depends(get_db),
+    face_service: FaceEmbeddingService = Depends(get_face_embedding_service),
+):
+    """
+    Get face embedding statistics.
+
+    Story P4-8.1: Face Embedding Storage
+
+    Returns statistics about face embeddings including total count
+    and current settings.
+
+    Args:
+        db: Database session
+        face_service: Face embedding service instance
+
+    Returns:
+        FaceStatsResponse with statistics
+    """
+    from app.models.system_setting import SystemSetting
+
+    total_faces = await face_service.get_total_face_count(db)
+
+    # Get face_recognition_enabled setting
+    setting = db.query(SystemSetting).filter(
+        SystemSetting.key == "face_recognition_enabled"
+    ).first()
+    enabled = setting.value.lower() == "true" if setting else False
+
+    return FaceStatsResponse(
+        total_face_embeddings=total_faces,
+        face_recognition_enabled=enabled,
+        model_version=face_service.get_model_version(),
+    )

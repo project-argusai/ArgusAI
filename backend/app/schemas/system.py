@@ -273,6 +273,11 @@ class SystemSettingsUpdate(BaseModel):
         None, description="Enable anomaly scoring for events (default: true)"
     )
 
+    # Story P4-8.1: Face Recognition Privacy Settings
+    face_recognition_enabled: Optional[bool] = Field(
+        None, description="Enable face detection and embedding storage (default: false, opt-in)"
+    )
+
 
 # Story P3-7.1: AI Usage Response Schemas for Cost Tracking
 

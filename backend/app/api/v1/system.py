@@ -517,6 +517,8 @@ async def update_settings(
             'anomaly_low_threshold',
             'anomaly_high_threshold',
             'anomaly_enabled',
+            # Story P4-8.1: Face Recognition Privacy Settings
+            'face_recognition_enabled',
         }
 
         for field_name, value in update_data.items():

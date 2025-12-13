@@ -1098,6 +1098,45 @@ class EventProcessor:
                     }
                 )
 
+            # Step 12: Process face embeddings (Story P4-8.1)
+            # Only process faces if face_recognition_enabled is true (privacy control)
+            try:
+                from app.models.system_setting import SystemSetting
+                from app.services.face_embedding_service import get_face_embedding_service
+                import base64 as b64
+
+                # Check if face recognition is enabled (AC5: privacy controls)
+                with SessionLocal() as settings_db:
+                    setting = settings_db.query(SystemSetting).filter(
+                        SystemSetting.key == "face_recognition_enabled"
+                    ).first()
+                    face_recognition_enabled = (
+                        setting.value.lower() == "true" if setting else False
+                    )
+
+                if face_recognition_enabled and thumbnail_base64:
+                    # Fire and forget - use asyncio.create_task for non-blocking (AC6)
+                    asyncio.create_task(
+                        self._process_faces(event_id, thumbnail_base64)
+                    )
+                    logger.debug(
+                        f"Face processing task created for event {event_id}",
+                        extra={"event_id": event_id, "camera_id": event.camera_id}
+                    )
+                else:
+                    if not face_recognition_enabled:
+                        logger.debug(
+                            f"Face recognition disabled, skipping face processing for event {event_id}",
+                            extra={"event_id": event_id}
+                        )
+
+            except Exception as face_error:
+                # Face processing failures must not block event processing (AC6)
+                logger.warning(
+                    f"Failed to create face processing task: {face_error}",
+                    extra={"error": str(face_error), "event_id": event_id}
+                )
+
             logger.info(
                 f"Event processed successfully for camera {event.camera_name}",
                 extra={
@@ -1438,6 +1477,81 @@ class EventProcessor:
                 extra={
                     "event_type": "anomaly_scoring_error",
                     "event_id": event.id,
+                    "error": str(e)
+                }
+            )
+
+    async def _process_faces(
+        self,
+        event_id: str,
+        thumbnail_base64: str
+    ) -> None:
+        """
+        Process face detection and embedding for an event (Story P4-8.1).
+
+        This is a fire-and-forget async task. Errors are logged but not propagated.
+        Uses its own database session since the caller's session may be closed.
+
+        Args:
+            event_id: UUID of the event to process
+            thumbnail_base64: Base64-encoded thumbnail image
+
+        Note:
+            - Non-blocking, runs as background task (AC6)
+            - Only runs when face_recognition_enabled is true (AC5)
+            - Errors don't propagate to caller (AC6)
+        """
+        try:
+            from app.services.face_embedding_service import get_face_embedding_service
+            import base64
+
+            face_service = get_face_embedding_service()
+
+            # Strip data URI prefix if present
+            b64_str = thumbnail_base64
+            if b64_str.startswith("data:"):
+                comma_idx = b64_str.find(",")
+                if comma_idx != -1:
+                    b64_str = b64_str[comma_idx + 1:]
+
+            thumbnail_bytes = base64.b64decode(b64_str)
+
+            # Use own session since caller's may be closed
+            db = SessionLocal()
+            try:
+                face_ids = await face_service.process_event_faces(
+                    db=db,
+                    event_id=event_id,
+                    thumbnail_bytes=thumbnail_bytes,
+                )
+
+                if face_ids:
+                    logger.info(
+                        f"Face processing complete for event {event_id}",
+                        extra={
+                            "event_type": "face_processing_complete",
+                            "event_id": event_id,
+                            "face_count": len(face_ids),
+                        }
+                    )
+                else:
+                    logger.debug(
+                        f"No faces found in event {event_id}",
+                        extra={
+                            "event_type": "no_faces_found",
+                            "event_id": event_id,
+                        }
+                    )
+            finally:
+                db.close()
+
+        except Exception as e:
+            # Face processing errors must not propagate (AC6)
+            logger.warning(
+                f"Face processing failed for event {event_id}: {e}",
+                extra={
+                    "event_type": "face_processing_error",
+                    "event_id": event_id,
                     "error": str(e)
                 }
             )

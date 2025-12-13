@@ -285,7 +285,7 @@ export function MQTTSettings() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <form onSubmit={form.handleSubmit(handleSave)} className="space-y-6">
+        <div className="space-y-6">
           {/* Master Enable Toggle */}
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="space-y-0.5">
@@ -588,7 +588,8 @@ export function MQTTSettings() {
           {/* Save Button (AC 5) */}
           <div className="flex justify-end">
             <Button
-              type="submit"
+              type="button"
+              onClick={form.handleSubmit(handleSave)}
               disabled={saveMutation.isPending || !isDirty}
             >
               {saveMutation.isPending ? (
@@ -601,7 +602,7 @@ export function MQTTSettings() {
               )}
             </Button>
           </div>
-        </form>
+        </div>
       </CardContent>
     </Card>
   );

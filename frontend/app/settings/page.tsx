@@ -55,6 +55,7 @@ import { CostDashboard } from '@/components/settings/CostDashboard';
 import { AccuracyDashboard } from '@/components/settings/AccuracyDashboard';
 import { PushNotificationSettings } from '@/components/settings/PushNotificationSettings';
 import { MQTTSettings } from '@/components/settings/MQTTSettings';
+import { HomekitSettings } from '@/components/settings/HomekitSettings';
 import { ControllerForm, type ControllerData, DeleteControllerDialog, DiscoveredCameraList } from '@/components/protect';
 import { useQuery } from '@tanstack/react-query';
 import type { AIProvider } from '@/types/settings';
@@ -276,49 +277,51 @@ export default function SettingsPage() {
 
         <form onSubmit={form.handleSubmit(handleSave)}>
           <Tabs defaultValue={initialTab} className="space-y-6">
-            {/* Tab Navigation */}
-            <TabsList className="grid w-full grid-cols-10">
-              <TabsTrigger value="general" className="flex items-center gap-2">
-                <Globe className="h-4 w-4" />
-                <span className="hidden sm:inline">General</span>
-              </TabsTrigger>
-              <TabsTrigger value="ai" className="flex items-center gap-2">
-                <Brain className="h-4 w-4" />
-                <span className="hidden sm:inline">AI Models</span>
-              </TabsTrigger>
-              <TabsTrigger value="ai-usage" className="flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
-                <span className="hidden sm:inline">AI Usage</span>
-              </TabsTrigger>
-              <TabsTrigger value="motion" className="flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                <span className="hidden sm:inline">Motion</span>
-              </TabsTrigger>
-              <TabsTrigger value="data" className="flex items-center gap-2">
-                <Database className="h-4 w-4" />
-                <span className="hidden sm:inline">Data</span>
-              </TabsTrigger>
-              <TabsTrigger value="protect" className="flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                <span className="hidden sm:inline">Protect</span>
-              </TabsTrigger>
-              <TabsTrigger value="integrations" className="flex items-center gap-2">
-                <Network className="h-4 w-4" />
-                <span className="hidden sm:inline">Integrations</span>
-              </TabsTrigger>
-              <TabsTrigger value="notifications" className="flex items-center gap-2">
-                <Bell className="h-4 w-4" />
-                <span className="hidden sm:inline">Notifications</span>
-              </TabsTrigger>
-              <TabsTrigger value="logs" className="flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                <span className="hidden sm:inline">Logs</span>
-              </TabsTrigger>
-              <TabsTrigger value="accuracy" className="flex items-center gap-2">
-                <BarChart3 className="h-4 w-4" />
-                <span className="hidden sm:inline">AI Accuracy</span>
-              </TabsTrigger>
-            </TabsList>
+            {/* Tab Navigation - horizontal scrollable row */}
+            <div className="overflow-x-auto border-b pb-2">
+              <TabsList style={{ display: 'inline-flex', flexDirection: 'row', flexWrap: 'nowrap', width: 'max-content' }} className="h-10 items-center gap-1 rounded-lg bg-muted p-1">
+                <TabsTrigger value="general" className="flex items-center gap-2 px-3">
+                  <Globe className="h-4 w-4" />
+                  <span className="hidden sm:inline">General</span>
+                </TabsTrigger>
+                <TabsTrigger value="ai" className="flex items-center gap-2 px-3">
+                  <Brain className="h-4 w-4" />
+                  <span className="hidden sm:inline">AI Models</span>
+                </TabsTrigger>
+                <TabsTrigger value="ai-usage" className="flex items-center gap-2 px-3">
+                  <DollarSign className="h-4 w-4" />
+                  <span className="hidden sm:inline">AI Usage</span>
+                </TabsTrigger>
+                <TabsTrigger value="motion" className="flex items-center gap-2 px-3">
+                  <Eye className="h-4 w-4" />
+                  <span className="hidden sm:inline">Motion</span>
+                </TabsTrigger>
+                <TabsTrigger value="data" className="flex items-center gap-2 px-3">
+                  <Database className="h-4 w-4" />
+                  <span className="hidden sm:inline">Data</span>
+                </TabsTrigger>
+                <TabsTrigger value="protect" className="flex items-center gap-2 px-3">
+                  <Shield className="h-4 w-4" />
+                  <span className="hidden sm:inline">Protect</span>
+                </TabsTrigger>
+                <TabsTrigger value="integrations" className="flex items-center gap-2 px-3">
+                  <Network className="h-4 w-4" />
+                  <span className="hidden sm:inline">Integrations</span>
+                </TabsTrigger>
+                <TabsTrigger value="notifications" className="flex items-center gap-2 px-3">
+                  <Bell className="h-4 w-4" />
+                  <span className="hidden sm:inline">Notifications</span>
+                </TabsTrigger>
+                <TabsTrigger value="logs" className="flex items-center gap-2 px-3">
+                  <FileText className="h-4 w-4" />
+                  <span className="hidden sm:inline">Logs</span>
+                </TabsTrigger>
+                <TabsTrigger value="accuracy" className="flex items-center gap-2 px-3">
+                  <BarChart3 className="h-4 w-4" />
+                  <span className="hidden sm:inline">AI Accuracy</span>
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             {/* General Tab */}
             <TabsContent value="general" className="space-y-4">
@@ -954,10 +957,13 @@ export default function SettingsPage() {
               </Card>
             </TabsContent>
 
-            {/* Integrations Tab - Story P4-2.4 */}
+            {/* Integrations Tab - Story P4-2.4, P4-6.1 */}
             <TabsContent value="integrations" className="space-y-4">
               <ErrorBoundary context="MQTT Settings">
                 <MQTTSettings />
+              </ErrorBoundary>
+              <ErrorBoundary context="HomeKit Settings">
+                <HomekitSettings />
               </ErrorBoundary>
             </TabsContent>
 

@@ -46,6 +46,7 @@ from app.services.mqtt_discovery_service import initialize_discovery_service, ge
 from app.services.mqtt_status_service import initialize_status_sensors  # Story P4-2.5: Camera Status Sensors
 from app.services.pattern_service import get_pattern_service  # Story P4-3.5: Pattern Detection
 from app.services.digest_scheduler import initialize_digest_scheduler, shutdown_digest_scheduler  # Story P4-4.2: Digest Scheduler
+from app.services.homekit_service import get_homekit_service, initialize_homekit_service, shutdown_homekit_service  # Story P4-6.1: HomeKit
 
 # Application version
 APP_VERSION = "1.0.0"
@@ -464,6 +465,60 @@ async def lifespan(app: FastAPI):
             extra={"event_type": "digest_scheduler_init_failed", "error": str(e)}
         )
 
+    # Initialize HomeKit service (Story P4-6.1)
+    # Only starts if HOMEKIT_ENABLED=true or homekit_enabled setting is true
+    try:
+        from app.models.system_setting import SystemSetting
+
+        homekit_db = next(get_db())
+        try:
+            # Check database setting (takes precedence over env var)
+            homekit_setting = homekit_db.query(SystemSetting).filter(
+                SystemSetting.key == "homekit_enabled"
+            ).first()
+
+            homekit_service = get_homekit_service()
+
+            # Use database setting if exists, otherwise env var
+            if homekit_setting:
+                homekit_enabled = homekit_setting.value.lower() in ('true', '1', 'yes')
+                homekit_service.config.enabled = homekit_enabled
+            else:
+                homekit_enabled = homekit_service.config.enabled
+
+            if homekit_enabled:
+                # Get enabled cameras for HomeKit
+                homekit_cameras = homekit_db.query(Camera).filter(Camera.is_enabled == True).all()
+                success = await homekit_service.start(homekit_cameras)
+
+                if success:
+                    logger.info(
+                        "HomeKit service started",
+                        extra={
+                            "event_type": "homekit_init_complete",
+                            "camera_count": len(homekit_cameras),
+                            "port": homekit_service.config.port
+                        }
+                    )
+                else:
+                    logger.warning(
+                        f"HomeKit service failed to start: {homekit_service._error}",
+                        extra={"event_type": "homekit_init_failed", "error": homekit_service._error}
+                    )
+            else:
+                logger.debug(
+                    "HomeKit service disabled",
+                    extra={"event_type": "homekit_disabled"}
+                )
+        finally:
+            homekit_db.close()
+    except Exception as e:
+        # HomeKit failure should not prevent app startup
+        logger.warning(
+            f"HomeKit initialization failed (non-fatal): {e}",
+            extra={"event_type": "homekit_init_failed", "error": str(e)}
+        )
+
     logger.info(
         "Application startup complete",
         extra={
@@ -492,6 +547,21 @@ async def lifespan(app: FastAPI):
         logger.error(
             f"Error stopping digest scheduler: {e}",
             extra={"event_type": "digest_scheduler_shutdown_error", "error": str(e)}
+        )
+
+    # Shutdown HomeKit service (Story P4-6.1)
+    try:
+        homekit_service = get_homekit_service()
+        if homekit_service.is_running:
+            await homekit_service.stop()
+            logger.info(
+                "HomeKit service stopped",
+                extra={"event_type": "homekit_shutdown_complete"}
+            )
+    except Exception as e:
+        logger.error(
+            f"Error stopping HomeKit service: {e}",
+            extra={"event_type": "homekit_shutdown_error", "error": str(e)}
         )
 
     # Disconnect MQTT service (Story P4-2.1)

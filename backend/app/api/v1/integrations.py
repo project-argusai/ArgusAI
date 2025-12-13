@@ -416,3 +416,220 @@ async def publish_discovery(db: Session = Depends(get_db)):
         message=f"Published discovery for {cameras_published} cameras",
         cameras_published=cameras_published
     )
+
+
+# ============================================================================
+# HomeKit Integration Endpoints (Story P4-6.1)
+# ============================================================================
+
+
+class HomekitStatusResponse(BaseModel):
+    """HomeKit integration status response."""
+    enabled: bool
+    running: bool
+    paired: bool
+    accessory_count: int
+    bridge_name: str
+    setup_code: Optional[str] = None
+    qr_code_data: Optional[str] = None
+    port: int
+    error: Optional[str] = None
+    available: bool = Field(..., description="Whether HAP-python is installed")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "enabled": True,
+                "running": True,
+                "paired": False,
+                "accessory_count": 3,
+                "bridge_name": "ArgusAI",
+                "setup_code": "031-45-154",
+                "qr_code_data": "data:image/png;base64,...",
+                "port": 51826,
+                "error": None,
+                "available": True
+            }
+        }
+
+
+class HomekitResetResponse(BaseModel):
+    """Response for HomeKit pairing reset."""
+    success: bool
+    message: str
+    new_setup_code: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "message": "HomeKit pairing reset. Please re-pair with the Home app.",
+                "new_setup_code": "123-45-678"
+            }
+        }
+
+
+class HomekitEnableRequest(BaseModel):
+    """Request to enable/disable HomeKit integration."""
+    enabled: bool = Field(..., description="Whether to enable HomeKit integration")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "enabled": True
+            }
+        }
+
+
+@router.get("/homekit/status", response_model=HomekitStatusResponse)
+async def get_homekit_status():
+    """
+    Get current HomeKit integration status (AC8: Status endpoint).
+
+    Returns enabled/running state, pairing info, and setup code if not paired.
+    """
+    from app.services.homekit_service import get_homekit_service
+
+    service = get_homekit_service()
+    status = service.get_status()
+
+    return HomekitStatusResponse(
+        enabled=status.enabled,
+        running=status.running,
+        paired=status.paired,
+        accessory_count=status.accessory_count,
+        bridge_name=status.bridge_name,
+        setup_code=status.setup_code,
+        qr_code_data=status.qr_code_data,
+        port=status.port,
+        error=status.error,
+        available=service.is_available,
+    )
+
+
+@router.post("/homekit/reset", response_model=HomekitResetResponse)
+async def reset_homekit_pairing():
+    """
+    Reset HomeKit pairing (AC10: Reset functionality).
+
+    Removes existing pairing state, requiring re-pairing with the Home app.
+    Generates a new pairing code.
+    """
+    from app.services.homekit_service import get_homekit_service
+
+    service = get_homekit_service()
+
+    if not service.is_available:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="HAP-python not installed. HomeKit integration not available."
+        )
+
+    success = await service.reset_pairing()
+
+    if success:
+        new_status = service.get_status()
+        logger.info(
+            "HomeKit pairing reset",
+            extra={
+                "event_type": "homekit_pairing_reset",
+                "new_setup_code": service.pincode
+            }
+        )
+        return HomekitResetResponse(
+            success=True,
+            message="HomeKit pairing reset. Please re-pair with the Home app.",
+            new_setup_code=service.pincode
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to reset HomeKit pairing"
+        )
+
+
+@router.put("/homekit/enable", response_model=HomekitStatusResponse)
+async def update_homekit_enabled(
+    request: HomekitEnableRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Enable or disable HomeKit integration (AC6: Toggle in settings).
+
+    When enabled, starts the HomeKit accessory server.
+    When disabled, stops the server but preserves pairing state.
+    """
+    from app.services.homekit_service import get_homekit_service, initialize_homekit_service, shutdown_homekit_service
+    from app.models.system_setting import SystemSetting
+    from app.models.camera import Camera
+
+    # Update setting in database
+    setting = db.query(SystemSetting).filter(
+        SystemSetting.key == "homekit_enabled"
+    ).first()
+
+    if setting:
+        setting.value = str(request.enabled).lower()
+    else:
+        setting = SystemSetting(
+            key="homekit_enabled",
+            value=str(request.enabled).lower()
+        )
+        db.add(setting)
+
+    db.commit()
+
+    service = get_homekit_service()
+
+    if request.enabled:
+        # Start HomeKit service
+        if not service.is_available:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="HAP-python not installed. Cannot enable HomeKit integration."
+            )
+
+        # Update config
+        service.config.enabled = True
+
+        # Get cameras and start service
+        cameras = db.query(Camera).filter(Camera.enabled == True).all()
+        success = await service.start(cameras)
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to start HomeKit service: {service._error}"
+            )
+
+        logger.info(
+            "HomeKit integration enabled",
+            extra={
+                "event_type": "homekit_enabled",
+                "camera_count": len(cameras)
+            }
+        )
+    else:
+        # Stop HomeKit service
+        await service.stop()
+        service.config.enabled = False
+
+        logger.info(
+            "HomeKit integration disabled",
+            extra={"event_type": "homekit_disabled"}
+        )
+
+    # Return updated status
+    status_result = service.get_status()
+    return HomekitStatusResponse(
+        enabled=status_result.enabled,
+        running=status_result.running,
+        paired=status_result.paired,
+        accessory_count=status_result.accessory_count,
+        bridge_name=status_result.bridge_name,
+        setup_code=status_result.setup_code,
+        qr_code_data=status_result.qr_code_data,
+        port=status_result.port,
+        error=status_result.error,
+        available=service.is_available,
+    )

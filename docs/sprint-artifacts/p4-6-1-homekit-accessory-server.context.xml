@@ -1,0 +1,276 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P4-6</epicId>
+    <storyId>P4-6.1</storyId>
+    <title>HomeKit Accessory Server</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-12</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-6-1-homekit-accessory-server.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security administrator with Apple devices</asA>
+    <iWant>ArgusAI to expose cameras as HomeKit motion sensor accessories</iWant>
+    <soThat>I can integrate security events with my Apple Home ecosystem and create automations triggered by AI-detected motion</soThat>
+    <tasks>
+      <task id="1" title="Add HAP-python dependency and configuration">
+        <subtask>Add HAP-python>=4.9.0 to requirements.txt</subtask>
+        <subtask>Create backend/app/config/homekit.py for HomeKit settings</subtask>
+        <subtask>Add HomeKit-related environment variables to .env.example</subtask>
+        <subtask>Write configuration loading tests</subtask>
+      </task>
+      <task id="2" title="Create HomekitService">
+        <subtask>Create backend/app/services/homekit_service.py</subtask>
+        <subtask>Implement HomekitService class extending HAP-python AccessoryDriver</subtask>
+        <subtask>Create HomekitBridge accessory to host multiple motion sensors</subtask>
+        <subtask>Implement accessory persistence in backend/data/homekit/ directory</subtask>
+        <subtask>Add start() and stop() lifecycle methods</subtask>
+        <subtask>Write unit tests for service initialization</subtask>
+      </task>
+      <task id="3" title="Implement MotionSensorAccessory">
+        <subtask>Create backend/app/services/homekit_accessories.py</subtask>
+        <subtask>Implement CameraMotionSensor class extending HAP-python Accessory</subtask>
+        <subtask>Map camera properties: name, serial (camera_id), manufacturer</subtask>
+        <subtask>Implement motion detected characteristic</subtask>
+        <subtask>Add method to update motion state</subtask>
+        <subtask>Write unit tests for accessory creation</subtask>
+      </task>
+      <task id="4" title="Implement pairing code generation and persistence">
+        <subtask>Generate secure 8-digit pairing code on first run</subtask>
+        <subtask>Store pairing state in backend/data/homekit/accessory.state</subtask>
+        <subtask>Implement QR code generation for easy pairing</subtask>
+        <subtask>Create pairing code display endpoint</subtask>
+        <subtask>Write tests for pairing persistence</subtask>
+      </task>
+      <task id="5" title="Create HomeKit API endpoints">
+        <subtask>Add GET /api/v1/integrations/homekit/status endpoint</subtask>
+        <subtask>Add POST /api/v1/integrations/homekit/reset endpoint</subtask>
+        <subtask>Return: enabled, paired, accessory_count, setup_code, qr_code_data</subtask>
+        <subtask>Write API tests</subtask>
+      </task>
+      <task id="6" title="Integrate HomekitService with FastAPI lifecycle">
+        <subtask>Add HomekitService initialization in backend/main.py startup</subtask>
+        <subtask>Register shutdown handler for clean disconnect</subtask>
+        <subtask>Conditionally start based on settings.homekit_enabled</subtask>
+        <subtask>Add cameras to bridge on service start</subtask>
+        <subtask>Write integration test for lifecycle</subtask>
+      </task>
+      <task id="7" title="Create HomeKit Settings UI">
+        <subtask>Create frontend/components/settings/HomekitSettings.tsx</subtask>
+        <subtask>Add enable/disable toggle with confirmation</subtask>
+        <subtask>Display pairing QR code when unpaired</subtask>
+        <subtask>Show pairing status indicator (green/red badge)</subtask>
+        <subtask>Add Reset Pairing button with confirmation dialog</subtask>
+        <subtask>Add to Integrations tab in Settings page</subtask>
+      </task>
+      <task id="8" title="Create useHomekitStatus hook">
+        <subtask>Create frontend/hooks/useHomekitStatus.ts</subtask>
+        <subtask>Fetch from /api/v1/integrations/homekit/status</subtask>
+        <subtask>Mutation for reset functionality</subtask>
+        <subtask>Polling for status updates (every 10s when on settings page)</subtask>
+      </task>
+      <task id="9" title="Add HomeKit settings to SystemSetting model">
+        <subtask>Add homekit_enabled (bool, default False) setting</subtask>
+        <subtask>Add Alembic migration if needed for new setting fields</subtask>
+        <subtask>Update settings API to include HomeKit configuration</subtask>
+      </task>
+      <task id="10" title="Write integration tests">
+        <subtask>Test service starts when enabled</subtask>
+        <subtask>Test camera accessories are created correctly</subtask>
+        <subtask>Test pairing code generation and persistence</subtask>
+        <subtask>Test reset functionality clears pairings</subtask>
+        <subtask>Test service restart preserves state</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">HAP-python accessory server starts with FastAPI application</criterion>
+    <criterion id="2">Each enabled camera is exposed as a HomeKit Motion Sensor accessory</criterion>
+    <criterion id="3">HomeKit pairing QR code/setup code is generated and displayed</criterion>
+    <criterion id="4">Accessory bridge supports multiple camera motion sensors</criterion>
+    <criterion id="5">HomeKit accessory state persists across server restarts</criterion>
+    <criterion id="6">Settings UI provides HomeKit enable/disable toggle</criterion>
+    <criterion id="7">Settings UI displays pairing status (paired/unpaired)</criterion>
+    <criterion id="8">API endpoint returns HomeKit status and pairing info</criterion>
+    <criterion id="9">HomeKit accessory names match camera names</criterion>
+    <criterion id="10">Reset pairing functionality available via API and UI</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>ArgusAI Phase 4 PRD</title>
+        <section>Epic P4-5: Voice Assistant Integration</section>
+        <snippet>HomeKit integration via HAP-python. Camera exposed as HomeKit Motion Sensor. FR19: HomeKit accessory for camera status.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Epic P4-6: Voice Assistant Integration (Growth)</section>
+        <snippet>Story P4-6.1: HomeKit Accessory Server - Implement HAP-python accessory, create motion sensor accessories per camera, handle accessory pairing, manage accessory state updates.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture Document</title>
+        <section>Phase 4 Additions</section>
+        <snippet>HAP-python>=4.9.0 for HomeKit Accessory Protocol. homekit_service.py location defined. NFR3: HomeKit accessory remains responsive during high load.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/api/v1/integrations.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-419</lines>
+        <reason>Existing integrations API with MQTT endpoints. HomeKit endpoints will be added here following same patterns.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/mqtt_config.py</path>
+        <kind>model</kind>
+        <symbol>MQTTConfig</symbol>
+        <lines>1-182</lines>
+        <reason>Pattern for integration config model with encrypted credentials and validation. HomeKit config may follow similar patterns.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/mqtt_service.py</path>
+        <kind>service</kind>
+        <symbol>MQTTService</symbol>
+        <reason>Pattern for external integration service with lifecycle management, get_status, test_connection. HomekitService should follow similar patterns.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>application</kind>
+        <symbol>lifespan</symbol>
+        <lines>189-299</lines>
+        <reason>Application lifecycle handler where MQTT is initialized. HomeKit service initialization should be added here.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/MQTTSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>MQTTSettings</symbol>
+        <reason>Pattern for integration settings UI with enable toggle, status display, test functionality. HomekitSettings should follow similar patterns.</reason>
+      </file>
+      <file>
+        <path>frontend/hooks/usePromptInsights.ts</path>
+        <kind>hook</kind>
+        <symbol>usePromptInsights, useApplyPromptSuggestion</symbol>
+        <reason>Recent TanStack Query hook pattern with fetch and mutation. useHomekitStatus should follow similar patterns.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <reason>Camera model for accessing enabled cameras to create HomeKit accessories.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor</symbol>
+        <reason>Event processing pipeline that will trigger HomeKit motion events in Story P4-6.2.</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>client</kind>
+        <symbol>apiClient</symbol>
+        <reason>API client with typed methods for all endpoints. HomeKit methods will be added here.</reason>
+      </file>
+      <file>
+        <path>frontend/app/settings/page.tsx</path>
+        <kind>page</kind>
+        <symbol>SettingsPage</symbol>
+        <reason>Settings page with tabs for different integrations. HomeKit settings will be added to Integrations tab.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package version=">=0.115.0">fastapi</package>
+        <package version=">=2.0.36">sqlalchemy</package>
+        <package version=">=1.14.0">alembic</package>
+        <package version=">=2.0.0">paho-mqtt</package>
+        <package note="TO ADD">HAP-python>=4.9.0</package>
+      </python>
+      <node>
+        <package>next@15.x</package>
+        <package>react@19.x</package>
+        <package>@tanstack/react-query</package>
+        <package>tailwindcss</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">HomeKit service must be optional (disabled by default) and not affect system startup if HAP-python not installed</constraint>
+    <constraint source="architecture">HomeKit accessory state must persist in backend/data/homekit/ directory</constraint>
+    <constraint source="architecture">HomeKit port (51826) must not conflict with other services</constraint>
+    <constraint source="NFR3">HomeKit accessory must remain responsive during high load</constraint>
+    <constraint source="security">No credentials or pairing keys should be logged</constraint>
+    <constraint source="patterns">Follow existing integration patterns (MQTT) for consistency</constraint>
+    <constraint source="patterns">Use TanStack Query for frontend data fetching with polling for status updates</constraint>
+    <constraint source="patterns">Settings stored in SystemSetting table with settings_ prefix</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GET /api/v1/integrations/homekit/status</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/integrations/homekit/status -> HomekitStatusResponse</signature>
+      <path>backend/app/api/v1/integrations.py</path>
+      <response>{enabled: bool, paired: bool, accessory_count: int, setup_code?: string, qr_code_data?: string, bridge_name: string}</response>
+    </interface>
+    <interface>
+      <name>POST /api/v1/integrations/homekit/reset</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/integrations/homekit/reset -> HomekitResetResponse</signature>
+      <path>backend/app/api/v1/integrations.py</path>
+      <response>{success: bool, message: string}</response>
+    </interface>
+    <interface>
+      <name>HomekitService</name>
+      <kind>class interface</kind>
+      <signature>class HomekitService: start(cameras), stop(), trigger_motion(camera_id), get_status() -> dict</signature>
+      <path>backend/app/services/homekit_service.py</path>
+    </interface>
+    <interface>
+      <name>CameraMotionSensor</name>
+      <kind>class interface</kind>
+      <signature>class CameraMotionSensor(Accessory): set_motion(detected: bool)</signature>
+      <path>backend/app/services/homekit_accessories.py</path>
+    </interface>
+    <interface>
+      <name>useHomekitStatus</name>
+      <kind>React hook</kind>
+      <signature>useHomekitStatus() -> {data, isLoading, error, refetch}</signature>
+      <path>frontend/hooks/useHomekitStatus.ts</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend uses pytest with pytest-asyncio for async tests. Frontend uses Jest with React Testing Library. Code coverage target 70%+ for new code. API tests use httpx TestClient. Mock external dependencies (HAP-python) in unit tests.</standards>
+    <locations>
+      <location>backend/tests/test_services/</location>
+      <location>backend/tests/test_api/</location>
+      <location>frontend/__tests__/components/settings/</location>
+      <location>frontend/__tests__/hooks/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test HomekitService initializes and starts AccessoryDriver on startup when enabled</idea>
+      <idea ac="1">Test HomekitService does NOT start when homekit_enabled is false</idea>
+      <idea ac="2">Test CameraMotionSensor accessory created for each enabled camera</idea>
+      <idea ac="2">Test motion sensor has correct HAP characteristic configuration</idea>
+      <idea ac="3">Test pairing code is 8 digits in XXX-XX-XXX format</idea>
+      <idea ac="3">Test QR code data is generated correctly for HomeKit pairing</idea>
+      <idea ac="4">Test bridge accessory can host 10+ motion sensors</idea>
+      <idea ac="5">Test accessory.state file is created in data/homekit/ directory</idea>
+      <idea ac="5">Test pairings survive service restart</idea>
+      <idea ac="6">Test UI toggle enables/disables HomeKit</idea>
+      <idea ac="7">Test UI shows paired/unpaired status badge</idea>
+      <idea ac="8">Test GET /api/v1/integrations/homekit/status returns correct structure</idea>
+      <idea ac="9">Test accessory display_name matches camera.name</idea>
+      <idea ac="10">Test POST /api/v1/integrations/homekit/reset clears pairing state</idea>
+      <idea ac="10">Test UI reset button triggers confirmation and calls API</idea>
+    </ideas>
+  </tests>
+</story-context>

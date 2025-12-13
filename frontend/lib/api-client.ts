@@ -1758,6 +1758,68 @@ export const apiClient = {
   },
 
   // ============================================================================
+  // HomeKit Integration (Story P4-6.1)
+  // ============================================================================
+  homekit: {
+    /**
+     * Get current HomeKit status
+     * @returns HomeKit status including enabled, running, paired state, and setup code
+     */
+    getStatus: async (): Promise<{
+      enabled: boolean;
+      running: boolean;
+      paired: boolean;
+      accessory_count: number;
+      bridge_name: string;
+      setup_code: string | null;
+      qr_code_data: string | null;
+      port: number;
+      error: string | null;
+      available: boolean;
+    }> => {
+      return apiFetch('/integrations/homekit/status');
+    },
+
+    /**
+     * Enable or disable HomeKit integration
+     * @param enabled Whether to enable HomeKit
+     * @returns Updated HomeKit status
+     */
+    setEnabled: async (enabled: boolean): Promise<{
+      enabled: boolean;
+      running: boolean;
+      paired: boolean;
+      accessory_count: number;
+      bridge_name: string;
+      setup_code: string | null;
+      qr_code_data: string | null;
+      port: number;
+      error: string | null;
+      available: boolean;
+    }> => {
+      return apiFetch('/integrations/homekit/enable', {
+        method: 'PUT',
+        body: JSON.stringify({ enabled }),
+      });
+    },
+
+    /**
+     * Reset HomeKit pairing
+     * Removes existing pairing state, requiring re-pairing with Home app
+     * @returns Reset result with new setup code
+     */
+    resetPairing: async (): Promise<{
+      success: boolean;
+      message: string;
+      new_setup_code: string | null;
+    }> => {
+      return apiFetch('/integrations/homekit/reset', {
+        method: 'POST',
+      });
+    },
+  },
+
+  // ============================================================================
   // Entity Management (Story P4-3.6)
   // ============================================================================
   entities: {

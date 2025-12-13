@@ -45,6 +45,10 @@ aiosmtplib>=3.0.0  # Async SMTP client for digest email delivery
 # MQTT Integration (Phase 4 - Home Assistant)
 paho-mqtt>=2.0.0  # MQTT client for Home Assistant integration
 
+# HomeKit Integration (Phase 4 - Story P4-6.1)
+HAP-python>=4.9.0  # HomeKit Accessory Protocol for Apple Home integration
+qrcode>=7.4.0  # QR code generation for HomeKit pairing
+
 # Temporal Context Engine (Phase 4 - Story P4-3.1)
 sentence-transformers>=2.2.0  # CLIP model for image embeddings
 

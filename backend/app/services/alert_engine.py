@@ -258,6 +258,30 @@ class AlertEngine:
 
         return event_confidence >= min_confidence
 
+    def _check_anomaly_threshold(
+        self,
+        event_anomaly_score: Optional[float],
+        anomaly_threshold: Optional[float]
+    ) -> bool:
+        """
+        Check if event's anomaly score meets threshold (Story P4-7.3).
+
+        Args:
+            event_anomaly_score: Event's anomaly score (0.0-1.0) or None
+            anomaly_threshold: Minimum anomaly threshold or None
+
+        Returns:
+            True if anomaly score meets threshold or no threshold set
+        """
+        if anomaly_threshold is None:
+            return True
+
+        # No anomaly score = don't match anomaly-based rules
+        if event_anomaly_score is None:
+            return False
+
+        return event_anomaly_score >= anomaly_threshold
+
     def evaluate_rule(self, rule: AlertRule, event: Event) -> Tuple[bool, Dict[str, Any]]:
         """
         Evaluate a single rule against an event.
@@ -363,6 +387,20 @@ class AlertEngine:
             logger.debug(
                 f"Rule '{rule.name}' failed min_confidence check",
                 extra={"rule_id": rule.id, "event_confidence": event.confidence, "min_required": conditions.get("min_confidence")}
+            )
+            return False, details
+
+        # 6. Story P4-7.3: Anomaly threshold
+        anomaly_match = self._check_anomaly_threshold(
+            event.anomaly_score,
+            conditions.get("anomaly_threshold")
+        )
+        details["conditions_checked"]["anomaly_threshold"] = anomaly_match
+
+        if not anomaly_match:
+            logger.debug(
+                f"Rule '{rule.name}' failed anomaly_threshold check",
+                extra={"rule_id": rule.id, "event_anomaly_score": event.anomaly_score, "min_required": conditions.get("anomaly_threshold")}
             )
             return False, details
 

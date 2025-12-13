@@ -1,0 +1,259 @@
+<story-context id="p4-7-3-anomaly-alerts" v="1.0">
+  <metadata>
+    <epicId>P4-7</epicId>
+    <storyId>3</storyId>
+    <title>Anomaly Alerts</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-13</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p4-7-3-anomaly-alerts.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home security user</asA>
+    <iWant>to receive alerts and visual indicators when high-anomaly events are detected</iWant>
+    <soThat>I can quickly identify and respond to unusual security events without manually monitoring every notification</soThat>
+    <tasks>
+      <task id="1">Create AnomalyBadge component for EventCard</task>
+      <task id="2">Update EventCard to show anomaly badge</task>
+      <task id="3">Add anomaly breakdown to EventDetail modal</task>
+      <task id="4">Add anomaly filter to timeline</task>
+      <task id="5">Create anomaly settings UI</task>
+      <task id="6">Create anomaly settings API</task>
+      <task id="7">Add anomaly alert rule type</task>
+      <task id="8">Enhance push notification for anomaly</task>
+      <task id="9">Update webhook payload with anomaly data</task>
+      <task id="10">Write comprehensive tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Anomaly badge on event cards - shows severity with yellow/red colors</criterion>
+    <criterion id="AC2">Anomaly details in event detail view with score breakdown</criterion>
+    <criterion id="AC3">Anomaly filter in events timeline</criterion>
+    <criterion id="AC4">Anomaly threshold settings (global and per-camera)</criterion>
+    <criterion id="AC5">Anomaly alert rule type for alert engine</criterion>
+    <criterion id="AC6">Push notification for high anomaly events</criterion>
+    <criterion id="AC7">Webhook payload includes anomaly_score and component scores</criterion>
+    <criterion id="AC8">Comprehensive test coverage</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase4.md</path>
+        <title>Phase 4 PRD</title>
+        <section>Behavioral Anomaly Detection</section>
+        <snippet>FR26: System learns baseline activity patterns. FR27: Events deviating from baseline are flagged. FR28: Anomaly severity is scored (low/medium/high). FR29: Users can adjust sensitivity per camera.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase4.md</path>
+        <title>Phase 4 Epics</title>
+        <section>Epic P4-7: Behavioral Anomaly Detection</section>
+        <snippet>Story P4-7.3: Anomaly Alerts - Flag high-anomaly events, add anomaly indicator to event cards, create anomaly-specific notifications, allow anomaly threshold adjustment.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture.md</path>
+        <title>Architecture</title>
+        <section>Phase 4 Additions</section>
+        <snippet>Privacy-first approach with local-only data storage. Graceful degradation if context engine unavailable. Push notifications via Web Push API. Standard protocols for smart home integration.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p4-7-2-anomaly-scoring.md</path>
+        <title>Previous Story (P4-7.2)</title>
+        <section>Implementation Details</section>
+        <snippet>AnomalyScoringService provides calculate_anomaly_score() with timing_score, day_score, object_score components. Severity thresholds: LOW_THRESHOLD=0.3, HIGH_THRESHOLD=0.6. Event model has anomaly_score field.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <!-- Anomaly Scoring Service (from P4-7.2) -->
+      <file>
+        <path>backend/app/services/anomaly_scoring_service.py</path>
+        <kind>service</kind>
+        <symbol>AnomalyScoringService, AnomalyScoreResult</symbol>
+        <lines>1-415</lines>
+        <reason>Core anomaly scoring logic - provides scores, severity, and thresholds to build alerts upon</reason>
+      </file>
+
+      <!-- Event Card (add anomaly badge here) -->
+      <file>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <lines>1-224</lines>
+        <reason>Add AnomalyBadge alongside existing ConfidenceIndicator, AIProviderBadge, etc.</reason>
+      </file>
+
+      <!-- Event Filters (add anomaly filter here) -->
+      <file>
+        <path>frontend/components/events/EventFilters.tsx</path>
+        <kind>component</kind>
+        <symbol>EventFilters</symbol>
+        <lines>1-514</lines>
+        <reason>Add anomaly severity filter dropdown similar to analysis_mode filter</reason>
+      </file>
+
+      <!-- Alert Engine (add anomaly condition type) -->
+      <file>
+        <path>backend/app/services/alert_engine.py</path>
+        <kind>service</kind>
+        <symbol>AlertEngine, evaluate_rule</symbol>
+        <lines>1-775</lines>
+        <reason>Add anomaly_threshold condition check alongside existing object_types, cameras, etc.</reason>
+      </file>
+
+      <!-- Push Notification Service (enhance for anomaly) -->
+      <file>
+        <path>backend/app/services/push_notification_service.py</path>
+        <kind>service</kind>
+        <symbol>PushNotificationService</symbol>
+        <lines>1-100</lines>
+        <reason>Add anomaly context to push notification title/body when score exceeds threshold</reason>
+      </file>
+
+      <!-- Event Types (add anomaly_score to IEvent) -->
+      <file>
+        <path>frontend/types/event.ts</path>
+        <kind>types</kind>
+        <symbol>IEvent, IEventFilters</symbol>
+        <lines>1-320</lines>
+        <reason>Add anomaly_score, anomaly_severity fields to IEvent interface and filter types</reason>
+      </file>
+
+      <!-- Events API (add anomaly filter param) -->
+      <file>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>router</kind>
+        <symbol>list_events</symbol>
+        <lines>1-150</lines>
+        <reason>Add anomaly_severity query parameter for filtering events</reason>
+      </file>
+
+      <!-- Context API (anomaly score endpoint exists) -->
+      <file>
+        <path>backend/app/api/v1/context.py</path>
+        <kind>router</kind>
+        <symbol>anomaly endpoints</symbol>
+        <reason>Existing GET /api/v1/context/anomaly/score/{event_id} for score breakdown - use in EventDetail</reason>
+      </file>
+
+      <!-- Event Model (has anomaly_score field) -->
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event.anomaly_score</symbol>
+        <reason>Float field added in P4-7.2 - already exists, use for filtering and display</reason>
+      </file>
+
+      <!-- Confidence Indicator (pattern for AnomalyBadge) -->
+      <file>
+        <path>frontend/components/events/ConfidenceIndicator.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfidenceIndicator</symbol>
+        <reason>Follow this pattern for AnomalyBadge - similar tooltip, badge styling approach</reason>
+      </file>
+
+      <!-- Pattern Service (provides baseline data) -->
+      <file>
+        <path>backend/app/services/pattern_service.py</path>
+        <kind>service</kind>
+        <symbol>PatternService, PatternData</symbol>
+        <reason>Provides baseline patterns used by AnomalyScoringService - context for "why unusual" explanations</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115.0">Web framework</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM</package>
+        <package name="pywebpush" version=">=2.0.0">Push notifications</package>
+        <package name="paho-mqtt" version=">=2.0.0">MQTT for Home Assistant</package>
+        <package name="pytest" version="7.4.3">Testing</package>
+        <package name="httpx" version="0.25.2">HTTP client for tests</package>
+      </python>
+      <node>
+        <package name="next" version="^16.0.10">React framework</package>
+        <package name="react" version="19.2.0">UI library</package>
+        <package name="@tanstack/react-query" version="^5.90.10">Server state</package>
+        <package name="lucide-react" version="^0.553.0">Icons</package>
+        <package name="vitest" version="^4.0.15">Testing</package>
+        <package name="@testing-library/react" version="^16.3.0">Component testing</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface>
+      <name>AnomalyScoreResult</name>
+      <kind>dataclass</kind>
+      <signature>@dataclass AnomalyScoreResult(total: float, timing_score: float, day_score: float, object_score: float, severity: str, has_baseline: bool)</signature>
+      <path>backend/app/services/anomaly_scoring_service.py:40-48</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/context/anomaly/score/{event_id}</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/context/anomaly/score/{event_id} -> AnomalyScoreResult with total, timing_score, day_score, object_score, severity</signature>
+      <path>backend/app/api/v1/context.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/events</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/events?anomaly_severity={low|medium|high} -> EventListResponse</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+    <interface>
+      <name>AlertRule conditions</name>
+      <kind>JSON schema</kind>
+      <signature>{"object_types": [], "cameras": [], "time_of_day": {}, "days_of_week": [], "min_confidence": int, "anomaly_threshold": float}</signature>
+      <path>backend/app/services/alert_engine.py</path>
+    </interface>
+    <interface>
+      <name>Webhook payload</name>
+      <kind>JSON payload</kind>
+      <signature>{"event_id": str, "anomaly_score": float, "anomaly_severity": str, "anomaly_breakdown": {timing: float, day: float, object: float}, ...}</signature>
+      <path>backend/app/services/webhook_service.py</path>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint source="architecture">Anomaly alerts must not block event processing - use async background tasks</constraint>
+    <constraint source="architecture">Push notifications must respect existing quiet hours and preference settings</constraint>
+    <constraint source="PRD">Anomaly detection is opt-in - users can adjust sensitivity or disable</constraint>
+    <constraint source="PRD">Context lookup adds less than 500ms to event processing</constraint>
+    <constraint source="dev-notes">Use existing severity thresholds: LOW_THRESHOLD=0.3, HIGH_THRESHOLD=0.6</constraint>
+    <constraint source="dev-notes">Event.anomaly_score is nullable - handle missing scores gracefully in UI</constraint>
+    <constraint source="testing">Follow existing pytest patterns in backend/tests/test_services/</constraint>
+    <constraint source="testing">Follow Vitest/Testing Library patterns for React components</constraint>
+    <constraint source="styling">Use shadcn/ui components and Tailwind CSS classes</constraint>
+    <constraint source="styling">Badge colors: yellow/amber for medium (0.3-0.6), red for high (>0.6)</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Use fixtures from conftest.py. Mock external services.
+      Frontend: Vitest with @testing-library/react. Use userEvent for interactions. Mock API responses.
+      Coverage target: 70%+ for new code.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_anomaly_scoring_service.py</location>
+      <location>backend/tests/test_api/test_context_anomaly.py</location>
+      <location>backend/tests/test_services/test_alert_engine.py</location>
+      <location>frontend/__tests__/components/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test AnomalyBadge renders "Unusual" yellow badge for score 0.45</idea>
+      <idea ac="AC1">Test AnomalyBadge renders "Anomaly" red badge for score 0.75</idea>
+      <idea ac="AC1">Test AnomalyBadge renders nothing for score 0.2</idea>
+      <idea ac="AC2">Test EventDetail shows breakdown when anomaly API returns data</idea>
+      <idea ac="AC2">Test EventDetail shows "Insufficient data" when has_baseline is false</idea>
+      <idea ac="AC3">Test events API filters by anomaly_severity=high correctly</idea>
+      <idea ac="AC3">Test events API filters by anomaly_severity=medium returns 0.3-0.6 scores</idea>
+      <idea ac="AC4">Test settings API stores/retrieves anomaly thresholds</idea>
+      <idea ac="AC5">Test alert engine evaluates anomaly_threshold condition</idea>
+      <idea ac="AC5">Test alert rule triggers when event.anomaly_score >= threshold</idea>
+      <idea ac="AC6">Test push notification includes "Unusual Activity" in title for high anomaly</idea>
+      <idea ac="AC7">Test webhook payload contains anomaly_score and breakdown</idea>
+    </ideas>
+  </tests>
+</story-context>

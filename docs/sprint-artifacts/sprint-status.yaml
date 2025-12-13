@@ -274,10 +274,10 @@ development_status:
   epic-p4-6-retrospective: optional
 
   # Epic P4-7: Behavioral Anomaly Detection (Growth)
-  epic-p4-7: backlog
+  epic-p4-7: done
   p4-7-1-baseline-activity-learning: done
   p4-7-2-anomaly-scoring: done
-  p4-7-3-anomaly-alerts: backlog
+  p4-7-3-anomaly-alerts: done
   epic-p4-7-retrospective: optional
 
   # Epic P4-8: Person & Vehicle Recognition (Growth)

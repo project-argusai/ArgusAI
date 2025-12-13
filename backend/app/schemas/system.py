@@ -262,6 +262,17 @@ class SystemSettingsUpdate(BaseModel):
         None, ge=1, le=365, description="Days of history to use for context (default: 30)"
     )
 
+    # Story P4-7.3: Anomaly Detection Settings
+    anomaly_low_threshold: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Threshold for low/medium anomaly classification (default: 0.3)"
+    )
+    anomaly_high_threshold: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Threshold for medium/high anomaly classification (default: 0.6)"
+    )
+    anomaly_enabled: Optional[bool] = Field(
+        None, description="Enable anomaly scoring for events (default: true)"
+    )
+
 
 # Story P3-7.1: AI Usage Response Schemas for Cost Tracking
 

@@ -18,6 +18,7 @@ import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { ReAnalyzeButton } from './ReAnalyzeButton';
 import { ReanalyzedIndicator } from './ReanalyzedIndicator';
 import { FeedbackButtons } from './FeedbackButtons';
+import { AnomalyBadge } from './AnomalyBadge';
 import { cn } from '@/lib/utils';
 
 interface EventCardProps {
@@ -152,6 +153,8 @@ export const EventCard = memo(function EventCard({
                 event={event}
                 onReanalyze={onReanalyze}
               />
+              {/* Story P4-7.3: Anomaly Badge (AC1) */}
+              <AnomalyBadge score={event.anomaly_score} />
               {event.source_type && (
                 <SourceTypeBadge sourceType={event.source_type} />
               )}

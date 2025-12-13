@@ -45,6 +45,14 @@ const ANALYSIS_MODE_TYPES: { value: AnalysisMode; label: string; description: st
   { value: 'video_native', label: 'Video Native', description: 'Full video analysis' },
 ];
 
+// Story P4-7.3: Anomaly severity filter options
+type AnomalySeverity = 'low' | 'medium' | 'high';
+const ANOMALY_SEVERITY_TYPES: { value: AnomalySeverity; label: string; description: string }[] = [
+  { value: 'low', label: 'Normal', description: 'Score < 30%' },
+  { value: 'medium', label: 'Unusual', description: 'Score 30-60%' },
+  { value: 'high', label: 'Anomaly', description: 'Score > 60%' },
+];
+
 const DATE_PRESETS = [
   { label: 'Last 24 hours', value: 24 },
   { label: 'Last 7 days', value: 24 * 7 },
@@ -76,6 +84,10 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
   );
   const [hasFallback, setHasFallback] = useState<boolean>(filters.has_fallback || false);
   const [lowConfidenceOnly, setLowConfidenceOnly] = useState<boolean>(filters.low_confidence || false);
+  // Story P4-7.3: Anomaly severity filter state
+  const [selectedAnomalySeverity, setSelectedAnomalySeverity] = useState<AnomalySeverity | null>(
+    filters.anomaly_severity || null
+  );
 
   // Debounce search input
   const debouncedSearch = useDebounce(searchInput, 500);
@@ -223,6 +235,18 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
     });
   };
 
+  // Story P4-7.3: Handle anomaly severity selection (single select - radio behavior)
+  const handleAnomalySeveritySelect = (severity: AnomalySeverity) => {
+    // Toggle off if already selected, otherwise select
+    const newValue = selectedAnomalySeverity === severity ? null : severity;
+    setSelectedAnomalySeverity(newValue);
+
+    onFiltersChange({
+      ...filters,
+      anomaly_severity: newValue || undefined,
+    });
+  };
+
   // Clear all filters
   const handleClearAll = () => {
     setSearchInput('');
@@ -234,6 +258,7 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
     setSelectedAnalysisMode(null);
     setHasFallback(false);
     setLowConfidenceOnly(false);
+    setSelectedAnomalySeverity(null);
     setCustomDateRange({ start: '', end: '' });
     onFiltersChange({});
   };
@@ -249,6 +274,7 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
     selectedAnalysisMode !== null ||
     hasFallback ||
     lowConfidenceOnly ||
+    selectedAnomalySeverity !== null ||
     customDateRange.start ||
     customDateRange.end;
 
@@ -457,6 +483,35 @@ export function EventFilters({ filters, onFiltersChange, cameras }: EventFilters
               <span className="text-xs text-muted-foreground ml-1">(uncertain)</span>
             </label>
           </div>
+        </div>
+      </div>
+
+      {/* Story P4-7.3: Anomaly Severity Filter */}
+      <div className="space-y-3">
+        <label className="flex items-center text-sm font-medium">
+          <AlertTriangle className="w-4 h-4 mr-2" />
+          Anomaly Level
+        </label>
+        <div className="space-y-2">
+          {ANOMALY_SEVERITY_TYPES.map((severity) => (
+            <div key={severity.value} className="flex items-center space-x-2">
+              <Checkbox
+                id={`anomaly-${severity.value}`}
+                checked={selectedAnomalySeverity === severity.value}
+                onCheckedChange={() => handleAnomalySeveritySelect(severity.value)}
+              />
+              <label
+                htmlFor={`anomaly-${severity.value}`}
+                className={`text-sm cursor-pointer flex-1 ${
+                  severity.value === 'high' ? 'text-red-600 font-medium' :
+                  severity.value === 'medium' ? 'text-amber-600 font-medium' : ''
+                }`}
+              >
+                <span>{severity.label}</span>
+                <span className="text-xs text-muted-foreground ml-1">({severity.description})</span>
+              </label>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -56,6 +56,7 @@ import { AccuracyDashboard } from '@/components/settings/AccuracyDashboard';
 import { PushNotificationSettings } from '@/components/settings/PushNotificationSettings';
 import { MQTTSettings } from '@/components/settings/MQTTSettings';
 import { HomekitSettings } from '@/components/settings/HomekitSettings';
+import { AnomalySettings } from '@/components/settings/AnomalySettings';
 import { ControllerForm, type ControllerData, DeleteControllerDialog, DiscoveredCameraList } from '@/components/protect';
 import { useQuery } from '@tanstack/react-query';
 import type { AIProvider } from '@/types/settings';
@@ -510,6 +511,11 @@ export default function SettingsPage() {
 
             {/* Motion Detection Tab */}
             <TabsContent value="motion" className="space-y-4">
+              {/* Story P4-7.3: Anomaly Detection Settings */}
+              <ErrorBoundary context="Anomaly Settings">
+                <AnomalySettings />
+              </ErrorBoundary>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Motion Detection Settings</CardTitle>

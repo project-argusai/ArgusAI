@@ -126,6 +126,8 @@ export interface IEvent {
   frame_timestamps?: number[] | null;   // Timestamps in seconds for each key frame
   // Story P4-5.1: User feedback
   feedback?: IEventFeedback | null;     // User feedback on this event's description
+  // Story P4-7.2: Anomaly scoring
+  anomaly_score?: number | null;        // Anomaly score 0.0-1.0 (null = not scored)
 }
 
 /**
@@ -144,6 +146,8 @@ export interface IEventFilters {
   analysis_mode?: AnalysisMode;   // Filter by analysis mode
   has_fallback?: boolean;         // Filter events with fallback_reason (True = has fallback)
   low_confidence?: boolean;       // Filter by low confidence flag (True = uncertain descriptions)
+  // Story P4-7.3: Anomaly filtering
+  anomaly_severity?: 'low' | 'medium' | 'high';  // Filter by anomaly severity
 }
 
 /**

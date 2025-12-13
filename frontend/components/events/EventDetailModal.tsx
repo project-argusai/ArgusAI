@@ -23,11 +23,13 @@ import {
   Zap,
   MessageCircle,
   Sparkle,
+  Activity,
 } from 'lucide-react';
 import type { IEvent } from '@/types/event';
 import { getConfidenceColor, getConfidenceLevel } from '@/types/event';
 import { useDeleteEvent } from '@/lib/hooks/useEvents';
 import { KeyFramesGallery } from './KeyFramesGallery';
+import { getAnomalySeverity } from './AnomalyBadge';
 import {
   Dialog,
   DialogContent,
@@ -319,6 +321,62 @@ export function EventDetailModal({
                 <div>
                   <p className="text-sm font-medium text-gray-700">Alert Status</p>
                   <p className="text-sm text-orange-600">Alert was triggered for this event</p>
+                </div>
+              </div>
+            )}
+
+            {/* Story P4-7.3: Anomaly Score Details (AC2) */}
+            {event.anomaly_score != null && (
+              <div className="flex items-start space-x-3 md:col-span-2">
+                <Activity className="w-5 h-5 text-gray-500 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Anomaly Analysis</p>
+                  <div className="space-y-2">
+                    {/* Score with visual bar */}
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all ${
+                            getAnomalySeverity(event.anomaly_score) === 'high'
+                              ? 'bg-red-500'
+                              : getAnomalySeverity(event.anomaly_score) === 'medium'
+                              ? 'bg-amber-500'
+                              : 'bg-green-500'
+                          }`}
+                          style={{ width: `${Math.round(event.anomaly_score * 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-medium text-gray-700 min-w-[3rem] text-right">
+                        {Math.round(event.anomaly_score * 100)}%
+                      </span>
+                    </div>
+
+                    {/* Severity badge and description */}
+                    <div className="flex items-center gap-2">
+                      {getAnomalySeverity(event.anomaly_score) === 'high' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          Anomaly Detected
+                        </span>
+                      )}
+                      {getAnomalySeverity(event.anomaly_score) === 'medium' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          Unusual Activity
+                        </span>
+                      )}
+                      {getAnomalySeverity(event.anomaly_score) === 'low' && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          Normal Activity
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {getAnomalySeverity(event.anomaly_score) === 'high'
+                          ? 'This activity pattern is rare for this time and location'
+                          : getAnomalySeverity(event.anomaly_score) === 'medium'
+                          ? 'This activity is somewhat unusual for this time'
+                          : 'This activity matches normal patterns'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

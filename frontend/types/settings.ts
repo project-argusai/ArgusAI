@@ -34,6 +34,11 @@ export interface SystemSettings {
   retention_days: number; // -1 for forever
   thumbnail_storage: ThumbnailStorage;
   auto_cleanup: boolean;
+
+  // Story P4-7.3: Anomaly Detection Settings
+  anomaly_enabled?: boolean;  // Enable anomaly scoring (default: true)
+  anomaly_low_threshold?: number;  // Low/medium threshold (default: 0.3)
+  anomaly_high_threshold?: number;  // Medium/high threshold (default: 0.6)
 }
 
 export interface StorageStats {

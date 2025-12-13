@@ -271,6 +271,25 @@ class WebhookService:
             }
         }
 
+        # Story P4-7.3: Add anomaly data if available
+        if event.anomaly_score is not None:
+            # Classify severity using thresholds from AnomalyScoringService
+            from app.services.anomaly_scoring_service import AnomalyScoringService
+            low_threshold = AnomalyScoringService.LOW_THRESHOLD
+            high_threshold = AnomalyScoringService.HIGH_THRESHOLD
+
+            if event.anomaly_score < low_threshold:
+                severity = "low"
+            elif event.anomaly_score < high_threshold:
+                severity = "medium"
+            else:
+                severity = "high"
+
+            payload["anomaly"] = {
+                "score": event.anomaly_score,
+                "severity": severity,
+            }
+
         return payload
 
     async def _send_single_request(

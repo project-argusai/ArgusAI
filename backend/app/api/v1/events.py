@@ -269,6 +269,8 @@ def list_events(
     analysis_mode: Optional[str] = Query(None, description="Filter by analysis mode: 'single_frame', 'multi_frame', 'video_native' (comma-separated for multiple)"),
     has_fallback: Optional[bool] = Query(None, description="Filter events with fallback (True = has fallback_reason, False = no fallback)"),
     low_confidence: Optional[bool] = Query(None, description="Filter by low confidence flag (True = uncertain descriptions)"),
+    # Story P4-7.3: Anomaly severity filtering
+    anomaly_severity: Optional[str] = Query(None, description="Filter by anomaly severity: 'low', 'medium', 'high' (comma-separated for multiple)"),
     limit: int = Query(50, ge=1, le=500, description="Number of results per page"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$", description="Sort by timestamp"),
@@ -393,6 +395,41 @@ def list_events(
         # Story P3-7.6: Apply low confidence filter
         if low_confidence is not None:
             query = query.filter(Event.low_confidence == low_confidence)
+
+        # Story P4-7.3: Apply anomaly severity filter
+        if anomaly_severity:
+            severity_list = [s.strip().lower() for s in anomaly_severity.split(',')]
+            # Validate severities
+            valid_severities = {'low', 'medium', 'high'}
+            severity_list = [s for s in severity_list if s in valid_severities]
+            if severity_list:
+                # Build filter based on score thresholds
+                # low: < 0.3, medium: 0.3-0.6, high: > 0.6
+                from app.services.anomaly_scoring_service import AnomalyScoringService
+                low_threshold = AnomalyScoringService.LOW_THRESHOLD
+                high_threshold = AnomalyScoringService.HIGH_THRESHOLD
+
+                severity_filters = []
+                for severity in severity_list:
+                    if severity == 'low':
+                        severity_filters.append(
+                            and_(
+                                Event.anomaly_score.isnot(None),
+                                Event.anomaly_score < low_threshold
+                            )
+                        )
+                    elif severity == 'medium':
+                        severity_filters.append(
+                            and_(
+                                Event.anomaly_score >= low_threshold,
+                                Event.anomaly_score < high_threshold
+                            )
+                        )
+                    elif severity == 'high':
+                        severity_filters.append(Event.anomaly_score >= high_threshold)
+
+                if severity_filters:
+                    query = query.filter(or_(*severity_filters))
 
         # Apply full-text search using FTS5
         if search_query:

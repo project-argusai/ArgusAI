@@ -513,6 +513,10 @@ async def update_settings(
             'context_ab_test_percentage',
             'context_similarity_threshold',
             'context_time_window_days',
+            # Story P4-7.3: Anomaly Detection Settings
+            'anomaly_low_threshold',
+            'anomaly_high_threshold',
+            'anomaly_enabled',
         }
 
         for field_name, value in update_data.items():

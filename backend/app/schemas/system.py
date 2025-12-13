@@ -278,6 +278,17 @@ class SystemSettingsUpdate(BaseModel):
         None, description="Enable face detection and embedding storage (default: false, opt-in)"
     )
 
+    # Story P4-8.2: Person Matching Settings
+    person_match_threshold: Optional[float] = Field(
+        None, ge=0.0, le=1.0, description="Similarity threshold for face-to-person matching (default: 0.70)"
+    )
+    auto_create_persons: Optional[bool] = Field(
+        None, description="Automatically create new person when no match found (default: true)"
+    )
+    update_appearance_on_high_match: Optional[bool] = Field(
+        None, description="Update reference embedding on high-confidence matches (default: true)"
+    )
+
 
 # Story P3-7.1: AI Usage Response Schemas for Cost Tracking
 

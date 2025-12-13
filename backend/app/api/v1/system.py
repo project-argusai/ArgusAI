@@ -519,6 +519,10 @@ async def update_settings(
             'anomaly_enabled',
             # Story P4-8.1: Face Recognition Privacy Settings
             'face_recognition_enabled',
+            # Story P4-8.2: Person Matching Settings
+            'person_match_threshold',
+            'auto_create_persons',
+            'update_appearance_on_high_match',
         }
 
         for field_name, value in update_data.items():

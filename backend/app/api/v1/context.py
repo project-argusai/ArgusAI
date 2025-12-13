@@ -1,5 +1,5 @@
 """
-Context API endpoints for Temporal Context Engine (Stories P4-3.1, P4-3.2, P4-3.3, P4-3.5, P4-7.2)
+Context API endpoints for Temporal Context Engine (Stories P4-3.1, P4-3.2, P4-3.3, P4-3.5, P4-7.2, P4-8.2)
 
 Provides endpoints for:
 - Batch processing of embeddings for existing events
@@ -8,6 +8,7 @@ Provides endpoints for:
 - Entity management for recurring visitor detection (P4-3.3)
 - Activity pattern retrieval for cameras (P4-3.5)
 - Anomaly scoring for events (P4-7.2)
+- Person matching for face recognition (P4-8.2)
 """
 import base64
 import logging
@@ -27,6 +28,7 @@ from app.services.similarity_service import get_similarity_service, SimilaritySe
 from app.services.entity_service import get_entity_service, EntityService
 from app.services.pattern_service import get_pattern_service, PatternService
 from app.services.anomaly_scoring_service import get_anomaly_scoring_service, AnomalyScoringService, AnomalyScoreResult
+from app.services.person_matching_service import get_person_matching_service, PersonMatchingService
 from app.models.camera import Camera
 
 logger = logging.getLogger(__name__)
@@ -1227,4 +1229,231 @@ async def get_face_stats(
         total_face_embeddings=total_faces,
         face_recognition_enabled=enabled,
         model_version=face_service.get_model_version(),
+    )
+
+
+# =============================================================================
+# Person Matching Endpoints (Story P4-8.2)
+# =============================================================================
+
+class PersonListItem(BaseModel):
+    """Single person in list response."""
+    id: str = Field(description="Person UUID")
+    name: Optional[str] = Field(default=None, description="User-assigned name")
+    first_seen_at: datetime = Field(description="First occurrence timestamp")
+    last_seen_at: datetime = Field(description="Most recent occurrence timestamp")
+    occurrence_count: int = Field(description="Number of times seen")
+    face_count: int = Field(description="Number of face embeddings linked to this person")
+
+
+class PersonListResponse(BaseModel):
+    """Response for GET /persons endpoint."""
+    persons: list[PersonListItem] = Field(description="List of persons")
+    total: int = Field(description="Total number of persons")
+    limit: int = Field(description="Maximum returned")
+    offset: int = Field(description="Pagination offset")
+
+
+class PersonFaceItem(BaseModel):
+    """Face embedding linked to a person."""
+    id: str = Field(description="Face embedding UUID")
+    event_id: str = Field(description="Event UUID")
+    bounding_box: Optional[dict] = Field(default=None, description="Face bounding box coordinates")
+    confidence: float = Field(description="Face detection confidence")
+    created_at: datetime = Field(description="When face was detected")
+    event_timestamp: Optional[datetime] = Field(default=None, description="Event timestamp")
+    thumbnail_url: Optional[str] = Field(default=None, description="Event thumbnail URL")
+
+
+class PersonDetailResponse(BaseModel):
+    """Response for GET /persons/{id} endpoint."""
+    id: str = Field(description="Person UUID")
+    name: Optional[str] = Field(default=None, description="User-assigned name")
+    first_seen_at: datetime = Field(description="First occurrence timestamp")
+    last_seen_at: datetime = Field(description="Most recent occurrence timestamp")
+    occurrence_count: int = Field(description="Number of times seen")
+    created_at: datetime = Field(description="Record creation timestamp")
+    updated_at: datetime = Field(description="Last update timestamp")
+    recent_faces: list[PersonFaceItem] = Field(default=[], description="Recent face detections")
+
+
+class PersonUpdateRequest(BaseModel):
+    """Request for PUT /persons/{id} endpoint."""
+    name: Optional[str] = Field(default=None, description="New name for the person (None to clear)")
+
+
+class PersonUpdateResponse(BaseModel):
+    """Response for PUT /persons/{id} endpoint."""
+    id: str = Field(description="Person UUID")
+    name: Optional[str] = Field(default=None, description="Updated name")
+    first_seen_at: datetime = Field(description="First occurrence timestamp")
+    last_seen_at: datetime = Field(description="Most recent occurrence timestamp")
+    occurrence_count: int = Field(description="Number of times seen")
+
+
+@router.get("/persons", response_model=PersonListResponse)
+async def list_persons(
+    limit: int = Query(default=50, ge=1, le=100, description="Maximum number of persons to return"),
+    offset: int = Query(default=0, ge=0, description="Pagination offset"),
+    named_only: bool = Query(default=False, description="Only return named persons"),
+    db: Session = Depends(get_db),
+    person_service: PersonMatchingService = Depends(get_person_matching_service),
+):
+    """
+    List all known persons.
+
+    Story P4-8.2: Person Matching
+
+    Returns persons (RecognizedEntity with entity_type='person') sorted by
+    last_seen_at descending. Includes face_count for each person.
+
+    Args:
+        limit: Maximum number of persons to return (1-100)
+        offset: Pagination offset
+        named_only: If True, only return persons with names assigned
+        db: Database session
+        person_service: Person matching service instance
+
+    Returns:
+        PersonListResponse with list of persons and pagination info
+    """
+    persons, total = await person_service.get_persons(
+        db,
+        limit=limit,
+        offset=offset,
+        named_only=named_only,
+    )
+
+    return PersonListResponse(
+        persons=[
+            PersonListItem(
+                id=p["id"],
+                name=p["name"],
+                first_seen_at=p["first_seen_at"],
+                last_seen_at=p["last_seen_at"],
+                occurrence_count=p["occurrence_count"],
+                face_count=p["face_count"],
+            )
+            for p in persons
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/persons/{person_id}", response_model=PersonDetailResponse)
+async def get_person(
+    person_id: str,
+    include_faces: bool = Query(default=True, description="Include recent face detections"),
+    face_limit: int = Query(default=10, ge=1, le=50, description="Maximum faces to include"),
+    db: Session = Depends(get_db),
+    person_service: PersonMatchingService = Depends(get_person_matching_service),
+):
+    """
+    Get person details.
+
+    Story P4-8.2: Person Matching
+
+    Returns detailed information about a specific person including
+    recent face detections linked to them.
+
+    Args:
+        person_id: UUID of the person
+        include_faces: Whether to include recent face detections
+        face_limit: Maximum number of faces to include
+        db: Database session
+        person_service: Person matching service instance
+
+    Returns:
+        PersonDetailResponse with person details and faces
+
+    Raises:
+        HTTPException 404: If person not found
+    """
+    person = await person_service.get_person(
+        db,
+        person_id,
+        include_faces=include_faces,
+        face_limit=face_limit,
+    )
+
+    if not person:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Person {person_id} not found"
+        )
+
+    recent_faces = []
+    if "recent_faces" in person:
+        recent_faces = [
+            PersonFaceItem(
+                id=f["id"],
+                event_id=f["event_id"],
+                bounding_box=f["bounding_box"],
+                confidence=f["confidence"],
+                created_at=f["created_at"],
+                event_timestamp=f["event_timestamp"],
+                thumbnail_url=f["thumbnail_url"],
+            )
+            for f in person["recent_faces"]
+        ]
+
+    return PersonDetailResponse(
+        id=person["id"],
+        name=person["name"],
+        first_seen_at=person["first_seen_at"],
+        last_seen_at=person["last_seen_at"],
+        occurrence_count=person["occurrence_count"],
+        created_at=person["created_at"],
+        updated_at=person["updated_at"],
+        recent_faces=recent_faces,
+    )
+
+
+@router.put("/persons/{person_id}", response_model=PersonUpdateResponse)
+async def update_person(
+    person_id: str,
+    request: PersonUpdateRequest,
+    db: Session = Depends(get_db),
+    person_service: PersonMatchingService = Depends(get_person_matching_service),
+):
+    """
+    Update a person's name.
+
+    Story P4-8.2: Person Matching
+
+    Allows users to name recognized persons for personalized alerts
+    like "John is at the door".
+
+    Args:
+        person_id: UUID of the person
+        request: Update request with new name
+        db: Database session
+        person_service: Person matching service instance
+
+    Returns:
+        PersonUpdateResponse with updated person info
+
+    Raises:
+        HTTPException 404: If person not found
+    """
+    person = await person_service.update_person_name(
+        db,
+        person_id,
+        name=request.name,
+    )
+
+    if not person:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Person {person_id} not found"
+        )
+
+    return PersonUpdateResponse(
+        id=person["id"],
+        name=person["name"],
+        first_seen_at=person["first_seen_at"],
+        last_seen_at=person["last_seen_at"],
+        occurrence_count=person["occurrence_count"],
     )

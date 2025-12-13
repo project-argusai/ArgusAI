@@ -1487,7 +1487,10 @@ class EventProcessor:
         thumbnail_base64: str
     ) -> None:
         """
-        Process face detection and embedding for an event (Story P4-8.1).
+        Process face detection, embedding, and person matching for an event.
+
+        Story P4-8.1: Face detection and embedding storage
+        Story P4-8.2: Person matching (Step 13)
 
         This is a fire-and-forget async task. Errors are logged but not propagated.
         Uses its own database session since the caller's session may be closed.
@@ -1503,9 +1506,12 @@ class EventProcessor:
         """
         try:
             from app.services.face_embedding_service import get_face_embedding_service
+            from app.services.person_matching_service import get_person_matching_service
+            from app.models.system_setting import SystemSetting
             import base64
 
             face_service = get_face_embedding_service()
+            person_service = get_person_matching_service()
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -1519,6 +1525,7 @@ class EventProcessor:
             # Use own session since caller's may be closed
             db = SessionLocal()
             try:
+                # Step 12: Face Detection and Embedding Storage (P4-8.1)
                 face_ids = await face_service.process_event_faces(
                     db=db,
                     event_id=event_id,
@@ -1534,6 +1541,56 @@ class EventProcessor:
                             "face_count": len(face_ids),
                         }
                     )
+
+                    # Step 13: Person Matching (P4-8.2)
+                    # Get settings for person matching
+                    threshold_setting = db.query(SystemSetting).filter(
+                        SystemSetting.key == "person_match_threshold"
+                    ).first()
+                    auto_create_setting = db.query(SystemSetting).filter(
+                        SystemSetting.key == "auto_create_persons"
+                    ).first()
+                    update_appearance_setting = db.query(SystemSetting).filter(
+                        SystemSetting.key == "update_appearance_on_high_match"
+                    ).first()
+
+                    threshold = float(threshold_setting.value) if threshold_setting else 0.70
+                    auto_create = auto_create_setting.value.lower() == "true" if auto_create_setting else True
+                    update_appearance = update_appearance_setting.value.lower() == "true" if update_appearance_setting else True
+
+                    match_results = await person_service.match_faces_to_persons(
+                        db=db,
+                        face_embedding_ids=face_ids,
+                        auto_create=auto_create,
+                        threshold=threshold,
+                        update_appearance=update_appearance,
+                    )
+
+                    # Log person matches
+                    matched = [r for r in match_results if r.person_id]
+                    named = [r for r in matched if r.person_name]
+
+                    if named:
+                        logger.info(
+                            f"Person matching complete for event {event_id}: {[r.person_name for r in named]}",
+                            extra={
+                                "event_type": "person_matching_complete",
+                                "event_id": event_id,
+                                "matched_persons": len(matched),
+                                "named_persons": [r.person_name for r in named],
+                                "new_persons": sum(1 for r in matched if r.is_new_person),
+                            }
+                        )
+                    elif matched:
+                        logger.debug(
+                            f"Person matching complete for event {event_id}: {len(matched)} unnamed matches",
+                            extra={
+                                "event_type": "person_matching_complete",
+                                "event_id": event_id,
+                                "matched_persons": len(matched),
+                                "new_persons": sum(1 for r in matched if r.is_new_person),
+                            }
+                        )
                 else:
                     logger.debug(
                         f"No faces found in event {event_id}",
@@ -1546,11 +1603,11 @@ class EventProcessor:
                 db.close()
 
         except Exception as e:
-            # Face processing errors must not propagate (AC6)
+            # Face/person processing errors must not propagate (AC6)
             logger.warning(
-                f"Face processing failed for event {event_id}: {e}",
+                f"Face/person processing failed for event {event_id}: {e}",
                 extra={
-                    "event_type": "face_processing_error",
+                    "event_type": "face_person_processing_error",
                     "event_id": event_id,
                     "error": str(e)
                 }

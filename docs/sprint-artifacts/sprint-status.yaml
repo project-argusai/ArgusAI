@@ -283,7 +283,7 @@ development_status:
   # Epic P4-8: Person & Vehicle Recognition (Growth)
   epic-p4-8: backlog
   p4-8-1-face-embedding-storage: done
-  p4-8-2-person-matching: backlog
+  p4-8-2-person-matching: done
   p4-8-3-vehicle-recognition: backlog
   p4-8-4-named-entity-alerts: backlog
   epic-p4-8-retrospective: optional

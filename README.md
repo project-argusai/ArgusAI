@@ -25,6 +25,19 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **Alert Rules**: Custom rules based on detected objects/events
 - **Webhook Integration**: Send alerts to external systems (Home Assistant, Slack, etc.)
 - **In-App Notifications**: Real-time notification center
+- **Push Notifications** (Phase 4) - Web Push with thumbnails, PWA support
+- **Activity Summaries** (Phase 4) - Daily digests and on-demand reports
+
+### Smart Home Integration (Phase 4)
+- **Home Assistant via MQTT**: Auto-discovery, event publishing, camera status sensors
+- **HomeKit Integration**: Motion sensor accessories, real-time event triggers
+- **Voice Query API**: Natural language queries ("What happened at the front door today?")
+
+### Intelligent Context (Phase 4)
+- **Temporal Context Engine**: Find similar past events, recurring visitor detection
+- **Pattern Detection**: Identify activity patterns and anomalies
+- **Entity Management**: Track recognized people and vehicles
+- **User Feedback Loop**: Thumbs up/down to improve AI accuracy
 
 ### Event Management
 - **Persistent Storage**: Events stored with thumbnails and AI descriptions
@@ -228,7 +241,7 @@ argusai/
 │   │       ├── correlation_service.py # Multi-camera correlation
 │   │       └── alert_engine.py        # Rule evaluation
 │   ├── alembic/             # Database migrations
-│   └── tests/               # 590+ tests
+│   └── tests/               # 1,980+ tests
 ├── frontend/                 # Next.js frontend
 │   ├── app/                 # App Router pages
 │   ├── components/          # React components
@@ -262,7 +275,7 @@ pytest tests/ --cov=app --cov-report=html
 pytest tests/test_api/test_protect.py -v
 ```
 
-**Current Coverage:** 590+ tests including integration and performance tests
+**Current Coverage:** 1,980+ tests including integration and performance tests
 
 ### Frontend
 
@@ -320,10 +333,11 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 | [Epics Phase 3](docs/epics-phase3.md) | Phase 3 story breakdown |
 | [Epics Phase 4](docs/epics-phase4.md) | Phase 4 story breakdown |
 | [UX Design](docs/ux-design-specification.md) | UI/UX specifications |
+| [Troubleshooting UniFi Protect](docs/troubleshooting-protect.md) | Common issues and solutions |
 
 ## Roadmap
 
-### Completed (MVP + Phase 2 + Phase 3)
+### Completed (MVP + Phase 2 + Phase 3 + Phase 4)
 - ✅ RTSP/USB camera support with motion detection
 - ✅ Multi-provider AI descriptions (OpenAI, xAI Grok, Claude, Gemini)
 - ✅ Event storage with search and retention
@@ -346,19 +360,22 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
   - Cost monitoring dashboard with daily/monthly caps
   - Key frames gallery on event detail
   - Analysis mode filter on timeline
+- ✅ **Phase 4: Intelligent Context & Smart Home**
+  - Push notifications with thumbnails (PWA support)
+  - Home Assistant integration via MQTT with auto-discovery
+  - Temporal context engine (similar events, recurring visitors)
+  - Activity summaries and daily digests
+  - User feedback loop for AI accuracy improvement
+  - HomeKit integration with motion sensor accessories
+  - Voice query API for natural language event queries
 
-### Phase 4: Intelligent Context & Smart Home (Planned)
-- 📋 Push notifications with thumbnails (PWA support)
-- 📋 Home Assistant integration via MQTT
-- 📋 Temporal context ("same person as yesterday")
-- 📋 Activity summaries and daily digests
-- 📋 User feedback loop for AI improvement
-- 📋 Behavioral anomaly detection
-- 📋 Person/vehicle recognition (privacy-first)
-- 📋 Voice assistant integration (HomeKit, Alexa)
+### Phase 4: Growth Features (In Progress)
+- 📋 Behavioral anomaly detection (baseline learning, anomaly scoring)
+- 📋 Person/vehicle recognition (privacy-first, face embeddings)
 
 ### Future
 - 📋 Local LLM support (Ollama)
+- 📋 Alexa voice assistant integration
 
 ## License
 

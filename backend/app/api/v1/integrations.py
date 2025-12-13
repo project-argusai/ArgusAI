@@ -593,7 +593,7 @@ async def update_homekit_enabled(
         service.config.enabled = True
 
         # Get cameras and start service
-        cameras = db.query(Camera).filter(Camera.enabled == True).all()
+        cameras = db.query(Camera).filter(Camera.is_enabled == True).all()
         success = await service.start(cameras)
 
         if not success:

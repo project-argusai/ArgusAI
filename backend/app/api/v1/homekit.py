@@ -40,11 +40,14 @@ class HomeKitStatusResponse(BaseModel):
     enabled: bool = Field(..., description="Whether HomeKit is enabled in config")
     running: bool = Field(..., description="Whether bridge is currently running")
     paired: bool = Field(..., description="Whether any iOS devices are paired")
-    accessory_count: int = Field(..., description="Number of accessories in bridge")
+    accessory_count: int = Field(..., description="Number of motion sensor accessories in bridge")
+    camera_count: int = Field(0, description="Number of camera accessories (Story P5-1.3)")
+    active_streams: int = Field(0, description="Currently active camera streams (Story P5-1.3)")
     bridge_name: str = Field(..., description="Bridge name shown in Apple Home")
     setup_code: Optional[str] = Field(None, description="Pairing code (hidden if paired)")
     setup_uri: Optional[str] = Field(None, description="X-HM:// Setup URI for QR code (Story P5-1.2)")
     port: int = Field(..., description="HAP server port")
+    ffmpeg_available: bool = Field(False, description="Whether ffmpeg is available for streaming (Story P5-1.3)")
     error: Optional[str] = Field(None, description="Error message if any")
 
     model_config = ConfigDict(
@@ -54,10 +57,13 @@ class HomeKitStatusResponse(BaseModel):
                 "running": True,
                 "paired": False,
                 "accessory_count": 3,
+                "camera_count": 3,
+                "active_streams": 1,
                 "bridge_name": "ArgusAI",
                 "setup_code": "123-45-678",
                 "setup_uri": "X-HM://0023B6WQLAB1C",
                 "port": 51826,
+                "ffmpeg_available": True,
                 "error": None
             }
         }
@@ -221,10 +227,13 @@ async def get_homekit_status(db: Session = Depends(get_db)):
             running=service_status.running,
             paired=service_status.paired,
             accessory_count=service_status.accessory_count,
+            camera_count=service_status.camera_count,  # Story P5-1.3
+            active_streams=service_status.active_streams,  # Story P5-1.3
             bridge_name=config.bridge_name,
             setup_code=config.get_pin_code() if not service_status.paired else None,
             setup_uri=service_status.setup_uri,  # Story P5-1.2: Include X-HM:// URI
             port=config.port,
+            ffmpeg_available=service_status.ffmpeg_available,  # Story P5-1.3
             error=service_status.error
         )
 

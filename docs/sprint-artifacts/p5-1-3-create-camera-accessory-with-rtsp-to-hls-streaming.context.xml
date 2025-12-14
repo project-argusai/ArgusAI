@@ -1,0 +1,210 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-1</epicId>
+    <storyId>P5-1.3</storyId>
+    <title>Create Camera Accessory with RTSP-to-SRTP Streaming</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-14</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-1-3-create-camera-accessory-with-rtsp-to-hls-streaming.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>HomeKit user with Apple Home app</asA>
+    <iWant>to see my ArgusAI cameras as Camera accessories in HomeKit</iWant>
+    <soThat>I can view live camera streams directly from the Home app or Control Center</soThat>
+    <tasks>
+      <task id="1" ac="1">Implement HomeKit Camera Accessory Class - Create HomeKitCamera extending HAP-python Camera with streaming config</task>
+      <task id="2" ac="2,3">Implement ffmpeg Stream Transcoding - Build start_stream/stop_stream with RTSP to SRTP transcoding</task>
+      <task id="3" ac="1">Add Camera Accessory to Bridge - Modify homekit_service.py to create camera accessories</task>
+      <task id="4" ac="4">Implement Concurrent Stream Limiting - Add max 2 stream counter with thread-safe locking</task>
+      <task id="5" ac="1">Add Snapshot Retrieval for Camera Tiles - Implement async_get_snapshot for HomeKit thumbnails</task>
+      <task id="6" ac="1,2,3,4">Write Unit Tests - Test camera creation, stream lifecycle, concurrent limiting</task>
+      <task id="7" ac="2,4">Write Integration Tests - Test camera in bridge context, session handling</task>
+      <task id="8" ac="2,3">Manual Streaming Verification - Test live stream in Apple Home app (deferred to user)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Each enabled camera appears as HomeKit Camera accessory with correct name, linked to Bridge, persistent AID</criterion>
+    <criterion id="AC2">Live stream viewable with &lt;500ms additional latency, first frame within 5 seconds, quality up to 1080p</criterion>
+    <criterion id="AC3">ffmpeg subprocess spawned on stream request, terminates cleanly, no orphan processes, errors handled</criterion>
+    <criterion id="AC4">Two cameras can stream simultaneously, third returns error, CPU under 50% with 2 streams, streams independent</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <artifact>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-1.md</path>
+        <title>Epic Technical Specification: Native HomeKit Integration</title>
+        <section>Story P5-1.3: Camera Accessory with Streaming</section>
+        <snippet>Defines Camera accessory with RTSP-to-SRTP pipeline via ffmpeg. AC: Camera appears in Home, &lt;500ms latency, ffmpeg lifecycle, 2 concurrent streams max.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 Product Requirements Document</title>
+        <section>FR3, FR4 - Camera Streaming</section>
+        <snippet>FR3: Each configured camera appears as HomeKit Camera accessory. FR4: Live stream viewable in Apple Home app with ffmpeg transcoding.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Story P5-1.3</section>
+        <snippet>Create HomeKit Camera accessory that streams video from RTSP cameras via ffmpeg RTSP-to-SRTP transcoding with &lt;500ms latency.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/p5-1-1-set-up-hap-python-bridge-infrastructure.md</path>
+        <title>Story P5-1.1: HAP-python Bridge Infrastructure</title>
+        <section>Completion Notes</section>
+        <snippet>Established HAP-python bridge foundation with AccessoryDriver, Bridge accessory, and motion sensors. State persists in data/homekit/accessory.state.</snippet>
+      </artifact>
+      <artifact>
+        <path>docs/sprint-artifacts/p5-1-2-implement-homekit-pairing-with-qr-code.md</path>
+        <title>Story P5-1.2: HomeKit Pairing with QR Code</title>
+        <section>Dev Notes</section>
+        <snippet>X-HM:// Setup URI generation, PIN validation, QR code with ERROR_CORRECT_M. All 133 HomeKit tests pass.</snippet>
+      </artifact>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>backend/app/services/homekit_service.py</path>
+        <kind>service</kind>
+        <symbol>HomekitService</symbol>
+        <lines>1-679</lines>
+        <reason>Main HomeKit service managing bridge lifecycle. Modify start() to add camera accessories alongside motion sensors.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/homekit_accessories.py</path>
+        <kind>service</kind>
+        <symbol>CameraMotionSensor, create_motion_sensor</symbol>
+        <lines>1-145</lines>
+        <reason>Existing motion sensor pattern to follow. Camera accessory follows similar factory pattern.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/config/homekit.py</path>
+        <kind>config</kind>
+        <symbol>HomekitConfig, get_homekit_config</symbol>
+        <lines>1-288</lines>
+        <reason>HomeKit configuration including port, bridge name, persistence directory. Camera may need additional config.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/homekit.py</path>
+        <kind>model</kind>
+        <symbol>HomeKitConfig, HomeKitAccessory</symbol>
+        <reason>Database models for HomeKit configuration. HomeKitAccessory tracks camera/sensor AIDs.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/homekit.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-491</lines>
+        <reason>HomeKit API endpoints. May need to expose camera stream status or management.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/camera_service.py</path>
+        <kind>service</kind>
+        <symbol>CameraService</symbol>
+        <lines>1-100</lines>
+        <reason>Provides camera RTSP URLs and frame capture. Use for getting RTSP stream URLs for ffmpeg.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/snapshot_service.py</path>
+        <kind>service</kind>
+        <symbol>SnapshotService</symbol>
+        <lines>1-100</lines>
+        <reason>Snapshot retrieval from Protect cameras. Use for camera thumbnail generation in HomeKit tiles.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <reason>Camera model with rtsp_url, source_type. Provides stream URLs for HomeKit camera accessory.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_services/test_homekit_pairing.py</path>
+        <kind>test</kind>
+        <symbol>TestPINCodeValidation, TestSetupURIGeneration</symbol>
+        <lines>1-327</lines>
+        <reason>Test pattern for HomeKit. Follow for test_homekit_camera.py structure.</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="HAP-python" version=">=4.9.0">HomeKit Accessory Protocol - Camera class for streaming</package>
+        <package name="opencv-python" version=">=4.12.0">Frame capture for RTSP/USB cameras</package>
+        <package name="av" version=">=12.0.0">PyAV for secure RTSP streams</package>
+        <package name="Pillow" version=">=10.0.0">Image processing for snapshots</package>
+        <package name="qrcode" version=">=7.4.0">QR code generation (existing)</package>
+      </python>
+      <system>
+        <package name="ffmpeg" version=">=6.0">RTSP to SRTP transcoding with libx264</package>
+      </system>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing HomeKit accessory pattern from homekit_accessories.py - factory function, HAP-python integration</constraint>
+    <constraint type="pattern">Use subprocess.Popen for ffmpeg with proper cleanup on stop</constraint>
+    <constraint type="layer">Camera accessory in services layer, added to bridge in HomekitService.start()</constraint>
+    <constraint type="security">Camera credentials must not be logged - use existing sanitizing filter</constraint>
+    <constraint type="performance">Stream latency &lt;500ms additional, CPU &lt;50% average with 2 streams</constraint>
+    <constraint type="concurrency">Max 2 concurrent streams with thread-safe counter</constraint>
+    <constraint type="testing">Mock ffmpeg subprocess in CI tests - no actual streaming in automated tests</constraint>
+    <constraint type="compatibility">Support H.264 baseline/main/high profiles, resolutions up to 1080p30</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>HAP-python Camera</name>
+      <kind>class</kind>
+      <signature>class Camera(Accessory): start_stream(session_info, stream_config), stop_stream(session_info), async_get_snapshot(info)</signature>
+      <path>pyhap.camera</path>
+    </interface>
+    <interface>
+      <name>HomeKit Streaming Session</name>
+      <kind>dataclass</kind>
+      <signature>session_info: {session_id, address, video_port, video_rtcp_port, video_srtp_key, video_ssrc}</signature>
+      <path>HAP-python callback parameter</path>
+    </interface>
+    <interface>
+      <name>Camera.rtsp_url</name>
+      <kind>property</kind>
+      <signature>rtsp://user:pass@host:port/stream - RTSP URL for ffmpeg input</signature>
+      <path>backend/app/models/camera.py</path>
+    </interface>
+    <interface>
+      <name>SnapshotService.get_snapshot</name>
+      <kind>method</kind>
+      <signature>async get_snapshot(controller_id, camera_id, timestamp) -> SnapshotResult</signature>
+      <path>backend/app/services/snapshot_service.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Tests use pytest with pytest-asyncio for async tests. Mock external dependencies (HAP-python, ffmpeg subprocess).
+      Follow existing test patterns in test_homekit_pairing.py. Test file: backend/tests/test_services/test_homekit_camera.py.
+      Integration tests should not require actual HAP pairing - mock AccessoryDriver.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_homekit_camera.py (new)</location>
+      <location>backend/tests/test_api/test_homekit.py (existing - may extend)</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test HomeKitCamera creation with valid camera config</idea>
+      <idea ac="1">Test camera accessory added to bridge on start()</idea>
+      <idea ac="1">Test camera AID persistence across restarts</idea>
+      <idea ac="2">Test ffmpeg command generation with correct SRTP params</idea>
+      <idea ac="3">Test start_stream spawns subprocess</idea>
+      <idea ac="3">Test stop_stream terminates subprocess</idea>
+      <idea ac="3">Test orphan process cleanup on service stop</idea>
+      <idea ac="4">Test concurrent stream counter increments/decrements</idea>
+      <idea ac="4">Test third stream rejected when 2 active</idea>
+      <idea ac="4">Test stream counter thread safety with locks</idea>
+      <idea ac="1">Test async_get_snapshot returns JPEG data</idea>
+      <idea ac="2,3">Manual: Test live stream in Apple Home app (deferred)</idea>
+    </ideas>
+  </tests>
+</story-context>

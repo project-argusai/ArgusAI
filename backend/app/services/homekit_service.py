@@ -1,9 +1,10 @@
 """
-HomeKit service for Apple Home integration (Story P4-6.1, P4-6.2, P5-1.2)
+HomeKit service for Apple Home integration (Story P4-6.1, P4-6.2, P5-1.2, P5-1.3)
 
 Manages the HAP-python accessory server and exposes cameras as motion sensors.
 Story P4-6.2 adds motion event triggering with auto-reset timers.
 Story P5-1.2 adds proper HomeKit Setup URI for QR code pairing.
+Story P5-1.3 adds camera accessories with RTSP-to-SRTP streaming.
 """
 import asyncio
 import logging
@@ -38,6 +39,11 @@ from app.config.homekit import (
     HOMEKIT_CATEGORY_BRIDGE,
 )
 from app.services.homekit_accessories import CameraMotionSensor, create_motion_sensor
+from app.services.homekit_camera import (
+    HomeKitCameraAccessory,
+    create_camera_accessory,
+    check_ffmpeg_available,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +55,14 @@ class HomekitStatus:
     running: bool = False
     paired: bool = False
     accessory_count: int = 0
+    camera_count: int = 0  # Story P5-1.3: Number of camera accessories
+    active_streams: int = 0  # Story P5-1.3: Currently active camera streams
     bridge_name: str = "ArgusAI"
     setup_code: Optional[str] = None
     setup_uri: Optional[str] = None  # Story P5-1.2: X-HM:// URI for QR code
     qr_code_data: Optional[str] = None
     port: int = 51826
+    ffmpeg_available: bool = False  # Story P5-1.3: Whether ffmpeg is installed
     error: Optional[str] = None
 
 
@@ -88,11 +97,13 @@ class HomekitService:
         self._driver: Optional[AccessoryDriver] = None
         self._bridge: Optional[Bridge] = None
         self._sensors: Dict[str, CameraMotionSensor] = {}
+        self._cameras: Dict[str, HomeKitCameraAccessory] = {}  # Story P5-1.3: Camera accessories
         self._running = False
         self._driver_thread: Optional[threading.Thread] = None
         self._pincode: Optional[str] = None
         self._setup_id: Optional[str] = None  # Story P5-1.2: Setup ID for URI
         self._error: Optional[str] = None
+        self._ffmpeg_available: bool = False  # Story P5-1.3: Track ffmpeg availability
 
         # Story P4-6.2: Motion reset timers and state tracking
         self._motion_reset_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> reset task
@@ -132,6 +143,11 @@ class HomekitService:
     def accessory_count(self) -> int:
         """Get the number of registered camera sensors."""
         return len(self._sensors)
+
+    @property
+    def camera_count(self) -> int:
+        """Get the number of registered camera accessories (Story P5-1.3)."""
+        return len(self._cameras)
 
     @property
     def pincode(self) -> str:
@@ -227,11 +243,14 @@ class HomekitService:
             running=self.is_running,
             paired=is_paired,
             accessory_count=self.accessory_count,
+            camera_count=self.camera_count,  # Story P5-1.3
+            active_streams=HomeKitCameraAccessory.get_active_stream_count(),  # Story P5-1.3
             bridge_name=self.config.bridge_name,
             setup_code=self.pincode if not is_paired else None,
             setup_uri=self.get_setup_uri() if not is_paired else None,
             qr_code_data=self.get_qr_code_data() if not is_paired else None,
             port=self.config.port,
+            ffmpeg_available=self._ffmpeg_available,  # Story P5-1.3
             error=self._error,
         )
 
@@ -262,6 +281,14 @@ class HomekitService:
             # Ensure persistence directory exists
             self.config.ensure_persist_dir()
 
+            # Story P5-1.3: Check ffmpeg availability for camera streaming
+            ffmpeg_available, ffmpeg_msg = check_ffmpeg_available()
+            self._ffmpeg_available = ffmpeg_available
+            if ffmpeg_available:
+                logger.info(f"ffmpeg check: {ffmpeg_msg}")
+            else:
+                logger.warning(f"ffmpeg not available - camera streaming disabled: {ffmpeg_msg}")
+
             # Create accessory driver
             self._driver = AccessoryDriver(
                 port=self.config.port,
@@ -272,7 +299,7 @@ class HomekitService:
             # Create bridge accessory
             self._bridge = Bridge(self._driver, self.config.bridge_name)
 
-            # Add camera motion sensors
+            # Add camera motion sensors and camera accessories
             for camera in cameras:
                 if hasattr(camera, 'enabled') and not camera.enabled:
                     continue  # Skip disabled cameras
@@ -280,10 +307,11 @@ class HomekitService:
                 camera_id = camera.id if hasattr(camera, 'id') else str(camera)
                 camera_name = camera.name if hasattr(camera, 'name') else f"Camera {camera_id[:8]}"
 
+                # Add motion sensor
                 sensor = create_motion_sensor(
                     driver=self._driver,
                     camera_id=camera_id,
-                    camera_name=camera_name,
+                    camera_name=f"{camera_name} Motion",  # Distinguish from camera accessory
                     manufacturer=self.config.manufacturer,
                 )
 
@@ -296,6 +324,25 @@ class HomekitService:
                         self.register_camera_mapping(camera_id, camera.mac_address)
 
                     logger.info(f"Added HomeKit motion sensor for camera: {camera_name}")
+
+                # Story P5-1.3: Add camera accessory for streaming (only if ffmpeg available)
+                if self._ffmpeg_available:
+                    rtsp_url = self._get_camera_rtsp_url(camera)
+                    if rtsp_url:
+                        camera_accessory = create_camera_accessory(
+                            driver=self._driver,
+                            camera_id=camera_id,
+                            camera_name=camera_name,
+                            rtsp_url=rtsp_url,
+                            manufacturer=self.config.manufacturer,
+                        )
+
+                        if camera_accessory:
+                            self._cameras[camera_id] = camera_accessory
+                            self._bridge.add_accessory(camera_accessory.accessory)
+                            logger.info(f"Added HomeKit camera accessory for: {camera_name}")
+                    else:
+                        logger.debug(f"No RTSP URL available for camera {camera_name}, skipping camera accessory")
 
             # Add bridge to driver
             self._driver.add_accessory(self._bridge)
@@ -313,7 +360,7 @@ class HomekitService:
 
             logger.info(
                 f"HomeKit accessory server started on port {self.config.port} "
-                f"with {len(self._sensors)} sensors. Pairing code: {self.pincode}"
+                f"with {len(self._sensors)} sensors and {len(self._cameras)} cameras. Pairing code: {self.pincode}"
             )
 
             return True
@@ -344,6 +391,9 @@ class HomekitService:
             self._motion_reset_tasks.clear()
             self._motion_start_times.clear()
 
+            # Story P5-1.3: Clean up all camera streams
+            HomeKitCameraAccessory.cleanup_all_streams()
+
             if self._driver:
                 self._driver.stop()
 
@@ -354,12 +404,44 @@ class HomekitService:
             self._driver = None
             self._bridge = None
             self._sensors.clear()
+            self._cameras.clear()  # Story P5-1.3: Clear camera accessories
             self._camera_id_mapping.clear()
 
             logger.info("HomeKit accessory server stopped")
 
         except Exception as e:
             logger.error(f"Error stopping HomeKit service: {e}", exc_info=True)
+
+    def _get_camera_rtsp_url(self, camera: Any) -> Optional[str]:
+        """
+        Get RTSP URL for a camera (Story P5-1.3).
+
+        Supports RTSP cameras and Protect cameras with RTSP enabled.
+
+        Args:
+            camera: Camera model instance
+
+        Returns:
+            RTSP URL string or None if not available
+        """
+        # Check for direct RTSP URL
+        if hasattr(camera, 'rtsp_url') and camera.rtsp_url:
+            return camera.rtsp_url
+
+        # Check source type - USB cameras don't have RTSP
+        if hasattr(camera, 'source_type') and camera.source_type == 'usb':
+            return None
+
+        # For Protect cameras, construct RTSP URL if available
+        # Protect RTSP format: rtsp://host:7447/camera_id
+        if hasattr(camera, 'source_type') and camera.source_type == 'protect':
+            if hasattr(camera, 'protect_id') and hasattr(camera, 'rtsp_enabled') and camera.rtsp_enabled:
+                # Get controller host from the camera's controller
+                # This requires the controller to have RTSP enabled
+                logger.debug(f"Protect camera {camera.id} - RTSP URL construction not yet implemented")
+                return None
+
+        return None
 
     def add_camera(self, camera: Any) -> bool:
         """

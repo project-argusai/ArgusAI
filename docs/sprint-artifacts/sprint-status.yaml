@@ -299,7 +299,7 @@ development_status:
   epic-p5-1: contexted
   p5-1-1-set-up-hap-python-bridge-infrastructure: done
   p5-1-2-implement-homekit-pairing-with-qr-code: done
-  p5-1-3-create-camera-accessory-with-rtsp-to-hls-streaming: backlog
+  p5-1-3-create-camera-accessory-with-rtsp-to-hls-streaming: done
   p5-1-4-implement-motion-sensor-accessories: backlog
   p5-1-5-implement-occupancy-sensor-for-person-detection: backlog
   p5-1-6-add-vehicle-animal-package-sensor-accessories: backlog

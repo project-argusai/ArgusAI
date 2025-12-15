@@ -1,0 +1,205 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-3</epicId>
+    <storyId>3.3</storyId>
+    <title>Set up Vitest + React Testing Library</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-15</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-3-3-set-up-vitest-react-testing-library.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>frontend developer contributing to ArgusAI</asA>
+    <iWant>a properly configured Vitest and React Testing Library setup</iWant>
+    <soThat>I can write and run frontend component tests locally with browser simulation and DOM matchers</soThat>
+    <tasks>
+      <task id="1">Install Required Dev Dependencies (vitest, @vitest/coverage-v8, @testing-library/react, @testing-library/jest-dom, @testing-library/user-event, jsdom)</task>
+      <task id="2">Create vitest.config.ts with jsdom environment, globals, setupFiles, coverage</task>
+      <task id="3">Create vitest.setup.ts with jest-dom matchers and cleanup</task>
+      <task id="4">Add test scripts to package.json (test, test:run, test:coverage)</task>
+      <task id="5">Create sample test to validate configuration</task>
+      <task id="6">Verify configuration works end-to-end</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">vitest.config.ts created in frontend directory with defineConfig, jsdom environment, globals: true, setupFiles, test patterns</criterion>
+    <criterion id="AC2">vitest.setup.ts imports @testing-library/jest-dom/vitest, configures cleanup after each test</criterion>
+    <criterion id="AC3">jsdom environment configured - tests can access DOM APIs (document, window), React renders in simulated browser</criterion>
+    <criterion id="AC4">Path alias '@' resolves correctly in tests - matches tsconfig.json paths</criterion>
+    <criterion id="AC5">npm run test script added to package.json (test, test:run, test:coverage)</criterion>
+    <criterion id="AC6">Sample test runs successfully locally - verifies jest-dom matchers and jsdom work</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <entry>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 PRD</title>
+        <section>Functional Requirements - FR26</section>
+        <snippet>FR26: Configure frontend testing framework with Vitest and React Testing Library for component tests</snippet>
+      </entry>
+      <entry>
+        <path>docs/architecture/phase-5-additions.md</path>
+        <title>Phase 5 Architecture</title>
+        <section>Phase 5 CI/CD Architecture - Frontend Test Configuration</section>
+        <snippet>Defines vitest.config.ts structure with jsdom environment, globals, setupFiles, coverage provider v8, and resolve.alias for @ path</snippet>
+      </entry>
+      <entry>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-3.md</path>
+        <title>Epic P5-3 Tech Spec</title>
+        <section>Story P5-3.3 Acceptance Criteria</section>
+        <snippet>Specifies vitest.config.ts, vitest.setup.ts, jsdom environment, path alias, npm scripts, and sample test requirements</snippet>
+      </entry>
+      <entry>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-3.md</path>
+        <title>Epic P5-3 Tech Spec</title>
+        <section>Frontend Dev Dependencies</section>
+        <snippet>vitest ^2.0.0, @vitest/coverage-v8 ^2.0.0, @testing-library/react ^16.0.0, @testing-library/jest-dom ^6.0.0, @testing-library/user-event ^14.0.0, jsdom ^24.0.0</snippet>
+      </entry>
+    </docs>
+    <code>
+      <entry>
+        <path>frontend/vitest.config.ts</path>
+        <kind>config</kind>
+        <symbol>defineConfig</symbol>
+        <lines>1-34</lines>
+        <reason>ALREADY EXISTS - Main Vitest configuration with jsdom, globals, setupFiles, coverage, path alias - ALL AC requirements satisfied</reason>
+      </entry>
+      <entry>
+        <path>frontend/vitest.setup.tsx</path>
+        <kind>setup</kind>
+        <symbol>jest-dom matchers</symbol>
+        <lines>1-75</lines>
+        <reason>ALREADY EXISTS - Test setup with jest-dom matchers, Next.js mocks, ResizeObserver/IntersectionObserver mocks - exceeds AC requirements</reason>
+      </entry>
+      <entry>
+        <path>frontend/package.json</path>
+        <kind>manifest</kind>
+        <symbol>scripts</symbol>
+        <lines>10-14</lines>
+        <reason>ALREADY EXISTS - Contains test, test:run, test:coverage, test:ui scripts</reason>
+      </entry>
+      <entry>
+        <path>frontend/package.json</path>
+        <kind>manifest</kind>
+        <symbol>devDependencies</symbol>
+        <lines>50-67</lines>
+        <reason>ALREADY EXISTS - Contains vitest ^4.0.15, @vitest/coverage-v8 ^4.0.15, @testing-library/react ^16.3.0, @testing-library/jest-dom ^6.9.1, @testing-library/user-event ^14.6.1, jsdom ^27.2.0</reason>
+      </entry>
+      <entry>
+        <path>frontend/__tests__/components/ui/button.test.tsx</path>
+        <kind>test</kind>
+        <symbol>Button tests</symbol>
+        <lines>1-183</lines>
+        <reason>ALREADY EXISTS - Sample test demonstrating all testing patterns: render, userEvent, jest-dom matchers, path alias (@/components/ui/button)</reason>
+      </entry>
+      <entry>
+        <path>frontend/__tests__/test-utils.tsx</path>
+        <kind>utility</kind>
+        <symbol>test helpers</symbol>
+        <lines>all</lines>
+        <reason>ALREADY EXISTS - Test utilities for reuse across tests</reason>
+      </entry>
+      <entry>
+        <path>frontend/tsconfig.json</path>
+        <kind>config</kind>
+        <symbol>paths</symbol>
+        <lines>21-23</lines>
+        <reason>Existing TypeScript path alias configuration that vitest.config.ts must match</reason>
+      </entry>
+    </code>
+    <dependencies>
+      <node>
+        <vitest>^4.0.15 (installed)</vitest>
+        <vitestCoverageV8>@vitest/coverage-v8 ^4.0.15 (installed)</vitestCoverageV8>
+        <testingLibraryReact>@testing-library/react ^16.3.0 (installed)</testingLibraryReact>
+        <testingLibraryJestDom>@testing-library/jest-dom ^6.9.1 (installed)</testingLibraryJestDom>
+        <testingLibraryUserEvent>@testing-library/user-event ^14.6.1 (installed)</testingLibraryUserEvent>
+        <jsdom>^27.2.0 (installed)</jsdom>
+        <vitePluginReact>@vitejs/plugin-react ^5.1.1 (installed)</vitePluginReact>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">vitest.config.ts must use defineConfig from vitest/config</constraint>
+    <constraint type="architecture">Must use jsdom environment for browser simulation</constraint>
+    <constraint type="architecture">Must set globals: true to avoid importing describe/it/expect</constraint>
+    <constraint type="architecture">setupFiles must point to vitest.setup.ts/tsx</constraint>
+    <constraint type="architecture">resolve.alias must include '@' mapping to './' to match tsconfig.json</constraint>
+    <constraint type="pattern">Test files follow pattern **/*.{test,spec}.{ts,tsx}</constraint>
+    <constraint type="pattern">Tests should use @testing-library/react for rendering</constraint>
+    <constraint type="pattern">Tests should use jest-dom matchers (toBeInTheDocument, toHaveClass, etc.)</constraint>
+    <constraint type="existing">Implementation already complete - this is a validation story</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>npm run test</name>
+      <kind>npm script</kind>
+      <signature>vitest (watch mode by default)</signature>
+      <path>frontend/package.json:10</path>
+    </interface>
+    <interface>
+      <name>npm run test:run</name>
+      <kind>npm script</kind>
+      <signature>vitest run (single run for CI)</signature>
+      <path>frontend/package.json:11</path>
+    </interface>
+    <interface>
+      <name>npm run test:coverage</name>
+      <kind>npm script</kind>
+      <signature>vitest run --coverage (with v8 coverage)</signature>
+      <path>frontend/package.json:12</path>
+    </interface>
+    <interface>
+      <name>render</name>
+      <kind>function</kind>
+      <signature>render(ui: ReactElement, options?: RenderOptions): RenderResult</signature>
+      <path>@testing-library/react</path>
+    </interface>
+    <interface>
+      <name>screen</name>
+      <kind>object</kind>
+      <signature>screen.getByRole, screen.getByText, screen.queryBy*, screen.findBy*</signature>
+      <path>@testing-library/react</path>
+    </interface>
+    <interface>
+      <name>userEvent</name>
+      <kind>class</kind>
+      <signature>userEvent.setup().click(), .type(), .keyboard(), etc.</signature>
+      <path>@testing-library/user-event</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend tests use Vitest as the test runner with jsdom environment for browser simulation. React Testing Library provides component rendering and DOM queries following the guiding principle of testing components the way users interact with them. Jest-dom matchers extend Vitest's expect for DOM assertions. Tests are located in frontend/__tests__/ directory following the pattern ComponentName.test.tsx. Test utilities are centralized in __tests__/test-utils.tsx for consistent query client and provider setup.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/**/*.test.{ts,tsx}</location>
+      <location>frontend/**/*.spec.{ts,tsx}</location>
+    </locations>
+    <ideas>
+      <idea acRef="AC1">Verify vitest.config.ts exists and has correct structure (jsdom, globals, setupFiles)</idea>
+      <idea acRef="AC2">Verify vitest.setup.tsx imports jest-dom and configures mocks</idea>
+      <idea acRef="AC3">Verify jsdom environment works - document/window available in tests</idea>
+      <idea acRef="AC4">Verify path alias @ resolves - existing tests use @/components/*</idea>
+      <idea acRef="AC5">Verify npm scripts exist and execute correctly</idea>
+      <idea acRef="AC6">Run npm run test:run and verify passing tests</idea>
+    </ideas>
+  </tests>
+
+  <implementationNote>
+    IMPORTANT: This story's implementation was ALREADY COMPLETED in a previous development effort. All acceptance criteria are satisfied by existing code:
+    - vitest.config.ts exists with all required configuration
+    - vitest.setup.tsx exists with jest-dom matchers and Next.js mocks
+    - package.json has test, test:run, test:coverage scripts
+    - 29 test files exist in __tests__/ directory demonstrating working configuration
+    - Dependencies installed with NEWER versions than spec requires
+
+    This story should be treated as a VALIDATION story - verify existing implementation meets acceptance criteria rather than creating new code.
+  </implementationNote>
+</story-context>

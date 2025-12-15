@@ -1,7 +1,13 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "moduleResolution": "node16",
+    "baseUrl": ".",
+    "module": "node16"
+  },
   "exclude": [
     "node_modules",
-    "__tests__/**/*"
+    "__tests__/**/*",
+    "vitest.config.ts"
   ]
 }

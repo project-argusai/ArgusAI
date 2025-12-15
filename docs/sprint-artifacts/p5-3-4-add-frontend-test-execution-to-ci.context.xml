@@ -1,0 +1,203 @@
+<story-context id="p5-3-4" v="1.0">
+  <metadata>
+    <epicId>P5-3</epicId>
+    <storyId>3.4</storyId>
+    <title>Add Frontend Test Execution to CI</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-15</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-3-4-add-frontend-test-execution-to-ci.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer contributing to ArgusAI</asA>
+    <iWant>frontend tests to run automatically in the CI pipeline</iWant>
+    <soThat>test failures are caught before code is merged to main branches</soThat>
+    <tasks>
+      <task id="1" ac="1,3,4">
+        <name>Verify CI Workflow Configuration</name>
+        <files>.github/workflows/ci.yml</files>
+        <subtasks>
+          <subtask>Verify frontend-tests job exists</subtask>
+          <subtask>Verify npm run test:run step is present (line 58-59)</subtask>
+          <subtask>Verify step runs after npm ci installs dependencies</subtask>
+          <subtask>Verify job runs in parallel with backend-tests</subtask>
+        </subtasks>
+      </task>
+      <task id="2" ac="2">
+        <name>Verify jsdom Environment in Vitest</name>
+        <files>frontend/vitest.config.ts</files>
+        <subtasks>
+          <subtask>Verify environment: 'jsdom' is configured (line 8)</subtask>
+          <subtask>Verify jsdom package is in devDependencies</subtask>
+          <subtask>Verify tests can access document/window objects</subtask>
+        </subtasks>
+      </task>
+      <task id="3" ac="1,2,3,4">
+        <name>Verify Test Execution Locally</name>
+        <subtasks>
+          <subtask>Run npm run test:run from frontend directory</subtask>
+          <subtask>Confirm tests execute without browser window</subtask>
+          <subtask>Confirm test output shows pass/fail status</subtask>
+          <subtask>Confirm exit code is non-zero when tests fail</subtask>
+        </subtasks>
+      </task>
+      <task id="4" ac="N/A">
+        <name>Document Pre-existing Test Failures</name>
+        <subtasks>
+          <subtask>Note tests failing due to missing SettingsProvider wrapper</subtask>
+          <subtask>Note tests failing due to Radix UI hasPointerCapture issue</subtask>
+          <subtask>These are pre-existing issues unrelated to CI configuration</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="npm run test:run Executes Vitest in CI">
+      <items>
+        <item>npm run test:run command present in frontend-tests job</item>
+        <item>Command runs vitest with run flag (single execution, not watch mode)</item>
+        <item>Vitest discovers and runs all test files matching **/*.{test,spec}.{ts,tsx}</item>
+      </items>
+    </criterion>
+    <criterion id="AC2" title="Tests Run in jsdom Environment (Headless)">
+      <items>
+        <item>vitest.config.ts specifies environment: 'jsdom'</item>
+        <item>No browser window required for test execution</item>
+        <item>Tests can access DOM APIs (document, window, etc.)</item>
+        <item>React components render successfully in simulated browser</item>
+      </items>
+    </criterion>
+    <criterion id="AC3" title="Job Fails if Any Test Fails">
+      <items>
+        <item>Non-zero exit code when tests fail</item>
+        <item>PR checks show failed status</item>
+        <item>Pipeline does not continue on test failure</item>
+      </items>
+    </criterion>
+    <criterion id="AC4" title="Test Output Visible in GitHub Actions Logs">
+      <items>
+        <item>Test names displayed in CI output</item>
+        <item>Pass/fail status visible for each test</item>
+        <item>Error messages and stack traces shown for failures</item>
+        <item>Summary count of passed/failed tests displayed</item>
+      </items>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 PRD</title>
+        <section>Functional Requirements - FR22</section>
+        <snippet>FR22: CI runs frontend tests with npm run test command, tests run in headless jsdom environment, failure blocks PR merge.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-3.md</path>
+        <title>Epic P5-3 Tech Spec</title>
+        <section>Acceptance Criteria - P5-3.4</section>
+        <snippet>Story P5-3.4: Add Frontend Test Execution to CI - npm run test executes vitest in CI, tests run in jsdom environment, job fails if any test fails, output visible in logs.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p5-3-3-set-up-vitest-react-testing-library.md</path>
+        <title>Previous Story P5-3.3</title>
+        <section>Dev Agent Record</section>
+        <snippet>Vitest + React Testing Library already configured. Test scripts available: test, test:run, test:coverage. Pre-existing failures noted in Header.test.tsx and GenerateSummaryDialog.test.tsx.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>.github/workflows/ci.yml</path>
+        <kind>workflow</kind>
+        <symbol>frontend-tests job</symbol>
+        <lines>36-59</lines>
+        <reason>CI workflow defining frontend test execution - npm run test:run already configured at line 59</reason>
+      </file>
+      <file>
+        <path>frontend/vitest.config.ts</path>
+        <kind>config</kind>
+        <symbol>defineConfig</symbol>
+        <lines>1-34</lines>
+        <reason>Vitest configuration with jsdom environment, globals, setupFiles - validates AC2</reason>
+      </file>
+      <file>
+        <path>frontend/vitest.setup.tsx</path>
+        <kind>setup</kind>
+        <symbol>test setup</symbol>
+        <reason>Test setup file with jest-dom matchers and Next.js mocks</reason>
+      </file>
+      <file>
+        <path>frontend/package.json</path>
+        <kind>manifest</kind>
+        <symbol>scripts.test:run</symbol>
+        <lines>10-13</lines>
+        <reason>Test scripts: test, test:run, test:coverage, test:ui defined</reason>
+      </file>
+      <file>
+        <path>frontend/__tests__/</path>
+        <kind>test-directory</kind>
+        <symbol>test files</symbol>
+        <reason>25 test files demonstrating working test infrastructure (438 tests pass)</reason>
+      </file>
+    </code>
+    <dependencies>
+      <node>
+        <dependency name="vitest" version="^4.0.15" dev="true" />
+        <dependency name="@vitest/coverage-v8" version="^4.0.15" dev="true" />
+        <dependency name="@testing-library/react" version="^16.3.0" dev="true" />
+        <dependency name="@testing-library/jest-dom" version="^6.9.1" dev="true" />
+        <dependency name="@testing-library/user-event" version="^14.6.1" dev="true" />
+        <dependency name="jsdom" version="^27.2.0" dev="true" />
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Tests must use jsdom environment for browser simulation</constraint>
+    <constraint source="tech-spec">CI job must fail if any test fails (non-zero exit code)</constraint>
+    <constraint source="tech-spec">Total CI time target: under 10 minutes</constraint>
+    <constraint source="tech-spec">Frontend tests target: under 3 minutes</constraint>
+    <constraint source="previous-story">Pre-existing test failures are known issues, not blocking CI configuration validation</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>npm run test:run</name>
+      <kind>npm script</kind>
+      <signature>vitest run</signature>
+      <path>frontend/package.json:11</path>
+    </interface>
+    <interface>
+      <name>frontend-tests job</name>
+      <kind>github-actions-job</kind>
+      <signature>runs-on: ubuntu-latest, working-directory: frontend</signature>
+      <path>.github/workflows/ci.yml:36-59</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend tests use Vitest with React Testing Library. Tests are located in frontend/__tests__/ directory.
+      Test files follow pattern **/*.{test,spec}.{ts,tsx}. Tests run in jsdom environment simulating browser.
+      Jest-dom matchers available (toBeInTheDocument, toHaveClass, etc.). Path alias '@' resolves to frontend root.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/**/*.test.tsx</location>
+      <location>frontend/__tests__/**/*.spec.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Verify npm run test:run command executes vitest and returns proper exit codes</idea>
+      <idea ac="AC2">Verify jsdom environment allows DOM API access and React component rendering</idea>
+      <idea ac="AC3">Verify test failure produces non-zero exit code that fails CI job</idea>
+      <idea ac="AC4">Verify test output includes test names, pass/fail status, and summary counts</idea>
+    </ideas>
+  </tests>
+
+  <notes>
+    <note type="implementation">This story validates existing CI configuration - no new code changes required</note>
+    <note type="warning">91 pre-existing test failures in 5 files (Header.test.tsx, GenerateSummaryDialog.test.tsx, etc.) - unrelated to CI configuration</note>
+    <note type="previous-story">From P5-3.3: Consider adding hasPointerCapture mock to vitest.setup.tsx for Radix UI compatibility</note>
+  </notes>
+</story-context>

@@ -170,12 +170,48 @@ def api_client(test_db):
     # It will be properly cleaned up at module teardown.
 
 
+@pytest.fixture(scope="session", autouse=True)
+def ensure_test_database_setup():
+    """
+    Ensure a clean test database is available at session start.
+
+    This runs once at the beginning of the test session and sets up a default
+    test database for any tests that don't set up their own.
+    """
+    # Create a default test database for tests that don't set up their own
+    engine, SessionLocal, cleanup, _ = _create_test_database(use_file=True)
+    Base.metadata.create_all(bind=engine)
+
+    def default_override_get_db():
+        db = SessionLocal()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    # Set a default override that tests can rely on
+    app.dependency_overrides[get_db] = default_override_get_db
+
+    yield
+
+    # Cleanup at end of session
+    if get_db in app.dependency_overrides:
+        del app.dependency_overrides[get_db]
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+    cleanup()
+
+
 @pytest.fixture(scope="module", autouse=True)
 def cleanup_overrides():
     """
     Ensure dependency overrides are properly cleaned up after module tests.
     """
     yield
-    # Restore original get_db after all tests in module complete
-    if get_db in app.dependency_overrides:
-        del app.dependency_overrides[get_db]
+    # Note: We don't delete the override here anymore since the session-level
+    # fixture provides a default. Individual test modules can override get_db
+    # and their override will be used until the module completes.

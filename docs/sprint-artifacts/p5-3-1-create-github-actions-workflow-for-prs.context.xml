@@ -1,0 +1,156 @@
+<story-context id="p5-3-1-create-github-actions-workflow-for-prs" v="1.0">
+  <metadata>
+    <epicId>P5-3</epicId>
+    <storyId>P5-3.1</storyId>
+    <title>Create GitHub Actions Workflow for PRs</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-15</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-3-1-create-github-actions-workflow-for-prs.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer contributing to ArgusAI</asA>
+    <iWant>a GitHub Actions CI workflow that automatically runs on pull requests</iWant>
+    <soThat>code quality is validated before merging and potential issues are caught early</soThat>
+    <tasks>
+      <task id="1" status="pending">Create .github/workflows Directory</task>
+      <task id="2" status="pending">Create ci.yml Workflow File with triggers</task>
+      <task id="3" status="pending">Define Backend Tests Job</task>
+      <task id="4" status="pending">Define Frontend Tests Job</task>
+      <task id="5" status="pending">Validate Workflow Syntax</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Workflow file exists at .github/workflows/ci.yml with valid YAML syntax and name "CI"</criterion>
+    <criterion id="AC2">Triggers on push to main and development branches</criterion>
+    <criterion id="AC3">Triggers on pull requests to main and development branches</criterion>
+    <criterion id="AC4">Runs backend-tests and frontend-tests jobs in parallel on ubuntu-latest</criterion>
+    <criterion id="AC5">PR is blocked if any check fails - jobs exit with non-zero status on failure</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/architecture/phase-5-additions.md</path>
+        <title>Phase 5 Architecture Additions</title>
+        <section>Phase 5 CI/CD Architecture</section>
+        <snippet>Complete GitHub Actions workflow specification with backend-tests and frontend-tests jobs running in parallel. Uses actions/checkout@v4, actions/setup-python@v5, actions/setup-node@v4 with caching enabled.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-3.md</path>
+        <title>CI/CD Tech Spec</title>
+        <section>Detailed Design - Workflows</section>
+        <snippet>Defines CI pipeline execution flow, job dependencies, environment setup, and target performance metrics (&lt;10 min total, &lt;5 min backend, &lt;3 min frontend).</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Epic P5-3: CI/CD &amp; Testing Infrastructure</section>
+        <snippet>Story P5-3.1 acceptance criteria: Workflow file at .github/workflows/ci.yml, triggers on push/PR to main/development, parallel jobs, PR blocked on failure.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/vitest.config.ts</path>
+        <kind>config</kind>
+        <symbol>vitest configuration</symbol>
+        <lines>1-34</lines>
+        <reason>Existing vitest configuration - CI workflow should use npm run test which invokes this config</reason>
+      </file>
+      <file>
+        <path>frontend/package.json</path>
+        <kind>config</kind>
+        <symbol>npm scripts</symbol>
+        <lines>6-14</lines>
+        <reason>Test scripts already defined: test, test:run, test:coverage - CI should use these existing scripts</reason>
+      </file>
+      <file>
+        <path>backend/requirements.txt</path>
+        <kind>dependency</kind>
+        <symbol>pytest and pytest-cov</symbol>
+        <lines>65-68</lines>
+        <reason>Backend test dependencies already configured - CI should install from requirements.txt</reason>
+      </file>
+      <file>
+        <path>backend/tests/conftest.py</path>
+        <kind>test-config</kind>
+        <symbol>pytest fixtures</symbol>
+        <lines>all</lines>
+        <reason>Test configuration and fixtures - ensure CI environment is compatible</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="pytest" version="7.4.3"/>
+        <package name="pytest-asyncio" version="0.21.1"/>
+        <package name="pytest-cov" version="4.1.0"/>
+        <package name="httpx" version="0.25.2"/>
+      </python>
+      <node>
+        <package name="vitest" version="^4.0.15"/>
+        <package name="@vitest/coverage-v8" version="^4.0.15"/>
+        <package name="@testing-library/react" version="^16.3.0"/>
+        <package name="@testing-library/jest-dom" version="^6.9.1"/>
+        <package name="jsdom" version="^27.2.0"/>
+        <package name="eslint" version="^9"/>
+        <package name="typescript" version="^5"/>
+      </node>
+      <actions>
+        <action name="actions/checkout" version="v4"/>
+        <action name="actions/setup-python" version="v5"/>
+        <action name="actions/setup-node" version="v4"/>
+        <action name="codecov/codecov-action" version="v4"/>
+      </actions>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Workflow must define two parallel jobs: backend-tests and frontend-tests with no needs dependency between them</constraint>
+    <constraint type="architecture">Backend job must set working-directory defaults to backend/</constraint>
+    <constraint type="architecture">Frontend job must set working-directory defaults to frontend/</constraint>
+    <constraint type="architecture">Use pip caching for Python dependencies (cache: 'pip')</constraint>
+    <constraint type="architecture">Use npm caching for Node dependencies (cache: 'npm')</constraint>
+    <constraint type="performance">Total CI time target: &lt;10 minutes</constraint>
+    <constraint type="security">Use GitHub Secrets for sensitive environment variables (ENCRYPTION_KEY, API keys)</constraint>
+    <constraint type="compatibility">Python version: 3.11 (match local development)</constraint>
+    <constraint type="compatibility">Node version: 20 (match local development)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>npm test scripts</name>
+      <kind>CLI command</kind>
+      <signature>npm run lint | npm run test | npm run test:coverage | npx tsc --noEmit</signature>
+      <path>frontend/package.json</path>
+    </interface>
+    <interface>
+      <name>pytest execution</name>
+      <kind>CLI command</kind>
+      <signature>pytest --cov=app --cov-report=xml --cov-report=term-missing</signature>
+      <path>backend/tests/</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests and pytest-cov for coverage.
+      Frontend uses Vitest with React Testing Library and jsdom environment.
+      Both test suites are already configured and runnable locally.
+      CI should use existing test scripts without modification.
+    </standards>
+    <locations>
+      <location>backend/tests/**/*.py</location>
+      <location>frontend/**/*.{test,spec}.{ts,tsx}</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Verify ci.yml file exists and has valid YAML syntax after creation</idea>
+      <idea ac="AC2,AC3">Manual test: Create test branch, push to development, verify workflow triggers</idea>
+      <idea ac="AC4">Verify GitHub Actions shows both jobs running concurrently</idea>
+      <idea ac="AC5">Manual test: Create PR with failing test to verify PR is blocked</idea>
+    </ideas>
+  </tests>
+</story-context>

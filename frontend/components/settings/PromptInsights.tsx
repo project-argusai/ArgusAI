@@ -80,7 +80,7 @@ function SuggestionCard({ suggestion, onApply, onDismiss, isApplying }: Suggesti
                 {showExamples && (
                   <ul className="mt-2 space-y-1 text-sm text-muted-foreground bg-muted/50 rounded p-2">
                     {suggestion.example_corrections.map((example, index) => (
-                      <li key={index} className="italic">"{example}"</li>
+                      <li key={index} className="italic">&ldquo;{example}&rdquo;</li>
                     ))}
                   </ul>
                 )}

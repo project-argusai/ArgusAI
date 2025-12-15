@@ -1,0 +1,120 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-3</epicId>
+    <storyId>5</storyId>
+    <title>Add ESLint and TypeScript Checks to CI</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-15</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-3-5-add-eslint-and-typescript-checks-to-ci.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer contributing to ArgusAI</asA>
+    <iWant>ESLint and TypeScript checks to run automatically in the CI pipeline</iWant>
+    <soThat>code style violations and type errors are caught before code is merged to main branches</soThat>
+    <tasks>
+      <task id="1" desc="Verify ESLint Execution in CI">
+        <subtask>Verify frontend-tests job has npm run lint step (should be at line 55-56)</subtask>
+        <subtask>Verify step runs after npm ci installs dependencies</subtask>
+        <subtask>Verify ESLint errors would fail the job (no continue-on-error)</subtask>
+      </task>
+      <task id="2" desc="Add TypeScript Type-Check Step">
+        <subtask>Add new step: npx tsc --noEmit after lint step</subtask>
+        <subtask>Use descriptive step name: Run type check</subtask>
+        <subtask>Ensure step runs before test step</subtask>
+      </task>
+      <task id="3" desc="Test Both Checks Locally">
+        <subtask>Run npm run lint locally and verify output</subtask>
+        <subtask>Run npx tsc --noEmit locally and verify output</subtask>
+        <subtask>Confirm both commands exit non-zero on errors</subtask>
+        <subtask>Verify error messages include file paths and line numbers</subtask>
+      </task>
+      <task id="4" desc="Verify CI Workflow Order">
+        <subtask>Confirm step order: npm ci, lint, tsc, test</subtask>
+        <subtask>Document the rationale for this order in Dev Notes</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" desc="npm run lint Executes ESLint">
+      <criterion>npm run lint command present in frontend-tests job</criterion>
+      <criterion>ESLint discovers and checks all .js, .jsx, .ts, .tsx files</criterion>
+      <criterion>Runs eslint-config-next for Next.js specific rules</criterion>
+    </ac>
+    <ac id="2" desc="npx tsc --noEmit Runs Type Checking">
+      <criterion>npx tsc --noEmit command added to frontend-tests job</criterion>
+      <criterion>Runs after dependency installation</criterion>
+      <criterion>Checks all TypeScript files without emitting output</criterion>
+      <criterion>Uses project tsconfig.json configuration</criterion>
+    </ac>
+    <ac id="3" desc="Lint Errors Fail the Job">
+      <criterion>Non-zero exit code when ESLint finds errors</criterion>
+      <criterion>PR checks show failed status on lint errors</criterion>
+      <criterion>Pipeline does not continue on lint failure</criterion>
+    </ac>
+    <ac id="4" desc="Type Errors Fail the Job">
+      <criterion>Non-zero exit code when TypeScript finds errors</criterion>
+      <criterion>PR checks show failed status on type errors</criterion>
+      <criterion>Pipeline does not continue on type failure</criterion>
+    </ac>
+    <ac id="5" desc="Error Messages Visible in CI Output">
+      <criterion>ESLint error messages displayed in CI logs</criterion>
+      <criterion>TypeScript error messages displayed in CI logs</criterion>
+      <criterion>File paths and line numbers visible for both</criterion>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-p5-3.md" title="Epic P5-3 Tech Spec" section="Acceptance Criteria" snippet="Story P5-3.5: AC1-5 define lint execution, tsc execution, error handling, and output visibility requirements." />
+      <doc path="docs/PRD-phase5.md" title="Phase 5 PRD" section="Functional Requirements" snippet="FR23 requires ESLint and TypeScript checks in CI pipeline for code quality validation." />
+      <doc path="docs/sprint-artifacts/p5-3-4-add-frontend-test-execution-to-ci.md" title="Previous Story P5-3.4" section="Dev Notes" snippet="ESLint step already exists at ci.yml:55-56. TypeScript check is missing." />
+    </docs>
+    <code>
+      <file path=".github/workflows/ci.yml" kind="workflow" symbol="frontend-tests" lines="36-60" reason="CI workflow to modify - add tsc step between lint and test" />
+      <file path="frontend/package.json" kind="config" symbol="scripts.lint" lines="9" reason="Defines npm run lint command" />
+      <file path="frontend/tsconfig.json" kind="config" symbol="compilerOptions" lines="1-34" reason="TypeScript configuration used by tsc --noEmit" />
+      <file path="frontend/eslint.config.mjs" kind="config" symbol="eslintConfig" lines="1-18" reason="ESLint configuration with Next.js rules" />
+    </code>
+    <dependencies>
+      <node>
+        <package name="eslint" version="^9" purpose="JavaScript/TypeScript linter" />
+        <package name="eslint-config-next" version="16.0.3" purpose="Next.js ESLint rules" />
+        <package name="typescript" version="^5" purpose="TypeScript compiler for type checking" />
+      </node>
+      <actions>
+        <action name="actions/checkout" version="v4" purpose="Clone repository" />
+        <action name="actions/setup-node" version="v4" purpose="Install Node.js with caching" />
+      </actions>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Follow fail-fast principle: lint first (fastest), then tsc, then tests (slowest)</constraint>
+    <constraint type="pattern">Step names must be descriptive for GitHub Actions log readability</constraint>
+    <constraint type="ci">No continue-on-error - failures must block the pipeline</constraint>
+    <constraint type="ci">Working directory must remain frontend for all steps</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="npm run lint" kind="script" signature="eslint ." path="frontend/package.json:9" />
+    <interface name="npx tsc --noEmit" kind="command" signature="tsc --noEmit (uses tsconfig.json)" path="frontend/tsconfig.json" />
+  </interfaces>
+
+  <tests>
+    <standards>CI workflow changes are validated by triggering a PR and observing GitHub Actions output. Local verification uses npm run lint and npx tsc --noEmit commands. Exit codes indicate success (0) or failure (non-zero).</standards>
+    <locations>
+      <location>.github/workflows/ci.yml</location>
+      <location>frontend/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Verify npm run lint step exists and runs eslint</idea>
+      <idea ac="2">Verify npx tsc --noEmit step added and runs type checking</idea>
+      <idea ac="3">Introduce intentional lint error, verify CI fails</idea>
+      <idea ac="4">Introduce intentional type error, verify CI fails</idea>
+      <idea ac="5">Check CI logs show file paths and line numbers for errors</idea>
+    </ideas>
+  </tests>
+</story-context>

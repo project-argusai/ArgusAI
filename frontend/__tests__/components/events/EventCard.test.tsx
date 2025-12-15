@@ -12,7 +12,7 @@
  * - Testing expandable text content
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { EventCard } from '@/components/events/EventCard'
@@ -181,7 +181,6 @@ describe('EventCard', () => {
     })
 
     it('shows placeholder on image error', async () => {
-      const user = userEvent.setup()
       const event = createMockEvent({ thumbnail_base64: 'invalid' })
       const onClick = vi.fn()
 

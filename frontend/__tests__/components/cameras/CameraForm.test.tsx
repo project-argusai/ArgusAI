@@ -42,7 +42,7 @@ vi.mock('@/lib/api-client', () => ({
 
 // Mock child components that have complex dependencies
 vi.mock('@/components/cameras/MotionSettingsSection', () => ({
-  MotionSettingsSection: ({ form }: { form: unknown }) => (
+  MotionSettingsSection: () => (
     <div data-testid="motion-settings-section">Motion Settings Section</div>
   ),
 }))
@@ -95,13 +95,13 @@ vi.mock('@/components/cameras/ZonePresetTemplates', () => ({
 }))
 
 vi.mock('@/components/cameras/DetectionScheduleEditor', () => ({
-  DetectionScheduleEditor: ({ form }: { form: unknown }) => (
+  DetectionScheduleEditor: () => (
     <div data-testid="detection-schedule-editor">Detection Schedule Editor</div>
   ),
 }))
 
 vi.mock('@/components/cameras/AnalysisModeSelector', () => ({
-  AnalysisModeSelector: ({ form, sourceType }: { form: unknown; sourceType: string }) => (
+  AnalysisModeSelector: ({ sourceType }: { sourceType: string }) => (
     <div data-testid="analysis-mode-selector" data-source-type={sourceType}>
       Analysis Mode Selector
     </div>
@@ -166,11 +166,14 @@ describe('CameraForm', () => {
       expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
     })
 
-    it('does not show test connection in create mode', () => {
+    it('shows test connection for RTSP cameras in create mode', () => {
       render(<CameraForm onSubmit={mockOnSubmit} />)
 
-      expect(screen.queryByRole('button', { name: /^test$/i })).not.toBeInTheDocument()
-      expect(screen.queryByText(/test connection/i)).not.toBeInTheDocument()
+      // Test connection is now shown for RTSP cameras in create mode
+      // so users can test their URL before saving
+      expect(screen.getByText(/test connection/i)).toBeInTheDocument()
+      // Button is disabled until RTSP URL is entered
+      expect(screen.getByRole('button', { name: /^test$/i })).toBeDisabled()
     })
 
     it('shows cancel button when onCancel is provided', () => {
@@ -441,14 +444,13 @@ describe('CameraForm', () => {
       })
     })
 
-    it('shows info message when testing in create mode', async () => {
-      const user = userEvent.setup()
-
-      // This shouldn't happen via UI but tests the code path
+    it('shows test button disabled until RTSP URL entered in create mode', () => {
+      // In create mode for RTSP cameras, test button is visible but disabled
+      // until an RTSP URL is entered
       render(<CameraForm onSubmit={mockOnSubmit} />)
 
-      // In create mode, test button shouldn't be visible at all
-      expect(screen.queryByRole('button', { name: /^test$/i })).not.toBeInTheDocument()
+      const testButton = screen.getByRole('button', { name: /^test$/i })
+      expect(testButton).toBeDisabled()
     })
   })
 

@@ -3,6 +3,7 @@
  */
 
 'use client';
+'use no memo'; // React Hook Form's watch() API is incompatible with React Compiler memoization
 
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';

@@ -1758,7 +1758,7 @@ export const apiClient = {
   },
 
   // ============================================================================
-  // HomeKit Integration (Story P4-6.1)
+  // HomeKit Integration (Story P4-6.1, P5-1.8)
   // ============================================================================
   homekit: {
     /**
@@ -1815,6 +1815,36 @@ export const apiClient = {
     }> => {
       return apiFetch('/integrations/homekit/reset', {
         method: 'POST',
+      });
+    },
+
+    /**
+     * Get list of paired devices (Story P5-1.8)
+     * @returns List of paired clients with their info
+     */
+    getPairings: async (): Promise<{
+      pairings: Array<{
+        pairing_id: string;
+        is_admin: boolean;
+        permissions: number;
+      }>;
+      count: number;
+    }> => {
+      return apiFetch('/homekit/pairings');
+    },
+
+    /**
+     * Remove a specific pairing (Story P5-1.8)
+     * @param pairingId The pairing ID to remove
+     * @returns Removal result
+     */
+    removePairing: async (pairingId: string): Promise<{
+      success: boolean;
+      message: string;
+      pairing_id: string;
+    }> => {
+      return apiFetch(`/homekit/pairings/${encodeURIComponent(pairingId)}`, {
+        method: 'DELETE',
       });
     },
   },

@@ -1,0 +1,237 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-1</epicId>
+    <storyId>P5-1.8</storyId>
+    <title>Build HomeKit Settings UI</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-14</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-1-8-build-homekit-settings-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>HomeKit user managing ArgusAI integration</asA>
+    <iWant>a comprehensive settings UI for HomeKit pairing management</iWant>
+    <soThat>I can view paired devices, remove individual pairings, and manage the HomeKit bridge without restarting the entire pairing process</soThat>
+    <tasks>
+      <task id="1" ac="3">Add Pairings List API Endpoint
+        <subtask>Create PairingInfo Pydantic schema with id, name, is_admin, paired_at</subtask>
+        <subtask>Create PairingsListResponse schema</subtask>
+        <subtask>Implement GET /api/v1/homekit/pairings endpoint</subtask>
+        <subtask>Read paired_clients from state file (accessory.state)</subtask>
+      </task>
+      <task id="2" ac="4">Add Remove Pairing API Endpoint
+        <subtask>Implement DELETE /api/v1/homekit/pairings/{pairing_id} endpoint</subtask>
+        <subtask>Validate pairing_id exists in state</subtask>
+        <subtask>Remove pairing from state file</subtask>
+      </task>
+      <task id="3" ac="3,4">Add Pairings Service Methods
+        <subtask>Add get_pairings() method to homekit_service.py</subtask>
+        <subtask>Add remove_pairing(pairing_id) method to homekit_service.py</subtask>
+      </task>
+      <task id="4" ac="3,5">Update HomekitStatus Hook
+        <subtask>Add paired_count to HomekitStatus interface</subtask>
+        <subtask>Add usePairings() hook to fetch pairings list</subtask>
+        <subtask>Add useRemovePairing() mutation hook</subtask>
+      </task>
+      <task id="5" ac="3,4">Update API Client
+        <subtask>Add homekit.getPairings() method</subtask>
+        <subtask>Add homekit.removePairing(pairingId) method</subtask>
+      </task>
+      <task id="6" ac="3,4,5">Update HomekitSettings Component
+        <subtask>Add PairingsList subcomponent</subtask>
+        <subtask>Display pairing count in status section</subtask>
+        <subtask>Add remove button with confirmation dialog</subtask>
+      </task>
+      <task id="7" ac="3,4">Write Unit Tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" status="done">Toggle to Enable/Disable HomeKit Bridge - Already implemented</criterion>
+    <criterion id="AC2" status="done">QR Code Displayed When Enabled and Not Paired - Already implemented</criterion>
+    <criterion id="AC3">List of Current Pairings Shown
+      <requirement>New API endpoint GET /api/v1/homekit/pairings returns paired clients</requirement>
+      <requirement>UI shows list of paired devices with names (if available)</requirement>
+      <requirement>Display includes pairing date/time if available</requirement>
+      <requirement>Empty state message when no pairings exist</requirement>
+    </criterion>
+    <criterion id="AC4">Ability to Remove Individual Pairings
+      <requirement>New API endpoint DELETE /api/v1/homekit/pairings/{pairing_id}</requirement>
+      <requirement>Remove button next to each paired device in UI</requirement>
+      <requirement>Confirmation dialog before removal</requirement>
+      <requirement>After removal, device can no longer control accessories</requirement>
+    </criterion>
+    <criterion id="AC5" status="partial">Multiple iOS Users Can Access Shared Accessories
+      <requirement status="done">HAP-python handles multi-user access automatically</requirement>
+      <requirement>UI shows count of paired users</requirement>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-1.md</path>
+        <title>Epic Technical Specification: Native HomeKit Integration</title>
+        <section>P5-1.8 Acceptance Criteria</section>
+        <snippet>Story P5-1.8 requires toggle to enable/disable, QR code display, list of current pairings, ability to remove pairings, and multi-user access.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Story P5-1.8: Build HomeKit Settings UI</section>
+        <snippet>Create settings page for HomeKit enable/disable and pairing management. FRs: FR9, FR10, FR12.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p5-1-7-implement-doorbell-accessory-for-protect-events.md</path>
+        <title>Previous Story Reference</title>
+        <section>Dev Agent Record</section>
+        <snippet>Patterns established: StatelessProgrammableSwitch for doorbell events, service method pattern with logging, test patterns in test_homekit_doorbell.py.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/api/v1/homekit.py</path>
+        <kind>api-router</kind>
+        <symbol>router</symbol>
+        <lines>1-500</lines>
+        <reason>Main HomeKit API endpoints - add pairings list and remove endpoints here</reason>
+      </file>
+      <file>
+        <path>backend/app/services/homekit_service.py</path>
+        <kind>service</kind>
+        <symbol>HomekitService</symbol>
+        <lines>161-177</lines>
+        <reason>is_paired property reads paired_clients from state file - extend with get_pairings() and remove_pairing() methods</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/HomekitSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>HomekitSettings</symbol>
+        <lines>1-283</lines>
+        <reason>Existing HomeKit settings UI - enhance with pairings list and remove functionality</reason>
+      </file>
+      <file>
+        <path>frontend/hooks/useHomekitStatus.ts</path>
+        <kind>hook</kind>
+        <symbol>useHomekitStatus, useHomekitToggle, useHomekitReset</symbol>
+        <lines>1-107</lines>
+        <reason>Existing hooks for HomeKit - add usePairings() and useRemovePairing() hooks</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api-client</kind>
+        <symbol>apiClient.homekit</symbol>
+        <lines>1760-1819</lines>
+        <reason>HomeKit API client methods - add getPairings() and removePairing() methods</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_homekit.py</path>
+        <kind>test</kind>
+        <symbol>test_homekit</symbol>
+        <reason>Existing HomeKit API tests - add tests for pairings endpoints</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_homekit_doorbell.py</path>
+        <kind>test</kind>
+        <symbol>test_homekit_doorbell</symbol>
+        <reason>Test pattern reference for HomeKit service tests</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="HAP-python" version=">=4.9.0">HomeKit Accessory Protocol implementation</package>
+        <package name="qrcode" version=">=7.4.0">QR code generation for pairing</package>
+        <package name="Pillow" version=">=10.0.0">Image processing for QR codes</package>
+        <package name="pydantic" version=">=2.0">API schema validation</package>
+      </python>
+      <node>
+        <package name="@tanstack/react-query" version="^5.0.0">Server state management</package>
+        <package name="react-hook-form" version="^7.0.0">Form handling</package>
+        <package name="lucide-react" version="^0.400.0">Icons</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface>
+      <name>GET /api/v1/homekit/status</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/homekit/status -> HomeKitStatusResponse</signature>
+      <path>backend/app/api/v1/homekit.py</path>
+      <note>Returns current HomeKit bridge status including paired state</note>
+    </interface>
+    <interface>
+      <name>POST /api/v1/homekit/reset</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/homekit/reset -> {success, message, new_setup_code}</signature>
+      <path>backend/app/api/v1/homekit.py</path>
+      <note>Resets ALL pairings - bulk operation already implemented</note>
+    </interface>
+    <interface>
+      <name>GET /api/v1/homekit/pairings (NEW)</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/homekit/pairings -> PairingsListResponse</signature>
+      <path>backend/app/api/v1/homekit.py</path>
+      <note>TO BE IMPLEMENTED: Returns list of paired clients</note>
+    </interface>
+    <interface>
+      <name>DELETE /api/v1/homekit/pairings/{pairing_id} (NEW)</name>
+      <kind>REST endpoint</kind>
+      <signature>DELETE /api/v1/homekit/pairings/{pairing_id} -> {success, message}</signature>
+      <path>backend/app/api/v1/homekit.py</path>
+      <note>TO BE IMPLEMENTED: Removes specific pairing</note>
+    </interface>
+    <interface>
+      <name>HomekitService.get_pairings (NEW)</name>
+      <kind>service method</kind>
+      <signature>def get_pairings(self) -> List[PairingInfo]</signature>
+      <path>backend/app/services/homekit_service.py</path>
+      <note>TO BE IMPLEMENTED: Reads paired_clients from state file</note>
+    </interface>
+    <interface>
+      <name>HomekitService.remove_pairing (NEW)</name>
+      <kind>service method</kind>
+      <signature>def remove_pairing(self, pairing_id: str) -> bool</signature>
+      <path>backend/app/services/homekit_service.py</path>
+      <note>TO BE IMPLEMENTED: Removes pairing from state file</note>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint type="pattern">Use FastAPI dependency injection pattern for database and service access</constraint>
+    <constraint type="pattern">Use Pydantic models for request/response validation</constraint>
+    <constraint type="security">State file contains sensitive pairing keys - handle with atomic writes</constraint>
+    <constraint type="testing">All new endpoints must have pytest tests</constraint>
+    <constraint type="frontend">Use TanStack Query for data fetching with proper cache invalidation</constraint>
+    <constraint type="frontend">Use shadcn/ui components (Button, Card, Alert, AlertDialog)</constraint>
+    <constraint type="frontend">Follow existing HomekitSettings.tsx patterns</constraint>
+    <constraint type="coding">Use TypeScript strict mode on frontend</constraint>
+    <constraint type="logging">Log pairing changes at INFO level</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Frontend: Vitest with React Testing Library.
+      Test files named test_*.py for backend, *.test.tsx for frontend. Mock HAP-python driver for isolated tests.
+      Use fixtures for database sessions. API tests use TestClient from FastAPI.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_homekit.py</location>
+      <location>backend/tests/test_services/test_homekit_*.py</location>
+      <location>frontend/components/settings/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC3">Test GET /api/v1/homekit/pairings returns empty list when no pairings</idea>
+      <idea ac="AC3">Test GET /api/v1/homekit/pairings returns pairings from state file</idea>
+      <idea ac="AC3">Test get_pairings() parses state file correctly</idea>
+      <idea ac="AC4">Test DELETE /api/v1/homekit/pairings/{id} removes pairing</idea>
+      <idea ac="AC4">Test DELETE returns 404 for unknown pairing_id</idea>
+      <idea ac="AC4">Test remove_pairing() updates state file atomically</idea>
+      <idea ac="AC3,AC5">Test pairing count displayed in UI status section</idea>
+      <idea ac="AC4">Test confirmation dialog appears before removal</idea>
+    </ideas>
+  </tests>
+</story-context>

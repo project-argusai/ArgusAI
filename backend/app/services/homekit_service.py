@@ -1289,6 +1289,129 @@ class HomekitService:
             logger.error(f"Failed to reset HomeKit pairing: {e}")
             return False
 
+    # =========================================================================
+    # Story P5-1.8: Pairings Management Methods
+    # =========================================================================
+
+    def get_pairings(self) -> List[Dict[str, Any]]:
+        """
+        Get list of paired HomeKit clients (Story P5-1.8 AC3).
+
+        Reads the state file to extract pairing information for all
+        currently paired iOS devices.
+
+        Returns:
+            List of dicts with pairing_id, is_admin, permissions for each paired client
+        """
+        try:
+            state_file = Path(self.config.persist_file)
+            if not state_file.exists():
+                logger.debug("No HomeKit state file found - no pairings")
+                return []
+
+            import json
+            with open(state_file, 'r') as f:
+                state_data = json.load(f)
+
+            paired_clients = state_data.get('paired_clients', [])
+
+            pairings = []
+            for client in paired_clients:
+                pairing_id = client.get('client_uuid', '')
+                permissions = client.get('permissions', 0)
+
+                pairings.append({
+                    'pairing_id': pairing_id,
+                    'is_admin': permissions == 1,  # 1 = admin, 0 = regular user
+                    'permissions': permissions
+                })
+
+            logger.debug(
+                f"Found {len(pairings)} HomeKit pairings",
+                extra={"pairing_count": len(pairings)}
+            )
+
+            return pairings
+
+        except Exception as e:
+            logger.error(f"Failed to read HomeKit pairings: {e}", exc_info=True)
+            return []
+
+    def remove_pairing(self, pairing_id: str) -> bool:
+        """
+        Remove a specific HomeKit pairing (Story P5-1.8 AC4).
+
+        Removes the pairing for the specified client UUID from the state file.
+        The removed device will no longer be able to control accessories.
+
+        Args:
+            pairing_id: The client UUID of the pairing to remove
+
+        Returns:
+            True if pairing was removed successfully, False otherwise
+        """
+        try:
+            state_file = Path(self.config.persist_file)
+            if not state_file.exists():
+                logger.warning(f"Cannot remove pairing - no state file exists")
+                return False
+
+            import json
+            import tempfile
+
+            # Read current state
+            with open(state_file, 'r') as f:
+                state_data = json.load(f)
+
+            paired_clients = state_data.get('paired_clients', [])
+            original_count = len(paired_clients)
+
+            # Filter out the pairing to remove
+            updated_clients = [
+                client for client in paired_clients
+                if client.get('client_uuid') != pairing_id
+            ]
+
+            if len(updated_clients) == original_count:
+                logger.warning(f"Pairing not found for removal: {pairing_id}")
+                return False
+
+            # Update state data
+            state_data['paired_clients'] = updated_clients
+
+            # Write atomically (write to temp, then rename)
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=state_file.parent,
+                suffix='.tmp'
+            )
+            try:
+                with os.fdopen(temp_fd, 'w') as f:
+                    json.dump(state_data, f, indent=2)
+
+                # Atomic rename
+                os.replace(temp_path, state_file)
+
+                logger.info(
+                    f"Removed HomeKit pairing: {pairing_id}",
+                    extra={
+                        "event_type": "homekit_pairing_removed",
+                        "pairing_id": pairing_id,
+                        "remaining_pairings": len(updated_clients)
+                    }
+                )
+
+                return True
+
+            except Exception:
+                # Clean up temp file on error
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise
+
+        except Exception as e:
+            logger.error(f"Failed to remove HomeKit pairing: {e}", exc_info=True)
+            return False
+
 
 # Global service instance
 _homekit_service: Optional[HomekitService] = None

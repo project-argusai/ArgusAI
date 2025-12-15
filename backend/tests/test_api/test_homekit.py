@@ -1,10 +1,12 @@
 """
-Tests for HomeKit API endpoints (Story P5-1.1)
+Tests for HomeKit API endpoints (Story P5-1.1, P5-1.8)
 
 Tests cover:
 - HomeKit status endpoint
 - HomeKit enable/disable endpoints
 - HomeKit QR code endpoint
+- HomeKit pairings list endpoint (P5-1.8 AC3)
+- HomeKit remove pairing endpoint (P5-1.8 AC4)
 - Schema validation
 """
 import pytest
@@ -16,6 +18,9 @@ from app.api.v1.homekit import (
     HomeKitEnableResponse,
     HomeKitDisableResponse,
     HomeKitConfigResponse,
+    PairingInfo,
+    PairingsListResponse,
+    RemovePairingResponse,
 )
 
 
@@ -298,3 +303,157 @@ class TestHomeKitQRCodeEndpoint:
         )
 
         assert response.qr_code_data is None
+
+
+# ============================================================================
+# Story P5-1.8: Pairings Management Tests
+# ============================================================================
+
+
+class TestPairingsSchemas:
+    """Tests for pairings-related Pydantic schemas (Story P5-1.8)."""
+
+    def test_pairing_info_schema(self):
+        """AC3: PairingInfo validates correctly."""
+        pairing = PairingInfo(
+            pairing_id="12345678-1234-1234-1234-123456789012",
+            is_admin=True,
+            permissions=1
+        )
+
+        assert pairing.pairing_id == "12345678-1234-1234-1234-123456789012"
+        assert pairing.is_admin is True
+        assert pairing.permissions == 1
+
+    def test_pairing_info_regular_user(self):
+        """PairingInfo represents regular (non-admin) user."""
+        pairing = PairingInfo(
+            pairing_id="abcdefgh-1234-5678-9012-abcdefghijkl",
+            is_admin=False,
+            permissions=0
+        )
+
+        assert pairing.is_admin is False
+        assert pairing.permissions == 0
+
+    def test_pairings_list_response_schema(self):
+        """AC3: PairingsListResponse validates correctly."""
+        response = PairingsListResponse(
+            pairings=[
+                PairingInfo(
+                    pairing_id="12345678-1234-1234-1234-123456789012",
+                    is_admin=True,
+                    permissions=1
+                ),
+                PairingInfo(
+                    pairing_id="abcdefgh-1234-5678-9012-abcdefghijkl",
+                    is_admin=False,
+                    permissions=0
+                )
+            ],
+            count=2
+        )
+
+        assert response.count == 2
+        assert len(response.pairings) == 2
+        assert response.pairings[0].is_admin is True
+        assert response.pairings[1].is_admin is False
+
+    def test_pairings_list_empty(self):
+        """AC3: PairingsListResponse handles empty list."""
+        response = PairingsListResponse(
+            pairings=[],
+            count=0
+        )
+
+        assert response.count == 0
+        assert len(response.pairings) == 0
+
+    def test_remove_pairing_response_schema(self):
+        """AC4: RemovePairingResponse validates correctly."""
+        response = RemovePairingResponse(
+            success=True,
+            message="Pairing removed successfully",
+            pairing_id="12345678-1234-1234-1234-123456789012"
+        )
+
+        assert response.success is True
+        assert response.message == "Pairing removed successfully"
+        assert response.pairing_id == "12345678-1234-1234-1234-123456789012"
+
+    def test_remove_pairing_response_failure(self):
+        """AC4: RemovePairingResponse handles failure."""
+        response = RemovePairingResponse(
+            success=False,
+            message="Pairing not found",
+            pairing_id="invalid-id"
+        )
+
+        assert response.success is False
+        assert "not found" in response.message.lower()
+
+
+class TestPairingsAPIEndpoints:
+    """Tests for pairings API endpoint behavior (Story P5-1.8)."""
+
+    def test_pairings_list_response_format(self):
+        """AC3: Pairings endpoint returns expected format."""
+        # Simulate the response format
+        pairings_response = {
+            "pairings": [
+                {
+                    "pairing_id": "12345678-1234-1234-1234-123456789012",
+                    "is_admin": True,
+                    "permissions": 1
+                }
+            ],
+            "count": 1
+        }
+
+        response = PairingsListResponse(**pairings_response)
+        assert response.count == 1
+        assert response.pairings[0].pairing_id == "12345678-1234-1234-1234-123456789012"
+
+    def test_pairings_list_empty_response_format(self):
+        """AC3: Empty pairings list returns expected format."""
+        pairings_response = {
+            "pairings": [],
+            "count": 0
+        }
+
+        response = PairingsListResponse(**pairings_response)
+        assert response.count == 0
+        assert len(response.pairings) == 0
+
+    def test_remove_pairing_success_response_format(self):
+        """AC4: Remove pairing success returns expected format."""
+        remove_response = {
+            "success": True,
+            "message": "Pairing removed successfully. Device must re-pair to access accessories.",
+            "pairing_id": "12345678-1234-1234-1234-123456789012"
+        }
+
+        response = RemovePairingResponse(**remove_response)
+        assert response.success is True
+        assert "re-pair" in response.message
+
+    def test_multiple_pairings_response(self):
+        """AC5: Multiple users (pairings) can be listed."""
+        pairings_response = {
+            "pairings": [
+                {"pairing_id": "user1-uuid", "is_admin": True, "permissions": 1},
+                {"pairing_id": "user2-uuid", "is_admin": False, "permissions": 0},
+                {"pairing_id": "user3-uuid", "is_admin": False, "permissions": 0},
+            ],
+            "count": 3
+        }
+
+        response = PairingsListResponse(**pairings_response)
+        assert response.count == 3
+
+        # Count admins and regular users
+        admin_count = sum(1 for p in response.pairings if p.is_admin)
+        user_count = sum(1 for p in response.pairings if not p.is_admin)
+
+        assert admin_count == 1
+        assert user_count == 2

@@ -1,5 +1,5 @@
 /**
- * useHomekitStatus hook (Story P4-6.1)
+ * useHomekitStatus hook (Story P4-6.1, P5-1.8)
  *
  * TanStack Query hook for fetching and managing HomeKit integration status.
  */
@@ -29,7 +29,28 @@ export interface HomekitEnableRequest {
   enabled: boolean;
 }
 
+/**
+ * Pairing information (Story P5-1.8)
+ */
+export interface HomekitPairing {
+  pairing_id: string;
+  is_admin: boolean;
+  permissions: number;
+}
+
+export interface HomekitPairingsResponse {
+  pairings: HomekitPairing[];
+  count: number;
+}
+
+export interface HomekitRemovePairingResponse {
+  success: boolean;
+  message: string;
+  pairing_id: string;
+}
+
 const HOMEKIT_QUERY_KEY = ['homekit', 'status'];
+const HOMEKIT_PAIRINGS_KEY = ['homekit', 'pairings'];
 
 /**
  * Fetch HomeKit status from the API
@@ -101,6 +122,57 @@ export function useHomekitToggle() {
     },
     onError: () => {
       // Refetch on error to get current state
+      queryClient.invalidateQueries({ queryKey: HOMEKIT_QUERY_KEY });
+    },
+  });
+}
+
+// ============================================================================
+// Pairings Hooks (Story P5-1.8)
+// ============================================================================
+
+/**
+ * Fetch HomeKit pairings from the API (Story P5-1.8)
+ */
+async function fetchHomekitPairings(): Promise<HomekitPairingsResponse> {
+  return apiClient.homekit.getPairings();
+}
+
+/**
+ * Remove a HomeKit pairing (Story P5-1.8)
+ */
+async function removeHomekitPairing(pairingId: string): Promise<HomekitRemovePairingResponse> {
+  return apiClient.homekit.removePairing(pairingId);
+}
+
+/**
+ * Hook for fetching HomeKit pairings list (Story P5-1.8 AC3)
+ *
+ * @param options.enabled - Whether to enable the query (default: true)
+ */
+export function useHomekitPairings(options?: {
+  enabled?: boolean;
+}) {
+  return useQuery({
+    queryKey: HOMEKIT_PAIRINGS_KEY,
+    queryFn: fetchHomekitPairings,
+    enabled: options?.enabled ?? true,
+    staleTime: 10000, // Consider data stale after 10 seconds
+    retry: 1,
+  });
+}
+
+/**
+ * Hook for removing a HomeKit pairing (Story P5-1.8 AC4)
+ */
+export function useHomekitRemovePairing() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: removeHomekitPairing,
+    onSuccess: () => {
+      // Invalidate both pairings and status queries
+      queryClient.invalidateQueries({ queryKey: HOMEKIT_PAIRINGS_KEY });
       queryClient.invalidateQueries({ queryKey: HOMEKIT_QUERY_KEY });
     },
   });

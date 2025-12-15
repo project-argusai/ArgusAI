@@ -1,13 +1,25 @@
 'use client';
 
 /**
- * HomekitSettings component (Story P4-6.1)
+ * HomekitSettings component (Story P4-6.1, P5-1.8)
  *
  * Settings UI for HomeKit integration with enable toggle, pairing status,
- * QR code display, and reset functionality.
+ * QR code display, pairings list, and reset functionality.
+ *
+ * Story P5-1.8 additions:
+ * - Display list of paired devices (AC3)
+ * - Remove individual pairings (AC4)
+ * - Show count of paired users (AC5)
  */
 import React, { useState } from 'react';
-import { useHomekitStatus, useHomekitToggle, useHomekitReset } from '@/hooks/useHomekitStatus';
+import {
+  useHomekitStatus,
+  useHomekitToggle,
+  useHomekitReset,
+  useHomekitPairings,
+  useHomekitRemovePairing,
+  type HomekitPairing,
+} from '@/hooks/useHomekitStatus';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -25,7 +37,124 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Loader2, AlertCircle, Check, X, RotateCcw, Smartphone } from 'lucide-react';
+import { Loader2, AlertCircle, Check, X, RotateCcw, Smartphone, Trash2, Users, Shield, User } from 'lucide-react';
+
+/**
+ * PairingsList subcomponent (Story P5-1.8 AC3, AC4)
+ *
+ * Displays list of paired devices with ability to remove individual pairings.
+ */
+function PairingsList({ enabled }: { enabled: boolean }) {
+  const [removingPairingId, setRemovingPairingId] = useState<string | null>(null);
+  const { data: pairingsData, isLoading } = useHomekitPairings({ enabled });
+  const removePairingMutation = useHomekitRemovePairing();
+
+  const handleRemovePairing = async (pairingId: string) => {
+    try {
+      await removePairingMutation.mutateAsync(pairingId);
+      setRemovingPairingId(null);
+    } catch (err) {
+      console.error('Failed to remove pairing:', err);
+      setRemovingPairingId(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!pairingsData || pairingsData.count === 0) {
+    return (
+      <div className="text-center py-4 text-muted-foreground text-sm">
+        No devices paired yet
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Users className="h-4 w-4" />
+          <span>{pairingsData.count} paired {pairingsData.count === 1 ? 'device' : 'devices'}</span>
+        </div>
+      </div>
+      {pairingsData.pairings.map((pairing: HomekitPairing) => (
+        <div
+          key={pairing.pairing_id}
+          className="flex items-center justify-between p-3 border rounded-lg bg-muted/30"
+        >
+          <div className="flex items-center gap-3">
+            {pairing.is_admin ? (
+              <Shield className="h-4 w-4 text-blue-500" />
+            ) : (
+              <User className="h-4 w-4 text-muted-foreground" />
+            )}
+            <div>
+              <div className="font-mono text-sm">
+                {pairing.pairing_id.slice(0, 8)}...{pairing.pairing_id.slice(-4)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {pairing.is_admin ? 'Admin' : 'User'}
+              </div>
+            </div>
+          </div>
+
+          <AlertDialog
+            open={removingPairingId === pairing.pairing_id}
+            onOpenChange={(open) => setRemovingPairingId(open ? pairing.pairing_id : null)}
+          >
+            <AlertDialogTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove Pairing?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This device will no longer be able to control your HomeKit accessories.
+                  The device will need to re-pair to regain access.
+                  {pairing.is_admin && (
+                    <span className="block mt-2 text-amber-600 dark:text-amber-400">
+                      Warning: This is an admin device. Removing it may affect other users
+                      if this is the primary paired device.
+                    </span>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => handleRemovePairing(pairing.pairing_id)}
+                  disabled={removePairingMutation.isPending}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {removePairingMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Removing...
+                    </>
+                  ) : (
+                    'Remove Pairing'
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function HomekitSettings() {
   const [showResetDialog, setShowResetDialog] = useState(false);
@@ -223,6 +352,14 @@ export function HomekitSettings() {
                     </div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Paired Devices List (Story P5-1.8 AC3, AC4, AC5) */}
+            {status.paired && (
+              <div className="border rounded-lg p-4">
+                <h4 className="font-medium mb-3">Paired Devices</h4>
+                <PairingsList enabled={status.running} />
               </div>
             )}
 

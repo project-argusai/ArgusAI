@@ -229,7 +229,7 @@ class TestCameraDiscovery:
 class TestEnableDisableCamera:
     """Tests for enabling/disabling cameras for AI (AC2)"""
 
-    def test_enable_camera_via_api(self, test_controller):
+    def test_enable_camera_via_api(self, test_controller, client):
         """Test enabling a camera for AI analysis"""
         db = TestingSessionLocal()
         try:
@@ -260,7 +260,7 @@ class TestEnableDisableCamera:
         finally:
             db.close()
 
-    def test_disable_camera_via_api(self, test_controller):
+    def test_disable_camera_via_api(self, test_controller, client):
         """Test disabling a camera for AI analysis"""
         db = TestingSessionLocal()
         try:
@@ -432,7 +432,7 @@ class TestDiscoveryAPIEndpoint:
     """Integration tests for camera discovery API"""
 
     @patch('app.services.protect_service.ProtectApiClient')
-    def test_discover_cameras_endpoint(self, mock_client_class, test_controller, mock_protect_cameras):
+    def test_discover_cameras_endpoint(self, mock_client_class, test_controller, mock_protect_cameras, client):
         """Test GET /protect/controllers/{id}/cameras endpoint"""
         # Setup mock
         mock_client = MagicMock()
@@ -450,9 +450,10 @@ class TestDiscoveryAPIEndpoint:
 
         # The response depends on whether controller is actually connected
         # Accept either success (200) or error states
-        assert response.status_code in [200, 400, 404]
+        # 503 = controller not connected (service unavailable)
+        assert response.status_code in [200, 400, 404, 503]
 
-    def test_discover_cameras_nonexistent_controller(self):
+    def test_discover_cameras_nonexistent_controller(self, client):
         """Test discovery for non-existent controller returns 404"""
         response = client.get("/api/v1/protect/controllers/nonexistent-id/cameras")
         assert response.status_code == 404
@@ -461,13 +462,14 @@ class TestDiscoveryAPIEndpoint:
 class TestForceRefresh:
     """Tests for force refresh functionality"""
 
-    def test_force_refresh_parameter_accepted(self, test_controller):
+    def test_force_refresh_parameter_accepted(self, test_controller, client):
         """Test that force_refresh parameter is accepted by API"""
         response = client.get(
             f"/api/v1/protect/controllers/{test_controller.id}/cameras?force_refresh=true"
         )
         # Accept various response codes since controller may not be connected
-        assert response.status_code in [200, 400, 404]
+        # 503 = controller not connected (service unavailable)
+        assert response.status_code in [200, 400, 404, 503]
 
 
 if __name__ == "__main__":

@@ -33,16 +33,16 @@ from app.services.protect_service import (
 )
 
 
-# Create test database
-test_db_fd, test_db_path = tempfile.mkstemp(suffix=".db")
-os.close(test_db_fd)
+# Create module-level temp database (file-based for isolation)
+_test_db_fd, _test_db_path = tempfile.mkstemp(suffix="_nfr_performance.db")
+os.close(_test_db_fd)
 
-TEST_DATABASE_URL = f"sqlite:///{test_db_path}"
+TEST_DATABASE_URL = f"sqlite:///{_test_db_path}"
 engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def override_get_db():
+def _override_get_db():
     """Override database dependency for testing"""
     db = TestingSessionLocal()
     try:
@@ -55,14 +55,23 @@ def override_get_db():
         db.close()
 
 
-# Override database dependency
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(scope="module", autouse=True)
+def setup_module_database():
+    """Set up database and override at module start, teardown at end."""
+    Base.metadata.create_all(bind=engine)
+    app.dependency_overrides[get_db] = _override_get_db
+    yield
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+    # Clean up temp file
+    if os.path.exists(_test_db_path):
+        os.remove(_test_db_path)
 
-# Create tables once
-Base.metadata.create_all(bind=engine)
 
-# Create test client
-client = TestClient(app)
+@pytest.fixture(scope="module")
+def client(setup_module_database):
+    """Create test client - override already applied at module level"""
+    return TestClient(app)
 
 
 # NFR timing constants
@@ -171,7 +180,7 @@ class TestNFR1CameraDiscovery:
             f"Camera discovery took {elapsed_seconds:.2f}s, should be < {NFR1_CAMERA_DISCOVERY_MAX_SECONDS}s"
 
     @pytest.mark.performance
-    def test_discovery_api_timing(self, test_controller):
+    def test_discovery_api_timing(self, test_controller, client):
         """Test discovery API endpoint timing"""
         # Warm up
         client.get(f"/api/v1/protect/controllers/{test_controller.id}/cameras")
@@ -234,7 +243,7 @@ class TestNFR2EventLatency:
             db.close()
 
     @pytest.mark.performance
-    def test_event_api_retrieval_latency(self, test_controller):
+    def test_event_api_retrieval_latency(self, test_controller, client):
         """Test event retrieval API latency"""
         db = TestingSessionLocal()
         try:

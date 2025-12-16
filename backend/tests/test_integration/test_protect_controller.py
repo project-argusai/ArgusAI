@@ -28,16 +28,16 @@ from app.services.protect_service import (
 )
 
 
-# Create test database
-test_db_fd, test_db_path = tempfile.mkstemp(suffix=".db")
-os.close(test_db_fd)
+# Create module-level temp database (file-based for isolation)
+_test_db_fd, _test_db_path = tempfile.mkstemp(suffix="_protect_controller.db")
+os.close(_test_db_fd)
 
-TEST_DATABASE_URL = f"sqlite:///{test_db_path}"
+TEST_DATABASE_URL = f"sqlite:///{_test_db_path}"
 engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def override_get_db():
+def _override_get_db():
     """Override database dependency for testing"""
     db = TestingSessionLocal()
     try:
@@ -50,14 +50,23 @@ def override_get_db():
         db.close()
 
 
-# Override database dependency
-app.dependency_overrides[get_db] = override_get_db
+@pytest.fixture(scope="module", autouse=True)
+def setup_module_database():
+    """Set up database and override at module start, teardown at end."""
+    Base.metadata.create_all(bind=engine)
+    app.dependency_overrides[get_db] = _override_get_db
+    yield
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+    # Clean up temp file
+    if os.path.exists(_test_db_path):
+        os.remove(_test_db_path)
 
-# Create tables once
-Base.metadata.create_all(bind=engine)
 
-# Create test client
-client = TestClient(app)
+@pytest.fixture(scope="module")
+def client(setup_module_database):
+    """Create test client - override already applied at module level"""
+    return TestClient(app)
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -244,7 +253,7 @@ class TestControllerDisconnect:
 class TestControllerAPILifecycle:
     """Integration tests for controller lifecycle via API"""
 
-    def test_create_and_delete_controller(self):
+    def test_create_and_delete_controller(self, client):
         """Test full lifecycle: create → get → delete"""
         # Create controller
         create_data = {
@@ -275,7 +284,7 @@ class TestControllerAPILifecycle:
         verify_response = client.get(f"/api/v1/protect/controllers/{controller_id}")
         assert verify_response.status_code == 404
 
-    def test_controller_connection_status_tracking(self):
+    def test_controller_connection_status_tracking(self, client):
         """Test that connection status is properly tracked"""
         # Create controller
         create_data = {
@@ -299,7 +308,7 @@ class TestConnectionTestEndpoint:
     """Integration tests for POST /protect/controllers/test endpoint"""
 
     @patch('app.services.protect_service.ProtectApiClient')
-    def test_test_endpoint_success(self, mock_client_class):
+    def test_test_endpoint_success(self, mock_client_class, client):
         """Test successful connection test via API"""
         mock_client = MagicMock()
         mock_client.update = AsyncMock()
@@ -327,7 +336,7 @@ class TestConnectionTestEndpoint:
         assert data["data"]["camera_count"] == 3
 
     @patch('app.services.protect_service.ProtectApiClient')
-    def test_test_endpoint_failure(self, mock_client_class):
+    def test_test_endpoint_failure(self, mock_client_class, client):
         """Test failed connection test via API"""
         from uiprotect.exceptions import NotAuthorized
 

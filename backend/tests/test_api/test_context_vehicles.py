@@ -26,19 +26,16 @@ from app.services.vehicle_matching_service import get_vehicle_matching_service
 from app.services.vehicle_embedding_service import get_vehicle_embedding_service
 
 
-# Create test database
-test_db_fd, test_db_path = tempfile.mkstemp(suffix="_vehicles.db")
-os.close(test_db_fd)
+# Create module-level temp database (file-based for isolation)
+_test_db_fd, _test_db_path = tempfile.mkstemp(suffix="_vehicles.db")
+os.close(_test_db_fd)
 
-TEST_DATABASE_URL = f"sqlite:///{test_db_path}"
+TEST_DATABASE_URL = f"sqlite:///{_test_db_path}"
 engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Create tables
-Base.metadata.create_all(bind=engine)
 
-
-def override_get_db():
+def _override_get_db():
     """Override database dependency for testing"""
     db = TestingSessionLocal()
     try:
@@ -51,16 +48,30 @@ def override_get_db():
         db.close()
 
 
-# Create test client with DB override
-app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app)
+@pytest.fixture(scope="module", autouse=True)
+def setup_module_database():
+    """Set up database and override at module start, teardown at end."""
+    Base.metadata.create_all(bind=engine)
+    app.dependency_overrides[get_db] = _override_get_db
+    yield
+    Base.metadata.drop_all(bind=engine)
+    engine.dispose()
+    # Clean up temp file
+    if os.path.exists(_test_db_path):
+        os.remove(_test_db_path)
+
+
+@pytest.fixture(scope="module")
+def client(setup_module_database):
+    """Create test client - override already applied at module level"""
+    return TestClient(app)
 
 
 @pytest.fixture(scope="function", autouse=True)
 def cleanup_overrides():
     """Clean up dependency overrides after each test"""
     yield
-    # Restore original dependencies
+    # Restore original dependencies (keep get_db override)
     if get_vehicle_matching_service in app.dependency_overrides:
         del app.dependency_overrides[get_vehicle_matching_service]
     if get_vehicle_embedding_service in app.dependency_overrides:
@@ -70,7 +81,7 @@ def cleanup_overrides():
 class TestListVehicles:
     """Tests for GET /api/v1/context/vehicles endpoint."""
 
-    def test_list_vehicles_empty(self):
+    def test_list_vehicles_empty(self, client):
         """Test listing vehicles when none exist."""
         mock_service = MagicMock()
         mock_service.get_vehicles = AsyncMock(return_value=([], 0))
@@ -87,7 +98,7 @@ class TestListVehicles:
         assert data["vehicles"] == []
         assert data["total"] == 0
 
-    def test_list_vehicles_with_data(self):
+    def test_list_vehicles_with_data(self, client):
         """Test listing vehicles with data."""
         mock_vehicles = [
             {
@@ -118,7 +129,7 @@ class TestListVehicles:
         assert data["vehicles"][0]["name"] == "My Car"
         assert data["total"] == 1
 
-    def test_list_vehicles_pagination(self):
+    def test_list_vehicles_pagination(self, client):
         """Test pagination parameters."""
         mock_service = MagicMock()
         mock_service.get_vehicles = AsyncMock(return_value=([], 0))
@@ -136,7 +147,7 @@ class TestListVehicles:
         assert call_args.kwargs["limit"] == 10
         assert call_args.kwargs["offset"] == 20
 
-    def test_list_vehicles_named_only(self):
+    def test_list_vehicles_named_only(self, client):
         """Test named_only filter."""
         mock_service = MagicMock()
         mock_service.get_vehicles = AsyncMock(return_value=([], 0))
@@ -157,7 +168,7 @@ class TestListVehicles:
 class TestGetVehicle:
     """Tests for GET /api/v1/context/vehicles/{id} endpoint."""
 
-    def test_get_vehicle_success(self):
+    def test_get_vehicle_success(self, client):
         """Test getting vehicle details."""
         mock_vehicle = {
             "id": "v-1",
@@ -188,7 +199,7 @@ class TestGetVehicle:
         assert data["id"] == "v-1"
         assert data["name"] == "Work Truck"
 
-    def test_get_vehicle_not_found(self):
+    def test_get_vehicle_not_found(self, client):
         """Test getting non-existent vehicle."""
         mock_service = MagicMock()
         mock_service.get_vehicle = AsyncMock(return_value=None)
@@ -206,7 +217,7 @@ class TestGetVehicle:
 class TestUpdateVehicle:
     """Tests for PUT /api/v1/context/vehicles/{id} endpoint."""
 
-    def test_update_vehicle_name(self):
+    def test_update_vehicle_name(self, client):
         """Test updating vehicle name."""
         mock_vehicle = {
             "id": "v-1",
@@ -235,7 +246,7 @@ class TestUpdateVehicle:
         data = response.json()
         assert data["name"] == "New Name"
 
-    def test_update_vehicle_not_found(self):
+    def test_update_vehicle_not_found(self, client):
         """Test updating non-existent vehicle."""
         mock_service = MagicMock()
         mock_service.update_vehicle_name = AsyncMock(return_value=None)
@@ -257,7 +268,7 @@ class TestUpdateVehicle:
 class TestVehicleEmbeddings:
     """Tests for vehicle embedding endpoints."""
 
-    def test_get_vehicle_embeddings_for_event(self):
+    def test_get_vehicle_embeddings_for_event(self, client):
         """Test getting vehicle embeddings for an event."""
         mock_vehicles = [
             {
@@ -283,7 +294,7 @@ class TestVehicleEmbeddings:
         # This test requires an event to exist, so we'll just verify the endpoint is reachable
         # In actual usage, the event must exist in DB
 
-    def test_delete_event_vehicles(self):
+    def test_delete_event_vehicles(self, client):
         """Test deleting vehicle embeddings for an event."""
         mock_service = MagicMock()
         mock_service.delete_event_vehicles = AsyncMock(return_value=3)
@@ -294,7 +305,7 @@ class TestVehicleEmbeddings:
         app.dependency_overrides[get_vehicle_embedding_service] = override_embedding_service
         # Note: Actual test would need proper DB setup with event
 
-    def test_delete_all_vehicles(self):
+    def test_delete_all_vehicles(self, client):
         """Test deleting all vehicle embeddings."""
         mock_service = MagicMock()
         mock_service.delete_all_vehicles = AsyncMock(return_value=100)
@@ -310,7 +321,7 @@ class TestVehicleEmbeddings:
         data = response.json()
         assert data["deleted_count"] == 100
 
-    def test_get_vehicle_stats(self):
+    def test_get_vehicle_stats(self, client):
         """Test getting vehicle embedding stats."""
         mock_service = MagicMock()
         mock_service.get_total_vehicle_count = AsyncMock(return_value=150)
@@ -331,7 +342,7 @@ class TestVehicleEmbeddings:
 class TestVehicleAPIValidation:
     """Tests for API input validation."""
 
-    def test_list_vehicles_limit_validation(self):
+    def test_list_vehicles_limit_validation(self, client):
         """Test limit parameter validation."""
         response = client.get("/api/v1/context/vehicles?limit=0")
         assert response.status_code == 422  # Validation error
@@ -339,7 +350,7 @@ class TestVehicleAPIValidation:
         response = client.get("/api/v1/context/vehicles?limit=1000")
         assert response.status_code == 422  # Exceeds max
 
-    def test_list_vehicles_offset_validation(self):
+    def test_list_vehicles_offset_validation(self, client):
         """Test offset parameter validation."""
         response = client.get("/api/v1/context/vehicles?offset=-1")
         assert response.status_code == 422  # Negative not allowed

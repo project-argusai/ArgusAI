@@ -201,10 +201,15 @@ class TestDiscoveryPublishing:
         result = await service.publish_discovery_config(mock_camera, mock_config)
 
         assert result is True
-        mock_mqtt.publish.assert_called_once()
+        # Service now publishes 6 sensors per camera: event, status, last_event, events_today, events_week, activity
+        assert mock_mqtt.publish.call_count == 6
 
-        # Verify publish arguments
-        call_args = mock_mqtt.publish.call_args
+        # Verify the event sensor was published (use exact topic match)
+        call_args_list = mock_mqtt.publish.call_args_list
+        event_sensor_calls = [c for c in call_args_list if c.kwargs.get("topic", "") == "homeassistant/sensor/liveobject_camera-123_event/config"]
+        assert len(event_sensor_calls) == 1
+
+        call_args = event_sensor_calls[0]
         assert call_args.kwargs["topic"] == "homeassistant/sensor/liveobject_camera-123_event/config"
         assert call_args.kwargs["qos"] == 1
         assert call_args.kwargs["retain"] is True
@@ -285,9 +290,14 @@ class TestSensorRemoval:
         assert result is True
         assert "camera-456" not in service._published_cameras
 
-        # Verify empty payload published
-        mock_client.publish.assert_called_once()
-        call_args = mock_client.publish.call_args
+        # Verify empty payloads published for all 6 sensors
+        assert mock_client.publish.call_count == 6
+
+        # Verify the event sensor was removed (use exact topic match)
+        call_args_list = mock_client.publish.call_args_list
+        event_calls = [c for c in call_args_list if c[0][0] == "homeassistant/sensor/liveobject_camera-456_event/config"]
+        assert len(event_calls) == 1
+        call_args = event_calls[0]
         assert call_args[0][0] == "homeassistant/sensor/liveobject_camera-456_event/config"
         assert call_args[1]["payload"] == ""
         assert call_args[1]["retain"] is True

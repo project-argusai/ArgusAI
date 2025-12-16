@@ -189,6 +189,7 @@ class TestPayloadBuilding:
         event.description = "Person detected at door"
         event.confidence = 95
         event.objects_detected = json.dumps(["person"])
+        event.anomaly_score = None  # Explicitly set to avoid MagicMock comparison issues
 
         rule = MagicMock(spec=AlertRule)
         rule.id = "rule-789"
@@ -217,6 +218,7 @@ class TestPayloadBuilding:
         event.description = "Test"
         event.confidence = 90
         event.objects_detected = '["person", "vehicle"]'
+        event.anomaly_score = None  # Explicitly set to avoid MagicMock comparison issues
 
         rule = MagicMock(spec=AlertRule)
         rule.id = "rule-789"
@@ -366,6 +368,7 @@ class TestExecuteRuleWebhook:
         event.description = "Test"
         event.confidence = 90
         event.objects_detected = "[]"
+        event.anomaly_score = None  # Explicitly set to avoid MagicMock comparison issues
 
         rule = MagicMock(spec=AlertRule)
         rule.id = "rule-123"

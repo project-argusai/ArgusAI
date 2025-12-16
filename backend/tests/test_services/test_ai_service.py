@@ -647,9 +647,6 @@ class TestEncryptedAPIKeyLoading:
 
         # Mock database session and query
         mock_db = Mock()
-        mock_query = Mock()
-        mock_db.query.return_value = mock_query
-        mock_query.filter.return_value = mock_query
 
         # Mock system settings with encrypted keys (including Grok - Story P2-5.1 AC4)
         mock_settings = [
@@ -658,7 +655,20 @@ class TestEncryptedAPIKeyLoading:
             SystemSetting(key='ai_api_key_claude', value='encrypted:test_claude_key'),
             SystemSetting(key='ai_api_key_gemini', value='encrypted:test_gemini_key')
         ]
-        mock_query.all.return_value = mock_settings
+
+        # Create separate mocks for SystemSetting and Camera queries
+        def mock_query(model):
+            mock_q = Mock()
+            mock_filter = Mock()
+            mock_q.filter.return_value = mock_filter
+            if model == SystemSetting:
+                mock_filter.all.return_value = mock_settings
+            else:
+                # Camera query for prompt overrides returns empty list
+                mock_filter.all.return_value = []
+            return mock_q
+
+        mock_db.query.side_effect = mock_query
 
         # Mock decryption
         with patch('app.services.ai_service.decrypt_password') as mock_decrypt:
@@ -683,14 +693,24 @@ class TestEncryptedAPIKeyLoading:
 
         # Mock database with only OpenAI key
         mock_db = Mock()
-        mock_query = Mock()
-        mock_db.query.return_value = mock_query
-        mock_query.filter.return_value = mock_query
 
         mock_settings = [
             SystemSetting(key='ai_api_key_openai', value='encrypted:test_openai_key')
         ]
-        mock_query.all.return_value = mock_settings
+
+        # Create separate mocks for SystemSetting and Camera queries
+        def mock_query(model):
+            mock_q = Mock()
+            mock_filter = Mock()
+            mock_q.filter.return_value = mock_filter
+            if model == SystemSetting:
+                mock_filter.all.return_value = mock_settings
+            else:
+                # Camera query for prompt overrides returns empty list
+                mock_filter.all.return_value = []
+            return mock_q
+
+        mock_db.query.side_effect = mock_query
 
         with patch('app.services.ai_service.decrypt_password') as mock_decrypt:
             mock_decrypt.return_value = 'decrypted_openai_key'
@@ -709,14 +729,24 @@ class TestEncryptedAPIKeyLoading:
         service = AIService()
 
         mock_db = Mock()
-        mock_query = Mock()
-        mock_db.query.return_value = mock_query
-        mock_query.filter.return_value = mock_query
 
         mock_settings = [
             SystemSetting(key='ai_api_key_openai', value='encrypted:invalid_key')
         ]
-        mock_query.all.return_value = mock_settings
+
+        # Create separate mocks for SystemSetting and Camera queries
+        def mock_query(model):
+            mock_q = Mock()
+            mock_filter = Mock()
+            mock_q.filter.return_value = mock_filter
+            if model == SystemSetting:
+                mock_filter.all.return_value = mock_settings
+            else:
+                # Camera query for prompt overrides returns empty list
+                mock_filter.all.return_value = []
+            return mock_q
+
+        mock_db.query.side_effect = mock_query
 
         with patch('app.services.ai_service.decrypt_password') as mock_decrypt:
             mock_decrypt.side_effect = ValueError("Failed to decrypt")
@@ -730,10 +760,16 @@ class TestEncryptedAPIKeyLoading:
         service = AIService()
 
         mock_db = Mock()
-        mock_query = Mock()
-        mock_db.query.return_value = mock_query
-        mock_query.filter.return_value = mock_query
-        mock_query.all.return_value = []  # No settings
+
+        # Create separate mocks for SystemSetting and Camera queries
+        def mock_query(model):
+            mock_q = Mock()
+            mock_filter = Mock()
+            mock_q.filter.return_value = mock_filter
+            mock_filter.all.return_value = []  # No settings or cameras
+            return mock_q
+
+        mock_db.query.side_effect = mock_query
 
         await service.load_api_keys_from_db(mock_db)
 
@@ -746,9 +782,6 @@ class TestEncryptedAPIKeyLoading:
         service = AIService()
 
         mock_db = Mock()
-        mock_query = Mock()
-        mock_db.query.return_value = mock_query
-        mock_query.filter.return_value = mock_query
 
         # Mock settings with description prompt and OpenAI key
         custom_prompt = "Describe only people and vehicles in one sentence."
@@ -756,7 +789,20 @@ class TestEncryptedAPIKeyLoading:
             SystemSetting(key='ai_api_key_openai', value='encrypted:test_openai_key'),
             SystemSetting(key='settings_description_prompt', value=custom_prompt)
         ]
-        mock_query.all.return_value = mock_settings
+
+        # Create separate mocks for SystemSetting and Camera queries
+        def mock_query(model):
+            mock_q = Mock()
+            mock_filter = Mock()
+            mock_q.filter.return_value = mock_filter
+            if model == SystemSetting:
+                mock_filter.all.return_value = mock_settings
+            else:
+                # Camera query for prompt overrides returns empty list
+                mock_filter.all.return_value = []
+            return mock_q
+
+        mock_db.query.side_effect = mock_query
 
         with patch('app.services.ai_service.decrypt_password') as mock_decrypt:
             mock_decrypt.return_value = 'decrypted_openai_key'

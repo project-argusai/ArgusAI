@@ -30,6 +30,7 @@ def camera(db_session: Session) -> Camera:
     camera = Camera(
         id=make_uuid(),
         name="Anomaly Test Camera",
+        type="rtsp",
         rtsp_url="rtsp://test:test@localhost:554/stream",
         is_enabled=True
     )
@@ -41,16 +42,16 @@ def camera(db_session: Session) -> Camera:
 @pytest.fixture
 def anomaly_rule(db_session: Session, camera: Camera) -> AlertRule:
     """Create an alert rule with anomaly threshold."""
+    import json
     rule = AlertRule(
         id=make_uuid(),
         name="High Anomaly Alert",
-        description="Alert on high anomaly events",
         is_enabled=True,
-        conditions={
+        conditions=json.dumps({
             "anomaly_threshold": 0.6,  # Alert on high anomaly
             "cameras": [camera.id],
-        },
-        actions=[{"type": "log", "message": "High anomaly detected"}]
+        }),
+        actions=json.dumps([{"type": "log", "message": "High anomaly detected"}])
     )
     db_session.add(rule)
     db_session.commit()
@@ -60,17 +61,17 @@ def anomaly_rule(db_session: Session, camera: Camera) -> AlertRule:
 @pytest.fixture
 def combined_rule(db_session: Session, camera: Camera) -> AlertRule:
     """Create a rule combining anomaly with object type."""
+    import json
     rule = AlertRule(
         id=make_uuid(),
         name="Unusual Person Alert",
-        description="Alert on unusual person detection",
         is_enabled=True,
-        conditions={
+        conditions=json.dumps({
             "anomaly_threshold": 0.5,
             "object_types": ["person"],
             "cameras": [camera.id],
-        },
-        actions=[{"type": "log", "message": "Unusual person detected"}]
+        }),
+        actions=json.dumps([{"type": "log", "message": "Unusual person detected"}])
     )
     db_session.add(rule)
     db_session.commit()
@@ -189,14 +190,15 @@ class TestAnomalyThresholdCondition:
         camera: Camera
     ):
         """Test rule without anomaly_threshold passes anomaly check."""
+        import json
         rule = AlertRule(
             id=make_uuid(),
             name="No Anomaly Rule",
             is_enabled=True,
-            conditions={
+            conditions=json.dumps({
                 "cameras": [camera.id],
-            },
-            actions=[{"type": "log", "message": "Basic alert"}]
+            }),
+            actions=json.dumps([{"type": "log", "message": "Basic alert"}])
         )
         db_session.add(rule)
         db_session.commit()

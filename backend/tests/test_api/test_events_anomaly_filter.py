@@ -19,21 +19,22 @@ from app.services.anomaly_scoring_service import AnomalyScoringService
 
 
 @pytest.fixture
-def camera(db: Session) -> Camera:
+def camera(db_session: Session) -> Camera:
     """Create a test camera."""
     camera = Camera(
         id="cam-001",
         name="Test Camera",
+        type="rtsp",
         rtsp_url="rtsp://test:test@localhost:554/stream",
         is_enabled=True
     )
-    db.add(camera)
-    db.commit()
+    db_session.add(camera)
+    db_session.commit()
     return camera
 
 
 @pytest.fixture
-def events_with_anomaly_scores(db: Session, camera: Camera) -> list[Event]:
+def events_with_anomaly_scores(db_session: Session, camera: Camera) -> list[Event]:
     """Create events with various anomaly scores."""
     now = datetime.now(timezone.utc)
 
@@ -115,8 +116,8 @@ def events_with_anomaly_scores(db: Session, camera: Camera) -> list[Event]:
     ]
 
     for event in events:
-        db.add(event)
-    db.commit()
+        db_session.add(event)
+    db_session.commit()
 
     return events
 
@@ -126,11 +127,11 @@ class TestAnomalySeverityFilter:
 
     def test_filter_low_anomaly(
         self,
-        client: TestClient,
+        api_client: TestClient,
         events_with_anomaly_scores: list[Event]
     ):
         """Test filtering events with low anomaly scores (< 0.3)."""
-        response = client.get("/api/v1/events?anomaly_severity=low")
+        response = api_client.get("/api/v1/events?anomaly_severity=low")
 
         assert response.status_code == 200
         data = response.json()
@@ -146,11 +147,11 @@ class TestAnomalySeverityFilter:
 
     def test_filter_medium_anomaly(
         self,
-        client: TestClient,
+        api_client: TestClient,
         events_with_anomaly_scores: list[Event]
     ):
         """Test filtering events with medium anomaly scores (0.3 - 0.6)."""
-        response = client.get("/api/v1/events?anomaly_severity=medium")
+        response = api_client.get("/api/v1/events?anomaly_severity=medium")
 
         assert response.status_code == 200
         data = response.json()
@@ -164,11 +165,11 @@ class TestAnomalySeverityFilter:
 
     def test_filter_high_anomaly(
         self,
-        client: TestClient,
+        api_client: TestClient,
         events_with_anomaly_scores: list[Event]
     ):
         """Test filtering events with high anomaly scores (> 0.6)."""
-        response = client.get("/api/v1/events?anomaly_severity=high")
+        response = api_client.get("/api/v1/events?anomaly_severity=high")
 
         assert response.status_code == 200
         data = response.json()
@@ -182,11 +183,11 @@ class TestAnomalySeverityFilter:
 
     def test_filter_multiple_severities(
         self,
-        client: TestClient,
+        api_client: TestClient,
         events_with_anomaly_scores: list[Event]
     ):
         """Test filtering by multiple severity levels (medium,high)."""
-        response = client.get("/api/v1/events?anomaly_severity=medium,high")
+        response = api_client.get("/api/v1/events?anomaly_severity=medium,high")
 
         assert response.status_code == 200
         data = response.json()
@@ -202,11 +203,11 @@ class TestAnomalySeverityFilter:
 
     def test_filter_with_invalid_severity_ignored(
         self,
-        client: TestClient,
+        api_client: TestClient,
         events_with_anomaly_scores: list[Event]
     ):
         """Test that invalid severity values are ignored."""
-        response = client.get("/api/v1/events?anomaly_severity=invalid,high")
+        response = api_client.get("/api/v1/events?anomaly_severity=invalid,high")
 
         assert response.status_code == 200
         data = response.json()
@@ -218,12 +219,12 @@ class TestAnomalySeverityFilter:
 
     def test_filter_combined_with_camera(
         self,
-        client: TestClient,
+        api_client: TestClient,
         events_with_anomaly_scores: list[Event],
         camera: Camera
     ):
         """Test combining anomaly filter with camera filter."""
-        response = client.get(
+        response = api_client.get(
             f"/api/v1/events?anomaly_severity=high&camera_id={camera.id}"
         )
 

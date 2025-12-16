@@ -961,5 +961,5 @@ def teardown_module():
     """Remove test database file"""
     Base.metadata.drop_all(bind=engine)
     engine.dispose()
-    if os.path.exists(test_db_path):
-        os.remove(test_db_path)
+    if os.path.exists(_test_db_path):
+        os.remove(_test_db_path)

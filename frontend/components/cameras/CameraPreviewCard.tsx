@@ -116,11 +116,14 @@ export const CameraPreviewCard = memo(function CameraPreviewCard({
       {/* Header with camera name and status */}
       <CardHeader className="flex flex-row items-center justify-between p-4 pb-2">
         <div className="flex items-center space-x-2">
-          <Video className="w-5 h-5 text-blue-600" />
+          <Video className="w-5 h-5 text-blue-600" aria-hidden="true" />
           <h3 className="font-semibold text-base">{camera.name}</h3>
         </div>
         <div className="flex items-center space-x-2">
-          <div className={`w-2 h-2 rounded-full ${connectionStatus.color}`} />
+          <div
+            className={`w-2 h-2 rounded-full ${connectionStatus.color}`}
+            aria-hidden="true"
+          />
           <span className="text-xs text-gray-600">{connectionStatus.label}</span>
         </div>
       </CardHeader>
@@ -130,14 +133,14 @@ export const CameraPreviewCard = memo(function CameraPreviewCard({
         <div className="relative w-full aspect-video bg-gray-100 rounded-lg overflow-hidden mb-3">
           {isLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
-              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+              <Loader2 className="w-8 h-8 text-blue-600 animate-spin" aria-hidden="true" />
               <span className="sr-only">Loading preview...</span>
             </div>
           )}
 
           {error && !isLoading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 border-2 border-red-300">
-              <AlertCircle className="w-8 h-8 text-red-500 mb-2" />
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 border-2 border-red-300" role="alert">
+              <AlertCircle className="w-8 h-8 text-red-500 mb-2" aria-hidden="true" />
               <p className="text-sm text-red-600 font-medium">Camera offline</p>
               <Button
                 variant="outline"
@@ -147,6 +150,7 @@ export const CameraPreviewCard = memo(function CameraPreviewCard({
                   e.stopPropagation();
                   window.location.reload();
                 }}
+                aria-label="Retry loading camera preview"
               >
                 Retry
               </Button>
@@ -166,7 +170,7 @@ export const CameraPreviewCard = memo(function CameraPreviewCard({
 
           {(!previewUrl || imageError) && !isLoading && !error && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
-              <Video className="w-12 h-12 text-gray-400" />
+              <Video className="w-12 h-12 text-gray-400" aria-hidden="true" />
               <span className="sr-only">No preview available</span>
             </div>
           )}
@@ -184,11 +188,12 @@ export const CameraPreviewCard = memo(function CameraPreviewCard({
             onClick={handleAnalyze}
             disabled={analyzeCamera.isPending || !camera.is_enabled}
             className="flex items-center space-x-1"
+            aria-label={`Analyze ${camera.name} now`}
           >
             {analyzeCamera.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
             ) : (
-              <PlayCircle className="w-4 h-4" />
+              <PlayCircle className="w-4 h-4" aria-hidden="true" />
             )}
             <span>Analyze Now</span>
           </Button>

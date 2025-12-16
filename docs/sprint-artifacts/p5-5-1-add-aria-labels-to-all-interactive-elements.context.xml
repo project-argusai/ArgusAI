@@ -1,0 +1,428 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-5</epicId>
+    <storyId>P5-5.1</storyId>
+    <title>Add ARIA Labels to All Interactive Elements</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-5-1-add-aria-labels-to-all-interactive-elements.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user with accessibility needs</asA>
+    <iWant>all interactive elements to have proper ARIA labels</iWant>
+    <soThat>screen readers can accurately describe the interface and I can navigate the application effectively</soThat>
+    <tasks>
+      <task id="1">Audit interactive elements in core components (buttons, inputs, icons)</task>
+      <task id="2">Add ARIA labels to button components (Sidebar, EventCard, camera controls, dialog close buttons)</task>
+      <task id="3">Add ARIA labels to form inputs (Input, Select, Checkbox, Switch, search)</task>
+      <task id="4">Handle decorative icons (aria-hidden="true" for icons in buttons with text)</task>
+      <task id="5">Update dialog/modal components (role="dialog", aria-modal="true", aria-labelledby, aria-describedby)</task>
+      <task id="6">Add alert/notification ARIA (role="alert", aria-live)</task>
+      <task id="7">Test and validate (axe DevTools, VoiceOver)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">All buttons have aria-label attribute</criterion>
+    <criterion id="2">Form inputs have associated label elements or aria-label</criterion>
+    <criterion id="3">Icon-only buttons have descriptive aria-label</criterion>
+    <criterion id="4">Icons without meaning have aria-hidden="true"</criterion>
+    <criterion id="5">Dialog components have role="dialog" and aria-modal="true"</criterion>
+    <criterion id="6">Alert messages have role="alert" or aria-live</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 PRD</title>
+        <section>FR31 - Accessibility</section>
+        <snippet>ARIA labels required for all interactive elements to ensure screen reader compatibility.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-5.md</path>
+        <title>Epic P5-5 Technical Specification</title>
+        <section>Accessibility Patterns</section>
+        <snippet>Defines AccessibleButton pattern with aria-label, aria-describedby, and focus:ring-2 styling. All buttons must have descriptive labels.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-5-additions.md</path>
+        <title>Phase 5 Architecture Additions</title>
+        <section>Accessibility Patterns</section>
+        <snippet>Shows AccessibleButton component pattern with required label prop and optional description. Focus ring styling mandatory.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Story P5-5.1</section>
+        <snippet>Acceptance criteria: All buttons have aria-label, form inputs have labels, icons have aria-hidden, dialogs have proper ARIA roles.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>IMP-004</section>
+        <snippet>Accessibility Enhancements - Add ARIA labels for screen readers, keyboard navigation testing, focus management in dialogs.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <!-- Components WITH existing aria-label (reference patterns) -->
+      <file>
+        <path>frontend/components/events/FeedbackButtons.tsx</path>
+        <kind>component</kind>
+        <symbol>FeedbackButtons</symbol>
+        <lines>124-163</lines>
+        <reason>GOOD EXAMPLE: Has aria-label, aria-pressed on toggle buttons. Use as reference pattern.</reason>
+      </file>
+      <file>
+        <path>frontend/components/notifications/NotificationBell.tsx</path>
+        <kind>component</kind>
+        <symbol>NotificationBell</symbol>
+        <reason>Has aria-label - verify adequate.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/AIProviders.tsx</path>
+        <kind>component</kind>
+        <symbol>AIProviders</symbol>
+        <reason>Has some aria-labels - verify completeness.</reason>
+      </file>
+
+      <!-- Components NEEDING aria-label audit -->
+      <file>
+        <path>frontend/components/layout/Sidebar.tsx</path>
+        <kind>component</kind>
+        <symbol>Sidebar</symbol>
+        <lines>82-233</lines>
+        <reason>Navigation links, collapse button, user menu dropdown - need aria-label on icon buttons.</reason>
+      </file>
+      <file>
+        <path>frontend/components/layout/MobileNav.tsx</path>
+        <kind>component</kind>
+        <symbol>MobileNav</symbol>
+        <reason>Mobile navigation - verify all nav items accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/CameraPreviewCard.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraPreviewCard</symbol>
+        <reason>Camera action buttons (start/stop, delete, configure) - need aria-labels.</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/CameraGrid.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraGrid</symbol>
+        <reason>Camera list with action buttons - verify accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/AddCameraDropdown.tsx</path>
+        <kind>component</kind>
+        <symbol>AddCameraDropdown</symbol>
+        <reason>Dropdown trigger button needs aria-label.</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/SourceTypeFilter.tsx</path>
+        <kind>component</kind>
+        <symbol>SourceTypeFilter</symbol>
+        <reason>Filter buttons - has some aria-hidden, verify aria-labels.</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/DetectionZoneDrawer.tsx</path>
+        <kind>component</kind>
+        <symbol>DetectionZoneDrawer</symbol>
+        <reason>Zone editor controls - need accessible labels.</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/DetectionScheduleEditor.tsx</path>
+        <kind>component</kind>
+        <symbol>DetectionScheduleEditor</symbol>
+        <reason>Schedule time controls - need aria-labels.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/EventDetailModal.tsx</path>
+        <kind>component</kind>
+        <symbol>EventDetailModal</symbol>
+        <reason>Has some aria-labels - verify dialog accessibility.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/ReAnalyzeButton.tsx</path>
+        <kind>component</kind>
+        <symbol>ReAnalyzeButton</symbol>
+        <reason>Has aria-label - verify adequate.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/KeyFramesGallery.tsx</path>
+        <kind>component</kind>
+        <symbol>KeyFramesGallery</symbol>
+        <reason>Has aria-labels - verify completeness.</reason>
+      </file>
+
+      <!-- Dialog components (verify ARIA roles) -->
+      <file>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Dialog, DialogContent, DialogTitle</symbol>
+        <reason>Uses Radix Dialog which has built-in accessibility. Has sr-only Close text. Verify aria-labelledby linking.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/alert-dialog.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>AlertDialog</symbol>
+        <reason>Uses Radix AlertDialog - verify role="alertdialog".</reason>
+      </file>
+      <file>
+        <path>frontend/components/common/ConfirmDialog.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfirmDialog</symbol>
+        <reason>Confirmation dialog - verify accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/ConfirmDialog.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfirmDialog</symbol>
+        <reason>Settings confirmation - verify accessible.</reason>
+      </file>
+
+      <!-- Form components (verify label associations) -->
+      <file>
+        <path>frontend/components/ui/input.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Input</symbol>
+        <reason>Base input - verify consumers provide labels.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/select.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Select</symbol>
+        <reason>Radix Select - has built-in accessibility, verify usage.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/checkbox.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Checkbox</symbol>
+        <reason>Verify label association.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/switch.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Switch</symbol>
+        <reason>Toggle switch - verify accessible labels.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/button.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Button</symbol>
+        <reason>Base button - used throughout app. Document aria-label pattern for icon-only buttons.</reason>
+      </file>
+
+      <!-- Settings and forms -->
+      <file>
+        <path>frontend/components/settings/BackupRestore.tsx</path>
+        <kind>component</kind>
+        <symbol>BackupRestore</symbol>
+        <reason>Form with buttons - verify accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/CostDashboard.tsx</path>
+        <kind>component</kind>
+        <symbol>CostDashboard</symbol>
+        <reason>Dashboard with controls - verify accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/LogViewer.tsx</path>
+        <kind>component</kind>
+        <symbol>LogViewer</symbol>
+        <reason>Log viewer with filters - verify accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/PushNotificationSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>PushNotificationSettings</symbol>
+        <reason>Settings form - verify accessible.</reason>
+      </file>
+      <file>
+        <path>frontend/components/protect/ControllerForm.tsx</path>
+        <kind>component</kind>
+        <symbol>ControllerForm</symbol>
+        <reason>Form with inputs - verify label associations.</reason>
+      </file>
+
+      <!-- Alert/Toast components -->
+      <file>
+        <path>frontend/components/ui/sonner.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Toaster</symbol>
+        <reason>Toast notifications - verify aria-live regions.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/alert.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Alert</symbol>
+        <reason>Alert component - needs role="alert" verification.</reason>
+      </file>
+
+      <!-- Badge components with icons -->
+      <file>
+        <path>frontend/components/events/SourceTypeBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>SourceTypeBadge</symbol>
+        <reason>Has aria-hidden on icons - good pattern.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/SmartDetectionBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>SmartDetectionBadge</symbol>
+        <reason>Has aria-hidden on icons - good pattern.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/AnalysisModeBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>AnalysisModeBadge</symbol>
+        <reason>Has aria-hidden on icons - good pattern.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/AIProviderBadge.tsx</path>
+        <kind>component</kind>
+        <symbol>AIProviderBadge</symbol>
+        <reason>Has aria-hidden on icons - good pattern.</reason>
+      </file>
+      <file>
+        <path>frontend/components/events/ConfidenceIndicator.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfidenceIndicator</symbol>
+        <reason>Has aria-hidden - verify accessible text.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <node>
+        <package>@radix-ui/react-dialog</package>
+        <version>^1.1.15</version>
+        <note>Built-in accessibility for dialogs</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-alert-dialog</package>
+        <version>^1.1.15</version>
+        <note>Built-in accessibility for alert dialogs</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-dropdown-menu</package>
+        <version>^2.1.16</version>
+        <note>Built-in keyboard navigation</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-select</package>
+        <version>^2.2.6</version>
+        <note>Accessible select component</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-checkbox</package>
+        <version>^1.3.3</version>
+        <note>Accessible checkbox</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-switch</package>
+        <version>^1.2.6</version>
+        <note>Accessible switch/toggle</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-tooltip</package>
+        <version>^1.2.8</version>
+        <note>Accessible tooltips</note>
+      </node>
+      <node>
+        <package>lucide-react</package>
+        <version>^0.553.0</version>
+        <note>Icon library - icons need aria-hidden when decorative</note>
+      </node>
+      <node>
+        <package>sonner</package>
+        <version>^2.0.7</version>
+        <note>Toast library - verify aria-live regions</note>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>shadcn/ui components are built on Radix UI primitives which provide good accessibility baseline</constraint>
+    <constraint>Icon-only buttons MUST have aria-label describing the action</constraint>
+    <constraint>Decorative icons in buttons with text MUST have aria-hidden="true"</constraint>
+    <constraint>Form inputs MUST have associated labels via htmlFor/id or aria-label</constraint>
+    <constraint>Dialog components should use aria-labelledby pointing to DialogTitle</constraint>
+    <constraint>Toast notifications should use aria-live regions for screen reader announcements</constraint>
+    <constraint>Focus states MUST be visible (focus:ring-2 pattern)</constraint>
+    <constraint>Do not modify shadcn/ui base components - add ARIA at usage sites</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Button with Icon Pattern</name>
+      <kind>component-pattern</kind>
+      <signature>
+        &lt;Button variant="ghost" size="icon" aria-label="Description of action"&gt;
+          &lt;IconComponent className="h-4 w-4" aria-hidden="true" /&gt;
+        &lt;/Button&gt;
+      </signature>
+      <path>frontend/components/ui/button.tsx</path>
+    </interface>
+    <interface>
+      <name>Button with Icon and Text Pattern</name>
+      <kind>component-pattern</kind>
+      <signature>
+        &lt;Button&gt;
+          &lt;IconComponent className="h-4 w-4 mr-2" aria-hidden="true" /&gt;
+          Button Text
+        &lt;/Button&gt;
+      </signature>
+      <path>frontend/components/ui/button.tsx</path>
+    </interface>
+    <interface>
+      <name>Form Input with Label Pattern</name>
+      <kind>component-pattern</kind>
+      <signature>
+        &lt;div&gt;
+          &lt;Label htmlFor="input-id"&gt;Label Text&lt;/Label&gt;
+          &lt;Input id="input-id" /&gt;
+        &lt;/div&gt;
+        // Or: &lt;Input aria-label="Description" /&gt;
+      </signature>
+      <path>frontend/components/ui/input.tsx</path>
+    </interface>
+    <interface>
+      <name>Dialog Accessibility Pattern</name>
+      <kind>component-pattern</kind>
+      <signature>
+        &lt;Dialog&gt;
+          &lt;DialogContent&gt;
+            &lt;DialogHeader&gt;
+              &lt;DialogTitle&gt;Title&lt;/DialogTitle&gt;
+              &lt;DialogDescription&gt;Description&lt;/DialogDescription&gt;
+            &lt;/DialogHeader&gt;
+          &lt;/DialogContent&gt;
+        &lt;/Dialog&gt;
+        // Radix handles aria-labelledby/describedby automatically
+      </signature>
+      <path>frontend/components/ui/dialog.tsx</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend uses Vitest + React Testing Library. Tests in frontend/__tests__/ or co-located as *.test.tsx.
+      Accessibility testing: Use axe-core via @axe-core/react or manual testing with VoiceOver/NVDA.
+      Component tests should verify aria-label presence and screen reader text.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/components/</location>
+      <location>frontend/components/**/*.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1,3">Test icon-only buttons have aria-label attribute</idea>
+      <idea ac="2">Test form inputs have associated labels (htmlFor or aria-label)</idea>
+      <idea ac="4">Test decorative icons have aria-hidden="true"</idea>
+      <idea ac="5">Test dialog components have proper ARIA roles</idea>
+      <idea ac="6">Test toast notifications are announced to screen readers</idea>
+      <idea ac="all">Run axe-core audit on main pages (dashboard, events, cameras, settings)</idea>
+      <idea ac="all">Manual VoiceOver testing on core workflows</idea>
+    </ideas>
+  </tests>
+</story-context>

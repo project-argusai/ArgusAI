@@ -211,9 +211,20 @@ export function CameraForm({
 
   /**
    * Handle preset template selection
+   * @param vertices - Preset vertices in normalized 0-1 coordinates
+   * @param name - Preset name (e.g., "Full Frame")
    */
-  const handleTemplateSelect = (vertices: IZoneVertex[]) => {
-    handleZoneComplete(vertices);
+  const handleTemplateSelect = (vertices: IZoneVertex[], name: string) => {
+    const newZone: IDetectionZone = {
+      id: `zone-${Date.now()}`,
+      name: `${name} Zone`,
+      vertices,
+      enabled: true,
+    };
+
+    const updatedZones = [...zones, newZone];
+    setZones(updatedZones);
+    form.setValue('detection_zones', updatedZones);
   };
 
   /**

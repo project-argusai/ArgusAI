@@ -95,7 +95,7 @@ export function Sidebar() {
           isCollapsed ? "justify-center" : ""
         )}>
           <div className="p-1.5 bg-primary/10 rounded-lg flex-shrink-0">
-            <Video className="h-5 w-5 text-primary" />
+            <Video className="h-5 w-5 text-primary" aria-hidden="true" />
           </div>
           {!isCollapsed && (
             <span className="font-bold text-lg truncate">{settings.systemName}</span>
@@ -113,15 +113,17 @@ export function Sidebar() {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
                   isActive
                     ? 'bg-blue-600 text-white'
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   isCollapsed && 'justify-center'
                 )}
                 title={isCollapsed ? item.name : undefined}
+                aria-label={item.name}
+                aria-current={isActive ? 'page' : undefined}
               >
-                <Icon className={cn('h-5 w-5', isCollapsed ? '' : 'flex-shrink-0')} />
+                <Icon className={cn('h-5 w-5', isCollapsed ? '' : 'flex-shrink-0')} aria-hidden="true" />
                 {!isCollapsed && <span>{item.name}</span>}
               </Link>
             );
@@ -141,7 +143,7 @@ export function Sidebar() {
                   "flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-muted/50",
                   isCollapsed ? "justify-center" : ""
                 )}>
-                  <Circle className="h-2 w-2 fill-green-500 text-green-500" />
+                  <Circle className="h-2 w-2 fill-green-500 text-green-500" aria-hidden="true" />
                   {!isCollapsed && <span className="text-xs font-medium">Healthy</span>}
                 </div>
               </TooltipTrigger>
@@ -167,8 +169,10 @@ export function Sidebar() {
                     "w-full",
                     isCollapsed ? "px-0 justify-center" : "justify-start"
                   )}
+                  aria-label={`User menu for ${user.username}`}
+                  aria-haspopup="menu"
                 >
-                  <User className="h-4 w-4" />
+                  <User className="h-4 w-4" aria-hidden="true" />
                   {!isCollapsed && <span className="ml-2 truncate">{user.username}</span>}
                 </Button>
               </DropdownMenuTrigger>
@@ -182,13 +186,13 @@ export function Sidebar() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
-                    <Settings className="h-4 w-4" />
+                    <Settings className="h-4 w-4" aria-hidden="true" />
                     Settings
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/settings?tab=security" className="flex items-center gap-2 cursor-pointer">
-                    <KeyRound className="h-4 w-4" />
+                    <KeyRound className="h-4 w-4" aria-hidden="true" />
                     Change Password
                   </Link>
                 </DropdownMenuItem>
@@ -197,7 +201,7 @@ export function Sidebar() {
                   onClick={handleLogout}
                   className="flex items-center gap-2 cursor-pointer text-red-600 dark:text-red-400"
                 >
-                  <LogOut className="h-4 w-4" />
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
                   Logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -215,13 +219,14 @@ export function Sidebar() {
               'w-full',
               isCollapsed ? 'px-0 justify-center' : 'justify-start'
             )}
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-expanded={!isCollapsed}
           >
             {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-4 w-4" aria-hidden="true" />
             ) : (
               <>
-                <ChevronLeft className="h-4 w-4 mr-2" />
+                <ChevronLeft className="h-4 w-4 mr-2" aria-hidden="true" />
                 <span className="text-xs">Collapse</span>
               </>
             )}

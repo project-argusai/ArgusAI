@@ -335,11 +335,11 @@ development_status:
 
   # Epic P5-5: UX Polish & Accessibility
   epic-p5-5: contexted
-  p5-5-1-add-aria-labels-to-all-interactive-elements: backlog
-  p5-5-2-implement-keyboard-navigation-for-core-workflows: backlog
-  p5-5-3-create-detection-zone-preset-templates: backlog
-  p5-5-4-implement-multiple-schedule-time-ranges: backlog
-  p5-5-5-update-readme-with-frontend-setup-docs: backlog
+  p5-5-1-add-aria-labels-to-all-interactive-elements: done
+  p5-5-2-implement-keyboard-navigation-for-core-workflows: done
+  p5-5-3-create-detection-zone-preset-templates: done
+  p5-5-4-implement-multiple-schedule-time-ranges: done
+  p5-5-5-update-readme-with-frontend-setup-docs: done
   epic-p5-5-retrospective: optional
 
   # Epic P5-6: MQTT Enhancements

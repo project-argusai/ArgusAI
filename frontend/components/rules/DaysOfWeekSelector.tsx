@@ -45,7 +45,7 @@ export function DaysOfWeekSelector({ form }: DaysOfWeekSelectorProps) {
         <button
           type="button"
           onClick={handleSelectAll}
-          className="text-xs text-primary hover:underline"
+          className="text-xs text-primary hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           All days
         </button>
@@ -53,7 +53,7 @@ export function DaysOfWeekSelector({ form }: DaysOfWeekSelectorProps) {
         <button
           type="button"
           onClick={handleSelectWeekdays}
-          className="text-xs text-primary hover:underline"
+          className="text-xs text-primary hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           Weekdays
         </button>
@@ -61,7 +61,7 @@ export function DaysOfWeekSelector({ form }: DaysOfWeekSelectorProps) {
         <button
           type="button"
           onClick={handleSelectWeekends}
-          className="text-xs text-primary hover:underline"
+          className="text-xs text-primary hover:underline rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
         >
           Weekends
         </button>

@@ -1,0 +1,258 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-5</epicId>
+    <storyId>P5-5.2</storyId>
+    <title>Implement Keyboard Navigation for Core Workflows</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-5-2-implement-keyboard-navigation-for-core-workflows.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user with accessibility needs or preference for keyboard navigation</asA>
+    <iWant>all core workflows to be fully navigable using only the keyboard</iWant>
+    <soThat>I can use the application efficiently without relying on a mouse or touch device</soThat>
+    <tasks>
+      <task id="1">Audit tab order in core workflows (Dashboard, Events, Cameras, Settings)</task>
+      <task id="2">Fix focus visibility across components (focus:ring-2 styling)</task>
+      <task id="3">Implement focus trapping in dialogs</task>
+      <task id="4">Implement Escape key handling for dialogs</task>
+      <task id="5">Verify button activation with Enter/Space</task>
+      <task id="6">Implement arrow key navigation in menus</task>
+      <task id="7">Test and validate all core workflows keyboard-only</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Tab order follows logical reading order throughout the application</criterion>
+    <criterion id="2">All interactive elements are reachable via Tab key (no keyboard traps)</criterion>
+    <criterion id="3">Focus states are visible with focus:ring-2 or equivalent styling</criterion>
+    <criterion id="4">Modal dialogs trap focus when open (focus cannot escape to background)</criterion>
+    <criterion id="5">Escape key closes modal dialogs and returns focus to trigger element</criterion>
+    <criterion id="6">Enter/Space activates buttons and interactive elements</criterion>
+    <criterion id="7">Arrow keys navigate within menus and dropdowns (where applicable)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 PRD</title>
+        <section>FR32-FR33</section>
+        <snippet>FR32: Core workflows are navigable via keyboard only (no mouse required). FR33: Focus states are visible and logical throughout the application.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-5.md</path>
+        <title>Epic P5-5 Tech Spec</title>
+        <section>Story P5-5.2 Acceptance Criteria</section>
+        <snippet>Tab order follows logical reading order. All interactive elements reachable via Tab. Focus states visible with ring-2. Modal dialogs trap focus. Escape closes dialogs.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-5-additions.md</path>
+        <title>Phase 5 Architecture</title>
+        <section>Accessibility Patterns</section>
+        <snippet>AccessibleButton pattern with focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 styling. All Phase 5 UI components must follow this pattern.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p5-5-1-add-aria-labels-to-all-interactive-elements.md</path>
+        <title>Previous Story P5-5.1</title>
+        <section>Dev Agent Record - Completion Notes</section>
+        <snippet>ARIA labels and aria-hidden added across 7 component files. shadcn/ui Dialog uses Radix which handles role and aria-modal automatically. Pattern: focus:ring-2 focus:ring-offset-2.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>frontend/components/ui/button.tsx</path>
+        <kind>component</kind>
+        <symbol>Button</symbol>
+        <reason>Base button component - verify focus ring visibility and keyboard activation</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>component</kind>
+        <symbol>Dialog, DialogContent</symbol>
+        <reason>Modal dialog - verify focus trapping, Escape key handling, and focus return</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/alert-dialog.tsx</path>
+        <kind>component</kind>
+        <symbol>AlertDialog, AlertDialogContent</symbol>
+        <reason>Alert dialog - verify focus trapping and keyboard handling</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/dropdown-menu.tsx</path>
+        <kind>component</kind>
+        <symbol>DropdownMenu, DropdownMenuContent</symbol>
+        <reason>Dropdown menu - verify arrow key navigation and Escape closing</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/select.tsx</path>
+        <kind>component</kind>
+        <symbol>Select, SelectContent</symbol>
+        <reason>Select input - verify arrow key navigation and Enter selection</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/tabs.tsx</path>
+        <kind>component</kind>
+        <symbol>Tabs, TabsList, TabsTrigger</symbol>
+        <reason>Tab panels - verify arrow key navigation between tabs</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/layout/Sidebar.tsx</path>
+        <kind>component</kind>
+        <symbol>Sidebar</symbol>
+        <reason>Navigation sidebar - verify tab order and focus management</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/layout/Header.tsx</path>
+        <kind>component</kind>
+        <symbol>Header</symbol>
+        <reason>Top navigation - verify tab order and user menu keyboard access</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/layout/MobileNav.tsx</path>
+        <kind>component</kind>
+        <symbol>MobileNav</symbol>
+        <reason>Mobile navigation - verify tab order and keyboard navigation</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/events/EventCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EventCard</symbol>
+        <reason>Event card with actions - verify action buttons are keyboard accessible</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/events/FeedbackButtons.tsx</path>
+        <kind>component</kind>
+        <symbol>FeedbackButtons</symbol>
+        <reason>Feedback buttons - verify keyboard activation and focus</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/cameras/CameraPreview.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraPreview</symbol>
+        <reason>Camera preview - verify action buttons keyboard accessible</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/settings/BackupRestore.tsx</path>
+        <kind>component</kind>
+        <symbol>BackupRestore</symbol>
+        <reason>Settings component - verify form inputs and buttons keyboard accessible</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/common/ConfirmDialog.tsx</path>
+        <kind>component</kind>
+        <symbol>ConfirmDialog</symbol>
+        <reason>Confirm dialog - verify focus trap and keyboard handling</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/rules/RuleFormDialog.tsx</path>
+        <kind>component</kind>
+        <symbol>RuleFormDialog</symbol>
+        <reason>Complex form dialog - verify tab order through form fields</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/page.tsx</path>
+        <kind>page</kind>
+        <symbol>Dashboard</symbol>
+        <reason>Dashboard page - test tab order through stats and controls</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/events/page.tsx</path>
+        <kind>page</kind>
+        <symbol>EventsPage</symbol>
+        <reason>Events page - test tab order through filters and event cards</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/cameras/page.tsx</path>
+        <kind>page</kind>
+        <symbol>CamerasPage</symbol>
+        <reason>Cameras page - test tab order through camera cards and actions</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/settings/page.tsx</path>
+        <kind>page</kind>
+        <symbol>SettingsPage</symbol>
+        <reason>Settings page - test tab order through tabs and form sections</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <node>
+        <package>@radix-ui/react-dialog</package>
+        <version>^1.0.0</version>
+        <note>Provides focus trap and keyboard handling for Dialog</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-dropdown-menu</package>
+        <version>^2.0.0</version>
+        <note>Provides arrow key navigation for DropdownMenu</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-select</package>
+        <version>^2.0.0</version>
+        <note>Provides arrow key navigation for Select</note>
+      </node>
+      <node>
+        <package>@radix-ui/react-tabs</package>
+        <version>^1.0.0</version>
+        <note>Provides arrow key navigation for Tabs</note>
+      </node>
+      <node>
+        <package>tailwindcss</package>
+        <version>^4.0.0</version>
+        <note>Provides focus:ring utilities for focus visibility</note>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Use Tailwind focus utilities: focus:ring-2 focus:ring-ring focus:ring-offset-2</constraint>
+    <constraint type="pattern">Radix UI primitives handle focus trap and keyboard nav - leverage, don't recreate</constraint>
+    <constraint type="pattern">Focus must be visible on both light and dark backgrounds</constraint>
+    <constraint type="pattern">Tab order should follow visual layout (left-to-right, top-to-bottom)</constraint>
+    <constraint type="testing">Manual keyboard-only testing required for all core workflows</constraint>
+    <constraint type="testing">Use axe DevTools for automated accessibility audit</constraint>
+    <constraint type="accessibility">WCAG 2.1 AA compliance for focus indicators (4.5:1 contrast)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Button focus styling</name>
+      <kind>CSS class pattern</kind>
+      <signature>focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-none</signature>
+      <path>frontend/components/ui/button.tsx</path>
+    </interface>
+    <interface>
+      <name>Dialog focus trap</name>
+      <kind>Radix primitive</kind>
+      <signature>DialogContent provides automatic focus trap via Radix</signature>
+      <path>frontend/components/ui/dialog.tsx</path>
+    </interface>
+    <interface>
+      <name>Keyboard event handlers</name>
+      <kind>Event pattern</kind>
+      <signature>onKeyDown={(e) => e.key === 'Escape' && onClose()}</signature>
+      <path>Various components</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend uses Vitest + React Testing Library. Test files co-located in __tests__ directory or alongside components with .test.tsx suffix. Tests should verify keyboard interactions using fireEvent.keyDown or userEvent.keyboard. Manual testing with keyboard-only navigation is required for all core workflows (Dashboard, Events, Cameras, Settings).
+    </standards>
+    <locations>
+      <location>frontend/__tests__/</location>
+      <location>frontend/components/**/*.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test tab order by simulating Tab key presses and verifying focus moves to expected elements in sequence</idea>
+      <idea ac="2">Test all interactive elements receive focus when tabbed to</idea>
+      <idea ac="3">Visual test: verify focus ring appears on focused elements</idea>
+      <idea ac="4">Test Dialog: focus cannot Tab outside DialogContent when open</idea>
+      <idea ac="5">Test Dialog: Escape key closes dialog and focus returns to trigger</idea>
+      <idea ac="6">Test Button: Enter and Space keys trigger onClick</idea>
+      <idea ac="7">Test DropdownMenu: Arrow keys navigate between items</idea>
+    </ideas>
+  </tests>
+</story-context>

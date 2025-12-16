@@ -357,3 +357,299 @@ class TestScheduleManager:
         assert schedule_manager._parse_time("12:60") is None  # Invalid minute
         assert schedule_manager._parse_time("") is None
         assert schedule_manager._parse_time(None) is None
+
+
+class TestMultipleTimeRanges:
+    """
+    Test suite for Phase 5 (P5-5.4) multiple time ranges feature
+    Tests the time_ranges array format and backward compatibility with legacy format
+    """
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_active_in_first_range(self, mock_datetime):
+        """Test that detection is active when current time is in first range"""
+        # Monday 07:30 (in morning range 06:00-09:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 7, 30)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},
+                {"start_time": "18:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_active_in_second_range(self, mock_datetime):
+        """Test that detection is active when current time is in second range"""
+        # Monday 19:00 (in evening range 18:00-22:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 19, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},
+                {"start_time": "18:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_inactive_between_ranges(self, mock_datetime):
+        """Test that detection is inactive when current time is between ranges"""
+        # Monday 12:00 (between morning and evening ranges)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 12, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},
+                {"start_time": "18:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is False
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_with_overnight_range(self, mock_datetime):
+        """Test multiple ranges including an overnight range"""
+        # Monday 23:30 (in overnight range 22:00-06:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 23, 30)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "08:00", "end_time": "12:00"},
+                {"start_time": "22:00", "end_time": "06:00"}  # Overnight
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_overnight_after_midnight(self, mock_datetime):
+        """Test overnight range - time after midnight"""
+        # Monday 03:00 (in overnight range 22:00-06:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 3, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "08:00", "end_time": "12:00"},
+                {"start_time": "22:00", "end_time": "06:00"}  # Overnight
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_three_ranges(self, mock_datetime):
+        """Test schedule with three time ranges"""
+        # Monday 14:30 (in afternoon range 14:00-16:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 14, 30)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "07:00", "end_time": "09:00"},
+                {"start_time": "14:00", "end_time": "16:00"},
+                {"start_time": "19:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_four_ranges_max(self, mock_datetime):
+        """Test schedule with four time ranges (max allowed)"""
+        # Monday 11:30 (in late morning range 10:00-12:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 11, 30)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "08:00"},
+                {"start_time": "10:00", "end_time": "12:00"},
+                {"start_time": "14:00", "end_time": "17:00"},
+                {"start_time": "19:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_inactive_before_all(self, mock_datetime):
+        """Test inactive when before all ranges"""
+        # Monday 05:00 (before first range 06:00-09:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 5, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},
+                {"start_time": "18:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is False
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_multiple_ranges_inactive_after_all(self, mock_datetime):
+        """Test inactive when after all ranges"""
+        # Monday 23:00 (after last range 18:00-22:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 23, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},
+                {"start_time": "18:00", "end_time": "22:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is False
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_legacy_format_still_works(self, mock_datetime):
+        """Test backward compatibility with legacy single-range format"""
+        # Monday 10:00 (in range 09:00-17:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 10, 0)
+
+        # Legacy format: start_time/end_time at root level
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "start_time": "09:00",
+            "end_time": "17:00"
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_legacy_format_outside_range(self, mock_datetime):
+        """Test legacy format returns false when outside range"""
+        # Monday 07:00 (before range 09:00-17:00)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 7, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "start_time": "09:00",
+            "end_time": "17:00"
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is False
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_new_format_with_days_key(self, mock_datetime):
+        """Test new format using 'days' key instead of 'days_of_week'"""
+        # Monday 07:30 (in range)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 7, 30)
+
+        schedule = {
+            "enabled": True,
+            "days": [0, 1, 2, 3, 4],  # New format uses 'days'
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"}
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_empty_time_ranges_array(self, mock_datetime):
+        """Test empty time_ranges array falls back to always active"""
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 10, 0)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": []  # Empty array
+        }
+        schedule_json = json.dumps(schedule)
+
+        # Falls through to legacy check, finds no start/end time, returns True (fail-open)
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    @patch('app.services.schedule_manager.datetime')
+    def test_invalid_range_entry_skipped(self, mock_datetime):
+        """Test that invalid range entries are skipped"""
+        # Monday 07:30 (in first valid range)
+        mock_datetime.now.return_value = datetime(2025, 11, 17, 7, 30)
+
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},  # Valid
+                {"start_time": None, "end_time": "12:00"},     # Invalid - missing start
+                {"start_time": "18:00"},                        # Invalid - missing end
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        result = schedule_manager.is_detection_active("test-cam", schedule_json)
+        assert result is True
+
+    def test_multiple_ranges_performance(self):
+        """Benchmark test: multiple ranges validation should still complete in <1ms"""
+        schedule = {
+            "enabled": True,
+            "days_of_week": [0, 1, 2, 3, 4, 5, 6],
+            "time_ranges": [
+                {"start_time": "06:00", "end_time": "09:00"},
+                {"start_time": "12:00", "end_time": "14:00"},
+                {"start_time": "18:00", "end_time": "21:00"},
+                {"start_time": "22:00", "end_time": "02:00"}  # Overnight
+            ]
+        }
+        schedule_json = json.dumps(schedule)
+
+        # Run 1000 iterations and measure time
+        iterations = 1000
+        start_time = time.time()
+
+        for _ in range(iterations):
+            schedule_manager.is_detection_active("test-cam", schedule_json)
+
+        elapsed_time = (time.time() - start_time) / iterations * 1000  # ms
+
+        # Should average <1ms per call even with multiple ranges
+        assert elapsed_time < 1.0, f"Multiple ranges validation took {elapsed_time:.3f}ms (exceeds 1ms limit)"

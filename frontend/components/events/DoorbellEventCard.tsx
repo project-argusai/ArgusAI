@@ -138,7 +138,9 @@ export const DoorbellEventCard = memo(function DoorbellEventCard({
                   e.stopPropagation();
                   setIsExpanded(!isExpanded);
                 }}
-                className="text-xs text-cyan-600 hover:text-cyan-700 font-medium flex items-center"
+                className="text-xs text-cyan-600 hover:text-cyan-700 font-medium flex items-center rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-1"
+                aria-expanded={isExpanded}
+                aria-label={isExpanded ? 'Show less of description' : 'Read more of description'}
               >
                 {isExpanded ? (
                   <>

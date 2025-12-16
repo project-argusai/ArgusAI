@@ -146,7 +146,7 @@ function SortableProviderRow({
         <button
           {...attributes}
           {...listeners}
-          className="p-1 hover:bg-muted rounded cursor-grab active:cursor-grabbing"
+          className="p-1 hover:bg-muted rounded cursor-grab active:cursor-grabbing focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
           aria-label="Drag to reorder"
         >
           <GripVertical className="h-5 w-5 text-muted-foreground" />

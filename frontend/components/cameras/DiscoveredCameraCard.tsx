@@ -239,7 +239,8 @@ export function DiscoveredCameraCard({
               <button
                 type="button"
                 onClick={() => setShowProfiles(!showProfiles)}
-                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                aria-expanded={showProfiles}
               >
                 {showProfiles ? (
                   <ChevronUp className="h-4 w-4" />
@@ -281,7 +282,7 @@ export function DiscoveredCameraCard({
                 <button
                   type="button"
                   onClick={() => setShowCredentials(true)}
-                  className="flex items-center gap-2 text-amber-600 text-sm hover:text-amber-700 transition-colors"
+                  className="flex items-center gap-2 text-amber-600 text-sm hover:text-amber-700 transition-colors rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-1"
                 >
                   <Key className="h-4 w-4" />
                   <span>Credentials may be required - click to enter</span>

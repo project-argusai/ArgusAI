@@ -66,9 +66,9 @@ export function Header() {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           {/* Logo - BUG-003: Use dynamic system name */}
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2" aria-label={`${settings.systemName} - Home`}>
             <div className="p-2 bg-primary/10 rounded-lg">
-              <Video className="h-6 w-6 text-primary" />
+              <Video className="h-6 w-6 text-primary" aria-hidden="true" />
             </div>
             <span className="font-bold text-xl hidden sm:inline-block">
               {settings.systemName}
@@ -86,15 +86,18 @@ export function Header() {
                   key={item.name}
                   href={item.available ? item.href : '#'}
                   className={cn(
-                    'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
+                    'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                     isActive
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                     !item.available && 'opacity-50 cursor-not-allowed'
                   )}
                   onClick={(e) => !item.available && e.preventDefault()}
+                  aria-label={item.name}
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-disabled={!item.available}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-4 w-4" aria-hidden="true" />
                   {item.name}
                   {!item.available && (
                     <span className="text-xs">(Soon)</span>
@@ -110,8 +113,8 @@ export function Header() {
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50">
-                    <Circle className="h-2 w-2 fill-green-500 text-green-500" />
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/50" role="status" aria-label="System status: Healthy">
+                    <Circle className="h-2 w-2 fill-green-500 text-green-500" aria-hidden="true" />
                     <span className="text-xs font-medium hidden sm:inline">Healthy</span>
                   </div>
                 </TooltipTrigger>
@@ -129,8 +132,8 @@ export function Header() {
             {isAuthenticated && user && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="hidden md:flex">
-                    <User className="h-5 w-5" />
+                  <Button variant="ghost" size="icon" className="hidden md:flex" aria-label={`User menu for ${user.username}`} aria-haspopup="menu">
+                    <User className="h-5 w-5" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
@@ -143,13 +146,13 @@ export function Header() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
-                      <Settings className="h-4 w-4" />
+                      <Settings className="h-4 w-4" aria-hidden="true" />
                       Settings
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link href="/settings?tab=security" className="flex items-center gap-2 cursor-pointer">
-                      <KeyRound className="h-4 w-4" />
+                      <KeyRound className="h-4 w-4" aria-hidden="true" />
                       Change Password
                     </Link>
                   </DropdownMenuItem>
@@ -158,7 +161,7 @@ export function Header() {
                     onClick={handleLogout}
                     className="flex items-center gap-2 cursor-pointer text-red-600 dark:text-red-400"
                   >
-                    <LogOut className="h-4 w-4" />
+                    <LogOut className="h-4 w-4" aria-hidden="true" />
                     Logout
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -171,15 +174,18 @@ export function Header() {
               size="sm"
               className="md:hidden"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-navigation"
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-5 w-5" aria-hidden="true" />
             </Button>
           </div>
         </div>
 
         {/* Mobile Navigation */}
         {mobileMenuOpen && (
-          <nav className="md:hidden pb-4 space-y-1">
+          <nav id="mobile-navigation" className="md:hidden pb-4 space-y-1" aria-label="Mobile navigation">
             {navigation.map((item) => {
               const isActive = pathname?.startsWith(item.href);
               const Icon = item.icon;
@@ -189,7 +195,7 @@ export function Header() {
                   key={item.name}
                   href={item.available ? item.href : '#'}
                   className={cn(
-                    'flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-colors',
+                    'flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                     isActive
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -199,8 +205,11 @@ export function Header() {
                     if (!item.available) e.preventDefault();
                     setMobileMenuOpen(false);
                   }}
+                  aria-label={item.name}
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-disabled={!item.available}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-4 w-4" aria-hidden="true" />
                   {item.name}
                   {!item.available && (
                     <span className="text-xs ml-auto">(Soon)</span>

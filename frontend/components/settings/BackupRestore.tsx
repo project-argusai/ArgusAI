@@ -293,7 +293,7 @@ export function BackupRestore() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <HardDrive className="h-5 w-5" />
+          <HardDrive className="h-5 w-5" aria-hidden="true" />
           Backup & Restore
         </CardTitle>
         <CardDescription>
@@ -319,7 +319,7 @@ export function BackupRestore() {
                 }
               />
               <Label htmlFor="backup-database" className="flex items-center gap-2 text-sm cursor-pointer">
-                <Database className="h-4 w-4 text-muted-foreground" />
+                <Database className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 Database (events, cameras, alert rules)
               </Label>
             </div>
@@ -332,7 +332,7 @@ export function BackupRestore() {
                 }
               />
               <Label htmlFor="backup-thumbnails" className="flex items-center gap-2 text-sm cursor-pointer">
-                <Image className="h-4 w-4 text-muted-foreground" />
+                <Image className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 Thumbnails (event images)
               </Label>
             </div>
@@ -345,7 +345,7 @@ export function BackupRestore() {
                 }
               />
               <Label htmlFor="backup-settings" className="flex items-center gap-2 text-sm cursor-pointer">
-                <Settings className="h-4 w-4 text-muted-foreground" />
+                <Settings className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                 System settings (excluding API keys)
               </Label>
             </div>
@@ -355,15 +355,16 @@ export function BackupRestore() {
             onClick={handleCreateBackup}
             disabled={isCreatingBackup}
             className="w-full sm:w-auto"
+            aria-label="Create backup now"
           >
             {isCreatingBackup ? (
               <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden="true" />
                 Creating Backup...
               </>
             ) : (
               <>
-                <Download className="h-4 w-4 mr-2" />
+                <Download className="h-4 w-4 mr-2" aria-hidden="true" />
                 Backup Now
               </>
             )}
@@ -379,9 +380,10 @@ export function BackupRestore() {
               size="sm"
               onClick={loadBackups}
               disabled={isLoadingBackups}
+              aria-label="Refresh backup list"
             >
               {isLoadingBackups ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
                 'Refresh'
               )}
@@ -414,7 +416,7 @@ export function BackupRestore() {
                   className="flex items-center justify-between p-3 rounded-lg border bg-muted/30"
                 >
                   <div className="flex items-center gap-3">
-                    <FileArchive className="h-5 w-5 text-muted-foreground" />
+                    <FileArchive className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">
@@ -435,15 +437,17 @@ export function BackupRestore() {
                       variant="ghost"
                       size="sm"
                       onClick={() => handleDownloadBackup(backup.timestamp)}
+                      aria-label={`Download backup from ${formatDate(backup.created_at)}`}
                     >
-                      <Download className="h-4 w-4" />
+                      <Download className="h-4 w-4" aria-hidden="true" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() => setDeleteBackup(backup.timestamp)}
+                      aria-label={`Delete backup from ${formatDate(backup.created_at)}`}
                     >
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                      <Trash2 className="h-4 w-4 text-destructive" aria-hidden="true" />
                     </Button>
                   </div>
                 </div>

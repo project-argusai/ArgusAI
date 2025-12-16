@@ -37,13 +37,15 @@ export function MobileNav() {
               key={item.name}
               href={item.href}
               className={cn(
-                'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg min-w-[64px] transition-colors',
+                'flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg min-w-[64px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
                 isActive
                   ? 'text-blue-600'
                   : 'text-muted-foreground hover:text-foreground'
               )}
+              aria-label={item.name}
+              aria-current={isActive ? 'page' : undefined}
             >
-              <Icon className={cn('h-5 w-5', isActive && 'fill-blue-600/20')} />
+              <Icon className={cn('h-5 w-5', isActive && 'fill-blue-600/20')} aria-hidden="true" />
               <span className="text-xs font-medium">{item.name}</span>
             </Link>
           );

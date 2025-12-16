@@ -1,0 +1,141 @@
+<story-context id="p5-5-3-create-detection-zone-preset-templates" v="1.0">
+  <metadata>
+    <epicId>P5-5</epicId>
+    <storyId>5.3</storyId>
+    <title>Create Detection Zone Preset Templates</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-5-3-create-detection-zone-preset-templates.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user configuring detection zones</asA>
+    <iWant>apply preset zone templates with one click</iWant>
+    <soThat>I can quickly configure common detection areas without manually drawing polygons</soThat>
+    <tasks>
+      <task id="1">Update preset template definitions to match requirements (Full Frame, Top Half, Bottom Half, Center, L-Shape)</task>
+      <task id="2">Add aria-labels for accessibility to preset buttons</task>
+      <task id="3">Update preset naming to be descriptive (e.g., "Full Frame Zone")</task>
+      <task id="4">Verify all presets work with existing zone system</task>
+      <task id="5">Test keyboard navigation for preset buttons</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Preset templates available: Full Frame, Top Half, Bottom Half, Center, L-Shape</criterion>
+    <criterion id="2">One-click application to zone editor applies preset vertices to canvas</criterion>
+    <criterion id="3">Presets use normalized coordinates (0-1 range) matching existing zone format</criterion>
+    <criterion id="4">Custom zones still supported - presets are an addition, not a replacement</criterion>
+    <criterion id="5">Applied preset appears in zone list with appropriate name (editable)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 PRD</title>
+        <section>FR34</section>
+        <snippet>Detection zone configuration offers preset templates (Rectangle, Top Half, Bottom Half, Center, L-shape)</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>P5-5.3</section>
+        <snippet>Story defines acceptance criteria for detection zone preset templates feature</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>FF-018</section>
+        <snippet>Detection Zone Presets - Provide preset zone templates for common use cases: "Rectangle", "Top Half", "Bottom Half", "Center", "L-shape"</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>frontend/components/cameras/ZonePresetTemplates.tsx</path>
+        <kind>component</kind>
+        <symbol>ZonePresetTemplates</symbol>
+        <lines>1-117</lines>
+        <reason>EXISTING preset component - needs update to add Full Frame, Top Half, Bottom Half presets and replace Triangle</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/cameras/DetectionZoneDrawer.tsx</path>
+        <kind>component</kind>
+        <symbol>DetectionZoneDrawer</symbol>
+        <lines>1-326</lines>
+        <reason>Zone drawing canvas - handles normalized coordinates (0-1 scale), displays zones</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/cameras/DetectionZoneList.tsx</path>
+        <kind>component</kind>
+        <symbol>DetectionZoneList</symbol>
+        <lines>1-266</lines>
+        <reason>Zone list management - displays zones with editable names, enable/disable toggle</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/cameras/CameraForm.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraForm</symbol>
+        <lines>195-217</lines>
+        <reason>Integrates ZonePresetTemplates - handleTemplateSelect calls handleZoneComplete</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/camera.ts</path>
+        <kind>types</kind>
+        <symbol>IDetectionZone, IZoneVertex</symbol>
+        <lines>36-52</lines>
+        <reason>Zone type definitions with normalized 0-1 coordinates</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <node>
+        <package>lucide-react</package>
+        <version>^0.553.0</version>
+        <usage>Icons for preset buttons (Square, Triangle, MoveHorizontal currently)</usage>
+      </node>
+      <node>
+        <package>@radix-ui/react-slot</package>
+        <version>^1.2.4</version>
+        <usage>Button component foundation</usage>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Use normalized coordinates (0-1 range) for all preset vertices</constraint>
+    <constraint>Maximum 10 zones per camera (existing constraint)</constraint>
+    <constraint>Must maintain keyboard accessibility - add aria-labels to new buttons</constraint>
+    <constraint>Follow existing focus ring pattern: focus:outline-none focus-visible:ring-2</constraint>
+    <constraint>Preset names should be auto-generated based on template type (e.g., "Full Frame Zone")</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>ZonePresetTemplatesProps</name>
+      <kind>React component props</kind>
+      <signature>interface ZonePresetTemplatesProps { onTemplateSelect: (vertices: IZoneVertex[]) => void; }</signature>
+      <path>frontend/components/cameras/ZonePresetTemplates.tsx</path>
+    </interface>
+    <interface>
+      <name>IZoneVertex</name>
+      <kind>TypeScript interface</kind>
+      <signature>interface IZoneVertex { x: number; y: number; } // 0-1 range normalized</signature>
+      <path>frontend/types/camera.ts</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend tests use Vitest + React Testing Library. Tests should verify component behavior, accessibility attributes, and user interactions.</standards>
+    <locations>
+      <location>frontend/__tests__/components/cameras/ZonePresetTemplates.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that all 5 preset templates (Full Frame, Top Half, Bottom Half, Center, L-Shape) are rendered</idea>
+      <idea ac="2">Test that clicking each preset button calls onTemplateSelect with correct vertices</idea>
+      <idea ac="3">Test that all vertices are in 0-1 range (normalized coordinates)</idea>
+      <idea ac="4">Test that preset buttons have aria-labels for accessibility</idea>
+      <idea ac="5">Test that Enter/Space key activates preset buttons</idea>
+    </ideas>
+  </tests>
+</story-context>

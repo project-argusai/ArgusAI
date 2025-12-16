@@ -1,6 +1,7 @@
 /**
  * Detection Schedule Editor Component
  * Provides UI for configuring time-based and day-based detection schedules
+ * Updated in Phase 5 (P5-5.4) to support multiple time ranges
  */
 
 'use client';
@@ -14,7 +15,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Tooltip,
@@ -24,7 +24,8 @@ import {
 } from '@/components/ui/tooltip';
 import { HelpCircle, Clock } from 'lucide-react';
 import type { CameraFormValues } from '@/lib/validations/camera';
-import type { IDetectionSchedule } from '@/types/camera';
+import type { IDetectionSchedule, ITimeRange } from '@/types/camera';
+import { MultiTimeRangePicker } from './MultiTimeRangePicker';
 
 interface DetectionScheduleEditorProps {
   /**
@@ -48,7 +49,53 @@ const DAYS_OF_WEEK = [
 ] as const;
 
 /**
+ * Check if a time is within a single range (handles overnight ranges)
+ */
+function isTimeInRange(currentTime: string, range: ITimeRange): boolean {
+  const { start_time, end_time } = range;
+  const isOvernight = start_time > end_time;
+
+  if (isOvernight) {
+    // Overnight range: active if >= start OR < end
+    return currentTime >= start_time || currentTime < end_time;
+  } else {
+    // Normal range: active if >= start AND < end
+    return currentTime >= start_time && currentTime < end_time;
+  }
+}
+
+/**
+ * Migrate legacy schedule format to new time_ranges format
+ * Used when loading existing schedules that use start_time/end_time at root
+ */
+export function migrateScheduleFormat(schedule: IDetectionSchedule): IDetectionSchedule {
+  // If already using time_ranges, return as-is
+  if (schedule.time_ranges && schedule.time_ranges.length > 0) {
+    return schedule;
+  }
+
+  // If has legacy format, migrate to time_ranges
+  if (schedule.start_time && schedule.end_time) {
+    return {
+      enabled: schedule.enabled,
+      days: schedule.days,
+      time_ranges: [
+        { start_time: schedule.start_time, end_time: schedule.end_time }
+      ],
+    };
+  }
+
+  // Default: return with empty time_ranges (will use defaults)
+  return {
+    enabled: schedule.enabled,
+    days: schedule.days,
+    time_ranges: [{ start_time: '09:00', end_time: '17:00' }],
+  };
+}
+
+/**
  * Calculate schedule status based on current time and configuration
+ * Updated in Phase 5 (P5-5.4) to support multiple time ranges
  */
 function calculateScheduleStatus(schedule: IDetectionSchedule | null | undefined): {
   status: 'active' | 'inactive' | 'always-active';
@@ -76,7 +123,30 @@ function calculateScheduleStatus(schedule: IDetectionSchedule | null | undefined
     };
   }
 
-  // Check if current time is within range
+  // Phase 5 (P5-5.4): Support multiple time ranges
+  const timeRanges = schedule.time_ranges;
+
+  if (timeRanges && timeRanges.length > 0) {
+    // Check if current time is within ANY of the ranges
+    const isActiveInAnyRange = timeRanges.some((range) => {
+      if (!range.start_time || !range.end_time) return false;
+      return isTimeInRange(currentTime, range);
+    });
+
+    return isActiveInAnyRange
+      ? {
+          status: 'active',
+          label: 'Active Now',
+          color: 'text-green-600',
+        }
+      : {
+          status: 'inactive',
+          label: 'Inactive (Outside Schedule)',
+          color: 'text-gray-500',
+        };
+  }
+
+  // Legacy fallback: single start_time/end_time at root level
   const { start_time, end_time } = schedule;
 
   // Safety check for time values
@@ -88,12 +158,7 @@ function calculateScheduleStatus(schedule: IDetectionSchedule | null | undefined
     };
   }
 
-  // Handle overnight schedules (e.g., 22:00 - 06:00)
-  const isOvernight = start_time > end_time;
-
-  const isActive = isOvernight
-    ? currentTime >= start_time || currentTime < end_time
-    : currentTime >= start_time && currentTime < end_time;
+  const isActive = isTimeInRange(currentTime, { start_time, end_time });
 
   return isActive
     ? {
@@ -111,17 +176,34 @@ function calculateScheduleStatus(schedule: IDetectionSchedule | null | undefined
 /**
  * Detection Schedule Editor Component
  * Integrates with CameraForm to provide schedule configuration UI
+ * Updated in Phase 5 (P5-5.4) to support multiple time ranges
  */
 export function DetectionScheduleEditor({ form }: DetectionScheduleEditorProps) {
   const schedule = form.watch('detection_schedule');
   const scheduleStatus = calculateScheduleStatus(schedule);
 
-  // Check if overnight schedule
-  const isOvernightSchedule =
-    schedule?.enabled &&
-    schedule.start_time &&
-    schedule.end_time &&
-    schedule.start_time > schedule.end_time;
+  // Get time ranges, with migration support for legacy format
+  const getTimeRanges = (): ITimeRange[] => {
+    if (!schedule) return [{ start_time: '09:00', end_time: '17:00' }];
+
+    // If already using new format
+    if (schedule.time_ranges && schedule.time_ranges.length > 0) {
+      return schedule.time_ranges;
+    }
+
+    // Migrate from legacy format
+    if (schedule.start_time && schedule.end_time) {
+      return [{ start_time: schedule.start_time, end_time: schedule.end_time }];
+    }
+
+    // Default
+    return [{ start_time: '09:00', end_time: '17:00' }];
+  };
+
+  // Check if any range is overnight
+  const hasOvernightRange = schedule?.enabled && schedule.time_ranges?.some(
+    (range: ITimeRange) => range.start_time > range.end_time
+  );
 
   return (
     <div className="space-y-6 border rounded-lg p-6 bg-muted/20">
@@ -159,9 +241,15 @@ export function DetectionScheduleEditor({ form }: DetectionScheduleEditorProps) 
                   if (newValue && !schedule) {
                     form.setValue('detection_schedule', {
                       enabled: true,
-                      start_time: '09:00',
-                      end_time: '17:00',
+                      time_ranges: [{ start_time: '09:00', end_time: '17:00' }],
                       days: [0, 1, 2, 3, 4], // Weekdays
+                    });
+                  } else if (newValue && schedule && !schedule.time_ranges) {
+                    // Migrate legacy format when enabling
+                    const migrated = migrateScheduleFormat(schedule);
+                    form.setValue('detection_schedule', {
+                      ...migrated,
+                      enabled: true,
                     });
                   } else if (!newValue && schedule) {
                     // When disabling, set enabled to false but keep config
@@ -201,80 +289,33 @@ export function DetectionScheduleEditor({ form }: DetectionScheduleEditorProps) 
       {/* Time Range Selectors (only show if schedule is enabled) */}
       {schedule?.enabled && (
         <>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              {/* Start Time */}
-              <FormField
-                control={form.control}
-                name="detection_schedule.start_time"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Start Time</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="time"
-                        {...field}
-                        value={field.value || ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      24-hour format
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* End Time */}
-              <FormField
-                control={form.control}
-                name="detection_schedule.end_time"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>End Time</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="time"
-                        {...field}
-                        value={field.value || ''}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      24-hour format
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            {/* Time Range Display */}
-            {schedule.start_time && schedule.end_time && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="font-medium">Active window:</span>
-                <span>
-                  {schedule.start_time} - {schedule.end_time}
-                  {isOvernightSchedule && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="ml-2 text-amber-600 font-medium">
-                            (Overnight)
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent className="max-w-xs">
-                          <p className="text-sm">
-                            This schedule crosses midnight. Detection will be active from{' '}
-                            {schedule.start_time} until {schedule.end_time} the next day.
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
-                </span>
-              </div>
+          {/* Multiple Time Ranges Picker - Phase 5 (P5-5.4) */}
+          <FormField
+            control={form.control}
+            name="detection_schedule.time_ranges"
+            render={({ field, fieldState }) => (
+              <FormItem>
+                <FormControl>
+                  <MultiTimeRangePicker
+                    value={field.value || getTimeRanges()}
+                    onChange={(newRanges) => {
+                      // Update time_ranges in the schedule
+                      form.setValue('detection_schedule', {
+                        ...schedule,
+                        time_ranges: newRanges,
+                        // Clear legacy fields when using new format
+                        start_time: undefined,
+                        end_time: undefined,
+                      });
+                    }}
+                    maxRanges={4}
+                    error={fieldState.error?.message}
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
             )}
-          </div>
+          />
 
           {/* Day of Week Selection */}
           <FormField

@@ -40,15 +40,15 @@ export function AddCameraDropdown({ className }: AddCameraDropdownProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button className={className}>
-          <Plus className="h-4 w-4 mr-2" />
+        <Button className={className} aria-label="Add camera options">
+          <Plus className="h-4 w-4 mr-2" aria-hidden="true" />
           Add Camera
-          <ChevronDown className="h-4 w-4 ml-2" />
+          <ChevronDown className="h-4 w-4 ml-2" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuItem onClick={handleManualClick} className="cursor-pointer">
-          <Camera className="h-4 w-4 mr-2" />
+          <Camera className="h-4 w-4 mr-2" aria-hidden="true" />
           <div className="flex flex-col">
             <span className="font-medium">Manual (RTSP/USB)</span>
             <span className="text-xs text-muted-foreground">
@@ -57,7 +57,7 @@ export function AddCameraDropdown({ className }: AddCameraDropdownProps) {
           </div>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={handleProtectClick} className="cursor-pointer">
-          <Shield className="h-4 w-4 mr-2" />
+          <Shield className="h-4 w-4 mr-2" aria-hidden="true" />
           <div className="flex flex-col">
             <span className="font-medium">UniFi Protect</span>
             <span className="text-xs text-muted-foreground">

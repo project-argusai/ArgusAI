@@ -71,7 +71,8 @@ function SuggestionCard({ suggestion, onApply, onDismiss, isApplying }: Suggesti
               <div>
                 <button
                   onClick={() => setShowExamples(!showExamples)}
-                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                  className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                  aria-expanded={showExamples}
                 >
                   {showExamples ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                   {suggestion.example_corrections.length} example correction{suggestion.example_corrections.length !== 1 ? 's' : ''}

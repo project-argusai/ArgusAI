@@ -170,20 +170,99 @@ API docs at: `http://localhost:8000/docs`
 
 ### Frontend Setup
 
+#### Prerequisites
+
+- **Node.js 18+** (LTS recommended) - Check with `node --version`
+- **npm 9+** (comes with Node.js) - Check with `npm --version`
+
+Optional but recommended:
+- VS Code with ESLint and Prettier extensions
+- React Developer Tools browser extension
+
+#### Installation
+
 ```bash
 cd frontend
 
 # Install dependencies
 npm install
+```
 
-# Configure API URL
+#### Environment Configuration
+
+Create a `.env.local` file in the frontend directory:
+
+```bash
+# Required: Backend API URL
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Or create it with a single command:
+```bash
 echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+```
 
-# Start development server
+#### Development Server
+
+```bash
+# Start development server with hot reload
 npm run dev
 ```
 
 Frontend runs at: `http://localhost:3000`
+
+#### Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server with hot reload |
+| `npm run build` | Create optimized production build |
+| `npm run start` | Start production server (requires build first) |
+| `npm run lint` | Run ESLint code quality checks |
+| `npm run test` | Run Vitest in watch mode |
+| `npm run test:run` | Run all tests once |
+| `npm run test:coverage` | Run tests with coverage report |
+
+#### Frontend Troubleshooting
+
+**Port 3000 already in use:**
+```bash
+# Find process using port 3000
+lsof -i :3000
+# Kill the process or use a different port
+npm run dev -- -p 3001
+```
+
+**npm install fails with permission errors:**
+```bash
+# Clear npm cache and retry
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
+```
+
+**API connection errors (CORS or 404):**
+1. Verify backend is running on the URL specified in `.env.local`
+2. Check CORS_ORIGINS in backend `.env` includes `http://localhost:3000`
+3. Restart the frontend dev server after changing `.env.local`
+
+**Node.js version mismatch errors:**
+```bash
+# Check your Node.js version
+node --version
+# If below 18, update Node.js:
+# macOS: brew upgrade node
+# Linux: nvm install 18 && nvm use 18
+# Windows: Download from nodejs.org
+```
+
+**TypeScript/Build errors after pulling new code:**
+```bash
+# Clean and reinstall dependencies
+rm -rf node_modules .next
+npm install
+npm run build
+```
 
 ## Camera Configuration
 

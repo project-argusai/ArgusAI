@@ -52,14 +52,29 @@ export interface IDetectionZone {
 }
 
 /**
+ * Time range for detection schedule (Phase 5 - Story P5-5.4)
+ * Represents a single active time window
+ */
+export interface ITimeRange {
+  start_time: string; // Format: "HH:MM" (24-hour)
+  end_time: string;   // Format: "HH:MM" (24-hour)
+}
+
+/**
  * Detection schedule configuration (matches backend DetectionSchedule schema)
  * Controls when motion detection is active based on time and day
+ *
+ * Supports multiple time ranges per day (Phase 5 - Story P5-5.4):
+ * - time_ranges: Array of time windows (preferred, max 4 per day)
+ * - start_time/end_time: Legacy single range format (backward compatibility)
  */
 export interface IDetectionSchedule {
   enabled: boolean;
-  start_time: string; // Format: "HH:MM" (24-hour)
-  end_time: string;   // Format: "HH:MM" (24-hour)
-  days: number[];     // 0-6 (Monday-Sunday per Python weekday())
+  time_ranges?: ITimeRange[];  // NEW: Array of time ranges (min 1, max 4)
+  days: number[];              // 0-6 (Monday-Sunday per Python weekday())
+  // Legacy fields for backward compatibility:
+  start_time?: string;         // DEPRECATED: Use time_ranges instead
+  end_time?: string;           // DEPRECATED: Use time_ranges instead
 }
 
 /**

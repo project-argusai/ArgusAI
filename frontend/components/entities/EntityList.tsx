@@ -102,7 +102,7 @@ export function EntityList({
         </p>
         <button
           onClick={() => refetch()}
-          className="mt-3 px-3 py-1.5 text-sm border rounded-md hover:bg-destructive/5"
+          className="mt-3 px-3 py-1.5 text-sm border rounded-md hover:bg-destructive/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           Retry
         </button>

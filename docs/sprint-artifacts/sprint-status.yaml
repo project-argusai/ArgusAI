@@ -328,7 +328,7 @@ development_status:
 
   # Epic P5-4: Quality & Performance Validation
   epic-p5-4: contexted
-  p5-4-1-document-cpu-memory-performance-baselines: backlog
+  p5-4-1-document-cpu-memory-performance-baselines: done
   p5-4-2-acquire-and-organize-real-camera-test-footage: backlog
   p5-4-3-validate-motion-detection-accuracy-metrics: backlog
   epic-p5-4-retrospective: optional

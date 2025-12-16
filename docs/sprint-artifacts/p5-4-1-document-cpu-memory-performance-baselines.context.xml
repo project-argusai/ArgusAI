@@ -1,0 +1,200 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-4</epicId>
+    <storyId>P5-4.1</storyId>
+    <title>Document CPU/Memory Performance Baselines</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-4-1-document-cpu-memory-performance-baselines.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator deploying ArgusAI</asA>
+    <iWant>documented CPU and memory performance baselines</iWant>
+    <soThat>I can properly size hardware and understand resource requirements for different configurations</soThat>
+    <tasks>
+      <task id="1" name="Set Up Measurement Environment" ac="3,4">
+        <subtask>Identify reference hardware specs</subtask>
+        <subtask>Install psutil Python package for measurement script</subtask>
+        <subtask>Create simple measurement script or use system tools</subtask>
+        <subtask>Document baseline (idle) CPU and memory</subtask>
+      </task>
+      <task id="2" name="Measure Single Camera Performance" ac="1,2">
+        <subtask>Add 1 RTSP or USB camera at 5 FPS - measure CPU/memory</subtask>
+        <subtask>Increase to 15 FPS - measure CPU/memory</subtask>
+        <subtask>Increase to 30 FPS - measure CPU/memory</subtask>
+        <subtask>Record observations in document</subtask>
+      </task>
+      <task id="3" name="Measure Multi-Camera Performance" ac="1,2">
+        <subtask>Configure 2 cameras, measure at 5/15/30 FPS</subtask>
+        <subtask>Configure 4 cameras, measure at 5/15/30 FPS</subtask>
+        <subtask>Note scaling patterns</subtask>
+      </task>
+      <task id="4" name="Measure AI Analysis Impact" ac="2">
+        <subtask>Trigger event with single_frame analysis - measure peak</subtask>
+        <subtask>Trigger event with multi_frame analysis - measure peak</subtask>
+        <subtask>Note AI processing overhead</subtask>
+      </task>
+      <task id="5" name="Create Performance Baselines Document" ac="5">
+        <subtask>Create document with professional formatting</subtask>
+        <subtask>Add summary table at top</subtask>
+        <subtask>Add detailed measurements section</subtask>
+        <subtask>Add methodology section</subtask>
+        <subtask>Add hardware recommendations section</subtask>
+        <subtask>Reference PRD NFRs (NFR6: less than 50% CPU with streaming)</subtask>
+      </task>
+      <task id="6" name="Validate and Update Sprint Status">
+        <subtask>Verify document is complete and accurate</subtask>
+        <subtask>Update sprint-status.yaml</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" title="CPU Usage Documentation for Multiple Configurations">
+      <requirement>Document CPU usage for 1 camera at 5, 15, 30 FPS</requirement>
+      <requirement>Document CPU usage for 2 cameras at 5, 15, 30 FPS</requirement>
+      <requirement>Document CPU usage for 4 cameras at 5, 15, 30 FPS</requirement>
+      <requirement>Include idle baseline (no cameras active)</requirement>
+      <requirement>Note which motion detection algorithm used (default: MOG2)</requirement>
+    </criterion>
+    <criterion id="AC2" title="Memory Usage Documentation">
+      <requirement>Document memory usage at startup (no cameras)</requirement>
+      <requirement>Document memory usage with 1, 2, 4 cameras active</requirement>
+      <requirement>Document peak memory during AI analysis</requirement>
+      <requirement>Note any memory growth patterns observed</requirement>
+    </criterion>
+    <criterion id="AC3" title="Reference Hardware Specification">
+      <requirement>Document test hardware specs (CPU, cores, RAM, OS)</requirement>
+      <requirement>Test on macOS (M1 or Intel reference machine)</requirement>
+      <requirement>Note any platform-specific observations</requirement>
+    </criterion>
+    <criterion id="AC4" title="Measurement Methodology">
+      <requirement>Document measurement tools used (Activity Monitor, top, htop, psutil)</requirement>
+      <requirement>Document test duration and sampling method</requirement>
+      <requirement>Provide reproducible test procedure</requirement>
+      <requirement>Note any caveats or limitations</requirement>
+    </criterion>
+    <criterion id="AC5" title="Performance Baselines Document Created">
+      <requirement>Create docs/performance-baselines.md</requirement>
+      <requirement>Include summary table with key metrics</requirement>
+      <requirement>Include recommendations for hardware sizing</requirement>
+      <requirement>Reference NFR targets from PRD</requirement>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 Product Requirements Document</title>
+        <section>Non-Functional Requirements</section>
+        <snippet>NFR6: System maintains less than 50% average CPU usage with HomeKit streaming active (single camera). FR27: Performance baselines document CPU usage for 1-4 cameras at various FPS settings. FR28: Performance baselines document memory usage under normal operation.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Epic P5-4: Quality and Performance Validation</section>
+        <snippet>Story P5-4.1: Document CPU/Memory Performance Baselines - Measure and document resource usage for reference configurations. CPU usage documented for 1, 2, 4 cameras at 5, 15, 30 FPS. Results published in docs/performance-baselines.md.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>Technical Debt - TD-004</section>
+        <snippet>Performance Baseline Documentation - Document actual CPU/memory usage with: (1) 1 camera at 5 FPS + motion detection, (2) Different sensitivity levels, (3) MOG2 vs KNN vs frame-diff algorithms. Test on macOS (M1/Intel) and Linux (Ubuntu 22.04, 2-core VM).</snippet>
+      </doc>
+      <doc>
+        <path>CLAUDE.md</path>
+        <title>Project Guidelines</title>
+        <section>Architecture - Event Processing Pipeline</section>
+        <snippet>Camera Capture (background) to Motion Detection (per frame) to Event Queue (asyncio) to AI Description (multi-provider) to Database. Key services include camera_service.py for RTSP/USB capture, motion_detection_service.py for MOG2/KNN/frame-diff algorithms.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/core/metrics.py</path>
+        <kind>metrics</kind>
+        <symbol>system_cpu_usage_percent, system_memory_usage_percent, update_system_metrics</symbol>
+        <lines>223-266, 448-474</lines>
+        <reason>Existing Prometheus metrics for CPU, memory, and disk usage. Uses psutil to collect system metrics. The update_system_metrics() function already implements resource measurement patterns that can be referenced for baseline documentation.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/motion_detection_service.py</path>
+        <kind>service</kind>
+        <symbol>MotionDetectionService, process_frame</symbol>
+        <lines>31-170</lines>
+        <reason>Core service for motion detection processing. Performance target of less than 100ms per frame documented in code. Manages per-camera detector instances and is a primary consumer of CPU resources during video processing.</reason>
+      </file>
+      <file>
+        <path>backend/requirements.txt</path>
+        <kind>dependencies</kind>
+        <symbol>psutil</symbol>
+        <lines>62</lines>
+        <reason>psutil>=5.9.0 is already installed - can be used for performance measurement scripts. Other heavy dependencies: opencv-python for frame processing, sentence-transformers for embeddings.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="psutil" version=">=5.9.0" purpose="System resource monitoring - CPU, memory, disk usage"/>
+        <package name="opencv-python" version=">=4.12.0" purpose="Camera frame capture and motion detection"/>
+        <package name="prometheus_client" version=">=0.19.0" purpose="Metrics collection and export"/>
+        <package name="fastapi" version="==0.115.0" purpose="Web framework"/>
+        <package name="uvicorn" version="==0.24.0" purpose="ASGI server"/>
+        <package name="sqlalchemy" version=">=2.0.36" purpose="Database ORM"/>
+        <package name="sentence-transformers" version=">=2.2.0" purpose="AI embeddings (memory-intensive)"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="documentation">Output file must be at docs/performance-baselines.md</constraint>
+    <constraint type="format">Document must include summary table with metrics for quick reference</constraint>
+    <constraint type="methodology">All measurements must be reproducible with documented procedure</constraint>
+    <constraint type="nfr-target">System should maintain less than 50% average CPU usage with single camera streaming (NFR6)</constraint>
+    <constraint type="scope">This is a documentation story - no code changes required beyond optional measurement script</constraint>
+    <constraint type="hardware">Reference hardware should be documented clearly for baseline comparisons</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>psutil.cpu_percent()</name>
+      <kind>Python function</kind>
+      <signature>psutil.cpu_percent(interval=None) -> float</signature>
+      <path>External library - psutil</path>
+    </interface>
+    <interface>
+      <name>psutil.virtual_memory()</name>
+      <kind>Python function</kind>
+      <signature>psutil.virtual_memory() -> svmem(total, available, percent, used, free)</signature>
+      <path>External library - psutil</path>
+    </interface>
+    <interface>
+      <name>update_system_metrics()</name>
+      <kind>Python function</kind>
+      <signature>def update_system_metrics() -> None</signature>
+      <path>backend/app/core/metrics.py:448</path>
+    </interface>
+    <interface>
+      <name>GET /metrics</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /metrics -> Prometheus text format</signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>This is a documentation story, so no automated tests are required. However, the measurement methodology should be validated by: (1) running measurements multiple times to ensure consistency, (2) comparing results across different system loads, (3) documenting variance/error margins observed.</standards>
+    <locations>
+      <location>backend/tests/ - existing test patterns if creating measurement script</location>
+      <location>scripts/ - potential location for measurement utility script</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Validate CPU measurements by running 3 separate test runs and comparing results</idea>
+      <idea ac="AC2">Verify memory measurements match expected patterns (growth with cameras)</idea>
+      <idea ac="AC3">Document hardware specs using system commands (sysctl, /proc/cpuinfo)</idea>
+      <idea ac="AC4">Create reproducible test script that others can run</idea>
+      <idea ac="AC5">Ensure document follows standard markdown formatting</idea>
+    </ideas>
+  </tests>
+</story-context>

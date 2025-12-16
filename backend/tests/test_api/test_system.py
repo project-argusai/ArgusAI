@@ -884,8 +884,8 @@ class TestAIUsageEndpoint:
         assert "multi_frame" in modes_by_name
         assert modes_by_name["multi_frame"]["requests"] == 1
 
-        # Check by_date aggregation
-        assert len(data["by_date"]) == 1  # All same day
+        # Check by_date aggregation (may span 1-2 days if run near midnight UTC)
+        assert 1 <= len(data["by_date"]) <= 2
 
     def test_get_ai_usage_date_filter(self):
         """Test GET /system/ai-usage with date range filter"""

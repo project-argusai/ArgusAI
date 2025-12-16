@@ -440,12 +440,8 @@ class TestEventProcessorIntegration:
         mock_ai_result.objects_detected = ["person"]
         mock_ai_result.provider = "openai"
         mock_ai_result.response_time_ms = 2341
+        mock_ai_result.cost_estimate = 0.001  # Add cost estimate
         processor.ai_service.generate_description = AsyncMock(return_value=mock_ai_result)
-
-        # Mock HTTP response
-        mock_response = Mock()
-        mock_response.status_code = 201
-        processor.http_client.post = AsyncMock(return_value=mock_response)
 
         # Start processor (without database initialization)
         processor.running = True
@@ -494,11 +490,8 @@ class TestEventProcessorIntegration:
         mock_ai_result.objects_detected = ["test"]
         mock_ai_result.provider = "openai"
         mock_ai_result.response_time_ms = 100
+        mock_ai_result.cost_estimate = 0.001  # Add cost estimate
         processor.ai_service.generate_description = AsyncMock(return_value=mock_ai_result)
-
-        mock_response = Mock()
-        mock_response.status_code = 201
-        processor.http_client.post = AsyncMock(return_value=mock_response)
 
         # Start processor
         processor.running = True

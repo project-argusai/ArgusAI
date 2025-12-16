@@ -859,6 +859,9 @@ class TestSyncGetDeviceDetails:
         mock_device_info = MagicMock()
         mock_device_info.Manufacturer = "Test"
         mock_device_info.Model = "Camera"
+        mock_device_info.FirmwareVersion = None
+        mock_device_info.SerialNumber = None
+        mock_device_info.HardwareId = None
 
         mock_device_service.GetDeviceInformation.return_value = mock_device_info
 

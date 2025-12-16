@@ -660,7 +660,7 @@ class PersonMatchingService:
             extra={
                 "event_type": "person_name_updated",
                 "person_id": person_id,
-                "name": name,
+                "person_name": name,  # Use person_name to avoid LogRecord 'name' conflict
             }
         )
 

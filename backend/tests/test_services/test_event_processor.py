@@ -424,12 +424,18 @@ class TestEventProcessor:
 class TestEventProcessorIntegration:
     """Integration tests for EventProcessor with real asyncio"""
 
+    @patch('app.services.event_processor.get_cost_cap_service')
     @patch('app.services.event_processor.SessionLocal')
-    async def test_full_pipeline_simulation(self, mock_session_local):
+    async def test_full_pipeline_simulation(self, mock_session_local, mock_get_cost_cap):
         """Test full pipeline with mocked services"""
         # Mock database session for event storage
         mock_db = MagicMock()
         mock_session_local.return_value = mock_db
+
+        # Mock cost cap service to allow analysis
+        mock_cost_cap = MagicMock()
+        mock_cost_cap.can_analyze.return_value = (True, None)
+        mock_get_cost_cap.return_value = mock_cost_cap
 
         processor = EventProcessor(worker_count=2, queue_maxsize=5)
 

@@ -819,7 +819,7 @@ class VehicleMatchingService:
             extra={
                 "event_type": "vehicle_name_updated",
                 "vehicle_id": vehicle_id,
-                "name": name,
+                "vehicle_name": name,  # Use vehicle_name to avoid LogRecord 'name' conflict
             }
         )
 

@@ -424,13 +424,17 @@ class TestEventProcessor:
 class TestEventProcessorIntegration:
     """Integration tests for EventProcessor with real asyncio"""
 
-    async def test_full_pipeline_simulation(self):
+    @patch('app.services.event_processor.SessionLocal')
+    async def test_full_pipeline_simulation(self, mock_session_local):
         """Test full pipeline with mocked services"""
+        # Mock database session for event storage
+        mock_db = MagicMock()
+        mock_session_local.return_value = mock_db
+
         processor = EventProcessor(worker_count=2, queue_maxsize=5)
 
         # Mock services
         processor.ai_service = AsyncMock()
-        processor.http_client = AsyncMock()
 
         # Mock AI response
         mock_ai_result = Mock()
@@ -440,7 +444,7 @@ class TestEventProcessorIntegration:
         mock_ai_result.objects_detected = ["person"]
         mock_ai_result.provider = "openai"
         mock_ai_result.response_time_ms = 2341
-        mock_ai_result.cost_estimate = 0.001  # Add cost estimate
+        mock_ai_result.cost_estimate = 0.001
         processor.ai_service.generate_description = AsyncMock(return_value=mock_ai_result)
 
         # Start processor (without database initialization)
@@ -468,7 +472,9 @@ class TestEventProcessorIntegration:
         # Verify event was processed
         assert processor.metrics.events_processed_success >= 1
         processor.ai_service.generate_description.assert_called()
-        processor.http_client.post.assert_called()
+        # Verify event was stored via database (not HTTP)
+        mock_db.add.assert_called()
+        mock_db.commit.assert_called()
 
         # Stop processor
         await processor.stop(timeout=1.0)

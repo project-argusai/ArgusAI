@@ -1,0 +1,141 @@
+<story-context id="p5-4-2" v="1.0">
+  <metadata>
+    <epicId>P5-4</epicId>
+    <storyId>4.2</storyId>
+    <title>Acquire and Organize Real Camera Test Footage</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-4-2-acquire-and-organize-real-camera-test-footage.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer testing ArgusAI motion detection</asA>
+    <iWant>a curated set of real camera test footage with ground truth labels</iWant>
+    <soThat>I can objectively measure and improve detection accuracy across diverse scenarios</soThat>
+    <tasks>
+      <task id="1">Create Test Footage Directory Structure (AC1)
+        <subtask>Create main footage directory at backend/tests/fixtures/footage/</subtask>
+        <subtask>Create subdirectories: person, vehicle, animal, package, false_positive</subtask>
+        <subtask>Add .gitkeep files to preserve empty directories</subtask>
+        <subtask>Create README.md explaining structure</subtask>
+      </task>
+      <task id="2">Acquire Sample Test Footage (AC3, AC4)
+        <subtask>Source or record person detection footage (3+ clips)</subtask>
+        <subtask>Source or record vehicle detection footage (2+ clips)</subtask>
+        <subtask>Source or record animal detection footage (2+ clips)</subtask>
+        <subtask>Source or record package detection footage (1+ clip)</subtask>
+        <subtask>Source or record false positive scenarios (3+ clips)</subtask>
+        <subtask>Ensure mix of day and night footage</subtask>
+        <subtask>Ensure variety of camera angles</subtask>
+      </task>
+      <task id="3">Create Ground Truth Manifest (AC2)
+        <subtask>Define manifest schema with required fields</subtask>
+        <subtask>Create entries for each clip</subtask>
+        <subtask>Include detection_type, expected_objects, timestamps</subtask>
+        <subtask>Add lighting and angle metadata</subtask>
+        <subtask>Document edge cases in notes field</subtask>
+      </task>
+      <task id="4">Document Footage Conventions (AC5)
+        <subtask>Document directory structure</subtask>
+        <subtask>Document file naming convention</subtask>
+        <subtask>Document manifest format</subtask>
+        <subtask>Document how to add new footage</subtask>
+        <subtask>Include recommended specs (resolution, codec, duration)</subtask>
+      </task>
+      <task id="5">Validate and Update Sprint Status
+        <subtask>Verify footage structure is correct</subtask>
+        <subtask>Verify manifest parses without errors</subtask>
+        <subtask>Update sprint-status.yaml</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" description="Test Footage Directory Structure Created">
+      <requirement>Create backend/tests/fixtures/footage/ directory</requirement>
+      <requirement>Subdirectories for each detection type: person/, vehicle/, animal/, package/, false_positive/</requirement>
+      <requirement>Each subdirectory contains relevant video clips (MP4 or similar)</requirement>
+      <requirement>README.md in footage directory explaining structure and usage</requirement>
+    </criterion>
+    <criterion id="AC2" description="Ground Truth Labels Manifest">
+      <requirement>Create backend/tests/fixtures/footage/manifest.yaml</requirement>
+      <requirement>Each clip entry includes: filename, detection_type, expected_count, timestamp_ranges</requirement>
+      <requirement>Labels include lighting condition (day/night/dusk)</requirement>
+      <requirement>Labels include camera angle (front-door, driveway, backyard, etc.)</requirement>
+      <requirement>Notes field for edge case descriptions</requirement>
+    </criterion>
+    <criterion id="AC3" description="Detection Type Coverage">
+      <requirement>Minimum 3 person detection clips (walking, running, standing still)</requirement>
+      <requirement>Minimum 2 vehicle detection clips (car, delivery truck)</requirement>
+      <requirement>Minimum 2 animal detection clips (dog, cat, or wildlife)</requirement>
+      <requirement>Minimum 1 package detection clip</requirement>
+      <requirement>Minimum 3 false positive scenario clips (trees swaying, rain, shadows)</requirement>
+    </criterion>
+    <criterion id="AC4" description="Lighting and Angle Diversity">
+      <requirement>At least 2 daytime clips</requirement>
+      <requirement>At least 2 nighttime/IR clips</requirement>
+      <requirement>At least 2 different camera angles represented</requirement>
+      <requirement>Notes on challenging lighting conditions</requirement>
+    </criterion>
+    <criterion id="AC5" description="Documentation for Future Use">
+      <requirement>Document how to add new test footage</requirement>
+      <requirement>Document expected format (resolution, codec, duration)</requirement>
+      <requirement>Document labeling conventions</requirement>
+      <requirement>Include sample ground truth format</requirement>
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/PRD-phase5.md" title="Phase 5 PRD" section="Quality Validation" snippet="FR29: Motion detection accuracy is validated against real-world test footage. FR30: Detection accuracy meets targets: >90% person detection, <20% false positive rate." />
+      <doc path="docs/epics-phase5.md" title="Phase 5 Epics" section="Epic P5-4" snippet="Story P5-4.2: Acquire and Organize Real Camera Test Footage. Collect diverse video footage for testing detection accuracy with ground truth labels." />
+      <doc path="docs/backlog.md" title="Project Backlog" section="Technical Debt" snippet="TD-003: Real Camera Integration Testing - Test motion detection with diverse real-world footage. Target: >90% person detection, <20% false positive rate." />
+      <doc path="docs/performance-baselines.md" title="Performance Baselines" section="Measurement Methodology" snippet="Reference document from previous story P5-4.1 showing performance measurement patterns to follow for accuracy measurement documentation." />
+      <doc path="docs/sprint-artifacts/p5-4-1-document-cpu-memory-performance-baselines.md" title="Previous Story" section="Dev Agent Record" snippet="Established documentation patterns for metrics and measurements. Created comprehensive performance-baselines.md with methodology section." />
+    </docs>
+    <code>
+      <artifact path="backend/app/services/motion_detection_service.py" kind="service" symbol="MotionDetectionService" lines="31-80" reason="Core motion detection service that will be validated with test footage. Contains process_frame() method for detection." />
+      <artifact path="backend/app/services/motion_detector.py" kind="service" symbol="MotionDetector" reason="Low-level motion detector with MOG2/KNN/frame-diff algorithms. Test footage validates these algorithms." />
+      <artifact path="backend/tests/fixtures/" kind="directory" reason="Existing fixtures directory where footage/ subdirectory will be created." />
+      <artifact path="backend/tests/fixtures/images/" kind="directory" reason="Existing empty images directory - similar pattern for footage organization." />
+    </code>
+    <dependencies>
+      <python>
+        <package name="opencv-python" version="4.12.*" purpose="Video frame processing and motion detection" />
+        <package name="numpy" version=">=1.24.0" purpose="Array operations for frame analysis" />
+        <package name="pyyaml" version=">=6.0" purpose="Manifest file parsing" />
+        <package name="pytest" version=">=7.0" purpose="Test framework for validation" />
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="storage">Large video files should NOT be committed directly to git. Consider Git LFS or external storage with download instructions.</constraint>
+    <constraint type="format">Video clips should be MP4 format (H.264 codec) for compatibility with OpenCV and web browsers.</constraint>
+    <constraint type="size">Individual clips should be 5-30 seconds duration to balance coverage with manageable file sizes.</constraint>
+    <constraint type="resolution">Footage should be 720p or 1080p to match typical security camera output.</constraint>
+    <constraint type="legal">Only use self-recorded footage, public domain sources, or footage with explicit usage rights.</constraint>
+    <constraint type="documentation">Follow documentation patterns established in P5-4.1 for consistency across epic.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="MotionDetector.detect()" kind="function signature" signature="def detect(self, frame: np.ndarray) -> Tuple[bool, float, List[Tuple[int,int,int,int]]]" path="backend/app/services/motion_detector.py" reason="Primary interface test footage will validate" />
+    <interface name="manifest.yaml" kind="data schema" signature="version, clips[{filename, detection_type, expected_objects, timestamp_ranges[], lighting, camera_angle, notes}]" path="backend/tests/fixtures/footage/manifest.yaml" reason="Schema for ground truth labels" />
+  </interfaces>
+
+  <tests>
+    <standards>Tests use pytest framework. Fixtures directory already exists at backend/tests/fixtures/. Test footage is for validation tests that will be created in future story P5-4.3. This story focuses on data acquisition, not test writing.</standards>
+    <locations>
+      <location>backend/tests/fixtures/footage/</location>
+      <location>backend/tests/fixtures/footage/manifest.yaml</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Verify directory structure exists with correct subdirectories</idea>
+      <idea ac="AC2">Verify manifest.yaml parses without errors and validates against schema</idea>
+      <idea ac="AC3">Verify minimum clip counts per detection type</idea>
+      <idea ac="AC4">Verify lighting and angle diversity in manifest entries</idea>
+      <idea ac="AC5">Verify README.md exists and contains required sections</idea>
+    </ideas>
+  </tests>
+</story-context>

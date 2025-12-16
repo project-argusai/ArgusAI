@@ -1,0 +1,217 @@
+# Ground Truth Manifest for Motion Detection Test Footage
+# Version: 1.0
+# Created: 2025-12-16
+# Purpose: Structured labels for validating ArgusAI motion detection accuracy
+#
+# Usage: Load with PyYAML to access ground truth labels for each test clip
+# Target Metrics: >90% person detection, <20% false positive rate
+
+version: "1.0"
+description: "Ground truth labels for ArgusAI motion detection test footage"
+created: "2025-12-16"
+updated: "2025-12-16"
+
+# Target metrics for validation (from PRD-phase5.md FR30)
+targets:
+  person_detection_rate: 0.90  # >90%
+  vehicle_detection_rate: 0.85  # >85%
+  animal_detection_rate: 0.80   # >80%
+  package_detection_rate: 0.75  # >75%
+  false_positive_rate: 0.20     # <20%
+
+# Test clip ground truth labels
+# Each entry describes expected detection outcomes for a video clip
+clips:
+  # =============================================================================
+  # PERSON DETECTION CLIPS
+  # =============================================================================
+
+  - filename: person/person_walk_day_01.mp4
+    detection_type: person
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 10.0
+        objects: ["person"]
+    lighting: day
+    camera_angle: front-door
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Single person walking toward camera in good daylight conditions. Standard front door angle."
+    difficulty: easy
+
+  - filename: person/person_run_day_01.mp4
+    detection_type: person
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 5.0
+        objects: ["person"]
+    lighting: day
+    camera_angle: driveway
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Person running across driveway. Tests motion blur handling."
+    difficulty: medium
+
+  - filename: person/person_stand_night_01.mp4
+    detection_type: person
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 15.0
+        objects: ["person"]
+    lighting: night
+    camera_angle: front-door
+    frame_rate: 15
+    resolution: "720p"
+    notes: "Person standing still at night under IR illumination. Tests low-motion detection."
+    difficulty: hard
+
+  # =============================================================================
+  # VEHICLE DETECTION CLIPS
+  # =============================================================================
+
+  - filename: vehicle/vehicle_car_day_01.mp4
+    detection_type: vehicle
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 8.0
+        objects: ["car"]
+    lighting: day
+    camera_angle: driveway
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Car pulling into driveway during daylight."
+    difficulty: easy
+
+  - filename: vehicle/vehicle_truck_day_01.mp4
+    detection_type: vehicle
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 12.0
+        objects: ["truck"]
+    lighting: day
+    camera_angle: street
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Delivery truck stopping at curb."
+    difficulty: easy
+
+  # =============================================================================
+  # ANIMAL DETECTION CLIPS
+  # =============================================================================
+
+  - filename: animal/animal_dog_day_01.mp4
+    detection_type: animal
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 10.0
+        objects: ["dog"]
+    lighting: day
+    camera_angle: backyard
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Dog walking through backyard."
+    difficulty: medium
+
+  - filename: animal/animal_cat_night_01.mp4
+    detection_type: animal
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 0.0
+        end: 8.0
+        objects: ["cat"]
+    lighting: night
+    camera_angle: porch
+    frame_rate: 15
+    resolution: "720p"
+    notes: "Cat on porch at night, IR illumination. Small object detection test."
+    difficulty: hard
+
+  # =============================================================================
+  # PACKAGE DETECTION CLIPS
+  # =============================================================================
+
+  - filename: package/package_delivery_day_01.mp4
+    detection_type: package
+    expected_objects: 1
+    timestamp_ranges:
+      - start: 5.0
+        end: 15.0
+        objects: ["package"]
+    lighting: day
+    camera_angle: front-door
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Delivery person places package at door and leaves. Package remains stationary after t=5s."
+    difficulty: medium
+
+  # =============================================================================
+  # FALSE POSITIVE CLIPS (No detection expected)
+  # =============================================================================
+
+  - filename: false_positive/false_tree_wind_day_01.mp4
+    detection_type: false_positive
+    expected_objects: 0
+    timestamp_ranges:
+      - start: 0.0
+        end: 20.0
+        objects: []
+    lighting: day
+    camera_angle: backyard
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Tree branches swaying in wind. Should NOT trigger person/vehicle detection. Common false positive scenario."
+    difficulty: easy
+
+  - filename: false_positive/false_shadow_day_01.mp4
+    detection_type: false_positive
+    expected_objects: 0
+    timestamp_ranges:
+      - start: 0.0
+        end: 15.0
+        objects: []
+    lighting: day
+    camera_angle: driveway
+    frame_rate: 30
+    resolution: "1080p"
+    notes: "Moving cloud shadows on driveway. Tests shadow rejection."
+    difficulty: medium
+
+  - filename: false_positive/false_rain_night_01.mp4
+    detection_type: false_positive
+    expected_objects: 0
+    timestamp_ranges:
+      - start: 0.0
+        end: 30.0
+        objects: []
+    lighting: night
+    camera_angle: front-door
+    frame_rate: 15
+    resolution: "720p"
+    notes: "Rain falling visible in IR illumination. Tests environmental noise rejection."
+    difficulty: hard
+
+# =============================================================================
+# METADATA SUMMARY
+# =============================================================================
+summary:
+  total_clips: 11
+  by_type:
+    person: 3
+    vehicle: 2
+    animal: 2
+    package: 1
+    false_positive: 3
+  by_lighting:
+    day: 7
+    night: 4
+    dusk: 0
+  by_difficulty:
+    easy: 4
+    medium: 4
+    hard: 3

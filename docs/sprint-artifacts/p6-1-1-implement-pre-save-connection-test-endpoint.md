@@ -1,6 +1,6 @@
 # Story P6-1.1: Implement Pre-Save Connection Test Endpoint
 
-Status: review
+Status: done
 
 ## Story
 

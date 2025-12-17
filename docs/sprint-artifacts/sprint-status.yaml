@@ -356,7 +356,7 @@ development_status:
 
   # Epic P6-1: Camera Setup & Performance
   epic-p6-1: contexted
-  p6-1-1-implement-pre-save-connection-test-endpoint: review  # GH #55
+  p6-1-1-implement-pre-save-connection-test-endpoint: done  # GH #55, PR #66
   p6-1-2-add-react-memo-to-camerapreview-component: backlog  # GH #56
   p6-1-3-implement-virtual-scrolling-for-camera-list: backlog  # GH #57
   p6-1-4-add-camera-data-caching-with-react-query: backlog  # GH #58

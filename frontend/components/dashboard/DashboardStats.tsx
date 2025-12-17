@@ -9,6 +9,7 @@
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
+import { cameraKeys } from '@/hooks/useCamerasQuery';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar, Camera, Bell, TrendingUp } from 'lucide-react';
@@ -49,11 +50,12 @@ export function DashboardStats() {
     staleTime: 30 * 1000,
   });
 
-  // Fetch cameras
+  // Fetch cameras using standardized query keys (Story P6-1.4)
   const { data: camerasData } = useQuery({
-    queryKey: ['cameras'],
+    queryKey: cameraKeys.list(),
     queryFn: () => apiClient.cameras.list(),
-    staleTime: 60 * 1000,
+    staleTime: 30 * 1000, // Consistent 30s stale time with useCamerasQuery
+    refetchOnWindowFocus: true,
   });
 
   // Fetch alert rules

@@ -1,8 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
 import { UseFormReturn } from 'react-hook-form';
-import { apiClient } from '@/lib/api-client';
+import { useCamerasQuery } from '@/hooks/useCamerasQuery';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -13,10 +12,8 @@ interface CameraSelectorProps {
 }
 
 export function CameraSelector({ form }: CameraSelectorProps) {
-  const { data: cameras, isLoading } = useQuery({
-    queryKey: ['cameras'],
-    queryFn: () => apiClient.cameras.list(),
-  });
+  // Use standardized camera query hook (Story P6-1.4)
+  const { data: cameras, isLoading } = useCamerasQuery();
 
   const selectedCameras = form.watch('conditions.cameras') || [];
 

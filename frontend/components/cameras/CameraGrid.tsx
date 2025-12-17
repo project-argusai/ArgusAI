@@ -5,9 +5,8 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Camera, AlertCircle } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { useCamerasQuery } from '@/hooks/useCamerasQuery';
 import type { ICamera } from '@/types/camera';
 import { CameraPreviewCard } from './CameraPreviewCard';
 import { CameraPreviewModal } from './CameraPreviewModal';
@@ -20,13 +19,16 @@ export function CameraGrid() {
   const [selectedCamera, setSelectedCamera] = useState<ICamera | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Fetch all cameras
-  const { data: cameras, isLoading, error } = useQuery({
-    queryKey: ['cameras'],
-    queryFn: () => apiClient.cameras.list(),
-    staleTime: 30000, // Consider data fresh for 30 seconds
-    refetchInterval: 10000, // Refetch camera list every 10 seconds
-  });
+  // Fetch all cameras using TanStack Query with shared cache (Story P6-1.4)
+  const { data: cameras, isLoading, error, refetch } = useCamerasQuery();
+
+  // Set up polling for live preview updates (refetch every 10 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      refetch();
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [refetch]);
 
   // Filter to only enabled cameras (memoized to prevent useEffect re-runs)
   const enabledCameras = useMemo(

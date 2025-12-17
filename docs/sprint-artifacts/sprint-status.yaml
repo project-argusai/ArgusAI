@@ -359,7 +359,7 @@ development_status:
   p6-1-1-implement-pre-save-connection-test-endpoint: done  # GH #55, PR #66
   p6-1-2-add-react-memo-to-camerapreview-component: done  # GH #56, PR #66
   p6-1-3-implement-virtual-scrolling-for-camera-list: done  # GH #57
-  p6-1-4-add-camera-data-caching-with-react-query: backlog  # GH #58
+  p6-1-4-add-camera-data-caching-with-react-query: done  # GH #58
   epic-p6-1-retrospective: optional
 
   # Epic P6-2: Accessibility Completion

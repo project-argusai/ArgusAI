@@ -9,7 +9,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Video } from 'lucide-react';
-import { useCameras } from '@/hooks/useCameras';
+import { useCamerasQuery, useCameraDelete } from '@/hooks/useCamerasQuery';
 import { useToast } from '@/hooks/useToast';
 import { CameraPreview } from '@/components/cameras/CameraPreview';
 import { VirtualCameraList } from '@/components/cameras/VirtualCameraList';
@@ -19,7 +19,6 @@ import { CameraDiscovery } from '@/components/cameras/CameraDiscovery';
 import { EmptyState } from '@/components/common/EmptyState';
 import { Loading } from '@/components/common/Loading';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
-import { apiClient } from '@/lib/api-client';
 import type { ICamera } from '@/types/camera';
 
 /**
@@ -28,8 +27,13 @@ import type { ICamera } from '@/types/camera';
 export default function CamerasPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { cameras, loading, error, refresh } = useCameras();
+  // TanStack Query hook for camera data with stale-while-revalidate caching (Story P6-1.4)
+  const { data: cameras = [], isLoading: loading, error: queryError, refetch } = useCamerasQuery();
+  const deleteMutation = useCameraDelete();
   const { showSuccess, showError } = useToast();
+
+  // Convert query error to string for display
+  const error = queryError ? (queryError instanceof Error ? queryError.message : 'Failed to fetch cameras') : null;
 
   // Get initial filter from URL query param, default to 'all'
   const initialFilter = (searchParams.get('source') as SourceTypeFilterValue) || 'all';
@@ -77,16 +81,16 @@ export default function CamerasPage() {
   };
 
   /**
-   * Confirm delete camera
+   * Confirm delete camera - uses TanStack Query mutation (Story P6-1.4)
    */
   const handleConfirmDelete = async () => {
     if (!deleteDialog.camera) return;
 
     try {
-      await apiClient.cameras.delete(deleteDialog.camera.id);
+      await deleteMutation.mutateAsync(deleteDialog.camera.id);
       showSuccess('Camera deleted successfully');
       setDeleteDialog({ open: false, camera: null });
-      refresh();
+      // Note: Cache invalidation handled automatically by useCameraDelete mutation
     } catch (err) {
       showError(err instanceof Error ? err.message : 'Failed to delete camera');
     }
@@ -154,7 +158,7 @@ export default function CamerasPage() {
           <p className="font-medium">Error loading cameras</p>
           <p className="text-sm mt-1">{error}</p>
           <button
-            onClick={refresh}
+            onClick={() => refetch()}
             className="mt-3 px-3 py-1.5 text-sm border rounded-md hover:bg-destructive/5"
           >
             Retry

@@ -1,0 +1,243 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P6-1</epicId>
+    <storyId>4</storyId>
+    <title>Add Camera Data Caching with React Query</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p6-1-4-add-camera-data-caching-with-react-query.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>the camera list to use stale-while-revalidate caching</iWant>
+    <soThat>navigation between pages is snappy and reduces unnecessary API calls</soThat>
+    <tasks>
+      <task id="1" status="pending">
+        <description>Create useCamerasQuery hook using TanStack Query</description>
+        <subtasks>
+          <subtask>Create new hooks/useCamerasQuery.ts file using useQuery pattern</subtask>
+          <subtask>Define query key for cameras list: ['cameras', filters]</subtask>
+          <subtask>Implement query function wrapping apiClient.cameras.list()</subtask>
+          <subtask>Set stale time to 30 seconds per AC#2</subtask>
+        </subtasks>
+      </task>
+      <task id="2" status="pending">
+        <description>Enable window focus refetch</description>
+        <subtasks>
+          <subtask>Set refetchOnWindowFocus: true in the hook options</subtask>
+          <subtask>Test that data refreshes when user returns to tab</subtask>
+        </subtasks>
+      </task>
+      <task id="3" status="pending">
+        <description>Add mutation hooks for camera operations</description>
+        <subtasks>
+          <subtask>Create useCameraCreate mutation hook</subtask>
+          <subtask>Create useCameraUpdate mutation hook</subtask>
+          <subtask>Create useCameraDelete mutation hook</subtask>
+          <subtask>Invalidate cameras query on successful mutations</subtask>
+        </subtasks>
+      </task>
+      <task id="4" status="pending">
+        <description>Update cameras page to use new hook</description>
+        <subtasks>
+          <subtask>Import useCamerasQuery in cameras/page.tsx</subtask>
+          <subtask>Replace useCameras hook with useCamerasQuery</subtask>
+          <subtask>Update refresh function to use query invalidation</subtask>
+          <subtask>Verify filtering still works with new hook</subtask>
+        </subtasks>
+      </task>
+      <task id="5" status="pending">
+        <description>Update other components using useCameras</description>
+        <subtasks>
+          <subtask>Search for useCameras usage across codebase</subtask>
+          <subtask>Update CameraSelector component if needed</subtask>
+          <subtask>Update CameraGrid component if needed</subtask>
+          <subtask>Ensure backward compatibility or deprecate old hook</subtask>
+        </subtasks>
+      </task>
+      <task id="6" status="pending">
+        <description>Write tests for new hook</description>
+        <subtasks>
+          <subtask>Test query fetches data on mount</subtask>
+          <subtask>Test stale time behavior</subtask>
+          <subtask>Test cache invalidation on mutations</subtask>
+          <subtask>Test refetch on window focus</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">TanStack Query (React Query) configured for camera endpoints</criterion>
+    <criterion id="2">Stale time set appropriately (e.g., 30 seconds)</criterion>
+    <criterion id="3">Background refetch on window focus</criterion>
+    <criterion id="4">Reduced API calls during navigation</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase6.md</path>
+        <title>Phase 6 Epics</title>
+        <section>Epic P6-1: Camera Setup &amp; Performance</section>
+        <snippet>Story P6-1.4: Add Camera Data Caching with React Query - Implement stale-while-revalidate caching for camera list API calls with TanStack Query configured for camera endpoints.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/08-implementation-patterns.md</path>
+        <title>Implementation Patterns</title>
+        <section>Frontend Hook Pattern</section>
+        <snippet>Shows standard hook pattern using useState/useEffect. This story upgrades the pattern to TanStack Query for better caching.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/hooks/useCameras.ts</path>
+        <kind>hook</kind>
+        <symbol>useCameras</symbol>
+        <lines>1-89</lines>
+        <reason>Current implementation to replace - uses useState/useEffect pattern that lacks caching</reason>
+      </file>
+      <file>
+        <path>frontend/hooks/useEntities.ts</path>
+        <kind>hook</kind>
+        <symbol>useEntities, useEntity, useUpdateEntity, useDeleteEntity</symbol>
+        <lines>1-96</lines>
+        <reason>Reference pattern for TanStack Query hooks - shows query and mutation patterns to follow</reason>
+      </file>
+      <file>
+        <path>frontend/components/providers/query-provider.tsx</path>
+        <kind>provider</kind>
+        <symbol>QueryProvider</symbol>
+        <lines>1-39</lines>
+        <reason>Global QueryClient configuration - sets default staleTime:60s, refetchOnWindowFocus:false</reason>
+      </file>
+      <file>
+        <path>frontend/app/cameras/page.tsx</path>
+        <kind>page</kind>
+        <symbol>CamerasPage</symbol>
+        <lines>1-224</lines>
+        <reason>Primary consumer of useCameras hook - needs to be updated to use new useCamerasQuery</reason>
+      </file>
+      <file>
+        <path>frontend/components/rules/CameraSelector.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraSelector</symbol>
+        <lines>1-106</lines>
+        <reason>Already uses useQuery with ['cameras'] queryKey - can share cache with new hook</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>api</kind>
+        <symbol>apiClient.cameras</symbol>
+        <lines>197-298</lines>
+        <reason>Camera API client methods: list, getById, create, update, delete, testConnection, preview, analyze</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/CameraGrid.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraGrid</symbol>
+        <reason>May use useCameras - check if needs updating</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/VirtualCameraList.tsx</path>
+        <kind>component</kind>
+        <symbol>VirtualCameraList</symbol>
+        <reason>From P6-1.3 - receives cameras as prop from parent, no direct hook usage</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <node>
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="@tanstack/react-virtual" version="^3.13.13" />
+        <package name="react" version="19.2.0" />
+        <package name="react-dom" version="19.2.0" />
+        <package name="next" version="^16.0.10" />
+        <package name="typescript" version="^5" />
+      </node>
+      <testing>
+        <package name="vitest" version="^4.0.15" />
+        <package name="@testing-library/react" version="^16.3.0" />
+        <package name="@testing-library/jest-dom" version="^6.9.1" />
+        <package name="jsdom" version="^27.2.0" />
+      </testing>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow useEntities.ts pattern for TanStack Query hooks with query and mutation separation</constraint>
+    <constraint type="pattern">Use ['cameras'] as base queryKey for cache sharing with CameraSelector</constraint>
+    <constraint type="pattern">Query keys should include filters: ['cameras', filters] for filtered queries</constraint>
+    <constraint type="performance">Stale time must be 30 seconds (AC#2), overriding global default of 60s</constraint>
+    <constraint type="performance">Enable refetchOnWindowFocus:true to override global false setting</constraint>
+    <constraint type="compatibility">Maintain same return interface as useCameras for easy migration</constraint>
+    <constraint type="testing">Write Vitest tests using @testing-library/react patterns from test-utils.tsx</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>apiClient.cameras.list</name>
+      <kind>function</kind>
+      <signature>list(filters?: { is_enabled?: boolean }): Promise&lt;ICamera[]&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+    <interface>
+      <name>apiClient.cameras.create</name>
+      <kind>function</kind>
+      <signature>create(data: ICameraCreate): Promise&lt;ICamera&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+    <interface>
+      <name>apiClient.cameras.update</name>
+      <kind>function</kind>
+      <signature>update(id: string, data: ICameraUpdate): Promise&lt;ICamera&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+    <interface>
+      <name>apiClient.cameras.delete</name>
+      <kind>function</kind>
+      <signature>delete(id: string): Promise&lt;{ deleted: boolean }&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+    <interface>
+      <name>useQuery</name>
+      <kind>hook</kind>
+      <signature>useQuery&lt;TData, TError&gt;({ queryKey, queryFn, staleTime?, refetchOnWindowFocus?, enabled? })</signature>
+      <path>@tanstack/react-query</path>
+    </interface>
+    <interface>
+      <name>useMutation</name>
+      <kind>hook</kind>
+      <signature>useMutation&lt;TData, TError, TVariables&gt;({ mutationFn, onSuccess?, onError? })</signature>
+      <path>@tanstack/react-query</path>
+    </interface>
+    <interface>
+      <name>useQueryClient</name>
+      <kind>hook</kind>
+      <signature>useQueryClient(): QueryClient</signature>
+      <path>@tanstack/react-query</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Use Vitest with @testing-library/react for hook tests. Follow patterns from existing tests like useEntities.test.ts. Mock apiClient calls using vi.mock. Test loading states, success states, error handling, and cache invalidation. Use renderHook from @testing-library/react for testing hooks.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/hooks/</location>
+      <location>frontend/__tests__/components/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that useCamerasQuery returns cameras data on successful fetch</idea>
+      <idea ac="1">Test that query key includes filters when provided</idea>
+      <idea ac="2">Test that staleTime is set to 30000ms (30 seconds)</idea>
+      <idea ac="3">Test that refetchOnWindowFocus is enabled</idea>
+      <idea ac="4">Test that mutations invalidate the cameras query cache</idea>
+      <idea ac="4">Test that useCameraCreate triggers cache invalidation on success</idea>
+      <idea ac="4">Test that useCameraDelete removes item and invalidates cache</idea>
+    </ideas>
+  </tests>
+</story-context>

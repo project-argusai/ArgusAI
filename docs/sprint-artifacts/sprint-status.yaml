@@ -356,29 +356,29 @@ development_status:
 
   # Epic P6-1: Camera Setup & Performance
   epic-p6-1: contexted
-  p6-1-1-implement-pre-save-connection-test-endpoint: backlog
-  p6-1-2-add-react-memo-to-camerapreview-component: backlog
-  p6-1-3-implement-virtual-scrolling-for-camera-list: backlog
-  p6-1-4-add-camera-data-caching-with-react-query: backlog
+  p6-1-1-implement-pre-save-connection-test-endpoint: backlog  # GH #55
+  p6-1-2-add-react-memo-to-camerapreview-component: backlog  # GH #56
+  p6-1-3-implement-virtual-scrolling-for-camera-list: backlog  # GH #57
+  p6-1-4-add-camera-data-caching-with-react-query: backlog  # GH #58
   epic-p6-1-retrospective: optional
 
   # Epic P6-2: Accessibility Completion
   epic-p6-2: contexted
-  p6-2-1-add-skip-to-content-link: backlog
-  p6-2-2-audit-and-fix-remaining-aria-issues: backlog
+  p6-2-1-add-skip-to-content-link: backlog  # GH #59
+  p6-2-2-audit-and-fix-remaining-aria-issues: backlog  # GH #60
   epic-p6-2-retrospective: optional
 
   # Epic P6-3: Audio Analysis Foundation
   epic-p6-3: contexted
-  p6-3-1-add-audio-stream-extraction-from-rtsp: backlog
-  p6-3-2-implement-audio-event-detection-pipeline: backlog
-  p6-3-3-add-audio-settings-to-camera-configuration: backlog
+  p6-3-1-add-audio-stream-extraction-from-rtsp: backlog  # GH #61
+  p6-3-2-implement-audio-event-detection-pipeline: backlog  # GH #62
+  p6-3-3-add-audio-settings-to-camera-configuration: backlog  # GH #63
   epic-p6-3-retrospective: optional
 
   # Epic P6-4: Data Export Enhancements
   epic-p6-4: contexted
-  p6-4-1-implement-motion-events-csv-export: backlog
-  p6-4-2-add-motion-events-export-ui: backlog
+  p6-4-1-implement-motion-events-csv-export: backlog  # GH #64
+  p6-4-2-add-motion-events-export-ui: backlog  # GH #65
   epic-p6-4-retrospective: optional
 
   # ============================================================================

@@ -479,7 +479,7 @@ def list_events(
             cameras = db.query(Camera.id, Camera.name).filter(Camera.id.in_(camera_ids)).all()
             camera_map = {c.id: c.name for c in cameras}
 
-        # Enrich events with camera_name
+        # Enrich events with camera_name and feedback
         enriched_events = []
         for event in events:
             event_dict = {
@@ -511,6 +511,9 @@ def list_events(
                 "reanalyzed_at": event.reanalyzed_at,
                 "reanalysis_count": event.reanalysis_count or 0,
             }
+            # BUG-004: Include feedback if exists so UI can show persisted state
+            if event.feedback:
+                event_dict["feedback"] = FeedbackResponse.model_validate(event.feedback)
             enriched_events.append(EventResponse(**event_dict))
 
         logger.info(

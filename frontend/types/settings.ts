@@ -168,6 +168,10 @@ export interface MQTTConfigResponse {
   enabled: boolean;
   retain_messages: boolean;
   use_tls: boolean;
+  message_expiry_seconds: number;
+  availability_topic: string;  // Story P5-6.2
+  birth_message: string;       // Story P5-6.2
+  will_message: string;        // Story P5-6.2
   has_password: boolean;
   created_at: string | null;
   updated_at: string | null;
@@ -185,6 +189,10 @@ export interface MQTTConfigUpdate {
   enabled: boolean;
   retain_messages: boolean;
   use_tls: boolean;
+  message_expiry_seconds: number;
+  availability_topic: string;  // Story P5-6.2
+  birth_message: string;       // Story P5-6.2
+  will_message: string;        // Story P5-6.2
 }
 
 export interface MQTTStatusResponse {

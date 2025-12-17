@@ -46,6 +46,10 @@ class MQTTConfigResponse(BaseModel):
     enabled: bool
     retain_messages: bool
     use_tls: bool
+    message_expiry_seconds: int = Field(300, description="MQTT 5.0 message expiry in seconds (60-3600)")
+    availability_topic: str = Field('', description="Topic for birth/will messages (defaults to {topic_prefix}/status)")
+    birth_message: str = Field('online', description="Message published on connect")
+    will_message: str = Field('offline', description="Message published on unexpected disconnect")
     has_password: bool = Field(..., description="Whether password is configured")
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -64,6 +68,10 @@ class MQTTConfigResponse(BaseModel):
                 "enabled": True,
                 "retain_messages": True,
                 "use_tls": False,
+                "message_expiry_seconds": 300,
+                "availability_topic": "liveobject/status",
+                "birth_message": "online",
+                "will_message": "offline",
                 "has_password": True,
                 "created_at": "2025-12-10T10:00:00Z",
                 "updated_at": "2025-12-10T10:00:00Z"
@@ -84,6 +92,10 @@ class MQTTConfigUpdate(BaseModel):
     enabled: bool = Field(True, description="Enable MQTT publishing")
     retain_messages: bool = Field(True, description="Retain messages on broker")
     use_tls: bool = Field(False, description="Use TLS/SSL connection")
+    message_expiry_seconds: int = Field(300, ge=60, le=3600, description="MQTT 5.0 message expiry in seconds (60-3600)")
+    availability_topic: str = Field('', max_length=255, description="Topic for birth/will messages (leave empty for default)")
+    birth_message: str = Field('online', max_length=100, description="Message published on connect")
+    will_message: str = Field('offline', max_length=100, description="Message published on unexpected disconnect")
 
     @field_validator('qos')
     @classmethod
@@ -105,7 +117,11 @@ class MQTTConfigUpdate(BaseModel):
                 "qos": 1,
                 "enabled": True,
                 "retain_messages": True,
-                "use_tls": False
+                "use_tls": False,
+                "message_expiry_seconds": 300,
+                "availability_topic": "",
+                "birth_message": "online",
+                "will_message": "offline"
             }
         }
 
@@ -211,6 +227,10 @@ async def get_mqtt_config(db: Session = Depends(get_db)):
             enabled=False,
             retain_messages=True,
             use_tls=False,
+            message_expiry_seconds=300,
+            availability_topic="",
+            birth_message="online",
+            will_message="offline",
             has_password=False,
             created_at=None,
             updated_at=None
@@ -228,6 +248,10 @@ async def get_mqtt_config(db: Session = Depends(get_db)):
         enabled=config.enabled,
         retain_messages=config.retain_messages,
         use_tls=config.use_tls,
+        message_expiry_seconds=config.message_expiry_seconds,
+        availability_topic=config.availability_topic,
+        birth_message=config.birth_message,
+        will_message=config.will_message,
         has_password=bool(config.password),
         created_at=config.created_at.isoformat() if config.created_at else None,
         updated_at=config.updated_at.isoformat() if config.updated_at else None
@@ -260,7 +284,11 @@ async def update_mqtt_config(
             qos=config_update.qos,
             enabled=config_update.enabled,
             retain_messages=config_update.retain_messages,
-            use_tls=config_update.use_tls
+            use_tls=config_update.use_tls,
+            message_expiry_seconds=config_update.message_expiry_seconds,
+            availability_topic=config_update.availability_topic,
+            birth_message=config_update.birth_message,
+            will_message=config_update.will_message
         )
         db.add(config)
     else:
@@ -278,6 +306,10 @@ async def update_mqtt_config(
         config.enabled = config_update.enabled
         config.retain_messages = config_update.retain_messages
         config.use_tls = config_update.use_tls
+        config.message_expiry_seconds = config_update.message_expiry_seconds
+        config.availability_topic = config_update.availability_topic
+        config.birth_message = config_update.birth_message
+        config.will_message = config_update.will_message
 
     db.commit()
     db.refresh(config)
@@ -311,6 +343,10 @@ async def update_mqtt_config(
         enabled=config.enabled,
         retain_messages=config.retain_messages,
         use_tls=config.use_tls,
+        message_expiry_seconds=config.message_expiry_seconds,
+        availability_topic=config.availability_topic,
+        birth_message=config.birth_message,
+        will_message=config.will_message,
         has_password=bool(config.password),
         created_at=config.created_at.isoformat() if config.created_at else None,
         updated_at=config.updated_at.isoformat() if config.updated_at else None

@@ -1,0 +1,252 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-6</epicId>
+    <storyId>P5-6.2</storyId>
+    <title>Implement MQTT Birth/Will Messages</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-6-2-implement-mqtt-birth-will-messages.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home automation user</asA>
+    <iWant>ArgusAI to publish birth (online) and will (offline) messages to MQTT</iWant>
+    <soThat>Home Assistant can track ArgusAI's connection state and I can create automations based on availability</soThat>
+    <tasks>
+      <task id="1" title="Add availability configuration fields to database">
+        <subtask>1.1: Create Alembic migration for availability_topic, birth_message, will_message columns</subtask>
+        <subtask>1.2: Update MQTTConfig model with new fields and defaults</subtask>
+        <subtask>1.3: Update MQTTConfig.to_dict() to include new fields</subtask>
+        <subtask>1.4: Update API schemas for MQTT config request/response</subtask>
+      </task>
+      <task id="2" title="Implement dynamic Will message configuration">
+        <subtask>2.1: Modify mqtt_service.py connect() to use config.availability_topic for will_set</subtask>
+        <subtask>2.2: Use config.will_message for will payload instead of hardcoded "offline"</subtask>
+        <subtask>2.3: Verify QoS=1 and retain=True on will message</subtask>
+        <subtask>2.4: Add fallback to default topic if availability_topic not configured</subtask>
+      </task>
+      <task id="3" title="Implement Birth message publishing">
+        <subtask>3.1: Add publish_birth_message() method to MQTTService</subtask>
+        <subtask>3.2: Call publish_birth_message() in _on_connect callback</subtask>
+        <subtask>3.3: Publish to availability_topic with birth_message payload</subtask>
+        <subtask>3.4: Use QoS=1 and retain=True for birth message</subtask>
+      </task>
+      <task id="4" title="Add graceful shutdown offline message">
+        <subtask>4.1: Modify disconnect() to publish offline message before disconnecting</subtask>
+        <subtask>4.2: Ensure offline message is published synchronously</subtask>
+        <subtask>4.3: Log birth/will message publishing</subtask>
+      </task>
+      <task id="5" title="Update frontend MQTT settings UI">
+        <subtask>5.1: Add availability_topic input field</subtask>
+        <subtask>5.2: Add birth_message input field (default "online")</subtask>
+        <subtask>5.3: Add will_message input field (default "offline")</subtask>
+        <subtask>5.4: Update frontend types for new config fields</subtask>
+        <subtask>5.5: Add helpful description text</subtask>
+      </task>
+      <task id="6" title="Write tests for birth/will functionality">
+        <subtask>6.1: Test MQTTConfig model with new fields</subtask>
+        <subtask>6.2: Test will_set configuration with config values</subtask>
+        <subtask>6.3: Test birth message publishing on connect</subtask>
+        <subtask>6.4: Test offline message on graceful disconnect</subtask>
+        <subtask>6.5: Test API for updating availability settings</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Will message configured at connection time with availability_topic from settings</criterion>
+    <criterion id="2">Will topic defaults to "{topic_prefix}/status" (e.g., "liveobject/status")</criterion>
+    <criterion id="3">Will payload uses will_message from settings (default: "offline")</criterion>
+    <criterion id="4">Will message has QoS 1 and retain=true for persistent state</criterion>
+    <criterion id="5">Birth message published immediately after successful connect</criterion>
+    <criterion id="6">Birth topic same as availability_topic (will topic)</criterion>
+    <criterion id="7">Birth payload uses birth_message from settings (default: "online")</criterion>
+    <criterion id="8">Home Assistant shows ArgusAI as online/offline correctly via availability topic</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-6.md</path>
+        <title>MQTT Enhancements Tech Spec</title>
+        <section>Story P5-6.2: Implement MQTT Birth/Will Messages</section>
+        <snippet>Birth/will messages for connection state monitoring. Will configured at connect time, birth published after successful connect. Both use availability_topic with QoS 1 and retain=true.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Epic P5-6: MQTT Enhancements</section>
+        <snippet>Story P5-6.2 adds birth message on connect and will message for disconnection. Home Assistant shows online/offline status. Messages use standard availability topic.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase5.md</path>
+        <title>Phase 5 PRD</title>
+        <section>FR38</section>
+        <snippet>MQTT birth message published on connect, will message on disconnect (FF-013). Enables Home Assistant to track ArgusAI connection state.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>FF-013</section>
+        <snippet>MQTT Birth/Will Messages - Implement MQTT birth (online) and will (offline) messages for connection monitoring. GitHub Issue #38.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-4-additions.md</path>
+        <title>Phase 4 Architecture</title>
+        <section>MQTT Publishing Flow</section>
+        <snippet>MQTT service handles connection lifecycle, message publishing, and status tracking for Home Assistant integration. Uses paho-mqtt 2.0+ with auto-reconnect.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p5-6-1-add-mqtt-5-0-message-expiry-support.md</path>
+        <title>Previous Story P5-6.1</title>
+        <section>Dev Agent Record</section>
+        <snippet>MQTT 5.0 protocol support implemented with graceful fallback to 3.1.1. Use @validates decorator for model validation. Follow TestMQTT5MessageExpiry test class structure.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/mqtt_service.py</path>
+        <kind>service</kind>
+        <symbol>MQTTService</symbol>
+        <lines>50-1170</lines>
+        <reason>Core MQTT client management. Lines 211-220 have existing LWT setup with hardcoded "offline" - modify to use config values. Add publish_birth_message() method.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/mqtt_config.py</path>
+        <kind>model</kind>
+        <symbol>MQTTConfig</symbol>
+        <lines>1-192</lines>
+        <reason>MQTT configuration model. Add availability_topic, birth_message, will_message columns. Update to_dict() method.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/integrations.py</path>
+        <kind>router</kind>
+        <symbol>MQTTConfigResponse, MQTTConfigUpdate</symbol>
+        <lines>36-115</lines>
+        <reason>API schemas for MQTT config. Add new fields to response and update schemas.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_mqtt_service.py</path>
+        <kind>test</kind>
+        <symbol>TestMQTT5MessageExpiry</symbol>
+        <lines>737-830</lines>
+        <reason>Reference test patterns for MQTT 5.0 features. Follow structure for new birth/will tests.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/MQTTSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>MQTTSettings</symbol>
+        <lines>1-633</lines>
+        <reason>MQTT settings form. Add availability_topic, birth_message, will_message input fields with descriptions.</reason>
+      </file>
+      <file>
+        <path>frontend/types/settings.ts</path>
+        <kind>types</kind>
+        <symbol>MQTTConfigResponse, MQTTConfigUpdate</symbol>
+        <lines>159-218</lines>
+        <reason>TypeScript types for MQTT config. Add new fields.</reason>
+      </file>
+      <file>
+        <path>backend/alembic/versions/046_add_mqtt_message_expiry.py</path>
+        <kind>migration</kind>
+        <symbol>upgrade, downgrade</symbol>
+        <lines>1-30</lines>
+        <reason>Reference for Alembic migration pattern from P5-6.1. Follow same structure for birth/will fields.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/mqtt_discovery_service.py</path>
+        <kind>service</kind>
+        <symbol>availability_topic</symbol>
+        <lines>48-350</lines>
+        <reason>Uses hardcoded availability_topic pattern. After birth/will implementation, discovery should use config.availability_topic if set.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package>paho-mqtt>=2.0.0</package>
+        <package>sqlalchemy>=2.0.0</package>
+        <package>alembic>=1.13.0</package>
+        <package>fastapi>=0.115.0</package>
+      </python>
+      <node>
+        <package>react>=18.0.0</package>
+        <package>@tanstack/react-query>=5.0.0</package>
+        <package>zod>=3.0.0</package>
+        <package>react-hook-form>=7.0.0</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Use @validates decorator for model field validation (pattern from P5-6.1)</constraint>
+    <constraint>Alembic migrations must have server_default for new columns</constraint>
+    <constraint>MQTT will_set() must be called BEFORE connect()</constraint>
+    <constraint>Birth message must be published AFTER successful connection in _on_connect callback</constraint>
+    <constraint>Use QoS=1 and retain=True for both birth and will messages</constraint>
+    <constraint>Fallback to "{topic_prefix}/status" if availability_topic is empty</constraint>
+    <constraint>Frontend form validation with Zod (min/max lengths for text fields)</constraint>
+    <constraint>Maintain compatibility with existing MQTT 5.0/3.1.1 fallback behavior</constraint>
+    <constraint>All 46+ existing MQTT tests must continue to pass</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>MQTTConfig Model</name>
+      <kind>SQLAlchemy Model</kind>
+      <signature>
+availability_topic: Column(String(255), nullable=False, default='')
+birth_message: Column(String(100), nullable=False, default='online')
+will_message: Column(String(100), nullable=False, default='offline')
+      </signature>
+      <path>backend/app/models/mqtt_config.py</path>
+    </interface>
+    <interface>
+      <name>MQTTConfigResponse API</name>
+      <kind>Pydantic Schema</kind>
+      <signature>
+availability_topic: str = Field('', description="Availability topic for birth/will messages")
+birth_message: str = Field('online', description="Message published on connect")
+will_message: str = Field('offline', description="Message published on unexpected disconnect")
+      </signature>
+      <path>backend/app/api/v1/integrations.py</path>
+    </interface>
+    <interface>
+      <name>MQTTService.publish_birth_message</name>
+      <kind>Method</kind>
+      <signature>def publish_birth_message(self) -> bool: # Publish birth message to availability_topic</signature>
+      <path>backend/app/services/mqtt_service.py</path>
+    </interface>
+    <interface>
+      <name>paho.mqtt.client.will_set</name>
+      <kind>External API</kind>
+      <signature>client.will_set(topic: str, payload: str, qos: int = 0, retain: bool = False)</signature>
+      <path>paho-mqtt library</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with fixtures in conftest.py. Mock external dependencies (paho-mqtt client).
+      Follow existing TestMQTT5MessageExpiry class structure for new birth/will tests.
+      Frontend tests use Vitest + React Testing Library. All tests run in CI via GitHub Actions.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_mqtt_service.py</location>
+      <location>backend/tests/test_api/</location>
+      <location>frontend/__tests__/components/settings/MQTTSettings.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2,3,4">Test will_set called with config.availability_topic and config.will_message</idea>
+      <idea ac="2">Test default topic "{topic_prefix}/status" when availability_topic is empty</idea>
+      <idea ac="4">Test will message has QoS=1 and retain=True</idea>
+      <idea ac="5,6,7">Test publish_birth_message called in _on_connect callback</idea>
+      <idea ac="5,7">Test birth message uses config.birth_message payload</idea>
+      <idea ac="6">Test birth and will use same availability_topic</idea>
+      <idea ac="8">Test graceful disconnect publishes offline message before closing</idea>
+      <idea>Test MQTTConfig model with new field defaults and validation</idea>
+      <idea>Test API response includes new fields</idea>
+      <idea>Test API update accepts new fields</idea>
+    </ideas>
+  </tests>
+</story-context>

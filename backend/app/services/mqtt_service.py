@@ -1,14 +1,18 @@
 """
-MQTT Service for Home Assistant Integration (Story P4-2.1)
+MQTT Service for Home Assistant Integration (Story P4-2.1, P5-6.1, P5-6.2)
 
 Provides MQTT client management with:
 - Connection to MQTT brokers with username/password authentication
 - Auto-reconnect with exponential backoff (1s → 60s max)
 - Event publishing to camera-specific topics
 - Connection status tracking and metrics
-- Graceful shutdown
+- Graceful shutdown with offline message
+- MQTT 5.0 message expiry support (P5-6.1)
+- Birth/Will messages for availability tracking (P5-6.2)
 
 Uses paho-mqtt 2.0+ with CallbackAPIVersion.VERSION2.
+Connects using MQTT 5.0 protocol for message expiry support,
+with graceful fallback to MQTT 3.1.1 if broker doesn't support v5.
 """
 import asyncio
 import json
@@ -20,6 +24,8 @@ from datetime import datetime, timezone
 from typing import Optional, Any, Dict, Callable
 
 import paho.mqtt.client as mqtt
+from paho.mqtt.properties import Properties
+from paho.mqtt.packettypes import PacketTypes
 
 from app.core.database import SessionLocal
 from app.models.mqtt_config import MQTTConfig
@@ -79,6 +85,8 @@ class MQTTService:
         self._messages_published = 0
         self._last_error: Optional[str] = None
         self._last_connected_at: Optional[datetime] = None
+        # MQTT 5.0 support flag (P5-6.1) - tracks if connected with MQTT 5.0
+        self._use_mqtt5 = True  # Default to attempting MQTT 5.0
         # Callbacks for connection state changes
         self._on_connect_callback: Optional[Callable[[], None]] = None
         self._on_disconnect_callback: Optional[Callable[[str], None]] = None
@@ -175,12 +183,15 @@ class MQTTService:
             return True
 
         # Create new client with unique ID
+        # Use MQTT 5.0 for message expiry support (P5-6.1)
         client_id = f"liveobject-{uuid.uuid4().hex[:8]}"
+        protocol = mqtt.MQTTv5 if self._use_mqtt5 else mqtt.MQTTv311
         self._client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             client_id=client_id,
-            protocol=mqtt.MQTTv311
+            protocol=protocol
         )
+        logger.debug(f"MQTT client created with protocol {'5.0' if self._use_mqtt5 else '3.1.1'}")
 
         # Set up callbacks
         self._client.on_connect = self._on_connect
@@ -198,16 +209,20 @@ class MQTTService:
             self._client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
             logger.debug("MQTT TLS enabled")
 
-        # Configure Last Will and Testament (LWT) for availability (Story P4-2.2, AC7)
+        # Configure Last Will and Testament (LWT) for availability (Story P4-2.2 AC7, P5-6.2)
         # This message is sent by the broker if the client disconnects unexpectedly
-        status_topic = f"{self._config.topic_prefix}/status"
+        # Use config.availability_topic if set, otherwise fallback to {topic_prefix}/status
+        availability_topic = self._config.availability_topic or f"{self._config.topic_prefix}/status"
+        will_payload = self._config.will_message or "offline"
         self._client.will_set(
-            topic=status_topic,
-            payload="offline",
+            topic=availability_topic,
+            payload=will_payload,
             qos=1,
             retain=True
         )
-        logger.debug(f"MQTT LWT configured on topic {status_topic}")
+        logger.debug(
+            f"MQTT LWT configured: topic={availability_topic}, payload={will_payload}"
+        )
 
         # Start network loop in background thread
         self._client.loop_start()
@@ -269,11 +284,133 @@ class MQTTService:
                 pass
             self._client = None
 
+    def get_availability_topic(self) -> str:
+        """
+        Get the availability topic for birth/will messages (Story P5-6.2).
+
+        Returns:
+            Availability topic string. Uses config.availability_topic if set,
+            otherwise defaults to "{topic_prefix}/status".
+        """
+        if self._config and self._config.availability_topic:
+            return self._config.availability_topic
+        prefix = self._config.topic_prefix if self._config else "liveobject"
+        return f"{prefix}/status"
+
+    def publish_birth_message(self) -> bool:
+        """
+        Publish birth (online) message to availability topic (Story P5-6.2, AC5-7).
+
+        Called immediately after successful connection to announce ArgusAI is online.
+        Uses QoS 1 and retain=True for persistent state.
+
+        Returns:
+            True if publish successful, False otherwise.
+        """
+        if not self._connected or not self._client or not self._config:
+            logger.debug("Cannot publish birth message: not connected or no config")
+            return False
+
+        availability_topic = self.get_availability_topic()
+        birth_payload = self._config.birth_message or "online"
+
+        try:
+            result = self._client.publish(
+                availability_topic,
+                birth_payload,
+                qos=1,
+                retain=True
+            )
+
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                logger.info(
+                    f"MQTT birth message published",
+                    extra={
+                        "event_type": "mqtt_birth_published",
+                        "topic": availability_topic,
+                        "payload": birth_payload
+                    }
+                )
+                return True
+            else:
+                logger.warning(
+                    f"MQTT birth message publish failed: rc={result.rc}",
+                    extra={
+                        "event_type": "mqtt_birth_failed",
+                        "topic": availability_topic,
+                        "error_code": result.rc
+                    }
+                )
+                return False
+
+        except Exception as e:
+            logger.warning(
+                f"MQTT birth message error: {e}",
+                extra={
+                    "event_type": "mqtt_birth_error",
+                    "topic": availability_topic,
+                    "error": str(e)
+                }
+            )
+            return False
+
+    def _publish_offline_message(self) -> bool:
+        """
+        Publish offline message before graceful disconnect (Story P5-6.2, Task 4).
+
+        Unlike the will message (which is sent by the broker on unexpected disconnect),
+        this is sent explicitly when ArgusAI shuts down gracefully.
+
+        Returns:
+            True if publish successful, False otherwise.
+        """
+        if not self._client or not self._config:
+            return False
+
+        availability_topic = self.get_availability_topic()
+        will_payload = self._config.will_message or "offline"
+
+        try:
+            result = self._client.publish(
+                availability_topic,
+                will_payload,
+                qos=1,
+                retain=True
+            )
+
+            # Wait briefly for the message to be sent
+            result.wait_for_publish(timeout=2.0)
+
+            if result.rc == mqtt.MQTT_ERR_SUCCESS:
+                logger.info(
+                    f"MQTT offline message published",
+                    extra={
+                        "event_type": "mqtt_offline_published",
+                        "topic": availability_topic,
+                        "payload": will_payload
+                    }
+                )
+                return True
+            else:
+                logger.warning(
+                    f"MQTT offline message publish failed: rc={result.rc}",
+                    extra={"event_type": "mqtt_offline_failed", "error_code": result.rc}
+                )
+                return False
+
+        except Exception as e:
+            logger.warning(
+                f"MQTT offline message error: {e}",
+                extra={"event_type": "mqtt_offline_error", "error": str(e)}
+            )
+            return False
+
     async def disconnect(self) -> None:
         """
-        Gracefully disconnect from MQTT broker.
+        Gracefully disconnect from MQTT broker (Story P5-6.2).
 
-        Stops auto-reconnect and closes connection cleanly.
+        Publishes offline message before disconnecting, then stops auto-reconnect
+        and closes connection cleanly.
         """
         self._should_reconnect = False
 
@@ -291,6 +428,10 @@ class MQTTService:
                 "Disconnecting MQTT",
                 extra={"event_type": "mqtt_disconnecting"}
             )
+
+            # Publish offline message before disconnect (P5-6.2 Task 4)
+            self._publish_offline_message()
+
             self._client.disconnect()
             self._client.loop_stop()
             self._connected = False
@@ -320,6 +461,8 @@ class MQTTService:
         Note:
             This method is non-blocking and returns quickly.
             Use QoS 1 or 2 for guaranteed delivery.
+            When connected via MQTT 5.0, messages include MessageExpiryInterval
+            based on config.message_expiry_seconds (P5-6.1).
         """
         if not self._connected or not self._client:
             logger.warning(
@@ -338,8 +481,19 @@ class MQTTService:
             # Serialize payload to JSON
             message = json.dumps(payload, default=self._json_serializer)
 
-            # Publish message
-            result = self._client.publish(topic, message, qos=qos, retain=retain)
+            # Build MQTT 5.0 properties with message expiry (P5-6.1)
+            properties = None
+            if self._use_mqtt5 and self._config:
+                properties = Properties(PacketTypes.PUBLISH)
+                properties.MessageExpiryInterval = self._config.message_expiry_seconds
+                logger.debug(
+                    f"MQTT 5.0 message expiry set to {self._config.message_expiry_seconds}s"
+                )
+
+            # Publish message with properties if MQTT 5.0
+            result = self._client.publish(
+                topic, message, qos=qos, retain=retain, properties=properties
+            )
 
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
                 with self._lock:
@@ -412,7 +566,7 @@ class MQTTService:
             userdata: User data (unused)
             flags: Connection flags
             reason_code: Connection result code
-            properties: MQTT 5.0 properties (unused)
+            properties: MQTT 5.0 properties
         """
         if reason_code == mqtt.CONNACK_ACCEPTED or reason_code.value == 0:
             with self._lock:
@@ -424,10 +578,20 @@ class MQTTService:
             # Update Prometheus metrics
             update_mqtt_connection_status(True)
 
+            # Log connection with protocol version info (P5-6.1)
+            protocol_str = "MQTT 5.0" if self._use_mqtt5 else "MQTT 3.1.1"
             logger.info(
-                "MQTT connection established",
-                extra={"event_type": "mqtt_on_connect", "flags": str(flags)}
+                f"MQTT connection established ({protocol_str})",
+                extra={
+                    "event_type": "mqtt_on_connect",
+                    "flags": str(flags),
+                    "protocol": protocol_str,
+                    "mqtt5_features": self._use_mqtt5
+                }
             )
+
+            # Publish birth message immediately after connect (Story P5-6.2, AC5)
+            self.publish_birth_message()
 
             # Invoke callback (e.g., to publish discovery messages)
             if self._on_connect_callback:
@@ -440,6 +604,23 @@ class MQTTService:
             self._update_db_status(connected=True)
         else:
             error_msg = f"Connection refused: {reason_code}"
+
+            # Check for unsupported protocol version (P5-6.1 - graceful fallback)
+            # Reason code 132 = Unsupported Protocol Version in MQTT 5.0
+            # Some brokers may refuse MQTT 5.0 connections
+            if self._use_mqtt5 and hasattr(reason_code, 'value') and reason_code.value == 132:
+                logger.warning(
+                    "Broker does not support MQTT 5.0, will retry with MQTT 3.1.1",
+                    extra={
+                        "event_type": "mqtt_protocol_fallback",
+                        "from_protocol": "5.0",
+                        "to_protocol": "3.1.1"
+                    }
+                )
+                self._use_mqtt5 = False
+                # Note: The reconnect loop will handle retrying with the new protocol
+                error_msg = "Protocol downgrade to MQTT 3.1.1 required"
+
             with self._lock:
                 self._connected = False
                 self._last_error = error_msg
@@ -451,7 +632,8 @@ class MQTTService:
                 f"MQTT connection refused",
                 extra={
                     "event_type": "mqtt_connection_refused",
-                    "reason_code": str(reason_code)
+                    "reason_code": str(reason_code),
+                    "mqtt5_mode": self._use_mqtt5
                 }
             )
 

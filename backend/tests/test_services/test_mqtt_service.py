@@ -120,6 +120,36 @@ class TestMQTTConfig:
         with pytest.raises(ValueError):
             config.broker_port = 65536
 
+    def test_config_message_expiry_validation(self):
+        """Message expiry validation rejects invalid values (P5-6.1)."""
+        config = MQTTConfig()
+
+        # Valid expiry values
+        config.message_expiry_seconds = 60  # Minimum
+        assert config.message_expiry_seconds == 60
+
+        config.message_expiry_seconds = 300  # Default
+        assert config.message_expiry_seconds == 300
+
+        config.message_expiry_seconds = 3600  # Maximum
+        assert config.message_expiry_seconds == 3600
+
+        # Invalid expiry values - too low
+        with pytest.raises(ValueError, match="between 60 and 3600"):
+            config.message_expiry_seconds = 59
+
+        # Invalid expiry values - too high
+        with pytest.raises(ValueError, match="between 60 and 3600"):
+            config.message_expiry_seconds = 3601
+
+    def test_config_message_expiry_default(self, db_session):
+        """Message expiry has correct default value (P5-6.1)."""
+        config = MQTTConfig(broker_host="test.local")
+        db_session.add(config)
+        db_session.flush()
+
+        assert config.message_expiry_seconds == 300  # Default 5 minutes
+
     def test_config_password_encryption(self, db_session):
         """Password is encrypted when set."""
         from app.models.mqtt_config import MQTTConfig
@@ -694,3 +724,345 @@ class TestSerializationCompleteness:
         assert "analysis_mode" not in payload
         assert "ai_confidence" not in payload
         assert "correlation_group_id" not in payload
+
+
+class TestMQTT5MessageExpiry:
+    """Tests for MQTT 5.0 message expiry feature (Story P5-6.1)."""
+
+    def test_mqtt5_flag_default_true(self):
+        """Service defaults to attempting MQTT 5.0 (AC1)."""
+        service = MQTTService()
+        assert service._use_mqtt5 is True
+
+    @pytest.mark.asyncio
+    async def test_publish_includes_message_expiry_when_mqtt5(self):
+        """Publish includes MessageExpiryInterval when using MQTT 5.0 (AC1, AC4)."""
+        from paho.mqtt.properties import Properties
+        from paho.mqtt.packettypes import PacketTypes
+
+        service = MQTTService()
+        service._connected = True
+        service._use_mqtt5 = True
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            qos=1,
+            retain_messages=True,
+            message_expiry_seconds=600  # 10 minutes
+        )
+
+        # Mock client
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        await service.publish("test/topic", {"event_id": "123"})
+
+        # Verify publish was called with properties
+        call_args = mock_client.publish.call_args
+        properties = call_args.kwargs.get("properties") or call_args[1].get("properties")
+
+        assert properties is not None
+        assert properties.MessageExpiryInterval == 600
+
+    @pytest.mark.asyncio
+    async def test_publish_no_expiry_when_mqtt311(self):
+        """Publish does not include expiry when using MQTT 3.1.1 (AC6)."""
+        service = MQTTService()
+        service._connected = True
+        service._use_mqtt5 = False  # Fallback to MQTT 3.1.1
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            qos=1,
+            retain_messages=True,
+            message_expiry_seconds=300
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        await service.publish("test/topic", {"event_id": "123"})
+
+        # Verify properties is None when MQTT 3.1.1
+        call_args = mock_client.publish.call_args
+        properties = call_args.kwargs.get("properties") or call_args[1].get("properties")
+
+        assert properties is None
+
+    @pytest.mark.asyncio
+    async def test_publish_uses_config_expiry_value(self):
+        """Publish uses message_expiry_seconds from config (AC2)."""
+        service = MQTTService()
+        service._connected = True
+        service._use_mqtt5 = True
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            message_expiry_seconds=120  # 2 minutes
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        await service.publish("test/topic", {"event_id": "123"})
+
+        call_args = mock_client.publish.call_args
+        properties = call_args.kwargs.get("properties") or call_args[1].get("properties")
+
+        assert properties.MessageExpiryInterval == 120
+
+    def test_config_message_expiry_in_to_dict(self):
+        """to_dict includes message_expiry_seconds (AC2)."""
+        config = MQTTConfig(
+            broker_host="test.local",
+            message_expiry_seconds=900
+        )
+
+        result = config.to_dict()
+
+        assert "message_expiry_seconds" in result
+        assert result["message_expiry_seconds"] == 900
+
+
+class TestMQTTBirthWillMessages:
+    """Tests for MQTT birth/will message feature (Story P5-6.2)."""
+
+    def test_config_birth_will_defaults(self):
+        """MQTTConfig has correct defaults for birth/will fields (Task 1)."""
+        # Test with all defaults applied (simulating database migration defaults)
+        config = MQTTConfig(
+            broker_host="test.local",
+            availability_topic="",
+            birth_message="online",
+            will_message="offline"
+        )
+
+        assert config.availability_topic == ""
+        assert config.birth_message == "online"
+        assert config.will_message == "offline"
+
+    def test_config_birth_will_in_to_dict(self):
+        """to_dict includes birth/will configuration (Task 1.3)."""
+        config = MQTTConfig(
+            broker_host="test.local",
+            availability_topic="custom/status",
+            birth_message="connected",
+            will_message="disconnected"
+        )
+
+        result = config.to_dict()
+
+        assert "availability_topic" in result
+        assert "birth_message" in result
+        assert "will_message" in result
+        assert result["availability_topic"] == "custom/status"
+        assert result["birth_message"] == "connected"
+        assert result["will_message"] == "disconnected"
+
+    def test_get_availability_topic_uses_config(self):
+        """get_availability_topic uses config value when set (AC1, AC2)."""
+        service = MQTTService()
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            topic_prefix="liveobject",
+            availability_topic="custom/availability"
+        )
+
+        assert service.get_availability_topic() == "custom/availability"
+
+    def test_get_availability_topic_fallback(self):
+        """get_availability_topic falls back to {topic_prefix}/status (AC2)."""
+        service = MQTTService()
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            topic_prefix="myprefix",
+            availability_topic=""  # Empty means use default
+        )
+
+        assert service.get_availability_topic() == "myprefix/status"
+
+    def test_publish_birth_message_success(self):
+        """publish_birth_message publishes correctly (AC5, AC6, AC7)."""
+        service = MQTTService()
+        service._connected = True
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            topic_prefix="liveobject",
+            availability_topic="",
+            birth_message="online"
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        result = service.publish_birth_message()
+
+        assert result is True
+        mock_client.publish.assert_called_once_with(
+            "liveobject/status",
+            "online",
+            qos=1,
+            retain=True
+        )
+
+    def test_publish_birth_message_custom_topic(self):
+        """publish_birth_message uses custom availability topic (AC6)."""
+        service = MQTTService()
+        service._connected = True
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            availability_topic="argus/online",
+            birth_message="connected"
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        result = service.publish_birth_message()
+
+        assert result is True
+        mock_client.publish.assert_called_once_with(
+            "argus/online",
+            "connected",
+            qos=1,
+            retain=True
+        )
+
+    def test_publish_birth_message_not_connected(self):
+        """publish_birth_message returns False when not connected."""
+        service = MQTTService()
+        service._connected = False
+        service._config = MQTTConfig(broker_host="test.local")
+
+        result = service.publish_birth_message()
+
+        assert result is False
+
+    def test_publish_offline_message_success(self):
+        """_publish_offline_message publishes correctly (Task 4)."""
+        service = MQTTService()
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            topic_prefix="liveobject",
+            will_message="offline"
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        result = service._publish_offline_message()
+
+        assert result is True
+        mock_client.publish.assert_called_once_with(
+            "liveobject/status",
+            "offline",
+            qos=1,
+            retain=True
+        )
+        mock_result.wait_for_publish.assert_called_once_with(timeout=2.0)
+
+    def test_publish_offline_message_custom_payload(self):
+        """_publish_offline_message uses config will_message (AC3)."""
+        service = MQTTService()
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            availability_topic="custom/status",
+            will_message="disconnected"
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        result = service._publish_offline_message()
+
+        assert result is True
+        mock_client.publish.assert_called_once_with(
+            "custom/status",
+            "disconnected",
+            qos=1,
+            retain=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_disconnect_publishes_offline(self):
+        """disconnect() publishes offline message before closing (Task 4)."""
+        service = MQTTService()
+        service._connected = True
+        service._should_reconnect = True
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            topic_prefix="liveobject",
+            availability_topic="",
+            will_message="offline"
+        )
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.rc = 0
+        mock_client.publish.return_value = mock_result
+        service._client = mock_client
+
+        await service.disconnect()
+
+        # Verify offline was published
+        mock_client.publish.assert_called_with(
+            "liveobject/status",
+            "offline",
+            qos=1,
+            retain=True
+        )
+        # Verify disconnect was called after publish
+        mock_client.disconnect.assert_called_once()
+
+    def test_will_set_uses_config_values(self):
+        """will_set in connect() uses config availability_topic and will_message (AC1-4)."""
+        import paho.mqtt.client as mqtt
+
+        service = MQTTService()
+        service._config = MQTTConfig(
+            broker_host="test.local",
+            broker_port=1883,
+            topic_prefix="liveobject",
+            availability_topic="custom/availability",
+            will_message="gone_away"
+        )
+
+        # Create real client for this test
+        mock_client = MagicMock(spec=mqtt.Client)
+        service._client = mock_client
+
+        # Simulate the will_set call that happens in connect()
+        availability_topic = service._config.availability_topic or f"{service._config.topic_prefix}/status"
+        will_payload = service._config.will_message or "offline"
+
+        mock_client.will_set(
+            topic=availability_topic,
+            payload=will_payload,
+            qos=1,
+            retain=True
+        )
+
+        mock_client.will_set.assert_called_with(
+            topic="custom/availability",
+            payload="gone_away",
+            qos=1,
+            retain=True
+        )

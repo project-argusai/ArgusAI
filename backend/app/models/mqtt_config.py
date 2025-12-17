@@ -1,4 +1,4 @@
-"""MQTTConfig SQLAlchemy ORM model for MQTT broker configuration (Story P4-2.1)"""
+"""MQTTConfig SQLAlchemy ORM model for MQTT broker configuration (Story P4-2.1, P5-6.2)"""
 from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text
 from sqlalchemy.orm import validates
 from app.core.database import Base
@@ -30,6 +30,10 @@ class MQTTConfig(Base):
         enabled: Whether MQTT publishing is enabled
         retain_messages: Whether to retain messages on broker
         use_tls: Whether to use TLS/SSL connection
+        message_expiry_seconds: MQTT 5.0 message expiry interval (60-3600 seconds, default 300)
+        availability_topic: Topic for birth/will messages (defaults to {topic_prefix}/status)
+        birth_message: Message published on connect (default "online")
+        will_message: Message published on unexpected disconnect (default "offline")
         is_connected: Current connection status (runtime, not persisted preference)
         last_connected_at: Last successful connection timestamp
         last_error: Last connection error message
@@ -52,6 +56,11 @@ class MQTTConfig(Base):
     enabled = Column(Boolean, nullable=False, default=False)
     retain_messages = Column(Boolean, nullable=False, default=True)
     use_tls = Column(Boolean, nullable=False, default=False)
+    message_expiry_seconds = Column(Integer, nullable=False, default=300)
+    # Birth/Will message configuration (Story P5-6.2)
+    availability_topic = Column(String(255), nullable=False, default='')  # Empty = fallback to {topic_prefix}/status
+    birth_message = Column(String(100), nullable=False, default='online')
+    will_message = Column(String(100), nullable=False, default='offline')
     is_connected = Column(Boolean, nullable=False, default=False)
     last_connected_at = Column(DateTime(timezone=True), nullable=True)
     last_error = Column(Text, nullable=True)
@@ -113,6 +122,13 @@ class MQTTConfig(Base):
             raise ValueError(f"Port must be between 1 and 65535, got {value}")
         return value
 
+    @validates('message_expiry_seconds')
+    def validate_message_expiry(self, key, value):
+        """Validate message expiry is in valid range (60-3600 seconds)."""
+        if not (60 <= value <= 3600):
+            raise ValueError(f"Message expiry must be between 60 and 3600 seconds, got {value}")
+        return value
+
     def get_decrypted_password(self) -> str | None:
         """
         Decrypt password for use in MQTT connection.
@@ -161,6 +177,10 @@ class MQTTConfig(Base):
             "enabled": self.enabled,
             "retain_messages": self.retain_messages,
             "use_tls": self.use_tls,
+            "message_expiry_seconds": self.message_expiry_seconds,
+            "availability_topic": self.availability_topic,
+            "birth_message": self.birth_message,
+            "will_message": self.will_message,
             "is_connected": self.is_connected,
             "last_connected_at": self.last_connected_at.isoformat() if self.last_connected_at else None,
             "last_error": self.last_error,

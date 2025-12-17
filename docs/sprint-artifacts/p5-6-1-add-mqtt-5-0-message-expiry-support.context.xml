@@ -1,0 +1,202 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P5-6</epicId>
+    <storyId>P5-6.1</storyId>
+    <title>Add MQTT 5.0 Message Expiry Support</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-16</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p5-6-1-add-mqtt-5-0-message-expiry-support.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home automation user</asA>
+    <iWant>MQTT event messages to expire after a configurable time</iWant>
+    <soThat>stale events don't accumulate on the broker and Home Assistant receives only relevant, timely notifications</soThat>
+    <tasks>
+      <task id="1">Add message_expiry_seconds field to MQTT configuration
+        <subtask id="1.1">Create Alembic migration to add message_expiry_seconds column (default 300)</subtask>
+        <subtask id="1.2">Update MQTTConfig model with field and validation (60-3600 range)</subtask>
+        <subtask id="1.3">Update MQTT config schemas for API request/response</subtask>
+        <subtask id="1.4">Add field to MQTTConfigUpdate schema and API endpoint</subtask>
+      </task>
+      <task id="2">Implement MQTT 5.0 message expiry in publish method
+        <subtask id="2.1">Update mqtt_service.py to use MQTT 5.0 protocol when connecting</subtask>
+        <subtask id="2.2">Modify publish() method to include MessageExpiryInterval property</subtask>
+        <subtask id="2.3">Import and use paho.mqtt.properties.Properties for MQTT 5.0 properties</subtask>
+        <subtask id="2.4">Ensure expiry property is set from config's message_expiry_seconds value</subtask>
+      </task>
+      <task id="3">Ensure graceful fallback for MQTT 3.1.1 brokers
+        <subtask id="3.1">Add protocol version detection/handling in connect method</subtask>
+        <subtask id="3.2">Test connection and publish work with MQTT 3.1.1 brokers</subtask>
+        <subtask id="3.3">Log warning if MQTT 5.0 features unavailable but don't fail</subtask>
+      </task>
+      <task id="4">Update frontend MQTT settings UI
+        <subtask id="4.1">Add message_expiry_seconds input field to MQTTSettings.tsx</subtask>
+        <subtask id="4.2">Add Zod validation schema for expiry field (60-3600 range)</subtask>
+        <subtask id="4.3">Add helpful description text explaining message expiry</subtask>
+        <subtask id="4.4">Update frontend types for MQTTConfigUpdate</subtask>
+      </task>
+      <task id="5">Write tests for message expiry functionality
+        <subtask id="5.1">Add unit test for MQTTConfig model with expiry field validation</subtask>
+        <subtask id="5.2">Add unit test for publish method with expiry property</subtask>
+        <subtask id="5.3">Add API test for updating message_expiry_seconds setting</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Event messages include MessageExpiryInterval property when published to MQTT 5.0 brokers</ac>
+    <ac id="2">Expiry time configurable in MQTT settings with default of 300 seconds (5 minutes)</ac>
+    <ac id="3">Settings UI shows expiry time input with validation (60-3600 seconds range)</ac>
+    <ac id="4">Messages published to MQTT 5.0 broker include expiry property</ac>
+    <ac id="5">Messages not consumed within TTL are discarded by broker</ac>
+    <ac id="6">Works gracefully with MQTT 3.1.1 brokers (expiry property ignored, no errors)</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-p5-6.md</path>
+        <title>Epic Technical Specification: MQTT Enhancements</title>
+        <section>Detailed Design</section>
+        <snippet>Defines MQTTSettings extension with message_expiry_seconds (default 300), availability_topic, birth_message, will_message. Shows publish flow with MessageExpiryInterval property.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase5.md</path>
+        <title>Phase 5 Epics</title>
+        <section>Epic P5-6: MQTT Enhancements - Story P5-6.1</section>
+        <snippet>Configure message expiry for MQTT event messages. FR37. Backlog FF-012. ACs: expiry interval set on publish, configurable time (60-3600), works with MQTT 5.0 brokers.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-4-additions.md</path>
+        <title>Phase 4 Additions</title>
+        <section>MQTT Publishing Flow</section>
+        <snippet>Event Created → MQTT Service → Serialize Event → Publish to camera topic with QoS 1 for reliability. ADR-P4-002: MQTT with Home Assistant Discovery chosen for integration.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>FF-012</section>
+        <snippet>MQTT 5.0 Features - Consider support for message expiry, shared subscriptions. Evaluate if these improve reliability. GitHub Issue #37.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/mqtt_service.py</path>
+        <kind>service</kind>
+        <symbol>MQTTService</symbol>
+        <lines>1-1219</lines>
+        <reason>Main MQTT service class. Currently uses MQTTv311 protocol (line 182-183). publish() method (lines 301-388) needs MQTT 5.0 properties. connect() method (lines 159-251) needs protocol upgrade. Will message already configured (lines 201-210).</reason>
+      </file>
+      <file>
+        <path>backend/app/models/mqtt_config.py</path>
+        <kind>model</kind>
+        <symbol>MQTTConfig</symbol>
+        <lines>1-182</lines>
+        <reason>MQTT configuration SQLAlchemy model. Add message_expiry_seconds field with default 300 and validation (60-3600 range).</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/integrations.py</path>
+        <kind>api</kind>
+        <symbol>MQTTConfigUpdate, get_mqtt_config, update_mqtt_config</symbol>
+        <lines>74-317</lines>
+        <reason>MQTT API endpoints. MQTTConfigUpdate schema (lines 74-110) needs message_expiry_seconds field. get_mqtt_config and update_mqtt_config endpoints need to handle new field.</reason>
+      </file>
+      <file>
+        <path>frontend/components/settings/MQTTSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>MQTTSettings</symbol>
+        <lines>1-609</lines>
+        <reason>MQTT settings UI component. Add message_expiry_seconds input field with validation (60-3600). Follow existing pattern for QoS select.</reason>
+      </file>
+      <file>
+        <path>frontend/types/settings.ts</path>
+        <kind>types</kind>
+        <symbol>MQTTConfigResponse, MQTTConfigUpdate</symbol>
+        <lines>159-188</lines>
+        <reason>TypeScript types for MQTT config. Add message_expiry_seconds field to both interfaces.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_mqtt_service.py</path>
+        <kind>test</kind>
+        <symbol>TestMQTTServiceInit, TestMQTTConfig</symbol>
+        <lines>1-100</lines>
+        <reason>Existing MQTT service tests. Add tests for message_expiry_seconds validation and MQTT 5.0 publish properties.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="paho-mqtt" version=">=2.0.0">MQTT client - supports MQTT 5.0 protocol and properties</package>
+        <package name="fastapi" version="==0.115.0">Web framework for API endpoints</package>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database models</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="pydantic" version=">=2.10.0">Data validation for schemas</package>
+      </python>
+      <node>
+        <package name="react" version="^19">React for UI components</package>
+        <package name="zod" version="^3">Schema validation</package>
+        <package name="react-hook-form" version="^7">Form handling</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Use existing MQTT service singleton pattern (get_mqtt_service())</constraint>
+    <constraint type="pattern">Follow Alembic migration naming convention: NNN_description.py</constraint>
+    <constraint type="pattern">Use Pydantic Field validators for schema validation</constraint>
+    <constraint type="pattern">Use SQLAlchemy @validates decorator for model validation</constraint>
+    <constraint type="security">Never log passwords or sensitive config values</constraint>
+    <constraint type="compatibility">Must work gracefully with both MQTT 3.1.1 and MQTT 5.0 brokers</constraint>
+    <constraint type="testing">Backend changes require unit tests with pytest</constraint>
+    <constraint type="ui">Follow existing shadcn/ui component patterns in settings</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>MQTTService.publish()</name>
+      <kind>method</kind>
+      <signature>async def publish(self, topic: str, payload: dict, qos: Optional[int] = None, retain: Optional[bool] = None) -> bool</signature>
+      <path>backend/app/services/mqtt_service.py:301</path>
+    </interface>
+    <interface>
+      <name>MQTTService.connect()</name>
+      <kind>method</kind>
+      <signature>async def connect(self) -> bool</signature>
+      <path>backend/app/services/mqtt_service.py:159</path>
+    </interface>
+    <interface>
+      <name>PUT /api/v1/integrations/mqtt/config</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /api/v1/integrations/mqtt/config - Update MQTT configuration</signature>
+      <path>backend/app/api/v1/integrations.py:237</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/integrations/mqtt/config</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/integrations/mqtt/config - Get MQTT configuration</signature>
+      <path>backend/app/api/v1/integrations.py:190</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Use db_session fixture for database tests. Mock external services. Tests in backend/tests/test_services/ and backend/tests/test_api/.
+      Frontend: Vitest with React Testing Library. Tests in frontend/__tests__/.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_mqtt_service.py</location>
+      <location>backend/tests/test_api/</location>
+      <location>frontend/__tests__/components/settings/</location>
+    </locations>
+    <ideas>
+      <idea ac="1,4">Test publish() includes MessageExpiryInterval property when config has message_expiry_seconds</idea>
+      <idea ac="2">Test MQTTConfig model validates message_expiry_seconds defaults to 300</idea>
+      <idea ac="3">Test frontend validation rejects values outside 60-3600 range</idea>
+      <idea ac="6">Test connect() handles MQTT 3.1.1 broker gracefully without failing</idea>
+      <idea ac="2">Test API endpoint accepts and persists message_expiry_seconds</idea>
+    </ideas>
+  </tests>
+</story-context>

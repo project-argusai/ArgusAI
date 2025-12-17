@@ -344,8 +344,8 @@ development_status:
 
   # Epic P5-6: MQTT Enhancements
   epic-p5-6: contexted
-  p5-6-1-add-mqtt-5-0-message-expiry-support: backlog
-  p5-6-2-implement-mqtt-birth-will-messages: backlog
+  p5-6-1-add-mqtt-5-0-message-expiry-support: done
+  p5-6-2-implement-mqtt-birth-will-messages: done
   epic-p5-6-retrospective: optional
 
   # ============================================================================

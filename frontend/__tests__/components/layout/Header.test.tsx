@@ -227,9 +227,8 @@ describe('Header', () => {
 
       const { container } = render(<Header />, { wrapper: TestWrapper })
 
-      // User icon should not be present
-      const userIcon = container.querySelector('.lucide-user')
-      // It's hidden on mobile and shown on md, but not present in dropdown context if not authenticated
+      // User icon should not be present - it's hidden on mobile and shown on md,
+      // but not present in dropdown context if not authenticated
       const dropdownTriggers = container.querySelectorAll('[data-slot="dropdown-menu-trigger"]')
       expect(dropdownTriggers.length).toBe(0)
     })

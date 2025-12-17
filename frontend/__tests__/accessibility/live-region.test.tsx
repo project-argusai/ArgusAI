@@ -4,7 +4,7 @@
  * Tests for the accessible live region component.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { LiveRegion, StatusAnnouncer } from '@/components/ui/live-region'
 
 describe('LiveRegion', () => {

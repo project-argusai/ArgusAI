@@ -10,10 +10,9 @@
  * - Testing URL param persistence pattern
  */
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { EventFilters } from '@/components/events/EventFilters'
-import type { IEventFilters } from '@/types/event'
 
 // Mock useDebounce to immediately return the value
 vi.mock('@/lib/hooks/useDebounce', () => ({

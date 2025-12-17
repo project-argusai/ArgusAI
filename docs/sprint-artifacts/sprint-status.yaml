@@ -355,7 +355,7 @@ development_status:
   # Backlog: docs/backlog.md (remaining open items)
 
   # Epic P6-1: Camera Setup & Performance
-  epic-p6-1: backlog
+  epic-p6-1: contexted
   p6-1-1-implement-pre-save-connection-test-endpoint: backlog
   p6-1-2-add-react-memo-to-camerapreview-component: backlog
   p6-1-3-implement-virtual-scrolling-for-camera-list: backlog

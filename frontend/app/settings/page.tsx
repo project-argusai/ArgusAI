@@ -57,6 +57,7 @@ import { PushNotificationSettings } from '@/components/settings/PushNotification
 import { MQTTSettings } from '@/components/settings/MQTTSettings';
 import { HomekitSettings } from '@/components/settings/HomekitSettings';
 import { AnomalySettings } from '@/components/settings/AnomalySettings';
+import { MotionEventsExport } from '@/components/settings/MotionEventsExport';
 import { ControllerForm, type ControllerData, DeleteControllerDialog, DiscoveredCameraList } from '@/components/protect';
 import { useQuery } from '@tanstack/react-query';
 import type { AIProvider } from '@/types/settings';
@@ -814,6 +815,9 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Motion Events Export Section (Story P6-4.2) */}
+              <MotionEventsExport />
 
               {/* Backup & Restore Section (Story 6.4) */}
               <BackupRestore />

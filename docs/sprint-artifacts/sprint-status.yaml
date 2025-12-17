@@ -372,13 +372,13 @@ development_status:
   epic-p6-3: contexted
   p6-3-1-add-audio-stream-extraction-from-rtsp: done  # GH #61 - PR #68
   p6-3-2-implement-audio-event-detection-pipeline: done  # GH #62
-  p6-3-3-add-audio-settings-to-camera-configuration: review  # GH #63
+  p6-3-3-add-audio-settings-to-camera-configuration: done  # GH #63
   epic-p6-3-retrospective: optional
 
   # Epic P6-4: Data Export Enhancements
   epic-p6-4: contexted
   p6-4-1-implement-motion-events-csv-export: done  # GH #64
-  p6-4-2-add-motion-events-export-ui: backlog  # GH #65
+  p6-4-2-add-motion-events-export-ui: done  # GH #65
   epic-p6-4-retrospective: optional
 
   # ============================================================================

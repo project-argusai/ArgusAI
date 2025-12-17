@@ -1,6 +1,6 @@
 # Story P6-3.3: Add Audio Settings to Camera Configuration
 
-Status: review
+Status: done
 
 ## Story
 
@@ -154,3 +154,109 @@ Claude claude-opus-4-5-20251101
 
 - 2025-12-17: Story drafted (P6-3.3)
 - 2025-12-17: Story implemented - all 6 tasks completed
+- 2025-12-17: Senior Developer Review (AI) - Approved
+
+---
+
+## Senior Developer Review (AI)
+
+### Reviewer
+Brent (via Claude Opus 4.5)
+
+### Date
+2025-12-17
+
+### Outcome: ✅ APPROVE
+
+The implementation fully satisfies all acceptance criteria with comprehensive test coverage. Code quality is excellent with proper separation of concerns, type safety, and follows established project patterns.
+
+### Summary
+
+Story P6-3.3 successfully implements per-camera audio configuration settings in both frontend and backend. The implementation adds:
+- AudioSettingsSection component with toggle, checkbox group, and slider
+- Backend model/schema changes with migration
+- Audio indicator in camera preview cards
+- Comprehensive test coverage (15 frontend + 9 backend tests)
+
+### Key Findings
+
+**No blocking issues found.** All implementation follows established patterns and best practices.
+
+**Low Severity (Advisory):**
+- Note: The slider range is 0-100 internally but stored as 0.0-1.0 in the database, which is correctly handled in the component
+
+### Acceptance Criteria Coverage
+
+| AC# | Description | Status | Evidence |
+|-----|-------------|--------|----------|
+| AC#1 | Toggle to enable/disable audio capture per camera in camera form | ✅ IMPLEMENTED | `frontend/components/cameras/AudioSettingsSection.tsx:87-121` - Toggle switch with aria-checked state |
+| AC#2 | Audio event type selection (checkboxes for glass_break, gunshot, scream, doorbell) | ✅ IMPLEMENTED | `frontend/components/cameras/AudioSettingsSection.tsx:44-65, 126-196` - AUDIO_EVENT_TYPES constant with all 4 types, checkbox group with FormField |
+| AC#3 | Sensitivity/confidence threshold slider per camera | ✅ IMPLEMENTED | `frontend/components/cameras/AudioSettingsSection.tsx:199-260` - Slider with 0-100% display, null = global default |
+| AC#4 | Audio indicator in camera status showing when audio capture is active | ✅ IMPLEMENTED | `frontend/components/cameras/CameraPreviewCard.tsx:122-129` - Volume2 icon with codec tooltip |
+
+**Summary: 4 of 4 acceptance criteria fully implemented**
+
+### Task Completion Validation
+
+| Task | Marked As | Verified As | Evidence |
+|------|-----------|-------------|----------|
+| Task 1: Create AudioSettingsSection component | ✅ Complete | ✅ VERIFIED | `frontend/components/cameras/AudioSettingsSection.tsx` - 265 lines, all subtasks implemented |
+| Task 2: Extend CameraForm to include audio settings | ✅ Complete | ✅ VERIFIED | `frontend/components/cameras/CameraForm.tsx:36, 107-110, 129-132, 492-494` - Import, default values, conditional render for RTSP only |
+| Task 3: Update frontend types and API client | ✅ Complete | ✅ VERIFIED | `frontend/types/camera.ts:101-104, 136-138, 161-163` - ICamera, ICameraCreate, ICameraUpdate all have audio_event_types, audio_threshold |
+| Task 4: Extend Camera model and schema | ✅ Complete | ✅ VERIFIED | `backend/app/models/camera.py:81-82`, `backend/app/schemas/camera.py:44-57, 121-124, 181-182`, migration `049_add_camera_audio_settings.py` |
+| Task 5: Add audio indicator to camera status | ✅ Complete | ✅ VERIFIED | `frontend/components/cameras/CameraPreviewCard.tsx:9, 122-129` - Volume2 import and conditional render |
+| Task 6: Write tests | ✅ Complete | ✅ VERIFIED | `frontend/__tests__/components/cameras/AudioSettingsSection.test.tsx` (15 tests), `backend/tests/test_api/test_camera_audio_settings.py` (9 tests) |
+
+**Summary: 6 of 6 completed tasks verified, 0 questionable, 0 false completions**
+
+### Test Coverage and Gaps
+
+**Frontend Tests (15 tests passing):**
+- AC#1 toggle tests: 5 tests (render, default off, can toggle, shows/hides options)
+- AC#2 checkbox tests: 4 tests (renders all 4, selectable, descriptions, pre-selected state)
+- AC#3 slider tests: 4 tests (renders, global default display, percentage display, reset button)
+- Section header tests: 2 tests
+
+**Backend Tests (9 tests passing):**
+- Create camera with/without audio settings
+- Update camera audio settings
+- GET camera/list returns audio settings
+- Clear audio settings
+- Threshold validation (0.0-1.0 range)
+- JSON string format acceptance
+- Partial update preserves settings
+
+**No test gaps identified** - all ACs have corresponding tests.
+
+### Architectural Alignment
+
+✅ Implementation follows established patterns:
+- AudioSettingsSection follows MotionSettingsSection component pattern
+- Uses React Hook Form with Zod validation (consistent with project)
+- Backend schema uses field_validator for JSON serialization (consistent with detection_zones pattern)
+- Migration follows project naming convention (049_add_camera_audio_settings.py)
+- Audio settings only shown for RTSP cameras (correctly excludes USB per constraint)
+
+### Security Notes
+
+✅ No security concerns:
+- No user input directly used in SQL queries
+- audio_threshold validated with ge=0.0, le=1.0 constraints
+- audio_event_types properly serialized/deserialized as JSON
+- No sensitive data exposed
+
+### Best-Practices and References
+
+- React Hook Form patterns: https://react-hook-form.com/
+- Zod validation: https://zod.dev/
+- shadcn/ui components used (Slider, Checkbox, Tooltip)
+- Alembic migration best practices followed
+
+### Action Items
+
+**Code Changes Required:**
+(None required - implementation is complete and correct)
+
+**Advisory Notes:**
+- Note: Consider adding integration tests for the full audio settings flow in future
+- Note: The "Use Global Default (70%)" text assumes default threshold is 70% - ensure this matches system_settings

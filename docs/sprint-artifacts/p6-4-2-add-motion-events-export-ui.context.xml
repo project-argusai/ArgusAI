@@ -1,0 +1,131 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P6-4</epicId>
+    <storyId>P6-4.2</storyId>
+    <title>Add Motion Events Export UI</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p6-4-2-add-motion-events-export-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home owner</asA>
+    <iWant>a user-friendly interface to configure and download motion event exports</iWant>
+    <soThat>I can easily export filtered motion detection data to CSV for analysis without needing to use API tools</soThat>
+    <tasks>
+      <task id="1" ac="1,2,3">Create MotionEventsExport component</task>
+      <task id="2" ac="1">Integrate export component into Settings page</task>
+      <task id="3" ac="4,5,6,7">Implement export API call and file download</task>
+      <task id="4" ac="6,7">Add toast notifications and error handling</task>
+      <task id="5" ac="1-7">Write frontend tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Export button/section visible in Settings page under "Data Export" section</criterion>
+    <criterion id="2">Date range picker component for filtering export data (start and end date)</criterion>
+    <criterion id="3">Camera selector dropdown for filtering (optional, "All Cameras" default)</criterion>
+    <criterion id="4">Click "Export CSV" triggers file download via browser</criterion>
+    <criterion id="5">Loading state shown during export generation</criterion>
+    <criterion id="6">Success toast notification shown after download completes</criterion>
+    <criterion id="7">Error toast notification shown if export fails</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase6.md" title="Phase 6 Epics" section="Epic P6-4: Data Export Enhancements">
+        Story P6-4.2 defines export button on Settings page, date range picker, camera selector, download trigger, loading state, and toasts.
+      </doc>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P6-4.md" title="Tech Spec: Data Export" section="Story P6-4.2: Motion Events Export UI">
+        AC8-14 define: Export button in Settings, DateRangePicker, CameraSelect dropdown, click triggers download, loading spinner, success/error toasts.
+      </doc>
+      <doc path="docs/sprint-artifacts/p6-4-1-implement-motion-events-csv-export.md" title="Story P6-4.1" section="Backend API">
+        Backend endpoint fully implemented: GET /api/v1/motion-events/export?format=csv with start_date, end_date, camera_id params. Returns streaming CSV with Content-Disposition header.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="frontend/components/settings/BackupRestore.tsx" kind="component" reason="Reference pattern for download functionality - creates blob URL, programmatic anchor click, toast notifications">
+        <symbol>BackupRestore</symbol>
+        <lines>140-148, 168-184</lines>
+      </file>
+      <file path="frontend/app/settings/page.tsx" kind="page" symbol="SettingsPage" reason="Target page to add Data Export section - follow existing tab/card patterns">
+        <lines>216-232</lines>
+        <note>handleExportData function already exists for events export - can reference pattern</note>
+      </file>
+      <file path="frontend/lib/api-client.ts" kind="api-client" symbol="apiClient" reason="Add exportMotionEvents function following existing patterns">
+        <lines>198-260</lines>
+        <note>cameras.list() available for camera dropdown</note>
+      </file>
+      <file path="backend/app/api/v1/motion_events.py" kind="api-endpoint" symbol="export_motion_events" reason="Backend endpoint to call - streaming CSV response">
+        <lines>33-182</lines>
+      </file>
+      <file path="frontend/components/settings/AccuracyDashboard.tsx" kind="component" symbol="AccuracyDashboard" reason="Example of date picker pattern using shadcn Calendar">
+        <note>Uses Popover + Calendar for date selection</note>
+      </file>
+    </code>
+
+    <dependencies>
+      <npm>
+        <package name="react" version="^19.0.0">UI framework</package>
+        <package name="next" version="^15.0.0">App framework</package>
+        <package name="sonner" version="*">Toast notifications (already in use)</package>
+        <package name="lucide-react" version="*">Icons (Download, Loader2, Calendar)</package>
+        <package name="@tanstack/react-query" version="*">Server state (useQuery for cameras)</package>
+        <package name="date-fns" version="*">Date formatting utilities</package>
+      </npm>
+      <shadcn>
+        <component name="Button">Export button</component>
+        <component name="Card">Section container</component>
+        <component name="Select">Camera dropdown</component>
+        <component name="Calendar">Date picker</component>
+        <component name="Popover">Date picker container</component>
+        <component name="Label">Form labels</component>
+      </shadcn>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Follow existing settings component patterns (Card with Header/Content)</constraint>
+    <constraint type="architecture">Use existing toast system (sonner) for notifications</constraint>
+    <constraint type="architecture">Use existing apiClient pattern for API calls</constraint>
+    <constraint type="ui">Match existing Settings page styling and layout</constraint>
+    <constraint type="ui">Export button should be in Data tab alongside existing export functionality</constraint>
+    <constraint type="browser">File download via blob URL + programmatic anchor click (no server-side push)</constraint>
+    <constraint type="testing">Component must have matching test file in __tests__/components/settings/</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="Export API Endpoint" kind="REST">
+      <signature>GET /api/v1/motion-events/export?format=csv&amp;start_date=YYYY-MM-DD&amp;end_date=YYYY-MM-DD&amp;camera_id=UUID</signature>
+      <path>backend/app/api/v1/motion_events.py:33-182</path>
+    </interface>
+    <interface name="Camera List API" kind="REST">
+      <signature>GET /api/v1/cameras</signature>
+      <note>Returns ICamera[] - use for camera dropdown population</note>
+    </interface>
+    <interface name="apiClient.cameras.list" kind="function">
+      <signature>list(filters?: { source_type?: string }): Promise&lt;ICamera[]&gt;</signature>
+      <path>frontend/lib/api-client.ts:198-220</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend tests use Vitest + React Testing Library. Tests should cover component rendering, user interactions, API calls (mocked), loading states, and error handling. Follow existing patterns in __tests__/components/settings/.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/components/settings/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that MotionEventsExport component renders in Settings data tab</idea>
+      <idea ac="2">Test date range picker opens and allows date selection</idea>
+      <idea ac="3">Test camera selector shows "All Cameras" default and camera list</idea>
+      <idea ac="4">Test export button click calls API with correct params</idea>
+      <idea ac="5">Test loading spinner shown during export</idea>
+      <idea ac="6">Test success toast shown after download</idea>
+      <idea ac="7">Test error toast shown on API failure</idea>
+    </ideas>
+  </tests>
+</story-context>

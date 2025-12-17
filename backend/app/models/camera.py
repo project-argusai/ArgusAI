@@ -40,6 +40,8 @@ class Camera(Base):
             - single_frame: Fast, low cost - uses single snapshot
             - multi_frame: Balanced - extracts multiple frames from video clip
             - video_native: Best quality, highest cost - sends video directly to AI
+        audio_enabled: Whether audio stream extraction is enabled (Phase 6)
+        audio_codec: Detected audio codec from RTSP stream ('aac', 'pcmu', 'opus', etc.) (Phase 6)
         created_at: Record creation timestamp (UTC)
         updated_at: Last modification timestamp (UTC)
     """
@@ -72,6 +74,9 @@ class Camera(Base):
     analysis_mode = Column(String(20), default='single_frame', nullable=False, index=True)
     # Phase 4 (P4-5.4): Per-camera custom prompt override based on feedback analysis
     prompt_override = Column(Text, nullable=True)
+    # Phase 6 (P6-3.1): Audio stream extraction configuration
+    audio_enabled = Column(Boolean, default=False, nullable=False)
+    audio_codec = Column(String(20), nullable=True)  # Detected codec: 'aac', 'pcmu', 'opus', etc.
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 

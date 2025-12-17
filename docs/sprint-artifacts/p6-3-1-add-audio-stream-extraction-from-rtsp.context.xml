@@ -1,0 +1,159 @@
+<story-context id="p6-3-1" v="1.0">
+  <metadata>
+    <epicId>P6-3</epicId>
+    <storyId>1</storyId>
+    <title>Add Audio Stream Extraction from RTSP</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p6-3-1-add-audio-stream-extraction-from-rtsp.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>enable audio stream extraction from RTSP cameras</iWant>
+    <soThat>future audio-based event detection features (like glass break or doorbell sounds) can be built on this foundation</soThat>
+    <tasks>
+      <task id="1">Add audio configuration fields to Camera model (audio_enabled, audio_codec)</task>
+      <task id="2">Implement AudioStreamExtractor service for real-time RTSP audio extraction</task>
+      <task id="3">Integrate audio extraction into camera capture loop</task>
+      <task id="4">Add camera API endpoints for audio configuration</task>
+      <task id="5">Write tests for audio extraction service</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Audio stream detected and extracted from RTSP feeds using PyAV</criterion>
+    <criterion id="2">Supports common audio codecs (AAC, G.711/PCMU, Opus)</criterion>
+    <criterion id="3">Audio buffer maintained separate from video capture</criterion>
+    <criterion id="4">Can be enabled/disabled per camera via configuration</criterion>
+    <criterion id="5">No impact on video capture performance when audio is disabled</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase6.md</path>
+        <title>Phase 6 Epics</title>
+        <section>Epic P6-3: Audio Analysis Foundation</section>
+        <snippet>Story P6-3.1 establishes audio extraction from RTSP streams. Supports AAC, G.711, Opus codecs. Audio buffer separate from video, enable/disable per camera.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>FF-015 Audio Capture from Cameras</section>
+        <snippet>Support audio streams from RTSP cameras for future audio-based event detection (glass break, doorbell ring, etc.). Out of scope for video AI analysis but enables future audio AI features.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/technology-stack-details.md</path>
+        <title>Technology Stack Details</title>
+        <section>Backend Stack</section>
+        <snippet>PyAV (av>=12.0.0) for secure RTSP streams. OpenCV for camera/CV. Backend uses FastAPI 0.115+, Python 3.11+, SQLAlchemy 2.0+, Alembic for migrations.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/camera_service.py</path>
+        <kind>service</kind>
+        <symbol>CameraService._capture_loop</symbol>
+        <lines>246-514</lines>
+        <reason>Main capture loop where audio extraction will be integrated. Already uses PyAV for secure RTSP (rtsps://) streams. Line 295-314 shows PyAV container opening pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/audio_extractor.py</path>
+        <kind>service</kind>
+        <symbol>AudioExtractor</symbol>
+        <lines>1-757</lines>
+        <reason>Existing audio extraction for video clips. Shows PyAV audio resampling pattern (lines 217-223). Can reuse patterns but this extracts from files, not live streams.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/frame_extractor.py</path>
+        <kind>service</kind>
+        <symbol>FrameExtractor</symbol>
+        <lines>1-798</lines>
+        <reason>Reference for PyAV video stream handling patterns. Shows singleton pattern used for services.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/camera.py</path>
+        <kind>model</kind>
+        <symbol>Camera</symbol>
+        <lines>1-146</lines>
+        <reason>Camera model where audio_enabled and audio_codec fields will be added. Shows existing field patterns, validators, CheckConstraint usage.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/cameras.py</path>
+        <kind>controller</kind>
+        <symbol>cameras router</symbol>
+        <reason>Camera API endpoints. Will need PATCH for audio config, GET for audio stream availability.</reason>
+      </file>
+      <file>
+        <path>backend/alembic/versions/</path>
+        <kind>migration</kind>
+        <reason>Location for new migration to add audio fields to cameras table.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="av" version=">=12.0.0">PyAV for RTSP audio stream demuxing. Already in requirements.txt</package>
+        <package name="numpy" version="">For audio buffer management (already present)</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface>
+      <name>CameraService.start_camera</name>
+      <kind>method</kind>
+      <signature>def start_camera(self, camera: Camera) -> bool</signature>
+      <path>backend/app/services/camera_service.py:70</path>
+    </interface>
+    <interface>
+      <name>CameraService._capture_loop</name>
+      <kind>method</kind>
+      <signature>def _capture_loop(self, camera: Camera) -> None</signature>
+      <path>backend/app/services/camera_service.py:246</path>
+    </interface>
+    <interface>
+      <name>AudioExtractor.extract_audio</name>
+      <kind>method</kind>
+      <signature>async def extract_audio(self, clip_path: Path) -> Optional[bytes]</signature>
+      <path>backend/app/services/audio_extractor.py:158</path>
+    </interface>
+    <interface>
+      <name>Camera PATCH endpoint</name>
+      <kind>REST endpoint</kind>
+      <signature>PATCH /api/v1/cameras/{camera_id}</signature>
+      <path>backend/app/api/v1/cameras.py</path>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint>Audio extraction must be synchronous in capture thread - no async in camera_service capture loop</constraint>
+    <constraint>Audio buffer should be thread-safe (use threading.Lock like _frame_lock pattern)</constraint>
+    <constraint>PyAV container must be opened with audio stream enabled only when audio_enabled=True</constraint>
+    <constraint>No performance impact when audio disabled - check camera.audio_enabled before any audio ops</constraint>
+    <constraint>Follow existing migration patterns in alembic/versions/</constraint>
+    <constraint>Follow singleton service pattern (see get_audio_extractor() in audio_extractor.py)</constraint>
+    <constraint>Ring buffer for audio (similar to _latest_frames dict for video frames)</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio. Tests in backend/tests/ directory following test_services/, test_api/ structure. Use pytest fixtures for database sessions. Mock external services (PyAV, cameras).
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/</location>
+      <location>backend/tests/test_api/</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2">Test AudioStreamService extracts audio from mock RTSP stream with AAC codec</idea>
+      <idea ac="2">Test codec detection correctly identifies AAC, G.711 (PCMU), Opus</idea>
+      <idea ac="3">Test audio buffer ring buffer add/get operations, overflow handling</idea>
+      <idea ac="4">Test camera PATCH endpoint toggles audio_enabled field</idea>
+      <idea ac="4">Test camera GET returns audio_enabled and audio_codec fields</idea>
+      <idea ac="5">Performance test: measure frame capture time with audio disabled vs enabled</idea>
+    </ideas>
+  </tests>
+</story-context>

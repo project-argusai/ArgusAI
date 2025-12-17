@@ -103,6 +103,8 @@ class CameraUpdate(BaseModel):
         None,
         description="AI analysis mode: single_frame (fast, low cost), multi_frame (balanced), video_native (best quality, highest cost)"
     )
+    # Phase 6 (P6-3.1): Audio stream extraction
+    audio_enabled: Optional[bool] = Field(None, description="Whether audio stream extraction is enabled")
 
     @field_validator('detection_zones', mode='before')
     @classmethod
@@ -144,6 +146,10 @@ class CameraResponse(CameraBase):
     protect_camera_type: Optional[str] = Field(None, description="Protect camera model type")
     smart_detection_types: Optional[Any] = Field(None, description="Enabled smart detection types")
     is_doorbell: Optional[bool] = Field(None, description="Whether camera is a doorbell")
+
+    # Phase 6 (P6-3.1): Audio stream extraction fields
+    audio_enabled: bool = Field(default=False, description="Whether audio stream extraction is enabled")
+    audio_codec: Optional[str] = Field(None, description="Detected audio codec: 'aac', 'pcmu', 'opus', etc.")
 
     # Note: password field is intentionally omitted (write-only field)
     # Note: analysis_mode is inherited from CameraBase

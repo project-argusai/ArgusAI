@@ -21,6 +21,7 @@ except ImportError:
 
 from app.models.camera import Camera
 from app.services.motion_detection_service import motion_detection_service
+from app.services.audio_stream_service import get_audio_stream_extractor, AudioStreamExtractor
 from app.core.database import get_db
 # Note: event_processor imports are done locally to avoid circular imports
 
@@ -56,6 +57,8 @@ class CameraService:
         self._latest_frames: Dict[str, np.ndarray] = {}  # Store latest frame per camera
         self._frame_lock = threading.Lock()  # Lock for frame access
         self._main_event_loop: Optional[asyncio.AbstractEventLoop] = None  # Store main event loop for thread-safe async calls
+        # Phase 6 (P6-3.1): Audio stream extraction
+        self._audio_extractor: Optional[AudioStreamExtractor] = None  # Lazy initialized
 
         logger.info("CameraService initialized")
 
@@ -216,6 +219,13 @@ class CameraService:
             except Exception as e:
                 logger.error(f"Error cleaning up motion detection for camera {camera_id}: {e}", exc_info=True)
 
+            # Phase 6 (P6-3.1): Clean up audio buffer
+            if self._audio_extractor is not None:
+                try:
+                    self._audio_extractor.remove_buffer(camera_id)
+                except Exception as e:
+                    logger.debug(f"Error cleaning up audio buffer for camera {camera_id}: {e}")
+
             # Publish unavailable status to MQTT (Story P4-2.5, AC9)
             try:
                 if self._main_event_loop and self._main_event_loop.is_running():
@@ -306,6 +316,18 @@ class CameraService:
                         av_stream = av_container.streams.video[0]
                         use_pyav = True
                         logger.debug(f"PyAV connected: {av_stream.codec_context.width}x{av_stream.codec_context.height}")
+
+                        # Phase 6 (P6-3.1): Detect audio codec if audio enabled for this camera
+                        if getattr(camera, 'audio_enabled', False):
+                            if self._audio_extractor is None:
+                                self._audio_extractor = get_audio_stream_extractor()
+                            detected_codec = self._audio_extractor.detect_audio_codec(av_container, camera_id)
+                            if detected_codec:
+                                logger.info(f"Audio stream available for camera {camera_id}: codec={detected_codec}")
+                                # Update camera model with detected codec (will be persisted by caller if needed)
+                                camera.audio_codec = detected_codec
+                            else:
+                                logger.info(f"No audio stream available for camera {camera_id}")
                     except Exception as e:
                         logger.warning(f"PyAV failed for camera {camera_id}, falling back to OpenCV: {e}")
                         if av_container:
@@ -357,6 +379,10 @@ class CameraService:
                 if use_pyav and av_container:
                     av_frame_gen = av_container.decode(av_stream)
 
+                # Phase 6 (P6-3.1): Audio resampler for this camera session
+                audio_resampler = None
+                audio_enabled_for_camera = getattr(camera, 'audio_enabled', False) and use_pyav
+
                 # Main capture loop
                 while not stop_flag.is_set():
                     frame_start_time = time.time()
@@ -404,6 +430,18 @@ class CameraService:
                     # Store latest frame for preview endpoint
                     with self._frame_lock:
                         self._latest_frames[camera_id] = frame.copy()
+
+                    # Phase 6 (P6-3.1): Extract audio frame if enabled (no impact when disabled)
+                    if audio_enabled_for_camera and av_container:
+                        try:
+                            if self._audio_extractor is None:
+                                self._audio_extractor = get_audio_stream_extractor()
+                            _, audio_resampler = self._audio_extractor.extract_audio_frame(
+                                av_container, camera_id, audio_resampler
+                            )
+                        except Exception as e:
+                            # Audio extraction errors should not affect video capture
+                            logger.debug(f"Audio extraction error for camera {camera_id}: {e}")
 
                     # Motion detection integration (F2.1)
                     if camera.motion_enabled:
@@ -707,3 +745,26 @@ class CameraService:
         logger.info(f"USB camera detection complete: found {len(available_devices)} devices")
 
         return available_devices
+
+    def get_audio_status(self, camera_id: str) -> Dict[str, Any]:
+        """
+        Get audio buffer status for a camera (Phase 6 - P6-3.1)
+
+        Args:
+            camera_id: UUID of camera
+
+        Returns:
+            Dict with audio status:
+            - has_buffer: Whether audio buffer exists
+            - duration_seconds: Duration of audio in buffer
+            - is_empty: Whether buffer is empty
+            - codec: Detected audio codec
+        """
+        if self._audio_extractor is None:
+            return {
+                "has_buffer": False,
+                "duration_seconds": 0.0,
+                "is_empty": True,
+                "codec": None
+            }
+        return self._audio_extractor.get_buffer_status(camera_id)

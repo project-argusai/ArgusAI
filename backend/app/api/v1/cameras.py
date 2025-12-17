@@ -1897,3 +1897,232 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
         "message": "Analysis completed successfully",
         "event_id": stored_event.id
     }
+
+
+# ============================================================================
+# Audio Stream Endpoints (Phase 6 - P6-3.1)
+# ============================================================================
+
+@router.get("/{camera_id}/audio/status")
+def get_camera_audio_status(
+    camera_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get audio stream status for a camera (Story P6-3.1, AC#4)
+
+    Args:
+        camera_id: UUID of camera
+
+    Returns:
+        Audio status including buffer info, detected codec, and enabled state
+
+    Raises:
+        404: Camera not found
+
+    Example Response:
+        {
+            "audio_enabled": true,
+            "audio_codec": "aac",
+            "has_buffer": true,
+            "duration_seconds": 4.2,
+            "is_empty": false
+        }
+    """
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+
+    if not camera:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera {camera_id} not found"
+        )
+
+    # Get buffer status from camera service
+    buffer_status = camera_service.get_audio_status(camera_id)
+
+    return {
+        "audio_enabled": getattr(camera, 'audio_enabled', False),
+        "audio_codec": getattr(camera, 'audio_codec', None),
+        **buffer_status
+    }
+
+
+@router.patch("/{camera_id}/audio", response_model=CameraResponse)
+def update_camera_audio(
+    camera_id: str,
+    audio_enabled: bool,
+    db: Session = Depends(get_db)
+):
+    """
+    Enable or disable audio stream extraction for a camera (Story P6-3.1, AC#4)
+
+    Args:
+        camera_id: UUID of camera
+        audio_enabled: Whether to enable audio extraction
+
+    Returns:
+        Updated camera object
+
+    Raises:
+        404: Camera not found
+        400: Camera type doesn't support audio (USB cameras)
+
+    Note:
+        Changes take effect on next camera restart/reconnect.
+        Audio extraction requires PyAV and only works with RTSP cameras.
+    """
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+
+    if not camera:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera {camera_id} not found"
+        )
+
+    # USB cameras don't support audio extraction via this method
+    if camera.type == "usb" and audio_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio extraction is only supported for RTSP cameras"
+        )
+
+    # Update audio_enabled field
+    camera.audio_enabled = audio_enabled
+
+    # Clear codec if disabling audio
+    if not audio_enabled:
+        camera.audio_codec = None
+
+    db.commit()
+    db.refresh(camera)
+
+    logger.info(
+        f"Audio {'enabled' if audio_enabled else 'disabled'} for camera {camera_id}",
+        extra={
+            "event_type": "audio_config_updated",
+            "camera_id": camera_id,
+            "audio_enabled": audio_enabled
+        }
+    )
+
+    return camera
+
+
+@router.post("/{camera_id}/audio/test")
+def test_camera_audio(
+    camera_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Test audio stream availability for a camera (Story P6-3.1, AC#1, AC#2)
+
+    Tests whether the camera's RTSP stream has an audio track and detects
+    the audio codec. Does not modify the camera configuration.
+
+    Args:
+        camera_id: UUID of camera
+
+    Returns:
+        Test result with detected codec and availability
+
+    Raises:
+        404: Camera not found
+        400: Camera type doesn't support audio testing
+
+    Example Response:
+        {
+            "has_audio": true,
+            "codec": "aac",
+            "codec_description": "Advanced Audio Coding (most common)",
+            "message": "Audio stream detected: AAC codec"
+        }
+    """
+    from app.services.audio_stream_service import get_audio_stream_extractor, SUPPORTED_CODECS
+
+    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+
+    if not camera:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera {camera_id} not found"
+        )
+
+    # Only RTSP cameras support audio testing
+    if camera.type != "rtsp":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Audio testing is only supported for RTSP cameras"
+        )
+
+    if not camera.rtsp_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Camera has no RTSP URL configured"
+        )
+
+    # Build RTSP URL with credentials
+    rtsp_url = camera.rtsp_url
+    if camera.username:
+        password = camera.get_decrypted_password() if camera.password else ""
+        if "://" in rtsp_url:
+            protocol, rest = rtsp_url.split("://", 1)
+            creds = camera.username
+            if password:
+                creds += f":{password}"
+            rtsp_url = f"{protocol}://{creds}@{rest}"
+
+    # Test audio stream
+    audio_extractor = get_audio_stream_extractor()
+
+    try:
+        detected_codec = audio_extractor.process_audio_from_stream(
+            rtsp_url=rtsp_url,
+            camera_id=camera_id,
+            timeout=10.0
+        )
+    except Exception as e:
+        logger.warning(f"Audio test failed for camera {camera_id}: {e}")
+        return {
+            "has_audio": False,
+            "codec": None,
+            "codec_description": None,
+            "message": f"Failed to test audio stream: {str(e)}"
+        }
+
+    if detected_codec:
+        codec_desc = SUPPORTED_CODECS.get(detected_codec, f"Unknown codec: {detected_codec}")
+
+        # Update camera model with detected codec (informational only)
+        camera.audio_codec = detected_codec
+        db.commit()
+
+        logger.info(
+            f"Audio test successful for camera {camera_id}: codec={detected_codec}",
+            extra={
+                "event_type": "audio_test_success",
+                "camera_id": camera_id,
+                "codec": detected_codec
+            }
+        )
+
+        return {
+            "has_audio": True,
+            "codec": detected_codec,
+            "codec_description": codec_desc,
+            "message": f"Audio stream detected: {detected_codec.upper()} codec"
+        }
+    else:
+        logger.info(
+            f"No audio stream found for camera {camera_id}",
+            extra={
+                "event_type": "audio_test_no_audio",
+                "camera_id": camera_id
+            }
+        )
+
+        return {
+            "has_audio": False,
+            "codec": None,
+            "codec_description": None,
+            "message": "No audio stream detected in RTSP feed"
+        }

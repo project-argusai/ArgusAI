@@ -1,0 +1,173 @@
+<story-context id="p6-1-3" v="1.0">
+  <metadata>
+    <epicId>P6-1</epicId>
+    <storyId>3</storyId>
+    <title>Implement Virtual Scrolling for Camera List</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p6-1-3-implement-virtual-scrolling-for-camera-list.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>the camera list to use virtual scrolling</iWant>
+    <soThat>the dashboard remains performant when managing 20+ cameras</soThat>
+    <tasks>
+      <task id="1">Install @tanstack/react-virtual package
+        <subtask>Add @tanstack/react-virtual to frontend dependencies</subtask>
+        <subtask>Verify package installed successfully</subtask>
+      </task>
+      <task id="2">Create VirtualCameraList component
+        <subtask>Import useVirtualizer hook from @tanstack/react-virtual</subtask>
+        <subtask>Calculate dynamic card heights based on viewport</subtask>
+        <subtask>Implement virtualized grid layout with 1-3 columns responsive</subtask>
+        <subtask>Handle overscan for smooth scrolling</subtask>
+      </task>
+      <task id="3">Integrate virtual list into cameras page
+        <subtask>Replace static grid with VirtualCameraList</subtask>
+        <subtask>Pass filtered cameras as data source</subtask>
+        <subtask>Ensure filtering still works correctly</subtask>
+      </task>
+      <task id="4">Test and verify performance
+        <subtask>Verify only visible cards render in DOM</subtask>
+        <subtask>Test scroll smoothness with mock 50+ cameras</subtask>
+        <subtask>Verify responsive column adjustments work</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">@tanstack/react-virtual or similar library integrated</criterion>
+    <criterion id="2">Only visible camera cards rendered to DOM</criterion>
+    <criterion id="3">Smooth scrolling performance maintained</criterion>
+    <criterion id="4">Works with existing camera filtering</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase6.md</path>
+        <title>Phase 6 Epics</title>
+        <section>Story P6-1.3: Implement Virtual Scrolling for Camera List</section>
+        <snippet>Add virtualization to camera list for handling 20+ cameras efficiently using @tanstack/react-virtual or similar library.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/10-performance.md</path>
+        <title>Performance Considerations</title>
+        <section>Frontend Optimizations - Data Fetching</section>
+        <snippet>Virtual scrolling for large event lists. SWR or React Query for caching API responses. Optimistic updates for better UX.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>frontend/app/cameras/page.tsx</path>
+        <kind>page</kind>
+        <symbol>CamerasPage</symbol>
+        <lines>190-201</lines>
+        <reason>Current grid implementation that needs to be replaced with virtual scrolling</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/CameraPreview.tsx</path>
+        <kind>component</kind>
+        <symbol>CameraPreview</symbol>
+        <lines>72-178</lines>
+        <reason>Memoized camera card component that will be rendered by the virtual list</reason>
+      </file>
+      <file>
+        <path>frontend/components/cameras/SourceTypeFilter.tsx</path>
+        <kind>component</kind>
+        <symbol>SourceTypeFilter, calculateSourceTypeCounts</symbol>
+        <reason>Filtering component that virtual list must integrate with</reason>
+      </file>
+      <file>
+        <path>frontend/hooks/useCameras.ts</path>
+        <kind>hook</kind>
+        <symbol>useCameras</symbol>
+        <reason>Data fetching hook that provides camera array to the page</reason>
+      </file>
+      <file>
+        <path>frontend/types/camera.ts</path>
+        <kind>types</kind>
+        <symbol>ICamera, CameraSourceType</symbol>
+        <reason>TypeScript interfaces for camera data</reason>
+      </file>
+      <file>
+        <path>frontend/__tests__/components/cameras/CameraPreview.test.tsx</path>
+        <kind>test</kind>
+        <symbol>CameraPreview tests</symbol>
+        <reason>Existing test patterns for camera components</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <node>
+        <existing>
+          <package version="^5.90.10">@tanstack/react-query</package>
+          <package version="19.2.0">react</package>
+          <package version="19.2.0">react-dom</package>
+          <package version="^16.0.10">next</package>
+          <package version="^0.553.0">lucide-react</package>
+        </existing>
+        <toInstall>
+          <package>@tanstack/react-virtual</package>
+        </toInstall>
+      </node>
+      <devDependencies>
+        <package version="^4.0.15">vitest</package>
+        <package version="^16.3.0">@testing-library/react</package>
+        <package version="^6.9.1">@testing-library/jest-dom</package>
+      </devDependencies>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Must maintain responsive grid columns: 1 on mobile, 2 on md (768px), 3 on lg (1024px)</constraint>
+    <constraint>Must work with existing SourceTypeFilter filtering without breaking functionality</constraint>
+    <constraint>CameraPreview is already memoized (P6-1.2) - leverage this optimization</constraint>
+    <constraint>Must handle dynamic content heights (Protect cameras may have doorbell indicator)</constraint>
+    <constraint>Must preserve existing delete confirmation dialog flow</constraint>
+    <constraint>Must maintain keyboard accessibility for navigation</constraint>
+    <constraint>Overscan should be set for smooth scrolling (recommend 2-3 items)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>CameraPreview props</name>
+      <kind>component interface</kind>
+      <signature>{ camera: ICamera; onDelete: (camera: ICamera) => void }</signature>
+      <path>frontend/components/cameras/CameraPreview.tsx</path>
+    </interface>
+    <interface>
+      <name>useCameras hook</name>
+      <kind>hook return type</kind>
+      <signature>{ cameras: ICamera[]; loading: boolean; error: string | null; refresh: () => Promise&lt;void&gt; }</signature>
+      <path>frontend/hooks/useCameras.ts</path>
+    </interface>
+    <interface>
+      <name>SourceTypeFilterValue</name>
+      <kind>type</kind>
+      <signature>'all' | 'rtsp' | 'usb' | 'protect'</signature>
+      <path>frontend/components/cameras/SourceTypeFilter.tsx</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Frontend tests use Vitest with React Testing Library. Tests are placed in frontend/__tests__/ mirroring the component directory structure. Use vi.mock() for mocking dependencies. The render helper from test-utils includes user-event setup. Tests should verify rendering, user interactions, and component behavior. Prefer testing user-visible behavior over implementation details.
+    </standards>
+    <locations>
+      <pattern>frontend/__tests__/components/cameras/*.test.tsx</pattern>
+      <pattern>frontend/__tests__/hooks/*.test.tsx</pattern>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that VirtualCameraList imports and uses @tanstack/react-virtual useVirtualizer hook</idea>
+      <idea ac="2">Test that only visible camera cards are rendered in DOM (check childElementCount vs total cameras)</idea>
+      <idea ac="2">Test that scrolling renders new cards while removing offscreen cards</idea>
+      <idea ac="3">Test smooth scroll behavior with 50+ mock cameras</idea>
+      <idea ac="4">Test that filtering works correctly with virtual list (filter then verify visible items match filter)</idea>
+      <idea ac="4">Test responsive column count changes (mock window resize)</idea>
+    </ideas>
+  </tests>
+</story-context>

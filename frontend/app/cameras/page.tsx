@@ -12,6 +12,7 @@ import { Video } from 'lucide-react';
 import { useCameras } from '@/hooks/useCameras';
 import { useToast } from '@/hooks/useToast';
 import { CameraPreview } from '@/components/cameras/CameraPreview';
+import { VirtualCameraList } from '@/components/cameras/VirtualCameraList';
 import { SourceTypeFilter, calculateSourceTypeCounts, type SourceTypeFilterValue } from '@/components/cameras/SourceTypeFilter';
 import { AddCameraDropdown } from '@/components/cameras/AddCameraDropdown';
 import { CameraDiscovery } from '@/components/cameras/CameraDiscovery';
@@ -187,17 +188,24 @@ export default function CamerasPage() {
         </div>
       )}
 
-      {/* Camera grid */}
+      {/* Camera grid - uses virtual scrolling for 12+ cameras */}
       {!loading && !error && filteredCameras.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredCameras.map((camera) => (
-            <CameraPreview
-              key={camera.id}
-              camera={camera}
-              onDelete={handleDeleteClick}
-            />
-          ))}
-        </div>
+        filteredCameras.length >= 12 ? (
+          <VirtualCameraList
+            cameras={filteredCameras}
+            onDelete={handleDeleteClick}
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredCameras.map((camera) => (
+              <CameraPreview
+                key={camera.id}
+                camera={camera}
+                onDelete={handleDeleteClick}
+              />
+            ))}
+          </div>
+        )
       )}
 
       {/* Delete confirmation dialog */}

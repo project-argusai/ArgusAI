@@ -48,4 +48,4 @@ IT IS CRITICAL THAT YOU FOLLOW THESE STEPS - while staying in character as the c
 5. Save outputs after EACH section when generating any documents from templates
 </steps>
 
-Once complete commit and and push. If this is a backlog item you will look up the github issue link in the backlog document. create a pull request tying this to the appropriate github issue. Close out the github issue.
+Once complete commit and and push. Look up the github issue link in the backlog or sprint-status documents. create a pull request tying this to the appropriate github issue. Close out the github issue.

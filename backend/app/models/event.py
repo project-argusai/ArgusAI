@@ -42,6 +42,9 @@ class Event(Base):
         analysis_skipped_reason: Reason AI analysis was skipped - "cost_cap_daily"/"cost_cap_monthly" (Story P3-7.3)
         key_frames_base64: JSON array of base64-encoded frame thumbnails for gallery display (Story P3-7.5)
         frame_timestamps: JSON array of float seconds from video start for each frame (Story P3-7.5)
+        audio_event_type: Detected audio event type - glass_break/gunshot/scream/doorbell/other (Story P6-3.2)
+        audio_confidence: Confidence score (0.0-1.0) for audio event detection (Story P6-3.2)
+        audio_duration_ms: Duration of detected audio event in milliseconds (Story P6-3.2)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -99,6 +102,10 @@ class Event(Base):
     recognition_status = Column(String(20), nullable=True)  # 'known', 'stranger', 'unknown', null (no recognition)
     enriched_description = Column(Text, nullable=True)  # AI description with entity names included
     matched_entity_ids = Column(Text, nullable=True)  # JSON array of matched entity UUIDs
+    # Story P6-3.2: Audio event detection fields
+    audio_event_type = Column(String(30), nullable=True)  # 'glass_break', 'gunshot', 'scream', 'doorbell', 'other' (null = no audio event)
+    audio_confidence = Column(Float, nullable=True)  # 0.0-1.0 confidence score for audio detection (null = not detected)
+    audio_duration_ms = Column(Integer, nullable=True)  # Duration of audio event in milliseconds (null = not detected)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

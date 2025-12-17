@@ -371,7 +371,7 @@ development_status:
   # Epic P6-3: Audio Analysis Foundation
   epic-p6-3: contexted
   p6-3-1-add-audio-stream-extraction-from-rtsp: done  # GH #61 - PR #68
-  p6-3-2-implement-audio-event-detection-pipeline: backlog  # GH #62
+  p6-3-2-implement-audio-event-detection-pipeline: done  # GH #62
   p6-3-3-add-audio-settings-to-camera-configuration: backlog  # GH #63
   epic-p6-3-retrospective: optional
 

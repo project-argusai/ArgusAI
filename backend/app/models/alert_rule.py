@@ -45,7 +45,8 @@ class AlertRule(Base):
     #     "cameras": ["camera-uuid-1", ...] or [] for any,
     #     "time_of_day": {"start": "09:00", "end": "17:00"} or null,
     #     "days_of_week": [1, 2, 3, 4, 5] or null (1=Mon, 7=Sun),
-    #     "min_confidence": 80 or null
+    #     "min_confidence": 80 or null,
+    #     "audio_event_types": ["glass_break", "gunshot", "scream", "doorbell"] or null (Story P6-3.2)
     # }
 
     actions = Column(Text, nullable=False, default='{}')

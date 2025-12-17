@@ -1,0 +1,206 @@
+<story-context id="p6-3-2" v="1.0">
+  <metadata>
+    <epicId>P6-3</epicId>
+    <storyId>P6-3.2</storyId>
+    <title>Implement Audio Event Detection Pipeline</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p6-3-2-implement-audio-event-detection-pipeline.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home owner</asA>
+    <iWant>the system to detect and classify audio events from my cameras</iWant>
+    <soThat>I can receive alerts for sounds like glass breaking, gunshots, screams, or doorbell rings even when motion isn't detected</soThat>
+    <tasks>
+      <task id="1">Add audio event fields to Event model (audio_event_type, audio_confidence, audio_duration_ms)</task>
+      <task id="2">Create AudioEventDetector service with pluggable classifier interface</task>
+      <task id="3">Integrate audio detection into event pipeline</task>
+      <task id="4">Add audio event alert triggering to AlertRule and alert_engine</task>
+      <task id="5">Create API endpoint for audio event configuration (thresholds)</task>
+      <task id="6">Write comprehensive tests for audio detection flow</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Audio classification model integration point created (pluggable architecture)</criterion>
+    <criterion id="2">Supported event types: glass_break, gunshot, scream, doorbell</criterion>
+    <criterion id="3">Confidence threshold configurable per event type (default 70%)</criterion>
+    <criterion id="4">Events created with audio_event_type field in database</criterion>
+    <criterion id="5">Audio events can trigger alerts like visual motion events</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase6.md</path>
+        <title>Phase 6 Epics</title>
+        <section>Story P6-3.2</section>
+        <snippet>Implement Audio Event Detection Pipeline - Create service for detecting audio events (glass break, etc.). Audio classification model integration point. Supported types: glass_break, gunshot, scream, doorbell.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>FF-015</section>
+        <snippet>Audio Capture from Cameras - Support audio streams from RTSP cameras for future audio-based event detection (glass break, doorbell ring, etc.). GitHub Issue #40.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p6-3-1-add-audio-stream-extraction-from-rtsp.md</path>
+        <title>Story P6-3.1 (Predecessor)</title>
+        <section>Dev Agent Record</section>
+        <snippet>AudioStreamService at backend/app/services/audio_stream_service.py provides audio buffer. Thread-safe ring buffer. Use get_audio_chunk() method to retrieve audio buffer for analysis.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/08-implementation-patterns.md</path>
+        <title>Implementation Patterns</title>
+        <section>Testing Patterns</section>
+        <snippet>Backend Unit Test pattern using pytest fixtures. Service layer pattern with dependency injection. Error handling with HTTPException.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/audio_stream_service.py</path>
+        <kind>service</kind>
+        <symbol>AudioStreamExtractor, AudioRingBuffer, AudioChunk</symbol>
+        <lines>1-547</lines>
+        <reason>Provides audio buffer from RTSP streams. Use get_latest_audio() to retrieve audio chunks for classification. Ring buffer maintains ~5 seconds of audio.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>1-121</lines>
+        <reason>Event model to extend with audio_event_type, audio_confidence, audio_duration_ms fields. Follow existing pattern for nullable fields with default values.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/alert_rule.py</path>
+        <kind>model</kind>
+        <symbol>AlertRule</symbol>
+        <lines>1-80</lines>
+        <reason>AlertRule model needs conditions field extended to support audio_event_type matching. Follow entity_ids/entity_names pattern for JSON field.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor, ProcessingEvent</symbol>
+        <lines>1-2383</lines>
+        <reason>Main event processing pipeline. Audio detection should integrate into _process_event() method. Follow existing patterns for async task creation and error handling.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/alert_engine.py</path>
+        <kind>service</kind>
+        <symbol>AlertEngine</symbol>
+        <lines>1-150</lines>
+        <reason>Alert rule evaluation engine. Extend _check_object_types pattern to support audio_event_type matching. Evaluate audio events same as visual events.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>router</kind>
+        <symbol>events router</symbol>
+        <reason>Event API endpoints. Audio event fields should be included in EventResponse schema.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse, EventCreate</symbol>
+        <reason>Pydantic schemas for Event. Add Optional[str] audio_event_type, Optional[float] audio_confidence, Optional[int] audio_duration_ms.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_audio_stream_service.py</path>
+        <kind>test</kind>
+        <symbol>test_audio_*</symbol>
+        <reason>Reference for audio service test patterns. 27 tests covering buffer operations, codec detection, extraction. Follow same fixture patterns.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package version=">=4.12.0">opencv-python</package>
+        <package version=">=12.0.0">av</package>
+        <package version=">=10.0.0">pillow</package>
+        <package version=">=2.0.0">numpy</package>
+        <package version=">=2.0.36">sqlalchemy</package>
+        <package version=">=1.14.0">alembic</package>
+        <package version=">=2.10.0">pydantic</package>
+        <package version=">=0.115.0">fastapi</package>
+        <package version="==7.4.3">pytest</package>
+        <package version="==0.21.1">pytest-asyncio</package>
+        <note>No new dependencies needed. Audio buffer already available from P6-3.1. ML classifier integration is placeholder only.</note>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing service layer pattern - singleton with get_*_service() factory function</constraint>
+    <constraint type="pattern">Use dataclasses for structured data (AudioClassificationResult, AudioEventType enum)</constraint>
+    <constraint type="pattern">Thread-safe operations - audio buffer is accessed from capture thread</constraint>
+    <constraint type="testing">Unit tests required for all new services. Follow pytest fixture patterns from test_audio_stream_service.py</constraint>
+    <constraint type="database">Alembic migration required for new Event model fields. Follow existing migration naming convention</constraint>
+    <constraint type="error-handling">Audio detection failures must not block event processing - graceful degradation required</constraint>
+    <constraint type="performance">Audio detection should complete within 100ms to not impact event pipeline latency</constraint>
+    <constraint type="architecture">Pluggable classifier interface - BaseAudioClassifier abstract class with MockAudioClassifier for testing</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>AudioStreamExtractor.get_latest_audio()</name>
+      <kind>function</kind>
+      <signature>def get_latest_audio(self, camera_id: str, duration_seconds: float = 1.0) -> Optional[AudioChunk]</signature>
+      <path>backend/app/services/audio_stream_service.py</path>
+    </interface>
+    <interface>
+      <name>AudioChunk</name>
+      <kind>dataclass</kind>
+      <signature>@dataclass AudioChunk(samples: np.ndarray, timestamp: float, sample_rate: int, channels: int)</signature>
+      <path>backend/app/services/audio_stream_service.py</path>
+    </interface>
+    <interface>
+      <name>EventProcessor.queue_event()</name>
+      <kind>async function</kind>
+      <signature>async def queue_event(self, event: ProcessingEvent) -> None</signature>
+      <path>backend/app/services/event_processor.py</path>
+    </interface>
+    <interface>
+      <name>AlertEngine.evaluate_all_rules()</name>
+      <kind>async function</kind>
+      <signature>async def evaluate_all_rules(self, event: Event) -> List[AlertRule]</signature>
+      <path>backend/app/services/alert_engine.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/audio/thresholds</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/audio/thresholds -> {glass_break: 70, gunshot: 70, scream: 70, doorbell: 70}</signature>
+      <path>backend/app/api/v1/audio.py (NEW)</path>
+    </interface>
+    <interface>
+      <name>PATCH /api/v1/audio/thresholds</name>
+      <kind>REST endpoint</kind>
+      <signature>PATCH /api/v1/audio/thresholds body={event_type: str, threshold: int} -> updated thresholds</signature>
+      <path>backend/app/api/v1/audio.py (NEW)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests. Fixtures defined in conftest.py. Use @pytest.mark.asyncio for async tests. Mock external dependencies. Follow AAA pattern (Arrange-Act-Assert). Test file naming: test_{module_name}.py in tests/test_services/ or tests/test_api/.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/</location>
+      <location>backend/tests/test_api/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test AudioEventDetector with mock classifier returns expected AudioClassificationResult</idea>
+      <idea ac="2">Test all supported event types (glass_break, gunshot, scream, doorbell) are recognized</idea>
+      <idea ac="3">Test confidence threshold filtering - events below threshold not created</idea>
+      <idea ac="3">Test configurable thresholds via API - PATCH updates stored values</idea>
+      <idea ac="4">Test Event model stores audio_event_type field correctly</idea>
+      <idea ac="4">Test event creation with audio fields via API response includes all fields</idea>
+      <idea ac="5">Test AlertRule conditions can match audio_event_type</idea>
+      <idea ac="5">Test alert_engine evaluates audio events same as visual events</idea>
+      <idea>Integration test: audio buffer -> detection -> event -> alert flow</idea>
+      <idea>Test MockAudioClassifier returns valid classification for testing purposes</idea>
+    </ideas>
+  </tests>
+</story-context>

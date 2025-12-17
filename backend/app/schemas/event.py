@@ -148,6 +148,10 @@ class EventResponse(BaseModel):
     matched_entity: Optional["MatchedEntitySummary"] = Field(None, description="Matched recurring entity, if any")
     # Story P4-5.1: User Feedback
     feedback: Optional[FeedbackResponse] = Field(None, description="User feedback on this event's description")
+    # Story P6-3.2: Audio event detection
+    audio_event_type: Optional[str] = Field(None, description="Detected audio event type (glass_break/gunshot/scream/doorbell/other)")
+    audio_confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Audio event detection confidence score (0.0-1.0)")
+    audio_duration_ms: Optional[int] = Field(None, ge=0, description="Duration of audio event in milliseconds")
 
     @field_validator('objects_detected', mode='before')
     @classmethod

@@ -1283,6 +1283,24 @@ class EventProcessor:
                     extra={"error": str(entity_alert_error), "event_id": event_id}
                 )
 
+            # Step 16: Audio Event Enrichment (Story P6-3.2)
+            # Check for audio events and enrich the stored event with audio info
+            # This runs asynchronously to not block event processing (AC graceful degradation)
+            try:
+                asyncio.create_task(
+                    self._enrich_event_with_audio(event_id, event.camera_id)
+                )
+                logger.debug(
+                    f"Audio enrichment task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id}
+                )
+            except Exception as audio_error:
+                # Audio enrichment failures must not block event processing
+                logger.warning(
+                    f"Failed to create audio enrichment task: {audio_error}",
+                    extra={"error": str(audio_error), "event_id": event_id}
+                )
+
             logger.info(
                 f"Event processed successfully for camera {event.camera_name}",
                 extra={
@@ -2246,6 +2264,85 @@ class EventProcessor:
                 extra={
                     "event_type": "entity_alert_error",
                     "event_id": event_id,
+                    "error": str(e)
+                }
+            )
+
+    async def _enrich_event_with_audio(
+        self,
+        event_id: str,
+        camera_id: str,
+    ) -> None:
+        """
+        Enrich a stored event with audio detection information (Story P6-3.2).
+
+        This is a fire-and-forget async task. Errors are logged but not propagated.
+        Uses its own database session since the caller's session may be closed.
+
+        Args:
+            event_id: UUID of the event to enrich
+            camera_id: Camera identifier
+
+        Note:
+            - Non-blocking, runs as background task
+            - Only runs if camera has audio_enabled=True
+            - Errors don't propagate to caller
+            - Audio detection is configured via system settings thresholds
+        """
+        try:
+            from app.services.audio_event_handler import get_audio_event_handler
+            from app.models.event import Event
+
+            audio_handler = get_audio_event_handler()
+
+            # Use own session since caller's may be closed
+            db = SessionLocal()
+            try:
+                # Get the stored event
+                event = db.query(Event).filter(Event.id == event_id).first()
+                if event is None:
+                    logger.warning(
+                        f"Event {event_id} not found for audio enrichment",
+                        extra={"event_id": event_id, "camera_id": camera_id}
+                    )
+                    return
+
+                # Enrich event with audio information
+                enriched = await audio_handler.enrich_event_with_audio(
+                    db=db,
+                    event=event,
+                    camera_id=camera_id,
+                    audio_duration_seconds=2.0,
+                )
+
+                if enriched:
+                    logger.info(
+                        f"Event {event_id} enriched with audio",
+                        extra={
+                            "event_type": "audio_enrichment_complete",
+                            "event_id": event_id,
+                            "camera_id": camera_id,
+                            "audio_event_type": event.audio_event_type,
+                            "audio_confidence": event.audio_confidence,
+                        }
+                    )
+                else:
+                    logger.debug(
+                        f"No audio events detected for event {event_id}",
+                        extra={"event_id": event_id, "camera_id": camera_id}
+                    )
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            # Audio enrichment errors must not propagate
+            logger.warning(
+                f"Audio enrichment failed for event {event_id}: {e}",
+                extra={
+                    "event_type": "audio_enrichment_error",
+                    "event_id": event_id,
+                    "camera_id": camera_id,
                     "error": str(e)
                 }
             )

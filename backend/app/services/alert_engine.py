@@ -282,6 +282,36 @@ class AlertEngine:
 
         return event_anomaly_score >= anomaly_threshold
 
+    def _check_audio_event_types(
+        self,
+        event_audio_type: Optional[str],
+        rule_audio_types: Optional[List[str]]
+    ) -> bool:
+        """
+        Check if event's audio event type matches rule's audio type filter (Story P6-3.2).
+
+        Args:
+            event_audio_type: Audio event type from event (e.g., 'glass_break')
+            rule_audio_types: List of audio types to match (None/empty = any)
+
+        Returns:
+            True if audio type matches or rule has no audio filter
+
+        Note:
+            If rule has audio filter but event has no audio event, returns False
+            (event must have audio to match audio-based rules)
+        """
+        # No filter = match any (including events without audio)
+        if not rule_audio_types:
+            return True
+
+        # Rule has audio filter but event has no audio event = no match
+        if event_audio_type is None:
+            return False
+
+        # Check if event's audio type is in rule's list (case-insensitive)
+        return event_audio_type.lower() in [t.lower() for t in rule_audio_types]
+
     def _check_entity_ids(
         self,
         event_matched_entity_ids: Optional[List[str]],
@@ -549,6 +579,24 @@ class AlertEngine:
             )
             return False, details
 
+        # 9. Story P6-3.2: Audio event type matching
+        audio_event_types_match = self._check_audio_event_types(
+            getattr(event, 'audio_event_type', None),
+            conditions.get("audio_event_types")
+        )
+        details["conditions_checked"]["audio_event_types"] = audio_event_types_match
+
+        if not audio_event_types_match:
+            logger.debug(
+                f"Rule '{rule.name}' failed audio_event_types check",
+                extra={
+                    "rule_id": rule.id,
+                    "event_audio_type": getattr(event, 'audio_event_type', None),
+                    "rule_audio_types": conditions.get("audio_event_types")
+                }
+            )
+            return False, details
+
         # All conditions passed
         logger.info(
             f"Rule '{rule.name}' matched event {event.id}",
@@ -558,7 +606,8 @@ class AlertEngine:
                 "event_objects": event_objects,
                 "event_confidence": event.confidence,
                 "event_entity_ids": event_entity_ids,
-                "event_entity_names": event_entity_names
+                "event_entity_names": event_entity_names,
+                "event_audio_type": getattr(event, 'audio_event_type', None),
             }
         )
 

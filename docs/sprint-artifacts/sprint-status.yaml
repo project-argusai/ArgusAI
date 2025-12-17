@@ -369,14 +369,14 @@ development_status:
   epic-p6-2-retrospective: optional
 
   # Epic P6-3: Audio Analysis Foundation
-  epic-p6-3: backlog
+  epic-p6-3: contexted
   p6-3-1-add-audio-stream-extraction-from-rtsp: backlog
   p6-3-2-implement-audio-event-detection-pipeline: backlog
   p6-3-3-add-audio-settings-to-camera-configuration: backlog
   epic-p6-3-retrospective: optional
 
   # Epic P6-4: Data Export Enhancements
-  epic-p6-4: backlog
+  epic-p6-4: contexted
   p6-4-1-implement-motion-events-csv-export: backlog
   p6-4-2-add-motion-events-export-ui: backlog
   epic-p6-4-retrospective: optional

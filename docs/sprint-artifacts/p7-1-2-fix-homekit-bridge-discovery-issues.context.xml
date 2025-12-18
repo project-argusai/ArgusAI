@@ -1,0 +1,298 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P7-1</epicId>
+    <storyId>P7-1.2</storyId>
+    <title>Fix HomeKit Bridge Discovery Issues</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-17</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-1-2-fix-homekit-bridge-discovery-issues.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>the HomeKit bridge to be discoverable by Apple Home app with proper mDNS advertisement and configurable network binding</iWant>
+    <soThat>I can reliably pair ArgusAI with Apple Home and receive motion events on my iOS devices</soThat>
+    <tasks>
+      <task id="1" title="Add Network Binding Configuration">
+        <subtask>1.1 Add `bind_address` field to `HomekitConfig` dataclass (default: "0.0.0.0")</subtask>
+        <subtask>1.2 Add `mdns_interface` field to `HomekitConfig` dataclass (optional)</subtask>
+        <subtask>1.3 Update HomeKit settings API to accept/return new configuration fields</subtask>
+        <subtask>1.4 Modify HAP-python driver initialization to use `bind_address`</subtask>
+        <subtask>1.5 Pass `mdns_interface` to zeroconf if specified</subtask>
+      </task>
+      <task id="2" title="Implement Connectivity Test Endpoint">
+        <subtask>2.1 Create `POST /api/v1/homekit/test-connectivity` endpoint</subtask>
+        <subtask>2.2 Implement mDNS visibility check using zeroconf ServiceBrowser</subtask>
+        <subtask>2.3 Verify port accessibility (TCP 51826)</subtask>
+        <subtask>2.4 Return diagnostic information (mdns_visible, discovered_as, port_accessible, firewall_issues)</subtask>
+        <subtask>2.5 Add method to `HomekitService` to perform connectivity check</subtask>
+      </task>
+      <task id="3" title="Build Connectivity Test UI">
+        <subtask>3.1 Add "Test Connectivity" button to HomeKit settings panel</subtask>
+        <subtask>3.2 Display test results in a modal or inline section</subtask>
+        <subtask>3.3 Show discovered service name, port status, and any issues</subtask>
+        <subtask>3.4 Add loading state during test execution</subtask>
+      </task>
+      <task id="4" title="Update HomeKit Settings UI for Network Config">
+        <subtask>4.1 Add bind address input field to HomeKit settings</subtask>
+        <subtask>4.2 Add network interface dropdown (populate from system interfaces)</subtask>
+        <subtask>4.3 Display current binding info from diagnostics response</subtask>
+        <subtask>4.4 Update settings mutation to include new fields</subtask>
+      </task>
+      <task id="5" title="Document Firewall Requirements">
+        <subtask>5.1 Add firewall requirements section to troubleshooting guide</subtask>
+        <subtask>5.2 Document UDP 5353 (mDNS), TCP 51826 (HAP default port)</subtask>
+        <subtask>5.3 Include commands for common firewalls (iptables, ufw, macOS)</subtask>
+        <subtask>5.4 Add firewall checklist to HomeKit diagnostics UI</subtask>
+      </task>
+      <task id="6" title="Write Tests">
+        <subtask>6.1 Test `bind_address` and `mdns_interface` config parsing</subtask>
+        <subtask>6.2 Test `/api/v1/homekit/test-connectivity` endpoint response schema</subtask>
+        <subtask>6.3 Test HomeKit service initialization with custom bind address</subtask>
+        <subtask>6.4 Test network interface enumeration</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">HAP-python mDNS advertisement is verified working</criterion>
+    <criterion id="2">Test with avahi-browse/dns-sd confirms service visibility</criterion>
+    <criterion id="3">Network interface binding configuration is added</criterion>
+    <criterion id="4">Support binding to specific IP address (not just 0.0.0.0)</criterion>
+    <criterion id="5">Firewall requirements documented (UDP 5353 for mDNS)</criterion>
+    <criterion id="6">Connectivity test button is added in UI</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P7-1.md</path>
+        <title>Epic P7-1 Technical Specification</title>
+        <section>APIs and Interfaces</section>
+        <snippet>POST /api/v1/homekit/test-connectivity returns mdns_visible, discovered_as, port_accessible, firewall_issues fields. Uses zeroconf ServiceBrowser for mDNS visibility check.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P7-1.md</path>
+        <title>Epic P7-1 Technical Specification</title>
+        <section>Data Models and Contracts</section>
+        <snippet>HomekitConfig additions: bind_address: str = "0.0.0.0", mdns_interface: Optional[str] = None. These control HAP server network binding and mDNS advertisement interface.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-5-additions.md</path>
+        <title>Phase 5 Architecture Additions</title>
+        <section>HomeKit Architecture</section>
+        <snippet>HAP-python manages bridge with accessories. Driver runs in background thread. Default port 51826. Uses zeroconf for mDNS advertisement (_hap._tcp.local).</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p7-1-1-add-homekit-diagnostic-logging.md</path>
+        <title>Story P7-1.1 - Add HomeKit Diagnostic Logging</title>
+        <section>Dev Agent Record</section>
+        <snippet>Created HomekitDiagnosticHandler with thread-safe circular buffer. Added GET /api/v1/homekit/diagnostics endpoint. Frontend uses 5-second polling via useHomekitDiagnostics hook.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase7.md</path>
+        <title>Phase 7 Epics</title>
+        <section>Technical Notes - HomeKit Troubleshooting Checklist</section>
+        <snippet>Port 5353 UDP for mDNS. Port 51826 TCP for HAP. Check avahi-daemon or mDNSResponder. Test with dns-sd -B _hap._tcp. Verify accessory.state file permissions.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <artifact>
+        <path>backend/app/config/homekit.py</path>
+        <kind>config</kind>
+        <symbol>HomekitConfig</symbol>
+        <lines>234-285</lines>
+        <reason>Dataclass to extend with bind_address and mdns_interface fields</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/config/homekit.py</path>
+        <kind>function</kind>
+        <symbol>get_homekit_config</symbol>
+        <lines>287-325</lines>
+        <reason>Function to update with new environment variables for bind_address and mdns_interface</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/homekit_service.py</path>
+        <kind>service</kind>
+        <symbol>HomekitService.start</symbol>
+        <lines>400-550</lines>
+        <reason>Method to modify for passing bind_address to AccessoryDriver initialization</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/homekit_service.py</path>
+        <kind>service</kind>
+        <symbol>HomekitService._network_binding</symbol>
+        <lines>439-443</lines>
+        <reason>NetworkBindingInfo already stored on start - update with actual bind_address value</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/homekit.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>31-34</lines>
+        <reason>Router to add new test-connectivity endpoint</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/homekit.py</path>
+        <kind>endpoint</kind>
+        <symbol>get_diagnostics</symbol>
+        <lines>672-707</lines>
+        <reason>Existing diagnostics endpoint pattern to follow for test-connectivity</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/homekit_diagnostics.py</path>
+        <kind>schema</kind>
+        <symbol>HomeKitDiagnosticsResponse</symbol>
+        <reason>Reference for response schema pattern - test-connectivity response similar structure</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/homekit_diagnostics.py</path>
+        <kind>schema</kind>
+        <symbol>NetworkBindingInfo</symbol>
+        <reason>Already includes ip, port, interface fields - reuse for connectivity response</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/homekit_diagnostics.py</path>
+        <kind>service</kind>
+        <symbol>HomekitDiagnosticHandler</symbol>
+        <reason>Pattern for thread-safe service from P7-1.1 - may need similar pattern for connectivity checks</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/settings/HomekitSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>HomekitSettings</symbol>
+        <lines>1-100</lines>
+        <reason>Main component to add network config UI and test connectivity button</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/settings/HomeKitDiagnostics.tsx</path>
+        <kind>component</kind>
+        <symbol>HomeKitDiagnostics</symbol>
+        <reason>Reference for diagnostic display pattern - test results can follow similar UI</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/hooks/useHomekitStatus.ts</path>
+        <kind>hook</kind>
+        <symbol>useHomekitDiagnostics</symbol>
+        <reason>Existing hook pattern for HomeKit API calls - add useHomekitTestConnectivity</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>client</kind>
+        <symbol>homekit</symbol>
+        <reason>API client to add testConnectivity method</reason>
+      </artifact>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="HAP-python" version=">=4.9.0">HomeKit Accessory Protocol - provides AccessoryDriver with port binding</package>
+        <package name="zeroconf" version="*">mDNS/Bonjour implementation used by HAP-python - can use ServiceBrowser for testing</package>
+        <package name="qrcode" version=">=7.4.0">QR code generation for pairing</package>
+        <package name="fastapi" version="0.115.0">Web framework for API endpoints</package>
+        <package name="pydantic" version=">=2.10.0">Data validation and schemas</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+      </python>
+      <node>
+        <package name="@tanstack/react-query" version="^5.90.10">Server state management and API calls</package>
+        <package name="lucide-react" version="^0.553.0">Icons for UI</package>
+        <package name="sonner" version="^2.0.7">Toast notifications</package>
+        <package name="zod" version="^4.1.12">Schema validation</package>
+        <package name="vitest" version="*">Testing framework for frontend</package>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="thread-safety">HAP-python runs in background thread - any service methods must be thread-safe using threading.Lock</constraint>
+    <constraint type="network">mDNS requires UDP port 5353, HAP requires TCP port 51826 (configurable)</constraint>
+    <constraint type="authentication">Connectivity test endpoint should follow existing auth patterns (same as other HomeKit endpoints)</constraint>
+    <constraint type="testing">Backend tests use pytest with async fixtures. Frontend tests use Vitest + React Testing Library.</constraint>
+    <constraint type="pattern">Follow existing patterns from P7-1.1: structured logging with diagnostic_category, Pydantic schemas in schemas/, hooks in hooks/</constraint>
+    <constraint type="security">Do not log sensitive data (PIN codes, pairing keys). API keys remain encrypted.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>POST /api/v1/homekit/test-connectivity</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/homekit/test-connectivity -> HomeKitConnectivityTestResponse</signature>
+      <path>backend/app/api/v1/homekit.py</path>
+    </interface>
+    <interface>
+      <name>HomekitService.test_connectivity</name>
+      <kind>method</kind>
+      <signature>async def test_connectivity(self) -> dict</signature>
+      <path>backend/app/services/homekit_service.py</path>
+    </interface>
+    <interface>
+      <name>HomekitConfig</name>
+      <kind>dataclass</kind>
+      <signature>bind_address: str = "0.0.0.0", mdns_interface: Optional[str] = None</signature>
+      <path>backend/app/config/homekit.py</path>
+    </interface>
+    <interface>
+      <name>useHomekitTestConnectivity</name>
+      <kind>React hook</kind>
+      <signature>function useHomekitTestConnectivity(): UseMutationResult</signature>
+      <path>frontend/hooks/useHomekitStatus.ts</path>
+    </interface>
+    <interface>
+      <name>homekit.testConnectivity</name>
+      <kind>API client method</kind>
+      <signature>async testConnectivity(): Promise&lt;ConnectivityTestResponse&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+Backend tests use pytest with pytest-asyncio for async testing. Tests are in backend/tests/ with test_api/ for API endpoint tests and test_services/ for service unit tests. Use fixtures to mock HomeKit service dependencies. Frontend tests use Vitest with React Testing Library, configured in vitest.config.ts. Component tests in frontend/__tests__/. Follow existing patterns from test_homekit_diagnostics.py (25 tests).
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_homekit_*.py</location>
+      <location>backend/tests/test_services/test_homekit_*.py</location>
+      <location>frontend/__tests__/components/settings/</location>
+    </locations>
+    <ideas>
+      <idea ac="1,2">Manual test: Run avahi-browse -a (Linux) or dns-sd -B _hap._tcp (macOS) to verify mDNS advertisement</idea>
+      <idea ac="3">Unit test: Verify HomekitConfig parses bind_address and mdns_interface from environment</idea>
+      <idea ac="4">Integration test: Start HomeKit service with custom bind_address, verify it binds correctly</idea>
+      <idea ac="5">Doc test: Verify firewall documentation includes all required ports and example commands</idea>
+      <idea ac="6">Integration test: Call /api/v1/homekit/test-connectivity, verify response schema and status</idea>
+      <idea ac="6">Component test: Render HomekitSettings, click Test Connectivity, verify loading state and results display</idea>
+    </ideas>
+  </tests>
+
+  <previousStoryLearnings>
+    <source>docs/sprint-artifacts/p7-1-1-add-homekit-diagnostic-logging.md</source>
+    <status>done</status>
+    <newFiles>
+      <file>backend/app/schemas/homekit_diagnostics.py - Pydantic schemas for diagnostic data</file>
+      <file>backend/app/services/homekit_diagnostics.py - Diagnostic handler and buffer management</file>
+      <file>backend/tests/test_api/test_homekit_diagnostics.py - Unit tests (25 tests)</file>
+      <file>frontend/components/settings/HomeKitDiagnostics.tsx - Diagnostics UI component</file>
+    </newFiles>
+    <modifiedFiles>
+      <file>backend/app/services/homekit_service.py - Added diagnostic methods, structured logging with categories</file>
+      <file>backend/app/config/homekit.py - Added diagnostic_log_size configuration</file>
+      <file>backend/app/api/v1/homekit.py - Added GET /api/v1/homekit/diagnostics endpoint</file>
+      <file>frontend/components/settings/HomekitSettings.tsx - Integrated diagnostics panel</file>
+      <file>frontend/hooks/useHomekitStatus.ts - Added useHomekitDiagnostics hook and types</file>
+      <file>frontend/lib/api-client.ts - Added getDiagnostics method to homekit client</file>
+    </modifiedFiles>
+    <patterns>
+      <pattern>Thread-safe implementation using threading.Lock with collections.deque(maxlen)</pattern>
+      <pattern>Structured logging with diagnostic_category extra field</pattern>
+      <pattern>5-second polling interval for diagnostics panel when HomeKit enabled</pattern>
+      <pattern>NetworkBindingInfo schema already captures ip, port, interface</pattern>
+    </patterns>
+    <reusableComponents>
+      <component>HomekitDiagnosticHandler - pattern for thread-safe operations</component>
+      <component>HomeKitDiagnosticsResponse - schema pattern for API responses</component>
+      <component>useHomekitDiagnostics hook - pattern for React Query mutations</component>
+    </reusableComponents>
+  </previousStoryLearnings>
+</story-context>

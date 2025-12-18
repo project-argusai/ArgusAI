@@ -1,7 +1,8 @@
 """
-HomeKit Diagnostics Pydantic Schemas (Story P7-1.1)
+HomeKit Diagnostics Pydantic Schemas (Story P7-1.1, P7-1.2)
 
 Defines schemas for diagnostic logging and monitoring of the HomeKit bridge.
+Story P7-1.2 adds connectivity test response schema.
 """
 from datetime import datetime
 from typing import List, Optional
@@ -149,6 +150,60 @@ class HomeKitDiagnosticsResponse(BaseModel):
                 ],
                 "warnings": [],
                 "errors": []
+            }
+        }
+    )
+
+
+class HomeKitConnectivityTestResponse(BaseModel):
+    """
+    Response from HomeKit connectivity test endpoint (Story P7-1.2 AC1, AC2, AC6).
+
+    Tests mDNS visibility and port accessibility for troubleshooting discovery issues.
+    """
+    mdns_visible: bool = Field(
+        ...,
+        description="Whether the _hap._tcp service is visible via mDNS"
+    )
+    discovered_as: Optional[str] = Field(
+        None,
+        description="Service name as discovered (e.g., 'ArgusAI._hap._tcp.local')"
+    )
+    port_accessible: bool = Field(
+        ...,
+        description="Whether the HAP port (TCP) is accessible"
+    )
+    network_binding: Optional[NetworkBindingInfo] = Field(
+        None,
+        description="Current network binding configuration"
+    )
+    firewall_issues: List[str] = Field(
+        default_factory=list,
+        description="Detected firewall or network issues"
+    )
+    recommendations: List[str] = Field(
+        default_factory=list,
+        description="Troubleshooting recommendations based on test results"
+    )
+    test_duration_ms: int = Field(
+        ...,
+        description="Time taken to complete the test in milliseconds"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "mdns_visible": True,
+                "discovered_as": "ArgusAI._hap._tcp.local",
+                "port_accessible": True,
+                "network_binding": {
+                    "ip": "192.168.1.100",
+                    "port": 51826,
+                    "interface": None
+                },
+                "firewall_issues": [],
+                "recommendations": [],
+                "test_duration_ms": 1250
             }
         }
     )

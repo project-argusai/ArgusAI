@@ -1,8 +1,9 @@
 """
-Tests for HomeKit Diagnostics API (Story P7-1.1)
+Tests for HomeKit Diagnostics API (Story P7-1.1, P7-1.2)
 
 Tests cover:
 - GET /api/v1/homekit/diagnostics endpoint
+- POST /api/v1/homekit/test-connectivity endpoint (Story P7-1.2)
 - Schema validation for diagnostic responses
 - Diagnostic handler behavior
 - Circular buffer functionality
@@ -14,6 +15,7 @@ from datetime import datetime
 from app.schemas.homekit_diagnostics import (
     HomeKitDiagnosticEntry,
     HomeKitDiagnosticsResponse,
+    HomeKitConnectivityTestResponse,
     NetworkBindingInfo,
     LastEventDeliveryInfo,
 )
@@ -505,3 +507,152 @@ class TestHomeKitDiagnosticsAPI:
         response = HomeKitDiagnosticsResponse(**diagnostics)
         assert response.bridge_running is False
         assert len(response.errors) == 1
+
+
+# ============================================================================
+# Connectivity Test Schema Tests (Story P7-1.2)
+# ============================================================================
+
+
+class TestHomeKitConnectivityTestSchema:
+    """Tests for HomeKit connectivity test Pydantic schema (Story P7-1.2)."""
+
+    def test_connectivity_test_response_schema(self):
+        """AC6: HomeKitConnectivityTestResponse validates correctly."""
+        response = HomeKitConnectivityTestResponse(
+            mdns_visible=True,
+            discovered_as="ArgusAI._hap._tcp.local",
+            port_accessible=True,
+            network_binding=NetworkBindingInfo(ip="192.168.1.100", port=51826),
+            firewall_issues=[],
+            recommendations=[],
+            test_duration_ms=1250
+        )
+
+        assert response.mdns_visible is True
+        assert response.discovered_as == "ArgusAI._hap._tcp.local"
+        assert response.port_accessible is True
+        assert response.test_duration_ms == 1250
+        assert len(response.firewall_issues) == 0
+        assert len(response.recommendations) == 0
+
+    def test_connectivity_test_response_with_issues(self):
+        """AC6: Connectivity test response handles firewall issues."""
+        response = HomeKitConnectivityTestResponse(
+            mdns_visible=False,
+            discovered_as=None,
+            port_accessible=False,
+            network_binding=NetworkBindingInfo(ip="0.0.0.0", port=51826),
+            firewall_issues=[
+                "mDNS service not visible - check UDP port 5353",
+                "TCP port 51826 not accessible"
+            ],
+            recommendations=[
+                "Ensure UDP port 5353 is open for mDNS multicast",
+                "Check that avahi-daemon (Linux) or mDNSResponder (macOS) is running",
+                "Ensure TCP port 51826 is open in your firewall"
+            ],
+            test_duration_ms=3500
+        )
+
+        assert response.mdns_visible is False
+        assert response.discovered_as is None
+        assert response.port_accessible is False
+        assert len(response.firewall_issues) == 2
+        assert len(response.recommendations) == 3
+        assert "mDNS" in response.firewall_issues[0]
+
+    def test_connectivity_test_response_with_null_binding(self):
+        """Connectivity test response handles null network binding."""
+        response = HomeKitConnectivityTestResponse(
+            mdns_visible=False,
+            discovered_as=None,
+            port_accessible=False,
+            network_binding=None,
+            firewall_issues=["HomeKit bridge not running"],
+            recommendations=["Enable HomeKit bridge first"],
+            test_duration_ms=100
+        )
+
+        assert response.network_binding is None
+        assert len(response.firewall_issues) == 1
+
+    def test_connectivity_test_response_partial_success(self):
+        """AC6: Connectivity test handles partial success (port ok, mDNS not)."""
+        response = HomeKitConnectivityTestResponse(
+            mdns_visible=False,
+            discovered_as=None,
+            port_accessible=True,
+            network_binding=NetworkBindingInfo(ip="192.168.1.100", port=51826),
+            firewall_issues=["mDNS service not visible - check UDP port 5353"],
+            recommendations=[
+                "Ensure UDP port 5353 is open for mDNS multicast",
+                "Try restarting the HomeKit bridge"
+            ],
+            test_duration_ms=3200
+        )
+
+        assert response.mdns_visible is False
+        assert response.port_accessible is True
+        assert "5353" in response.firewall_issues[0]
+
+
+# ============================================================================
+# Config Tests (Story P7-1.2)
+# ============================================================================
+
+
+class TestHomeKitConfigNetworkBinding:
+    """Tests for HomeKit config network binding options (Story P7-1.2)."""
+
+    def test_config_default_bind_address(self):
+        """AC3: Default bind_address is 0.0.0.0."""
+        from app.config.homekit import HomekitConfig, DEFAULT_BIND_ADDRESS
+
+        config = HomekitConfig()
+        assert config.bind_address == "0.0.0.0"
+        assert DEFAULT_BIND_ADDRESS == "0.0.0.0"
+
+    def test_config_custom_bind_address(self):
+        """AC4: bind_address can be set to specific IP."""
+        from app.config.homekit import HomekitConfig
+
+        config = HomekitConfig(bind_address="192.168.1.100")
+        assert config.bind_address == "192.168.1.100"
+
+    def test_config_mdns_interface_default(self):
+        """AC3: Default mdns_interface is None."""
+        from app.config.homekit import HomekitConfig
+
+        config = HomekitConfig()
+        assert config.mdns_interface is None
+
+    def test_config_mdns_interface_custom(self):
+        """AC3: mdns_interface can be set."""
+        from app.config.homekit import HomekitConfig
+
+        config = HomekitConfig(mdns_interface="eth0")
+        assert config.mdns_interface == "eth0"
+
+    def test_get_homekit_config_with_env_vars(self, monkeypatch):
+        """AC3, AC4: get_homekit_config reads network env vars."""
+        from app.config.homekit import get_homekit_config
+
+        monkeypatch.setenv("HOMEKIT_BIND_ADDRESS", "10.0.0.50")
+        monkeypatch.setenv("HOMEKIT_MDNS_INTERFACE", "wlan0")
+
+        config = get_homekit_config()
+        assert config.bind_address == "10.0.0.50"
+        assert config.mdns_interface == "wlan0"
+
+    def test_get_homekit_config_default_env_vars(self, monkeypatch):
+        """get_homekit_config uses defaults when env vars not set."""
+        from app.config.homekit import get_homekit_config, DEFAULT_BIND_ADDRESS
+
+        # Ensure env vars are not set
+        monkeypatch.delenv("HOMEKIT_BIND_ADDRESS", raising=False)
+        monkeypatch.delenv("HOMEKIT_MDNS_INTERFACE", raising=False)
+
+        config = get_homekit_config()
+        assert config.bind_address == DEFAULT_BIND_ADDRESS
+        assert config.mdns_interface is None

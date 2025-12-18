@@ -1,5 +1,5 @@
 """
-HomeKit service for Apple Home integration (Story P4-6.1, P4-6.2, P5-1.2, P5-1.3, P5-1.5, P5-1.6, P5-1.7, P7-1.1)
+HomeKit service for Apple Home integration (Story P4-6.1, P4-6.2, P5-1.2, P5-1.3, P5-1.5, P5-1.6, P5-1.7, P7-1.1, P7-1.2)
 
 Manages the HAP-python accessory server and exposes cameras as motion sensors.
 Story P4-6.2 adds motion event triggering with auto-reset timers.
@@ -9,6 +9,7 @@ Story P5-1.5 adds occupancy sensors for person-only detection with 5-minute time
 Story P5-1.6 adds vehicle/animal/package sensors for detection-type-specific automations.
 Story P5-1.7 adds doorbell sensors for Protect doorbell ring events.
 Story P7-1.1 adds comprehensive diagnostic logging for troubleshooting.
+Story P7-1.2 adds network binding configuration and connectivity testing.
 """
 import asyncio
 import logging
@@ -355,6 +356,132 @@ class HomekitService:
             errors=self._diagnostic_handler.get_errors(),
         )
 
+    async def test_connectivity(self) -> "HomeKitConnectivityTestResponse":
+        """
+        Test HomeKit bridge connectivity (Story P7-1.2 AC1, AC2, AC6).
+
+        Performs:
+        1. mDNS visibility check using zeroconf ServiceBrowser
+        2. Port accessibility test (TCP connection to HAP port)
+        3. Generates troubleshooting recommendations
+
+        Returns:
+            HomeKitConnectivityTestResponse with test results
+        """
+        import time
+        import socket
+        from app.schemas.homekit_diagnostics import HomeKitConnectivityTestResponse
+
+        start_time = time.time()
+        mdns_visible = False
+        discovered_as: Optional[str] = None
+        port_accessible = False
+        firewall_issues: List[str] = []
+        recommendations: List[str] = []
+
+        # Test 1: mDNS visibility check
+        try:
+            from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+
+            class HapServiceListener(ServiceListener):
+                def __init__(self):
+                    self.services: List[str] = []
+
+                def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+                    self.services.append(name)
+
+                def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+                    pass
+
+                def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+                    pass
+
+            zc = Zeroconf()
+            listener = HapServiceListener()
+            browser = ServiceBrowser(zc, "_hap._tcp.local.", listener)
+
+            # Wait up to 3 seconds for service discovery
+            await asyncio.sleep(3)
+
+            # Check if our bridge name appears in discovered services
+            bridge_name = self.config.bridge_name
+            for service_name in listener.services:
+                if bridge_name.lower() in service_name.lower():
+                    mdns_visible = True
+                    discovered_as = service_name
+                    break
+
+            browser.cancel()
+            zc.close()
+
+            if not mdns_visible:
+                firewall_issues.append("mDNS service not visible - check UDP port 5353")
+                recommendations.append("Ensure UDP port 5353 is open for mDNS multicast")
+                recommendations.append("Check that avahi-daemon (Linux) or mDNSResponder (macOS) is running")
+
+        except ImportError:
+            firewall_issues.append("zeroconf library not installed")
+            recommendations.append("Install zeroconf: pip install zeroconf")
+        except Exception as e:
+            logger.warning(f"mDNS test failed: {e}", extra={"diagnostic_category": "mdns"})
+            firewall_issues.append(f"mDNS test error: {str(e)}")
+
+        # Test 2: Port accessibility check
+        try:
+            bind_address = self.config.bind_address
+            test_host = "127.0.0.1" if bind_address == "0.0.0.0" else bind_address
+            test_port = self.config.port
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex((test_host, test_port))
+            sock.close()
+
+            if result == 0:
+                port_accessible = True
+            else:
+                port_accessible = False
+                firewall_issues.append(f"TCP port {test_port} not accessible")
+                recommendations.append(f"Ensure TCP port {test_port} is open in your firewall")
+                if bind_address != "0.0.0.0":
+                    recommendations.append(f"Verify bind address {bind_address} is correct for your network")
+
+        except Exception as e:
+            logger.warning(f"Port accessibility test failed: {e}", extra={"diagnostic_category": "network"})
+            firewall_issues.append(f"Port test error: {str(e)}")
+
+        # Add general recommendations if issues detected
+        if not self.is_running:
+            recommendations.insert(0, "HomeKit bridge is not running - enable it first")
+
+        if not mdns_visible and self.is_running:
+            recommendations.append("Try restarting the HomeKit bridge")
+            if self.config.mdns_interface:
+                recommendations.append(f"Verify mDNS interface '{self.config.mdns_interface}' is correct")
+
+        end_time = time.time()
+        test_duration_ms = int((end_time - start_time) * 1000)
+
+        logger.info(
+            f"HomeKit connectivity test completed: mDNS={mdns_visible}, port={port_accessible}",
+            extra={
+                "diagnostic_category": "network",
+                "mdns_visible": mdns_visible,
+                "port_accessible": port_accessible,
+                "test_duration_ms": test_duration_ms
+            }
+        )
+
+        return HomeKitConnectivityTestResponse(
+            mdns_visible=mdns_visible,
+            discovered_as=discovered_as,
+            port_accessible=port_accessible,
+            network_binding=self._network_binding,
+            firewall_issues=firewall_issues,
+            recommendations=recommendations,
+            test_duration_ms=test_duration_ms,
+        )
+
     def _get_connected_client_count(self) -> int:
         """Get the number of connected HomeKit clients (Story P7-1.1)."""
         if not self._driver or not self.is_running:
@@ -428,25 +555,38 @@ class HomekitService:
                     extra={"diagnostic_category": "lifecycle"}
                 )
 
-            # Create accessory driver
-            self._driver = AccessoryDriver(
-                port=self.config.port,
-                persist_file=self.config.persist_file,
-                pincode=self.pincode.encode('utf-8'),
-            )
+            # Create accessory driver with network binding configuration (Story P7-1.2)
+            # HAP-python AccessoryDriver accepts address parameter for binding
+            driver_kwargs = {
+                "port": self.config.port,
+                "persist_file": self.config.persist_file,
+                "pincode": self.pincode.encode('utf-8'),
+            }
+
+            # Story P7-1.2 AC3, AC4: Configure bind address if not default
+            bind_address = self.config.bind_address
+            if bind_address and bind_address != "0.0.0.0":
+                driver_kwargs["address"] = bind_address
+                logger.info(
+                    f"HomeKit HAP server binding to specific address: {bind_address}",
+                    extra={"diagnostic_category": "network", "bind_address": bind_address}
+                )
+
+            self._driver = AccessoryDriver(**driver_kwargs)
 
             # Story P7-1.1 AC4: Log network binding information
             self._network_binding = NetworkBindingInfo(
-                ip="0.0.0.0",  # Default bind address
+                ip=self.config.bind_address,
                 port=self.config.port,
-                interface=None
+                interface=self.config.mdns_interface
             )
             logger.info(
-                f"HomeKit HAP server binding to port {self.config.port}",
+                f"HomeKit HAP server binding to {self.config.bind_address}:{self.config.port}",
                 extra={
                     "diagnostic_category": "network",
                     "port": self.config.port,
-                    "ip": "0.0.0.0"
+                    "ip": self.config.bind_address,
+                    "interface": self.config.mdns_interface
                 }
             )
 

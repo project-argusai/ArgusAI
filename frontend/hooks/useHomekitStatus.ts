@@ -1,8 +1,9 @@
 /**
- * useHomekitStatus hook (Story P4-6.1, P5-1.8, P7-1.1)
+ * useHomekitStatus hook (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2)
  *
  * TanStack Query hook for fetching and managing HomeKit integration status.
  * Story P7-1.1 adds useHomekitDiagnostics hook for diagnostic data.
+ * Story P7-1.2 adds useHomekitTestConnectivity hook for connectivity testing.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
@@ -265,5 +266,41 @@ export function useHomekitDiagnostics(options?: {
     refetchInterval: options?.refetchInterval ?? 5000, // 5-second polling for diagnostics
     staleTime: 2000, // Consider data stale after 2 seconds
     retry: 1,
+  });
+}
+
+// ============================================================================
+// Connectivity Test Types and Hooks (Story P7-1.2)
+// ============================================================================
+
+/**
+ * Connectivity test response (Story P7-1.2)
+ */
+export interface HomekitConnectivityTestResponse {
+  mdns_visible: boolean;
+  discovered_as: string | null;
+  port_accessible: boolean;
+  network_binding: HomekitNetworkBinding | null;
+  firewall_issues: string[];
+  recommendations: string[];
+  test_duration_ms: number;
+}
+
+/**
+ * Test HomeKit connectivity via the API (Story P7-1.2)
+ */
+async function testHomekitConnectivity(): Promise<HomekitConnectivityTestResponse> {
+  return apiClient.homekit.testConnectivity();
+}
+
+/**
+ * Hook for testing HomeKit connectivity (Story P7-1.2 AC6)
+ *
+ * This is a mutation hook since connectivity test is an action that takes time
+ * and should only run when explicitly triggered (not on component mount).
+ */
+export function useHomekitTestConnectivity() {
+  return useMutation({
+    mutationFn: testHomekitConnectivity,
   });
 }

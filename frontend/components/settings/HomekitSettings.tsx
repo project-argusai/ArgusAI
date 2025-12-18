@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * HomekitSettings component (Story P4-6.1, P5-1.8, P7-1.1)
+ * HomekitSettings component (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2)
  *
  * Settings UI for HomeKit integration with enable toggle, pairing status,
  * QR code display, pairings list, and reset functionality.
@@ -13,6 +13,9 @@
  *
  * Story P7-1.1 additions:
  * - Diagnostics panel for troubleshooting (AC6)
+ *
+ * Story P7-1.2 additions:
+ * - Connectivity test button (AC6)
  */
 import React, { useState } from 'react';
 import {
@@ -21,7 +24,9 @@ import {
   useHomekitReset,
   useHomekitPairings,
   useHomekitRemovePairing,
+  useHomekitTestConnectivity,
   type HomekitPairing,
+  type HomekitConnectivityTestResponse,
 } from '@/hooks/useHomekitStatus';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -40,8 +45,130 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Loader2, AlertCircle, Check, X, RotateCcw, Smartphone, Trash2, Users, Shield, User } from 'lucide-react';
+import { Loader2, AlertCircle, Check, X, RotateCcw, Smartphone, Trash2, Users, Shield, User, Wifi, WifiOff, Network } from 'lucide-react';
 import { HomeKitDiagnostics } from './HomeKitDiagnostics';
+
+/**
+ * ConnectivityTest subcomponent (Story P7-1.2 AC6)
+ *
+ * Button to run connectivity test and display results.
+ */
+function ConnectivityTest({ enabled }: { enabled: boolean }) {
+  const testMutation = useHomekitTestConnectivity();
+  const [showResults, setShowResults] = useState(false);
+
+  const handleTest = async () => {
+    try {
+      await testMutation.mutateAsync();
+      setShowResults(true);
+    } catch (err) {
+      console.error('Connectivity test failed:', err);
+    }
+  };
+
+  const results = testMutation.data;
+
+  return (
+    <div className="space-y-3">
+      <Button
+        variant="outline"
+        onClick={handleTest}
+        disabled={!enabled || testMutation.isPending}
+        className="w-full"
+      >
+        {testMutation.isPending ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Testing connectivity... (3-5s)
+          </>
+        ) : (
+          <>
+            <Network className="h-4 w-4 mr-2" />
+            Test Connectivity
+          </>
+        )}
+      </Button>
+
+      {showResults && results && (
+        <div className="border rounded-lg p-4 space-y-3 bg-muted/30">
+          <div className="flex items-center justify-between">
+            <h5 className="font-medium">Connectivity Test Results</h5>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowResults(false)}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            {/* mDNS Status */}
+            <div className="flex items-center gap-2">
+              {results.mdns_visible ? (
+                <Wifi className="h-4 w-4 text-green-500" />
+              ) : (
+                <WifiOff className="h-4 w-4 text-red-500" />
+              )}
+              <span>mDNS</span>
+              <Badge variant={results.mdns_visible ? "default" : "destructive"} className="ml-auto">
+                {results.mdns_visible ? 'Visible' : 'Not Found'}
+              </Badge>
+            </div>
+
+            {/* Port Status */}
+            <div className="flex items-center gap-2">
+              {results.port_accessible ? (
+                <Check className="h-4 w-4 text-green-500" />
+              ) : (
+                <X className="h-4 w-4 text-red-500" />
+              )}
+              <span>Port {results.network_binding?.port || 51826}</span>
+              <Badge variant={results.port_accessible ? "default" : "destructive"} className="ml-auto">
+                {results.port_accessible ? 'Open' : 'Blocked'}
+              </Badge>
+            </div>
+          </div>
+
+          {results.discovered_as && (
+            <div className="text-xs text-muted-foreground">
+              Discovered as: <code className="bg-muted px-1 rounded">{results.discovered_as}</code>
+            </div>
+          )}
+
+          {results.firewall_issues.length > 0 && (
+            <Alert variant="destructive" className="py-2">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle className="text-sm">Firewall Issues</AlertTitle>
+              <AlertDescription>
+                <ul className="list-disc list-inside text-xs">
+                  {results.firewall_issues.map((issue, i) => (
+                    <li key={i}>{issue}</li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {results.recommendations.length > 0 && (
+            <div className="text-xs space-y-1">
+              <span className="font-medium">Recommendations:</span>
+              <ul className="list-disc list-inside text-muted-foreground">
+                {results.recommendations.map((rec, i) => (
+                  <li key={i}>{rec}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="text-xs text-muted-foreground text-right">
+            Test completed in {results.test_duration_ms}ms
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * PairingsList subcomponent (Story P5-1.8 AC3, AC4)
@@ -403,6 +530,9 @@ export function HomekitSettings() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
+            {/* Story P7-1.2 AC6: Connectivity Test */}
+            <ConnectivityTest enabled={status.running} />
           </div>
         )}
 

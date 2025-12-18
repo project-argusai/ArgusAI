@@ -1525,6 +1525,97 @@ class HomekitService:
         logger.debug("Cleared all HomeKit detection sensor states")
 
     # =========================================================================
+    # Story P7-1.3: Test Event Trigger Method
+    # =========================================================================
+
+    def trigger_test_event(
+        self,
+        camera_id: str,
+        event_type: str
+    ) -> Dict[str, Any]:
+        """
+        Trigger a test event for debugging HomeKit delivery (Story P7-1.3 AC5).
+
+        Allows manual triggering of any event type from the diagnostics UI
+        to verify that events are properly delivered to all paired HomeKit clients.
+
+        Args:
+            camera_id: Camera identifier (UUID)
+            event_type: One of "motion", "occupancy", "vehicle", "animal", "package", "doorbell"
+
+        Returns:
+            Dict with success status, message, sensor_name, and delivered_to_clients count
+        """
+        # Map event types to their trigger methods and sensor dicts
+        event_handlers = {
+            "motion": (self.trigger_motion, self._sensors, "motion"),
+            "occupancy": (self.trigger_occupancy, self._occupancy_sensors, "occupancy"),
+            "vehicle": (self.trigger_vehicle, self._vehicle_sensors, "vehicle"),
+            "animal": (self.trigger_animal, self._animal_sensors, "animal"),
+            "package": (self.trigger_package, self._package_sensors, "package"),
+            "doorbell": (self.trigger_doorbell, self._doorbell_sensors, "doorbell"),
+        }
+
+        if event_type not in event_handlers:
+            return {
+                "success": False,
+                "message": f"Invalid event type: {event_type}. Must be one of: {', '.join(event_handlers.keys())}",
+                "sensor_name": None,
+                "delivered_to_clients": 0
+            }
+
+        trigger_func, sensor_dict, sensor_type = event_handlers[event_type]
+
+        # Resolve camera_id and check if sensor exists
+        resolved_id = self._resolve_camera_id(camera_id)
+        sensor = sensor_dict.get(resolved_id)
+
+        if not sensor:
+            return {
+                "success": False,
+                "message": f"No {event_type} sensor found for camera: {camera_id}",
+                "sensor_name": None,
+                "delivered_to_clients": 0
+            }
+
+        # Get sensor name
+        sensor_name = getattr(sensor, 'name', f"Camera {camera_id[:8]}")
+
+        # Trigger the event
+        success = trigger_func(camera_id, event_id=None)
+
+        if not success:
+            return {
+                "success": False,
+                "message": f"Failed to trigger {event_type} event for {sensor_name}",
+                "sensor_name": sensor_name,
+                "delivered_to_clients": 0
+            }
+
+        # Get connected client count for delivery confirmation
+        delivered_to_clients = self._get_connected_client_count()
+
+        # Log delivery confirmation (Story P7-1.3 AC2)
+        logger.info(
+            f"Test event delivered: {event_type} for {sensor_name}",
+            extra={
+                "diagnostic_category": "delivery",
+                "camera_id": camera_id,
+                "sensor_type": sensor_type,
+                "sensor_name": sensor_name,
+                "delivered": True,
+                "client_count": delivered_to_clients
+            }
+        )
+
+        return {
+            "success": True,
+            "message": f"{event_type.capitalize()} event triggered for {sensor_name}",
+            "sensor_name": sensor_name,
+            "delivered_to_clients": delivered_to_clients
+        }
+
+    # =========================================================================
     # Story P5-1.7: Doorbell Sensor Methods (Protect Doorbell Ring Events)
     # =========================================================================
 

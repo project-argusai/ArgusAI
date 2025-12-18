@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * HomeKitDiagnostics component (Story P7-1.1 AC6, P7-1.2)
+ * HomeKitDiagnostics component (Story P7-1.1 AC6, P7-1.2, P7-1.3)
  *
  * Displays diagnostic information for HomeKit troubleshooting including:
  * - Bridge status and mDNS advertising state
@@ -10,14 +10,20 @@
  * - Recent diagnostic logs with category filtering
  * - Warnings and errors prominently displayed
  * - Connectivity test button (P7-1.2 AC6)
+ * - Test event trigger button (P7-1.3 AC5)
  */
 import React, { useState } from 'react';
 import {
   useHomekitDiagnostics,
   useHomekitConnectivity,
+  useHomekitTestEvent,
   type HomekitDiagnosticEntry,
   type HomekitConnectivityResult,
+  type HomekitTestEventType,
+  type HomekitTestEventResult,
 } from '@/hooks/useHomekitStatus';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -39,7 +45,16 @@ import {
   TestTube,
   Lightbulb,
   AlertTriangle,
+  Play,
+  Zap,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -257,13 +272,145 @@ function ConnectivityTestPanel() {
   );
 }
 
+/**
+ * TestEventPanel component (Story P7-1.3 AC5)
+ *
+ * Displays the "Test Event" panel with camera and event type selection
+ * to manually trigger HomeKit events and verify delivery to paired devices.
+ */
+function TestEventPanel() {
+  const [selectedCamera, setSelectedCamera] = useState<string>('');
+  const [selectedEventType, setSelectedEventType] = useState<HomekitTestEventType>('motion');
+  const [testResult, setTestResult] = useState<HomekitTestEventResult | null>(null);
+  const testEventMutation = useHomekitTestEvent();
+
+  // Fetch cameras for the dropdown
+  const { data: cameras = [] } = useQuery({
+    queryKey: ['cameras'],
+    queryFn: () => apiClient.cameras.list(),
+    staleTime: 60000,
+  });
+
+  const runTestEvent = async () => {
+    if (!selectedCamera) return;
+
+    try {
+      const result = await testEventMutation.mutateAsync({
+        camera_id: selectedCamera,
+        event_type: selectedEventType,
+      });
+      setTestResult(result);
+    } catch (err) {
+      console.error('Test event failed:', err);
+    }
+  };
+
+  const eventTypeLabels: Record<HomekitTestEventType, string> = {
+    motion: 'Motion',
+    occupancy: 'Occupancy (Person)',
+    vehicle: 'Vehicle',
+    animal: 'Animal',
+    package: 'Package',
+    doorbell: 'Doorbell Ring',
+  };
+
+  return (
+    <div className="border rounded-lg p-4 bg-muted/30">
+      <div className="flex items-center gap-2 mb-3">
+        <Zap className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm font-medium">Test Event Trigger</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        {/* Camera Selector */}
+        <Select value={selectedCamera} onValueChange={setSelectedCamera}>
+          <SelectTrigger className="text-sm">
+            <SelectValue placeholder="Select camera" />
+          </SelectTrigger>
+          <SelectContent>
+            {cameras.map((camera) => (
+              <SelectItem key={camera.id} value={camera.id}>
+                {camera.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Event Type Selector */}
+        <Select value={selectedEventType} onValueChange={(v) => setSelectedEventType(v as HomekitTestEventType)}>
+          <SelectTrigger className="text-sm">
+            <SelectValue placeholder="Event type" />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.keys(eventTypeLabels) as HomekitTestEventType[]).map((type) => (
+              <SelectItem key={type} value={type}>
+                {eventTypeLabels[type]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={runTestEvent}
+        disabled={!selectedCamera || testEventMutation.isPending}
+        className="w-full"
+      >
+        {testEventMutation.isPending ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Triggering...
+          </>
+        ) : (
+          <>
+            <Play className="h-4 w-4 mr-2" />
+            Trigger Test Event
+          </>
+        )}
+      </Button>
+
+      {/* Error Display */}
+      {testEventMutation.isError && (
+        <Alert variant="destructive" className="mt-3">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Test Failed</AlertTitle>
+          <AlertDescription>
+            {testEventMutation.error instanceof Error
+              ? testEventMutation.error.message
+              : 'Failed to trigger test event'}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Success Result */}
+      {testResult && testResult.success && (
+        <Alert className="mt-3 border-green-500 bg-green-500/10">
+          <Check className="h-4 w-4 text-green-500" />
+          <AlertTitle className="text-green-500">Event Triggered</AlertTitle>
+          <AlertDescription>
+            <div className="grid grid-cols-2 gap-1 text-sm mt-2">
+              <span>Sensor: {testResult.sensor_name}</span>
+              <span>Type: {testResult.event_type}</span>
+              <span className="col-span-2">
+                Delivered to: {testResult.delivered_to_clients} client{testResult.delivered_to_clients !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
+  );
+}
+
 interface HomeKitDiagnosticsProps {
   enabled?: boolean;
 }
 
 export function HomeKitDiagnostics({ enabled = true }: HomeKitDiagnosticsProps) {
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(
-    new Set(['lifecycle', 'pairing', 'event', 'network', 'mdns'])
+    new Set(['lifecycle', 'pairing', 'event', 'delivery', 'network', 'mdns'])
   );
   const [selectedLevels, setSelectedLevels] = useState<Set<string>>(
     new Set(['debug', 'info', 'warning', 'error'])
@@ -457,6 +604,9 @@ export function HomeKitDiagnostics({ enabled = true }: HomeKitDiagnosticsProps) 
         {/* Connectivity Test Panel (Story P7-1.2 AC6) */}
         <ConnectivityTestPanel />
 
+        {/* Test Event Panel (Story P7-1.3 AC5) */}
+        <TestEventPanel />
+
         {/* Log Filters */}
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
@@ -471,7 +621,7 @@ export function HomeKitDiagnostics({ enabled = true }: HomeKitDiagnosticsProps) 
             <DropdownMenuContent>
               <DropdownMenuLabel>Categories</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {['lifecycle', 'pairing', 'event', 'network', 'mdns'].map((cat) => (
+              {['lifecycle', 'pairing', 'event', 'delivery', 'network', 'mdns'].map((cat) => (
                 <DropdownMenuCheckboxItem
                   key={cat}
                   checked={selectedCategories.has(cat)}

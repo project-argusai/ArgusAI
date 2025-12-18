@@ -139,6 +139,9 @@ class HomekitDiagnosticHandler(logging.Handler):
             return "lifecycle"
         elif any(kw in message_lower for kw in ["pair", "unpair", "pairing"]):
             return "pairing"
+        # Story P7-1.3: Add 'delivery' category for delivery confirmation logs
+        elif any(kw in message_lower for kw in ["delivered", "delivery"]):
+            return "delivery"
         elif any(kw in message_lower for kw in ["motion", "occupancy", "vehicle",
                                                  "animal", "package", "doorbell",
                                                  "triggered", "reset"]):

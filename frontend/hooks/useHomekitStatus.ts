@@ -60,12 +60,12 @@ const HOMEKIT_CONNECTIVITY_KEY = ['homekit', 'connectivity'];
 // ============================================================================
 
 /**
- * Diagnostic log entry (Story P7-1.1)
+ * Diagnostic log entry (Story P7-1.1, P7-1.3)
  */
 export interface HomekitDiagnosticEntry {
   timestamp: string;
   level: 'debug' | 'info' | 'warning' | 'error';
-  category: 'lifecycle' | 'pairing' | 'event' | 'network' | 'mdns';
+  category: 'lifecycle' | 'pairing' | 'event' | 'delivery' | 'network' | 'mdns';
   message: string;
   details?: Record<string, unknown>;
 }
@@ -309,6 +309,64 @@ export function useHomekitConnectivity() {
     mutationKey: HOMEKIT_CONNECTIVITY_KEY,
     onSuccess: () => {
       // Optionally refresh diagnostics after a connectivity test
+      queryClient.invalidateQueries({ queryKey: HOMEKIT_DIAGNOSTICS_KEY });
+    },
+  });
+}
+
+// ============================================================================
+// Test Event Types and Hooks (Story P7-1.3)
+// ============================================================================
+
+const HOMEKIT_TEST_EVENT_KEY = ['homekit', 'test-event'];
+
+/**
+ * Event types that can be triggered (Story P7-1.3)
+ */
+export type HomekitTestEventType = 'motion' | 'occupancy' | 'vehicle' | 'animal' | 'package' | 'doorbell';
+
+/**
+ * Test event request parameters (Story P7-1.3)
+ */
+export interface HomekitTestEventRequest {
+  camera_id: string;
+  event_type: HomekitTestEventType;
+}
+
+/**
+ * Test event result (Story P7-1.3)
+ */
+export interface HomekitTestEventResult {
+  success: boolean;
+  message: string;
+  camera_id: string;
+  event_type: string;
+  sensor_name: string | null;
+  delivered_to_clients: number;
+  timestamp: string;
+}
+
+/**
+ * Trigger a test HomeKit event (Story P7-1.3)
+ */
+async function triggerHomekitTestEvent(request: HomekitTestEventRequest): Promise<HomekitTestEventResult> {
+  return apiClient.homekit.testEvent(request);
+}
+
+/**
+ * Hook for triggering a test HomeKit event (Story P7-1.3 AC5)
+ *
+ * Uses a mutation pattern since test events are user-initiated
+ * and modify sensor state.
+ */
+export function useHomekitTestEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: triggerHomekitTestEvent,
+    mutationKey: HOMEKIT_TEST_EVENT_KEY,
+    onSuccess: () => {
+      // Refresh diagnostics after a test event to show delivery confirmation
       queryClient.invalidateQueries({ queryKey: HOMEKIT_DIAGNOSTICS_KEY });
     },
   });

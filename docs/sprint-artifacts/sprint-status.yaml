@@ -401,7 +401,7 @@ development_status:
   epic-p7-1: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P7-1.md
   p7-1-1-add-homekit-diagnostic-logging: done
   p7-1-2-fix-homekit-bridge-discovery-issues: done
-  p7-1-3-fix-homekit-event-delivery: backlog
+  p7-1-3-fix-homekit-event-delivery: done
   p7-1-4-add-homekit-connection-status-monitoring: backlog
   epic-p7-1-retrospective: optional
 

@@ -10,12 +10,13 @@ from pydantic import BaseModel, Field, ConfigDict
 
 class HomeKitDiagnosticEntry(BaseModel):
     """
-    A single diagnostic log entry for HomeKit operations (Story P7-1.1 AC1-4).
+    A single diagnostic log entry for HomeKit operations (Story P7-1.1 AC1-4, P7-1.3 AC2).
 
     Categories:
     - lifecycle: Bridge start/stop, driver events
     - pairing: Pairing attempts, success/failure
     - event: Characteristic updates (motion, occupancy, etc.)
+    - delivery: Event delivery confirmation logs (Story P7-1.3)
     - network: IP binding, port info
     - mdns: mDNS/Bonjour advertisement status
     """
@@ -27,8 +28,8 @@ class HomeKitDiagnosticEntry(BaseModel):
     )
     category: str = Field(
         ...,
-        description="Event category: lifecycle, pairing, event, network, mdns",
-        pattern="^(lifecycle|pairing|event|network|mdns)$"
+        description="Event category: lifecycle, pairing, event, delivery, network, mdns",
+        pattern="^(lifecycle|pairing|event|delivery|network|mdns)$"
     )
     message: str = Field(..., description="Human-readable log message")
     details: Optional[dict] = Field(

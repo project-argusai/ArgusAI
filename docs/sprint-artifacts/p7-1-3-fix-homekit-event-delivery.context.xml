@@ -1,0 +1,159 @@
+<story-context id="p7-1-3-fix-homekit-event-delivery" v="1.0">
+  <metadata>
+    <epicId>P7-1</epicId>
+    <storyId>P7-1.3</storyId>
+    <title>Fix HomeKit Event Delivery</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-18</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-1-3-fix-homekit-event-delivery.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner with Apple Home app</asA>
+    <iWant>motion events from ArgusAI cameras to reliably trigger HomeKit notifications on all my paired iOS devices</iWant>
+    <soThat>I receive timely alerts when motion is detected without missing events or experiencing delays</soThat>
+    <tasks>
+      <task id="1" title="Verify and Fix Characteristic Update Propagation">
+        <subtask>1.1 Review HAP-python characteristic change notification mechanism</subtask>
+        <subtask>1.2 Ensure set_value() on motion characteristic triggers HAP event notifications</subtask>
+        <subtask>1.3 Verify HAP driver's event loop is properly handling characteristic updates</subtask>
+        <subtask>1.4 Add explicit notify() call if needed after characteristic changes</subtask>
+        <subtask>1.5 Test with HAP-python debug logging to trace notification path</subtask>
+      </task>
+      <task id="2" title="Add Event Delivery Confirmation Logging">
+        <subtask>2.1 Log when characteristic value is set with timestamp and sensor details</subtask>
+        <subtask>2.2 Log successful HAP notification dispatch (if available from HAP-python)</subtask>
+        <subtask>2.3 Add delivery confirmation to last_event_delivery field in diagnostics</subtask>
+        <subtask>2.4 Track delivery success/failure count per sensor in diagnostics response</subtask>
+        <subtask>2.5 Update HomeKitDiagnosticsResponse schema if needed for delivery metrics</subtask>
+      </task>
+      <task id="3" title="Ensure Auto-Reset Timer Reliability">
+        <subtask>3.1 Review _motion_reset_coroutine timer implementation</subtask>
+        <subtask>3.2 Ensure timer cancellation works properly when new motion occurs</subtask>
+        <subtask>3.3 Verify motion sensor resets to "no motion" after configured delay</subtask>
+        <subtask>3.4 Add logging for timer start, cancellation, and completion</subtask>
+        <subtask>3.5 Test rapid-fire motion events don't cause timer race conditions</subtask>
+      </task>
+      <task id="4" title="Implement Manual Test Event Trigger">
+        <subtask>4.1 Create POST /api/v1/homekit/test-event endpoint</subtask>
+        <subtask>4.2 Accept camera_id and event_type (motion, occupancy, vehicle, animal, package, doorbell)</subtask>
+        <subtask>4.3 Validate camera exists and has HomeKit enabled</subtask>
+        <subtask>4.4 Trigger appropriate sensor and return delivery confirmation</subtask>
+        <subtask>4.5 Create HomeKitTestEventRequest and HomeKitTestEventResponse schemas</subtask>
+      </task>
+      <task id="5" title="Build Test Event UI Button">
+        <subtask>5.1 Add "Test Motion" button to HomeKit diagnostics panel</subtask>
+        <subtask>5.2 Create camera selector dropdown for test target</subtask>
+        <subtask>5.3 Create event type selector (motion, occupancy, etc.)</subtask>
+        <subtask>5.4 Show success/failure toast after test event</subtask>
+        <subtask>5.5 Add useHomekitTestEvent mutation hook</subtask>
+      </task>
+      <task id="6" title="Multi-Device Testing Validation">
+        <subtask>6.1 Document manual test procedure for multiple iOS devices</subtask>
+        <subtask>6.2 Add connected_clients count to diagnostics response (may already exist)</subtask>
+        <subtask>6.3 Verify events are broadcast to all connected HAP clients</subtask>
+        <subtask>6.4 Add troubleshooting notes for multi-device issues</subtask>
+      </task>
+      <task id="7" title="Write Unit and Integration Tests">
+        <subtask>7.1 Test characteristic update triggers HAP notification</subtask>
+        <subtask>7.2 Test event delivery logging is captured</subtask>
+        <subtask>7.3 Test auto-reset timer behavior (start, cancel, complete)</subtask>
+        <subtask>7.4 Test POST /api/v1/homekit/test-event endpoint validation and response</subtask>
+        <subtask>7.5 Test manual event trigger actually fires motion sensor</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Characteristic updates are verified to propagate to clients</ac>
+    <ac id="2">Event delivery confirmation logging is added</ac>
+    <ac id="3">Testing with multiple paired devices works</ac>
+    <ac id="4">Auto-reset timers work correctly</ac>
+    <ac id="5">Manual test button triggers motion in UI</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P7-1.md" title="Epic P7-1 Technical Specification" section="Story P7-1.3" snippet="Defines acceptance criteria for event delivery verification, delivery confirmation logging, multi-device testing, auto-reset timer functionality, and manual test button implementation." />
+      <doc path="docs/epics-phase7.md" title="Phase 7 Epics" section="Story P7-1.3" snippet="Fix HomeKit Event Delivery - Ensure motion events are reliably delivered to paired HomeKit devices with auto-reset timers and manual test capability." />
+      <doc path="docs/sprint-artifacts/p7-1-1-add-homekit-diagnostic-logging.md" title="Previous Story P7-1.1" section="Dev Agent Record" snippet="Established diagnostic logging infrastructure with HomekitDiagnosticHandler using thread-safe circular buffer. Created HomeKitDiagnosticsResponse schema with last_event_delivery field." />
+      <doc path="docs/sprint-artifacts/p7-1-2-fix-homekit-bridge-discovery-issues.md" title="Previous Story P7-1.2" section="Dev Agent Record" snippet="Implemented connectivity test endpoint pattern POST /api/v1/homekit/test-connectivity. Created ConnectivityTestPanel UI component. Added useHomekitConnectivity mutation hook." />
+      <doc path="docs/troubleshooting-homekit.md" title="HomeKit Troubleshooting Guide" section="Firewall Requirements" snippet="Documents UDP 5353 for mDNS and TCP 51826 for HAP. Platform-specific firewall commands included." />
+    </docs>
+    <code>
+      <file path="backend/app/services/homekit_service.py" kind="service" symbol="HomekitService" lines="all" reason="Core HomeKit service with trigger_motion(), trigger_occupancy(), auto-reset timers (_motion_reset_coroutine), and diagnostic methods. Must verify HAP characteristic updates propagate correctly." />
+      <file path="backend/app/services/homekit_diagnostics.py" kind="service" symbol="HomekitDiagnosticHandler" lines="all" reason="Diagnostic handler with get_last_event_delivery(), get_recent_logs(). Need to update for delivery confirmation tracking." />
+      <file path="backend/app/api/v1/homekit.py" kind="router" symbol="router" lines="all" reason="HomeKit API endpoints. Need to add POST /api/v1/homekit/test-event endpoint following existing patterns." />
+      <file path="backend/app/schemas/homekit_diagnostics.py" kind="schema" symbol="HomeKitDiagnosticsResponse, LastEventDeliveryInfo" lines="all" reason="Existing schemas for diagnostics response. May need to add delivery metrics fields." />
+      <file path="backend/app/schemas/homekit_connectivity.py" kind="schema" symbol="HomeKitConnectivityResponse" lines="all" reason="Pattern to follow for HomeKitTestEventRequest/Response schemas." />
+      <file path="frontend/components/settings/HomeKitDiagnostics.tsx" kind="component" symbol="HomeKitDiagnostics, ConnectivityTestPanel" lines="all" reason="UI component for diagnostics. Need to add TestEventPanel following ConnectivityTestPanel pattern." />
+      <file path="frontend/hooks/useHomekitStatus.ts" kind="hook" symbol="useHomekitDiagnostics, useHomekitConnectivity" lines="all" reason="React Query hooks. Need to add useHomekitTestEvent mutation hook following useHomekitConnectivity pattern." />
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="homekit.testConnectivity" lines="homekit section" reason="API client methods. Need to add testEvent method." />
+      <file path="backend/tests/test_api/test_homekit.py" kind="test" symbol="test_homekit" lines="all" reason="Existing HomeKit API tests. Add test-event endpoint tests following existing patterns." />
+      <file path="backend/tests/test_api/test_homekit_diagnostics.py" kind="test" symbol="test_diagnostics" lines="all" reason="Existing diagnostics tests. Reference for testing patterns." />
+    </code>
+    <dependencies>
+      <python>
+        <package name="HAP-python" version=">=4.9.0" purpose="HomeKit Accessory Protocol - AccessoryDriver, characteristic change notifications" />
+        <package name="qrcode" version=">=7.4.0" purpose="QR code generation for pairing" />
+        <package name="fastapi" version="==0.115.0" purpose="API framework" />
+        <package name="pydantic" version=">=2.10.0" purpose="Request/Response schemas" />
+        <package name="pytest" version="==7.4.3" purpose="Backend testing" />
+        <package name="pytest-asyncio" version="==0.21.1" purpose="Async test support" />
+      </python>
+      <node>
+        <package name="react" version="19" purpose="UI components" />
+        <package name="@tanstack/react-query" version="latest" purpose="Server state management, mutations" />
+        <package name="lucide-react" version="latest" purpose="Icons" />
+        <package name="shadcn/ui" version="latest" purpose="UI component library" />
+        <package name="vitest" version="latest" purpose="Frontend testing" />
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="Architecture">HAP-python runs in a background thread separate from the main asyncio loop. Characteristic changes must coordinate between threads.</constraint>
+    <constraint source="Architecture">Motion sensor uses MotionSensorCurrentState characteristic: Value 0 = No motion, Value 1 = Motion detected.</constraint>
+    <constraint source="Architecture">Auto-reset timers use asyncio coroutines with configurable motion_reset_seconds (default 30s).</constraint>
+    <constraint source="Tech Spec">Test-event endpoint should require authentication and rate limiting (max 10/minute).</constraint>
+    <constraint source="Tech Spec">Event delivery relies on HAP-python's internal notification mechanism to connected clients.</constraint>
+    <constraint source="Previous Story">Thread-safe implementation required - use threading.Lock with collections.deque pattern from P7-1.1.</constraint>
+    <constraint source="Previous Story">Follow existing API patterns - POST endpoint with request/response schemas like test-connectivity.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/homekit/test-event" kind="REST endpoint" signature='{"camera_id": "string", "event_type": "motion|occupancy|vehicle|animal|package|doorbell"} -> {"success": bool, "message": "string", "delivered_to_clients": int}' path="backend/app/api/v1/homekit.py" />
+    <interface name="trigger_motion" kind="method" signature="trigger_motion(camera_id: str, event_id: Optional[int] = None) -> bool" path="backend/app/services/homekit_service.py:939" />
+    <interface name="trigger_occupancy" kind="method" signature="trigger_occupancy(camera_id: str, event_id: Optional[int] = None) -> bool" path="backend/app/services/homekit_service.py:1154" />
+    <interface name="get_diagnostics" kind="method" signature="get_diagnostics() -> HomeKitDiagnosticsResponse" path="backend/app/services/homekit_service.py:343" />
+    <interface name="useHomekitTestEvent" kind="hook" signature="useHomekitTestEvent() -> UseMutationResult<TestEventResult, Error, TestEventParams>" path="frontend/hooks/useHomekitStatus.ts" />
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with fixtures for HomeKit service mocking. Test files in backend/tests/test_api/.
+      Frontend: Vitest + React Testing Library. Follow patterns in frontend/__tests__/.
+      Use mocking for HAP-python driver to test characteristic updates without real HomeKit.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_homekit.py</location>
+      <location>backend/tests/test_api/test_homekit_diagnostics.py</location>
+      <location>frontend/__tests__/components/</location>
+    </locations>
+    <ideas>
+      <idea acRef="1">Test that trigger_motion() calls set_value(True) on motion characteristic</idea>
+      <idea acRef="1">Test that characteristic.set_value() properly notifies connected clients (mock HAP)</idea>
+      <idea acRef="2">Test that event delivery updates last_event_delivery in diagnostics</idea>
+      <idea acRef="2">Test delivery logging captures camera_id, sensor_type, timestamp, delivered status</idea>
+      <idea acRef="3">Mock multiple paired clients and verify all receive motion event</idea>
+      <idea acRef="4">Test _motion_reset_coroutine waits motion_reset_seconds then clears motion</idea>
+      <idea acRef="4">Test rapid motion events cancel and restart timer (no stacking)</idea>
+      <idea acRef="4">Test timer cancellation does not leave motion stuck on</idea>
+      <idea acRef="5">Test POST /api/v1/homekit/test-event returns success response</idea>
+      <idea acRef="5">Test invalid camera_id returns 404</idea>
+      <idea acRef="5">Test invalid event_type returns 422 validation error</idea>
+      <idea acRef="5">Test useHomekitTestEvent mutation hook triggers API call</idea>
+    </ideas>
+  </tests>
+</story-context>

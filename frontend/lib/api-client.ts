@@ -1906,6 +1906,29 @@ export const apiClient = {
         method: 'POST',
       });
     },
+
+    /**
+     * Trigger a test HomeKit event for debugging (Story P7-1.3)
+     * @param request Contains camera_id and event_type to trigger
+     * @returns Test event result with delivery confirmation
+     */
+    testEvent: async (request: {
+      camera_id: string;
+      event_type: 'motion' | 'occupancy' | 'vehicle' | 'animal' | 'package' | 'doorbell';
+    }): Promise<{
+      success: boolean;
+      message: string;
+      camera_id: string;
+      event_type: string;
+      sensor_name: string | null;
+      delivered_to_clients: number;
+      timestamp: string;
+    }> => {
+      return apiFetch('/homekit/test-event', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      });
+    },
   },
 
   // ============================================================================

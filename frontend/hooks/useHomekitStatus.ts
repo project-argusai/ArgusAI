@@ -1,11 +1,12 @@
 /**
- * useHomekitStatus hook (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2, P7-1.3, P7-1.4)
+ * useHomekitStatus hook (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2, P7-1.3, P7-1.4, P7-3.3)
  *
  * TanStack Query hook for fetching and managing HomeKit integration status.
  * Story P7-1.1 adds useHomekitDiagnostics hook for diagnostic data.
  * Story P7-1.2 adds useHomekitTestConnectivity hook for connectivity testing.
  * Story P7-1.3 adds useHomekitTestEvent hook for triggering test events.
  * Story P7-1.4 adds sensor_deliveries and camera_name to diagnostics.
+ * Story P7-3.3 adds useHomekitTestStream hook for camera stream testing.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
@@ -366,5 +367,50 @@ export function useHomekitTestEvent() {
       // Refresh diagnostics after a test event to show delivery confirmation
       queryClient.invalidateQueries({ queryKey: HOMEKIT_DIAGNOSTICS_KEY });
     },
+  });
+}
+
+// ============================================================================
+// Stream Test Types and Hooks (Story P7-3.3)
+// ============================================================================
+
+const HOMEKIT_STREAM_TEST_KEY = ['homekit', 'stream-test'];
+
+/**
+ * Stream test response (Story P7-3.3 AC3)
+ */
+export interface HomekitStreamTestResponse {
+  success: boolean;
+  rtsp_accessible: boolean;
+  ffmpeg_compatible: boolean;
+  source_resolution: string | null;
+  source_fps: number | null;
+  source_codec: string | null;
+  target_resolution: string | null;
+  target_fps: number | null;
+  target_bitrate: number | null;
+  estimated_latency_ms: number | null;
+  ffmpeg_command: string | null;
+  error: string | null;
+  test_duration_ms: number;
+}
+
+/**
+ * Test camera stream via the API (Story P7-3.3)
+ */
+async function testHomekitStream(cameraId: string): Promise<HomekitStreamTestResponse> {
+  return apiClient.homekit.testCameraStream(cameraId);
+}
+
+/**
+ * Hook for testing HomeKit camera streaming (Story P7-3.3 AC4)
+ *
+ * Uses a mutation pattern since stream tests are user-initiated
+ * and take time to complete.
+ */
+export function useHomekitTestStream() {
+  return useMutation({
+    mutationFn: testHomekitStream,
+    mutationKey: HOMEKIT_STREAM_TEST_KEY,
   });
 }

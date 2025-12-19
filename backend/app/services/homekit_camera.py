@@ -1,5 +1,5 @@
 """
-HomeKit Camera accessory with RTSP-to-SRTP streaming (Story P5-1.3, P7-3.1)
+HomeKit Camera accessory with RTSP-to-SRTP streaming (Story P5-1.3, P7-3.1, P7-3.3)
 
 Implements HAP-python Camera class with ffmpeg transcoding for HomeKit streaming.
 
@@ -7,6 +7,12 @@ Story P7-3.1 adds:
 - StreamQuality enum for configurable quality (low, medium, high)
 - StreamConfig dataclass for quality-to-settings mapping
 - Per-camera quality configuration from database
+
+Story P7-3.3 adds:
+- Enhanced stream logging with detailed session info
+- Stream duration tracking
+- ffmpeg command sanitization for debugging
+- Stream diagnostics per camera
 
 Stream Flow:
     HomeKit requests stream → start_stream(session_info, stream_config)
@@ -22,11 +28,13 @@ Stream Flow:
 import asyncio
 import logging
 import os
+import re
 import subprocess
 import threading
+import time
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from datetime import datetime
 
@@ -122,11 +130,19 @@ FFMPEG_PATH = os.environ.get("FFMPEG_PATH", "ffmpeg")
 
 @dataclass
 class StreamSession:
-    """Tracks an active streaming session."""
+    """
+    Tracks an active streaming session (Story P7-3.3 AC1).
+
+    Includes start time for duration tracking on stop.
+    """
     session_id: str
     camera_id: str
     process: Optional[subprocess.Popen] = None
-    started_at: Optional[float] = None
+    started_at: float = field(default_factory=time.time)
+    quality: str = "medium"
+    resolution: str = ""
+    fps: int = 0
+    bitrate: int = 0
 
 
 class HomeKitCameraAccessory:
@@ -269,9 +285,12 @@ class HomeKitCameraAccessory:
 
     async def _start_stream(self, session_info: dict, stream_config: dict) -> bool:
         """
-        Start streaming to HomeKit client (Story P5-1.3 AC2, AC3, P7-3.1 AC4).
+        Start streaming to HomeKit client (Story P5-1.3 AC2, AC3, P7-3.1 AC4, P7-3.3 AC1).
 
         Spawns ffmpeg to transcode RTSP to SRTP.
+
+        Story P7-3.3 AC1: Enhanced logging with session_id, camera_id, quality,
+        client_address, resolution, fps, bitrate.
 
         Args:
             session_info: Contains client address, ports, SRTP keys
@@ -285,15 +304,18 @@ class HomeKitCameraAccessory:
         # AC4: Check concurrent stream limit
         with self._stream_lock:
             if HomeKitCameraAccessory._active_stream_count >= MAX_CONCURRENT_STREAMS:
+                # Story P7-3.3 AC1: Enhanced rejection logging
                 logger.warning(
-                    f"HomeKit stream rejected: max concurrent streams ({MAX_CONCURRENT_STREAMS}) reached. "
-                    f"Camera: {self.camera_name} ({self.camera_id}), Session: {session_id}. "
-                    f"Close existing streams to allow new connections.",
+                    f"HomeKit stream rejected: max concurrent streams ({MAX_CONCURRENT_STREAMS}) reached",
                     extra={
+                        "event_type": "homekit_stream_rejected",
                         "camera_id": self.camera_id,
+                        "camera_name": self.camera_name,
                         "session_id": session_id,
+                        "client_address": session_info.get("address"),
                         "active_streams": HomeKitCameraAccessory._active_stream_count,
                         "max_streams": MAX_CONCURRENT_STREAMS,
+                        "reason": "concurrent_limit",
                     }
                 )
                 # P7-3.1 AC4: Record rejection in metrics
@@ -304,24 +326,36 @@ class HomeKitCameraAccessory:
             update_homekit_total_streams(HomeKitCameraAccessory._active_stream_count)
 
         try:
-            # Build ffmpeg command
-            cmd = self._build_ffmpeg_command(session_info, stream_config)
+            # Build ffmpeg command and get stream parameters
+            cmd, stream_params = self._build_ffmpeg_command_with_params(session_info, stream_config)
 
             if not cmd:
                 logger.error(
                     f"Failed to build ffmpeg command for camera {self.camera_id}",
-                    extra={"camera_id": self.camera_id, "session_id": session_id}
+                    extra={
+                        "event_type": "homekit_stream_error",
+                        "camera_id": self.camera_id,
+                        "session_id": session_id,
+                        "reason": "ffmpeg_command_failed",
+                    }
                 )
                 self._decrement_stream_count()
                 return False
 
+            # Story P7-3.3 AC1: Enhanced stream start logging with all required fields
             logger.info(
                 f"Starting HomeKit stream for camera {self.camera_name}",
                 extra={
+                    "event_type": "homekit_stream_start",
                     "camera_id": self.camera_id,
+                    "camera_name": self.camera_name,
                     "session_id": session_id,
+                    "quality": self._stream_quality,
                     "client_address": session_info.get("address"),
                     "video_port": session_info.get("v_port"),
+                    "resolution": stream_params.get("resolution"),
+                    "fps": stream_params.get("fps"),
+                    "bitrate": stream_params.get("bitrate"),
                 }
             )
 
@@ -333,11 +367,16 @@ class HomeKitCameraAccessory:
                 stdin=subprocess.DEVNULL,
             )
 
-            # Track session
+            # Track session with enhanced info (Story P7-3.3)
             session = StreamSession(
                 session_id=session_id,
                 camera_id=self.camera_id,
                 process=process,
+                started_at=time.time(),
+                quality=self._stream_quality,
+                resolution=stream_params.get("resolution", ""),
+                fps=stream_params.get("fps", 0),
+                bitrate=stream_params.get("bitrate", 0),
             )
             HomeKitCameraAccessory._active_sessions[session_id] = session
 
@@ -347,10 +386,15 @@ class HomeKitCameraAccessory:
             logger.info(
                 f"HomeKit stream started for camera {self.camera_name} (PID: {process.pid})",
                 extra={
+                    "event_type": "homekit_stream_started",
                     "camera_id": self.camera_id,
+                    "camera_name": self.camera_name,
                     "session_id": session_id,
                     "pid": process.pid,
                     "quality": self._stream_quality,
+                    "resolution": stream_params.get("resolution"),
+                    "fps": stream_params.get("fps"),
+                    "bitrate": stream_params.get("bitrate"),
                 }
             )
 
@@ -362,7 +406,13 @@ class HomeKitCameraAccessory:
         except Exception as e:
             logger.error(
                 f"Failed to start HomeKit stream: {e}",
-                extra={"camera_id": self.camera_id, "session_id": session_id}
+                extra={
+                    "event_type": "homekit_stream_error",
+                    "camera_id": self.camera_id,
+                    "session_id": session_id,
+                    "reason": "exception",
+                    "error": str(e),
+                }
             )
             # P7-3.1 AC4: Record error in metrics
             record_homekit_stream_start(self.camera_id, self._stream_quality, 'error')
@@ -371,9 +421,12 @@ class HomeKitCameraAccessory:
 
     async def _stop_stream(self, session_info: dict) -> None:
         """
-        Stop streaming to HomeKit client (Story P5-1.3 AC3).
+        Stop streaming to HomeKit client (Story P5-1.3 AC3, P7-3.3 AC1).
 
         Terminates ffmpeg subprocess cleanly.
+
+        Story P7-3.3 AC1: Enhanced logging with session_id, camera_id,
+        duration_seconds, and reason (normal/timeout/error).
 
         Args:
             session_info: Contains session details and process reference
@@ -381,14 +434,27 @@ class HomeKitCameraAccessory:
         session_id = session_info.get("session_id", "unknown")
         process = session_info.get("process")
 
+        # Get session info for duration calculation (Story P7-3.3)
+        session = HomeKitCameraAccessory._active_sessions.get(session_id)
+        duration_seconds = 0.0
+        if session and session.started_at:
+            duration_seconds = round(time.time() - session.started_at, 2)
+
         logger.info(
             f"Stopping HomeKit stream for camera {self.camera_name}",
-            extra={"camera_id": self.camera_id, "session_id": session_id}
+            extra={
+                "event_type": "homekit_stream_stopping",
+                "camera_id": self.camera_id,
+                "camera_name": self.camera_name,
+                "session_id": session_id,
+                "duration_seconds": duration_seconds,
+            }
         )
 
         # Remove from active sessions
         HomeKitCameraAccessory._active_sessions.pop(session_id, None)
 
+        stop_reason = "normal"
         if process:
             try:
                 # Try graceful termination first
@@ -397,22 +463,52 @@ class HomeKitCameraAccessory:
                     process.wait(timeout=2.0)
                 except subprocess.TimeoutExpired:
                     # Force kill if graceful termination fails
+                    stop_reason = "timeout"
                     logger.warning(
                         f"ffmpeg did not terminate gracefully, killing (PID: {process.pid})",
-                        extra={"camera_id": self.camera_id, "session_id": session_id}
+                        extra={
+                            "event_type": "homekit_stream_force_kill",
+                            "camera_id": self.camera_id,
+                            "session_id": session_id,
+                            "pid": process.pid,
+                        }
                     )
                     process.kill()
                     process.wait(timeout=1.0)
 
+                # Story P7-3.3 AC1: Enhanced stop logging with duration and reason
                 logger.info(
                     f"HomeKit stream stopped for camera {self.camera_name}",
-                    extra={"camera_id": self.camera_id, "session_id": session_id}
+                    extra={
+                        "event_type": "homekit_stream_stop",
+                        "camera_id": self.camera_id,
+                        "camera_name": self.camera_name,
+                        "session_id": session_id,
+                        "duration_seconds": duration_seconds,
+                        "reason": stop_reason,
+                    }
                 )
 
             except Exception as e:
+                stop_reason = "error"
+                # Story P7-3.3 AC1.4: Log ffmpeg stderr on failure
+                stderr_output = ""
+                if process and process.stderr:
+                    try:
+                        stderr_output = process.stderr.read().decode("utf-8", errors="replace")[:500]
+                    except Exception:
+                        pass
                 logger.error(
                     f"Error stopping ffmpeg process: {e}",
-                    extra={"camera_id": self.camera_id, "session_id": session_id}
+                    extra={
+                        "event_type": "homekit_stream_stop_error",
+                        "camera_id": self.camera_id,
+                        "session_id": session_id,
+                        "duration_seconds": duration_seconds,
+                        "reason": stop_reason,
+                        "error": str(e),
+                        "ffmpeg_stderr": stderr_output if stderr_output else None,
+                    }
                 )
 
         # AC4: Decrement stream count
@@ -427,20 +523,24 @@ class HomeKitCameraAccessory:
             # P7-3.1 AC4: Update total streams metric
             update_homekit_total_streams(HomeKitCameraAccessory._active_stream_count)
 
-    def _build_ffmpeg_command(self, session_info: dict, stream_config: dict) -> Optional[List[str]]:
+    def _build_ffmpeg_command_with_params(
+        self, session_info: dict, stream_config: dict
+    ) -> Tuple[Optional[List[str]], dict]:
         """
-        Build ffmpeg command for RTSP to SRTP transcoding (Story P5-1.3 AC2, P7-3.1 AC2, AC3).
+        Build ffmpeg command for RTSP to SRTP transcoding (Story P5-1.3 AC2, P7-3.1 AC2, AC3, P7-3.3).
 
         Uses quality-based configuration from self._stream_config when HomeKit
         doesn't specify explicit settings, ensuring consistent quality based
         on the camera's homekit_stream_quality database field.
+
+        Story P7-3.3: Returns both command and stream parameters for logging.
 
         Args:
             session_info: Client address, ports, SRTP keys
             stream_config: Video settings from HomeKit (may be empty/default)
 
         Returns:
-            List of command arguments for subprocess, or None on error
+            Tuple of (command list, stream params dict) or (None, {}) on error
         """
         try:
             # Extract session parameters
@@ -470,16 +570,22 @@ class HomeKitCameraAccessory:
             fps = min(fps, quality_config.fps)
             bitrate = min(bitrate, quality_config.bitrate)
 
+            # Story P7-3.3: Collect stream parameters for logging
+            stream_params = {
+                "resolution": f"{width}x{height}",
+                "fps": fps,
+                "bitrate": bitrate,
+                "width": width,
+                "height": height,
+            }
+
             logger.debug(
                 f"Building ffmpeg command with quality={self._stream_quality}: "
                 f"{width}x{height}@{fps}fps, {bitrate}kbps",
                 extra={
                     "camera_id": self.camera_id,
                     "quality": self._stream_quality,
-                    "width": width,
-                    "height": height,
-                    "fps": fps,
-                    "bitrate": bitrate,
+                    **stream_params,
                 }
             )
 
@@ -518,11 +624,92 @@ class HomeKitCameraAccessory:
                 f"srtp://{address}:{v_port}?rtcpport={v_port}&pkt_size=1316",
             ]
 
-            return cmd
+            return cmd, stream_params
 
         except Exception as e:
             logger.error(f"Error building ffmpeg command: {e}")
-            return None
+            return None, {}
+
+    def _build_ffmpeg_command(self, session_info: dict, stream_config: dict) -> Optional[List[str]]:
+        """
+        Build ffmpeg command for RTSP to SRTP transcoding (Story P5-1.3 AC2, P7-3.1 AC2, AC3).
+
+        Wrapper for backwards compatibility.
+
+        Args:
+            session_info: Client address, ports, SRTP keys
+            stream_config: Video settings from HomeKit (may be empty/default)
+
+        Returns:
+            List of command arguments for subprocess, or None on error
+        """
+        cmd, _ = self._build_ffmpeg_command_with_params(session_info, stream_config)
+        return cmd
+
+    @staticmethod
+    def sanitize_ffmpeg_command(cmd: List[str]) -> str:
+        """
+        Sanitize ffmpeg command for display, removing sensitive SRTP keys (Story P7-3.3 AC3).
+
+        Args:
+            cmd: Full ffmpeg command list
+
+        Returns:
+            Sanitized command string safe for logging/display
+        """
+        if not cmd:
+            return ""
+
+        sanitized = []
+        skip_next = False
+
+        for i, arg in enumerate(cmd):
+            if skip_next:
+                skip_next = False
+                sanitized.append("[REDACTED]")
+                continue
+
+            # Check if this is a sensitive parameter
+            if arg in ("-srtp_out_params", "-srtp_in_params"):
+                sanitized.append(arg)
+                skip_next = True
+                continue
+
+            # Sanitize RTSP URLs with credentials
+            if arg.startswith("rtsp://") and "@" in arg:
+                # Replace credentials in URL
+                sanitized.append(re.sub(r"://[^:]+:[^@]+@", "://[credentials]@", arg))
+            elif arg.startswith("srtp://"):
+                # Keep SRTP URL but note it contains encryption
+                sanitized.append(arg.split("?")[0] + "?[params]")
+            else:
+                sanitized.append(arg)
+
+        return " ".join(sanitized)
+
+    def get_stream_diagnostics(self) -> dict:
+        """
+        Get streaming diagnostics for this camera (Story P7-3.3 AC2).
+
+        Returns:
+            Dict with streaming_enabled, snapshot_supported, last_snapshot,
+            active_streams count, and current quality.
+        """
+        # Count active streams for this camera
+        active_count = sum(
+            1 for s in HomeKitCameraAccessory._active_sessions.values()
+            if s.camera_id == self.camera_id
+        )
+
+        return {
+            "camera_id": self.camera_id,
+            "camera_name": self.camera_name,
+            "streaming_enabled": True,
+            "snapshot_supported": self.snapshot_supported,
+            "last_snapshot": self._snapshot_timestamp.isoformat() if self._snapshot_timestamp else None,
+            "active_streams": active_count,
+            "quality": self._stream_quality,
+        }
 
     def _is_snapshot_cache_valid(self) -> bool:
         """

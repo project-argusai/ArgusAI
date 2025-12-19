@@ -1616,6 +1616,31 @@ export const apiClient = {
         body: JSON.stringify(request),
       });
     },
+
+    /**
+     * Test camera stream capability for HomeKit (Story P7-3.3)
+     * @param cameraId Camera ID to test
+     * @returns Stream test results with RTSP/ffmpeg status and sanitized command
+     */
+    testCameraStream: async (cameraId: string): Promise<{
+      success: boolean;
+      rtsp_accessible: boolean;
+      ffmpeg_compatible: boolean;
+      source_resolution: string | null;
+      source_fps: number | null;
+      source_codec: string | null;
+      target_resolution: string | null;
+      target_fps: number | null;
+      target_bitrate: number | null;
+      estimated_latency_ms: number | null;
+      ffmpeg_command: string | null;
+      error: string | null;
+      test_duration_ms: number;
+    }> => {
+      return apiFetch(`/homekit/cameras/${encodeURIComponent(cameraId)}/test-stream`, {
+        method: 'POST',
+      });
+    },
   },
 
   // ============================================================================

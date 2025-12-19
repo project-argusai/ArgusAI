@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * HomekitSettings component (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2)
+ * HomekitSettings component (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2, P7-3.3)
  *
  * Settings UI for HomeKit integration with enable toggle, pairing status,
  * QR code display, pairings list, and reset functionality.
@@ -16,6 +16,9 @@
  *
  * Story P7-1.2 additions:
  * - Connectivity test button (AC6)
+ *
+ * Story P7-3.3 additions:
+ * - Stream test button for camera diagnostics (AC4)
  */
 import React, { useState } from 'react';
 import {
@@ -25,8 +28,10 @@ import {
   useHomekitPairings,
   useHomekitRemovePairing,
   useHomekitTestConnectivity,
+  useHomekitTestStream,
   type HomekitPairing,
   type HomekitConnectivityTestResponse,
+  type HomekitStreamTestResponse,
 } from '@/hooks/useHomekitStatus';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -45,7 +50,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Loader2, AlertCircle, Check, X, RotateCcw, Smartphone, Trash2, Users, Shield, User, Wifi, WifiOff, Network } from 'lucide-react';
+import { Loader2, AlertCircle, Check, X, RotateCcw, Smartphone, Trash2, Users, Shield, User, Wifi, WifiOff, Network, Video, Play } from 'lucide-react';
 import { HomeKitDiagnostics } from './HomeKitDiagnostics';
 
 /**
@@ -163,6 +168,160 @@ function ConnectivityTest({ enabled }: { enabled: boolean }) {
 
           <div className="text-xs text-muted-foreground text-right">
             Test completed in {results.test_duration_ms}ms
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * StreamTest subcomponent (Story P7-3.3 AC4)
+ *
+ * Button to run camera stream test and display results including
+ * RTSP accessibility, ffmpeg compatibility, and sanitized command.
+ */
+function StreamTest({ cameraId, cameraName, enabled }: {
+  cameraId: string;
+  cameraName: string;
+  enabled: boolean;
+}) {
+  const testMutation = useHomekitTestStream();
+  const [showResults, setShowResults] = useState(false);
+
+  const handleTest = async () => {
+    try {
+      await testMutation.mutateAsync(cameraId);
+      setShowResults(true);
+    } catch (err) {
+      console.error('Stream test failed:', err);
+      setShowResults(true);
+    }
+  };
+
+  const results = testMutation.data;
+
+  return (
+    <div className="space-y-3">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleTest}
+        disabled={!enabled || testMutation.isPending}
+      >
+        {testMutation.isPending ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Testing stream...
+          </>
+        ) : (
+          <>
+            <Play className="h-4 w-4 mr-2" />
+            Test Stream
+          </>
+        )}
+      </Button>
+
+      {showResults && results && (
+        <div className="border rounded-lg p-3 space-y-2 bg-muted/30 text-sm">
+          <div className="flex items-center justify-between">
+            <h6 className="font-medium">Stream Test: {cameraName}</h6>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowResults(false)}
+              className="h-6 w-6 p-0"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {/* Overall Status */}
+          <div className="flex items-center gap-2">
+            {results.success ? (
+              <>
+                <Check className="h-4 w-4 text-green-500" />
+                <span className="text-green-600">Stream test passed</span>
+              </>
+            ) : (
+              <>
+                <X className="h-4 w-4 text-red-500" />
+                <span className="text-red-600">Stream test failed</span>
+              </>
+            )}
+          </div>
+
+          {/* Test Results Grid */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="flex items-center gap-1">
+              {results.rtsp_accessible ? (
+                <Check className="h-3 w-3 text-green-500" />
+              ) : (
+                <X className="h-3 w-3 text-red-500" />
+              )}
+              <span>RTSP</span>
+              <Badge variant={results.rtsp_accessible ? "default" : "destructive"} className="ml-auto text-xs">
+                {results.rtsp_accessible ? 'Accessible' : 'Failed'}
+              </Badge>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {results.ffmpeg_compatible ? (
+                <Check className="h-3 w-3 text-green-500" />
+              ) : (
+                <X className="h-3 w-3 text-red-500" />
+              )}
+              <span>ffmpeg</span>
+              <Badge variant={results.ffmpeg_compatible ? "default" : "destructive"} className="ml-auto text-xs">
+                {results.ffmpeg_compatible ? 'Ready' : 'Not Ready'}
+              </Badge>
+            </div>
+          </div>
+
+          {/* Stream Info */}
+          {results.source_resolution && (
+            <div className="text-xs text-muted-foreground space-y-1">
+              <div>
+                <span className="font-medium">Source:</span>{' '}
+                {results.source_resolution} @ {results.source_fps}fps ({results.source_codec})
+              </div>
+              {results.target_resolution && (
+                <div>
+                  <span className="font-medium">Target:</span>{' '}
+                  {results.target_resolution} @ {results.target_fps}fps, {results.target_bitrate}kbps
+                </div>
+              )}
+              {results.estimated_latency_ms && (
+                <div>
+                  <span className="font-medium">Est. Latency:</span>{' '}
+                  {results.estimated_latency_ms}ms
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Error Display */}
+          {results.error && (
+            <Alert variant="destructive" className="py-2">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">{results.error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* ffmpeg Command */}
+          {results.ffmpeg_command && (
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+                View ffmpeg command (debug)
+              </summary>
+              <code className="block mt-1 p-2 bg-muted rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                {results.ffmpeg_command}
+              </code>
+            </details>
+          )}
+
+          <div className="text-xs text-muted-foreground text-right">
+            Completed in {results.test_duration_ms}ms
           </div>
         </div>
       )}

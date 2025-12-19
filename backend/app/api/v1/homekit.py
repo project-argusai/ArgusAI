@@ -1,5 +1,5 @@
 """
-HomeKit API endpoints (Story P5-1.1, P5-1.8, P7-1.1, P7-1.2, P7-3.2)
+HomeKit API endpoints (Story P5-1.1, P5-1.8, P7-1.1, P7-1.2, P7-3.2, P7-3.3)
 
 Endpoints for HomeKit bridge configuration and management:
 - GET /api/v1/homekit/status - Get HomeKit bridge status
@@ -12,6 +12,7 @@ Endpoints for HomeKit bridge configuration and management:
 - GET /api/v1/homekit/diagnostics - Get diagnostic info (Story P7-1.1)
 - POST /api/v1/homekit/test-connectivity - Test mDNS and port accessibility (Story P7-1.2)
 - GET /api/v1/homekit/cameras/{camera_id}/snapshot - Get camera snapshot (Story P7-3.2)
+- POST /api/v1/homekit/cameras/{camera_id}/test-stream - Test camera streaming (Story P7-3.3)
 """
 import logging
 from typing import Optional, List
@@ -26,7 +27,11 @@ from app.models.homekit import HomeKitConfig, HomeKitAccessory
 from app.models.camera import Camera
 from app.services.homekit_service import get_homekit_service, HomekitStatus
 from app.config.homekit import generate_pincode
-from app.schemas.homekit_diagnostics import HomeKitDiagnosticsResponse, HomeKitConnectivityTestResponse
+from app.schemas.homekit_diagnostics import (
+    HomeKitDiagnosticsResponse,
+    HomeKitConnectivityTestResponse,
+    StreamTestResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -828,4 +833,79 @@ async def get_camera_snapshot(camera_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get snapshot: {str(e)}"
+        )
+
+
+# ============================================================================
+# Camera Stream Test Endpoint (Story P7-3.3)
+# ============================================================================
+
+
+@router.post("/cameras/{camera_id}/test-stream", response_model=StreamTestResponse)
+async def test_camera_stream(camera_id: str):
+    """
+    Test camera streaming capability for HomeKit (Story P7-3.3 AC3).
+
+    Validates RTSP accessibility and ffmpeg compatibility without actually
+    starting a stream. Returns diagnostic information including a sanitized
+    ffmpeg command (SRTP keys removed) for debugging.
+
+    Args:
+        camera_id: Camera ID (UUID format)
+
+    Returns:
+        StreamTestResponse with test results:
+        - success: Overall test pass/fail
+        - rtsp_accessible: Whether RTSP stream is reachable
+        - ffmpeg_compatible: Whether ffmpeg can process the stream
+        - source_resolution/fps/codec: Detected stream properties
+        - target_resolution/fps/bitrate: Configured HomeKit output settings
+        - estimated_latency_ms: Expected stream latency
+        - ffmpeg_command: Sanitized command for debugging (no SRTP keys)
+        - error: Error message if test failed
+
+    Raises:
+        404: Camera not found in HomeKit bridge
+        503: HomeKit bridge is not running
+        500: Internal error
+    """
+    try:
+        service = get_homekit_service()
+
+        if not service.is_running:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="HomeKit bridge is not running"
+            )
+
+        # Run stream test
+        result = await service.test_camera_stream(camera_id)
+
+        # If camera not found, return 404
+        if result.error and "not found" in result.error.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=result.error
+            )
+
+        logger.info(
+            f"Stream test completed for camera {camera_id}",
+            extra={
+                "camera_id": camera_id,
+                "success": result.success,
+                "rtsp_accessible": result.rtsp_accessible,
+                "ffmpeg_compatible": result.ffmpeg_compatible,
+                "test_duration_ms": result.test_duration_ms,
+            }
+        )
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to test camera stream: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to test stream: {str(e)}"
         )

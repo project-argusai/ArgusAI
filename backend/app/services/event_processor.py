@@ -1088,13 +1088,22 @@ class EventProcessor:
                         )
 
                     # AC3: Package detection triggers only package sensor
+                    # Story P7-2.3: Pass carrier to HomeKit for logging
                     if smart_detection_type == "package":
+                        delivery_carrier = getattr(event, 'delivery_carrier', None)
                         asyncio.create_task(
-                            self._trigger_homekit_package(homekit_service, event.camera_id, event_id)
+                            self._trigger_homekit_package(
+                                homekit_service, event.camera_id, event_id, delivery_carrier
+                            )
                         )
                         logger.debug(
                             f"HomeKit package trigger task created for event {event_id}",
-                            extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                            extra={
+                                "event_id": event_id,
+                                "camera_id": event.camera_id,
+                                "smart_detection_type": smart_detection_type,
+                                "delivery_carrier": delivery_carrier
+                            }
                         )
             except Exception as homekit_error:
                 # HomeKit failures must not block event processing (AC6)
@@ -1685,30 +1694,40 @@ class EventProcessor:
         self,
         homekit_service,
         camera_id: str,
-        event_id: str
+        event_id: str,
+        delivery_carrier: Optional[str] = None
     ) -> None:
         """
-        Trigger HomeKit package sensor for package detection (Story P5-1.6 AC3).
+        Trigger HomeKit package sensor for package detection (Story P5-1.6 AC3, P7-2.3).
 
         This is a fire-and-forget async task. Errors are logged but not propagated.
         Only called when smart_detection_type == 'package'.
         Package sensor has a longer timeout (60s) since packages persist.
 
+        Story P7-2.3: Pass carrier info to HomeKit service for logging.
+
         Args:
             homekit_service: HomekitService instance
             camera_id: Camera identifier
             event_id: Event ID for logging
+            delivery_carrier: Optional carrier name (fedex, ups, usps, amazon, dhl)
         """
         try:
-            success = homekit_service.trigger_package(camera_id, event_id=event_id)
+            # Story P7-2.3: Pass carrier to trigger_package for logging
+            success = homekit_service.trigger_package(
+                camera_id, event_id=event_id, delivery_carrier=delivery_carrier
+            )
 
             if success:
+                # Story P7-2.3 AC2, AC4: Log carrier info for debugging
                 logger.info(
-                    f"HomeKit package triggered for package detection",
+                    f"HomeKit package triggered for package detection"
+                    + (f" (carrier: {delivery_carrier})" if delivery_carrier else ""),
                     extra={
                         "event_type": "homekit_package_triggered",
                         "event_id": event_id,
-                        "camera_id": camera_id
+                        "camera_id": camera_id,
+                        "delivery_carrier": delivery_carrier
                     }
                 )
             else:
@@ -1717,7 +1736,8 @@ class EventProcessor:
                     extra={
                         "event_type": "homekit_package_no_sensor",
                         "event_id": event_id,
-                        "camera_id": camera_id
+                        "camera_id": camera_id,
+                        "delivery_carrier": delivery_carrier
                     }
                 )
         except Exception as e:
@@ -1727,6 +1747,7 @@ class EventProcessor:
                     "event_type": "homekit_package_error",
                     "event_id": event_id,
                     "camera_id": camera_id,
+                    "delivery_carrier": delivery_carrier,
                     "error": str(e)
                 }
             )

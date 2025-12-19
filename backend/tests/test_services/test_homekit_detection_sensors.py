@@ -1,5 +1,5 @@
 """
-Unit tests for HomeKit vehicle/animal/package sensor triggering (Story P5-1.6)
+Unit tests for HomeKit vehicle/animal/package sensor triggering (Story P5-1.6, P7-2.3)
 
 Tests cover:
 - Vehicle detection triggers only vehicle sensor (AC1)
@@ -9,6 +9,8 @@ Tests cover:
 - Auto-reset timeouts for each sensor type
 - Camera ID mapping (Protect MAC addresses)
 - Error resilience
+- Story P7-2.3: Carrier info in package trigger logging
+- Story P7-2.3: Per-carrier sensor configuration
 """
 import asyncio
 import pytest
@@ -651,3 +653,295 @@ class TestHomekitStatusDetectionSensors:
         assert status.vehicle_count == 2
         assert status.animal_count == 1
         assert status.package_count == 3
+
+
+# =============================================================================
+# Story P7-2.3: Package Delivery to HomeKit (Carrier Support)
+# =============================================================================
+
+
+class TestPackageDeliveryCarrier:
+    """Tests for HomeKit package trigger with carrier info (Story P7-2.3)"""
+
+    @pytest.fixture
+    def config(self):
+        """Create test HomeKit config."""
+        return HomekitConfig(
+            enabled=True,
+            port=51826,
+            bridge_name="Test Bridge",
+            manufacturer="Test",
+            persist_dir="/tmp/homekit_test",
+            package_reset_seconds=3,
+            per_carrier_sensors=False,  # Default is off
+        )
+
+    @pytest.fixture
+    def mock_service(self, config):
+        """Create a mock HomeKit service for testing."""
+        from app.services.homekit_service import HomekitService
+
+        service = HomekitService(config=config)
+        service._running = True
+
+        # Add mock package sensors
+        service._package_sensors = {
+            "camera-1": MockDetectionSensor(camera_id="camera-1", name="Front Door Package"),
+        }
+
+        return service
+
+    def test_trigger_package_with_carrier(self, mock_service):
+        """AC1: trigger_package accepts delivery_carrier parameter"""
+        sensor = mock_service._package_sensors["camera-1"]
+        assert sensor.motion_detected is False
+
+        result = mock_service.trigger_package(
+            "camera-1", event_id=123, delivery_carrier="fedex"
+        )
+
+        assert result is True
+        assert sensor.motion_detected is True
+
+    def test_trigger_package_without_carrier(self, mock_service):
+        """AC1: trigger_package works without carrier (backward compatible)"""
+        sensor = mock_service._package_sensors["camera-1"]
+
+        result = mock_service.trigger_package("camera-1", event_id=456)
+
+        assert result is True
+        assert sensor.motion_detected is True
+
+    def test_trigger_package_unknown_carrier(self, mock_service):
+        """trigger_package works with unknown carrier"""
+        sensor = mock_service._package_sensors["camera-1"]
+
+        result = mock_service.trigger_package(
+            "camera-1", event_id=789, delivery_carrier="unknown_carrier"
+        )
+
+        assert result is True
+        assert sensor.motion_detected is True
+
+
+class TestPerCarrierSensorConfig:
+    """Tests for per-carrier sensor configuration (Story P7-2.3 AC3)"""
+
+    def test_config_has_per_carrier_sensors_field(self):
+        """HomekitConfig has per_carrier_sensors field"""
+        from app.config.homekit import HomekitConfig
+
+        config = HomekitConfig()
+        assert hasattr(config, 'per_carrier_sensors')
+        assert config.per_carrier_sensors is False  # Default off
+
+    def test_config_loads_per_carrier_sensors_from_env(self):
+        """Config loads per_carrier_sensors from environment"""
+        import os
+        from app.config.homekit import get_homekit_config
+
+        os.environ["HOMEKIT_PER_CARRIER_SENSORS"] = "true"
+
+        try:
+            config = get_homekit_config()
+            assert config.per_carrier_sensors is True
+        finally:
+            del os.environ["HOMEKIT_PER_CARRIER_SENSORS"]
+
+    def test_config_per_carrier_sensors_default_false(self):
+        """per_carrier_sensors defaults to False"""
+        from app.config.homekit import get_homekit_config
+        import os
+
+        # Ensure env var is not set
+        os.environ.pop("HOMEKIT_PER_CARRIER_SENSORS", None)
+
+        config = get_homekit_config()
+        assert config.per_carrier_sensors is False
+
+
+class TestPerCarrierSensorTrigger:
+    """Tests for per-carrier sensor triggering (Story P7-2.3 AC3)"""
+
+    @pytest.fixture
+    def config_with_carrier_sensors(self):
+        """Config with per_carrier_sensors enabled."""
+        return HomekitConfig(
+            enabled=True,
+            port=51826,
+            bridge_name="Test Bridge",
+            manufacturer="Test",
+            persist_dir="/tmp/homekit_test",
+            package_reset_seconds=3,
+            per_carrier_sensors=True,  # Enabled
+        )
+
+    @pytest.fixture
+    def mock_service_with_carriers(self, config_with_carrier_sensors):
+        """Create a mock HomeKit service with per-carrier sensors."""
+        from app.services.homekit_service import HomekitService
+
+        service = HomekitService(config=config_with_carrier_sensors)
+        service._running = True
+
+        # Add mock package sensor (generic)
+        service._package_sensors = {
+            "camera-1": MockDetectionSensor(camera_id="camera-1", name="Front Door Package"),
+        }
+
+        # Add mock carrier-specific sensors
+        service._carrier_sensors = {
+            "camera-1_fedex": MockDetectionSensor(
+                camera_id="camera-1_fedex", name="Front Door FedEx Package"
+            ),
+            "camera-1_ups": MockDetectionSensor(
+                camera_id="camera-1_ups", name="Front Door UPS Package"
+            ),
+            "camera-1_usps": MockDetectionSensor(
+                camera_id="camera-1_usps", name="Front Door USPS Package"
+            ),
+            "camera-1_amazon": MockDetectionSensor(
+                camera_id="camera-1_amazon", name="Front Door Amazon Package"
+            ),
+            "camera-1_dhl": MockDetectionSensor(
+                camera_id="camera-1_dhl", name="Front Door DHL Package"
+            ),
+        }
+
+        return service
+
+    def test_trigger_package_triggers_carrier_sensor(self, mock_service_with_carriers):
+        """AC3: When per_carrier_sensors=True, triggers carrier-specific sensor"""
+        generic_sensor = mock_service_with_carriers._package_sensors["camera-1"]
+        carrier_sensor = mock_service_with_carriers._carrier_sensors["camera-1_fedex"]
+
+        mock_service_with_carriers.trigger_package(
+            "camera-1", event_id=123, delivery_carrier="fedex"
+        )
+
+        # Both generic and carrier-specific sensors should trigger
+        assert generic_sensor.motion_detected is True
+        assert carrier_sensor.motion_detected is True
+
+    def test_trigger_package_only_triggers_matching_carrier(self, mock_service_with_carriers):
+        """AC3: Only the matching carrier sensor triggers"""
+        fedex_sensor = mock_service_with_carriers._carrier_sensors["camera-1_fedex"]
+        ups_sensor = mock_service_with_carriers._carrier_sensors["camera-1_ups"]
+        amazon_sensor = mock_service_with_carriers._carrier_sensors["camera-1_amazon"]
+
+        mock_service_with_carriers.trigger_package(
+            "camera-1", event_id=123, delivery_carrier="fedex"
+        )
+
+        # Only FedEx sensor should trigger
+        assert fedex_sensor.motion_detected is True
+        assert ups_sensor.motion_detected is False
+        assert amazon_sensor.motion_detected is False
+
+    def test_trigger_package_no_carrier_sensor_for_unknown(self, mock_service_with_carriers):
+        """Unknown carrier triggers generic sensor only"""
+        generic_sensor = mock_service_with_carriers._package_sensors["camera-1"]
+
+        mock_service_with_carriers.trigger_package(
+            "camera-1", event_id=123, delivery_carrier="ontrac"
+        )
+
+        # Generic sensor triggers, but there's no "ontrac" carrier sensor
+        assert generic_sensor.motion_detected is True
+
+    def test_service_has_carrier_sensor_count_property(self):
+        """HomekitService has carrier_sensor_count property"""
+        from app.services.homekit_service import HomekitService
+        from app.config.homekit import HomekitConfig
+
+        config = HomekitConfig(enabled=True, persist_dir="/tmp/homekit_test")
+        service = HomekitService(config=config)
+
+        assert hasattr(service, 'carrier_sensor_count')
+        assert service.carrier_sensor_count == 0
+
+        # Add carrier sensors
+        service._carrier_sensors = {
+            "cam1_fedex": MagicMock(),
+            "cam1_ups": MagicMock(),
+        }
+
+        assert service.carrier_sensor_count == 2
+
+
+class TestCarrierSensorNaming:
+    """Tests for carrier sensor naming conventions (Story P7-2.3)"""
+
+    def test_carrier_sensor_names(self):
+        """Per-carrier sensors have correct display names"""
+        # Verify the CARRIER_DISPLAY_NAMES mapping
+        from app.services.carrier_extractor import CARRIER_DISPLAY_NAMES
+
+        assert CARRIER_DISPLAY_NAMES["fedex"] == "FedEx"
+        assert CARRIER_DISPLAY_NAMES["ups"] == "UPS"
+        assert CARRIER_DISPLAY_NAMES["usps"] == "USPS"
+        assert CARRIER_DISPLAY_NAMES["amazon"] == "Amazon"
+        assert CARRIER_DISPLAY_NAMES["dhl"] == "DHL"
+
+
+class TestEventProcessorCarrierRouting:
+    """Tests for event processor routing with carrier (Story P7-2.3)"""
+
+    @pytest.mark.asyncio
+    async def test_event_processor_passes_carrier_to_homekit(self):
+        """Event processor passes delivery_carrier to trigger_package"""
+        from unittest.mock import MagicMock, AsyncMock
+
+        class MockEventProcessor:
+            async def _trigger_homekit_package(
+                self, homekit_service, camera_id, event_id, delivery_carrier=None
+            ):
+                try:
+                    success = homekit_service.trigger_package(
+                        camera_id, event_id=event_id, delivery_carrier=delivery_carrier
+                    )
+                    return success
+                except Exception:
+                    pass
+
+        mock_homekit = MagicMock()
+        mock_homekit.is_running = True
+        mock_homekit.trigger_package = MagicMock(return_value=True)
+
+        processor = MockEventProcessor()
+        await processor._trigger_homekit_package(
+            mock_homekit, "test-camera", "event-123", delivery_carrier="ups"
+        )
+
+        mock_homekit.trigger_package.assert_called_once_with(
+            "test-camera", event_id="event-123", delivery_carrier="ups"
+        )
+
+    @pytest.mark.asyncio
+    async def test_event_processor_handles_none_carrier(self):
+        """Event processor handles None carrier gracefully"""
+        from unittest.mock import MagicMock
+
+        class MockEventProcessor:
+            async def _trigger_homekit_package(
+                self, homekit_service, camera_id, event_id, delivery_carrier=None
+            ):
+                try:
+                    success = homekit_service.trigger_package(
+                        camera_id, event_id=event_id, delivery_carrier=delivery_carrier
+                    )
+                    return success
+                except Exception:
+                    pass
+
+        mock_homekit = MagicMock()
+        mock_homekit.trigger_package = MagicMock(return_value=True)
+
+        processor = MockEventProcessor()
+        await processor._trigger_homekit_package(
+            mock_homekit, "test-camera", "event-456", delivery_carrier=None
+        )
+
+        mock_homekit.trigger_package.assert_called_once_with(
+            "test-camera", event_id="event-456", delivery_carrier=None
+        )

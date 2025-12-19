@@ -257,6 +257,7 @@ class HomekitConfig:
         diagnostic_log_size: Maximum diagnostic log entries to retain (Story P7-1.1)
         bind_address: IP address to bind the HAP server to (Story P7-1.2)
         mdns_interface: Network interface for mDNS advertisement (Story P7-1.2)
+        per_carrier_sensors: Create separate package sensors per carrier (Story P7-2.3)
     """
     enabled: bool = False
     port: int = DEFAULT_HOMEKIT_PORT
@@ -274,6 +275,7 @@ class HomekitConfig:
     diagnostic_log_size: int = DEFAULT_DIAGNOSTIC_LOG_SIZE
     bind_address: str = DEFAULT_BIND_ADDRESS
     mdns_interface: Optional[str] = None
+    per_carrier_sensors: bool = False  # Story P7-2.3: Create per-carrier package sensors
 
     @property
     def persist_file(self) -> str:
@@ -313,6 +315,7 @@ def get_homekit_config() -> HomekitConfig:
         HOMEKIT_DIAGNOSTIC_LOG_SIZE: Max diagnostic log entries (default: 100, Story P7-1.1)
         HOMEKIT_BIND_ADDRESS: IP address to bind HAP server (default: 0.0.0.0, Story P7-1.2)
         HOMEKIT_MDNS_INTERFACE: Network interface for mDNS (default: None, Story P7-1.2)
+        HOMEKIT_PER_CARRIER_SENSORS: Create per-carrier package sensors (default: false, Story P7-2.3)
 
     Returns:
         HomekitConfig: Configuration instance
@@ -334,4 +337,5 @@ def get_homekit_config() -> HomekitConfig:
         diagnostic_log_size=int(os.getenv("HOMEKIT_DIAGNOSTIC_LOG_SIZE", str(DEFAULT_DIAGNOSTIC_LOG_SIZE))),
         bind_address=os.getenv("HOMEKIT_BIND_ADDRESS", DEFAULT_BIND_ADDRESS),
         mdns_interface=os.getenv("HOMEKIT_MDNS_INTERFACE"),
+        per_carrier_sensors=os.getenv("HOMEKIT_PER_CARRIER_SENSORS", "false").lower() in ("true", "1", "yes"),
     )

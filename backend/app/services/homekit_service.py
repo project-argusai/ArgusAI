@@ -1,5 +1,5 @@
 """
-HomeKit service for Apple Home integration (Story P4-6.1, P4-6.2, P5-1.2, P5-1.3, P5-1.5, P5-1.6, P5-1.7, P7-1.1, P7-1.2)
+HomeKit service for Apple Home integration (Story P4-6.1, P4-6.2, P5-1.2, P5-1.3, P5-1.5, P5-1.6, P5-1.7, P7-1.1, P7-1.2, P7-2.3)
 
 Manages the HAP-python accessory server and exposes cameras as motion sensors.
 Story P4-6.2 adds motion event triggering with auto-reset timers.
@@ -10,6 +10,7 @@ Story P5-1.6 adds vehicle/animal/package sensors for detection-type-specific aut
 Story P5-1.7 adds doorbell sensors for Protect doorbell ring events.
 Story P7-1.1 adds comprehensive diagnostic logging for troubleshooting.
 Story P7-1.2 adds network binding configuration and connectivity testing.
+Story P7-2.3 adds carrier-aware package sensors and per-carrier sensor support.
 """
 import asyncio
 import logging
@@ -157,6 +158,11 @@ class HomekitService:
         # Story P5-1.7: Doorbell sensors (stateless - no reset timers needed)
         self._doorbell_sensors: Dict[str, CameraDoorbellSensor] = {}
 
+        # Story P7-2.3: Per-carrier package sensors (key: "{camera_id}_{carrier}")
+        # When config.per_carrier_sensors=True, separate sensors created per carrier
+        self._carrier_sensors: Dict[str, CameraPackageSensor] = {}
+        self._carrier_reset_tasks: Dict[str, asyncio.Task] = {}
+
         # Story P7-1.1: Initialize diagnostic handler
         self._diagnostic_handler: HomekitDiagnosticHandler = get_diagnostic_handler(
             max_entries=self.config.diagnostic_log_size
@@ -227,6 +233,11 @@ class HomekitService:
     def doorbell_count(self) -> int:
         """Get the number of registered doorbell sensor accessories (Story P5-1.7)."""
         return len(self._doorbell_sensors)
+
+    @property
+    def carrier_sensor_count(self) -> int:
+        """Get the number of registered per-carrier package sensors (Story P7-2.3)."""
+        return len(self._carrier_sensors)
 
     @property
     def pincode(self) -> str:
@@ -668,6 +679,10 @@ class HomekitService:
                     self._bridge.add_accessory(package_sensor.accessory)
                     logger.info(f"Added HomeKit package sensor for camera: {camera_name}")
 
+                # Story P7-2.3: Add per-carrier package sensors if enabled
+                if self.config.per_carrier_sensors:
+                    self._create_carrier_sensors(camera_id, camera_name)
+
                 # Story P5-1.7: Add doorbell sensor only for doorbell cameras
                 if hasattr(camera, 'is_doorbell') and camera.is_doorbell:
                     doorbell_sensor = create_doorbell_sensor(
@@ -716,17 +731,21 @@ class HomekitService:
             self._mdns_advertising = True  # Story P7-1.1: Track mDNS state
 
             # Story P7-1.1 AC1: Log lifecycle completion with full details
+            # Story P7-2.3: Include carrier sensor count
             logger.info(
                 f"HomeKit accessory server started on port {self.config.port} "
                 f"with {len(self._sensors)} motion sensors, {len(self._occupancy_sensors)} occupancy sensors, "
-                f"{len(self._doorbell_sensors)} doorbell sensors, and {len(self._cameras)} cameras",
+                f"{len(self._doorbell_sensors)} doorbell sensors, {len(self._carrier_sensors)} carrier sensors, "
+                f"and {len(self._cameras)} cameras",
                 extra={
                     "diagnostic_category": "lifecycle",
                     "port": self.config.port,
                     "motion_count": len(self._sensors),
                     "occupancy_count": len(self._occupancy_sensors),
                     "doorbell_count": len(self._doorbell_sensors),
+                    "carrier_sensor_count": len(self._carrier_sensors),
                     "camera_count": len(self._cameras),
+                    "per_carrier_sensors_enabled": self.config.per_carrier_sensors,
                 }
             )
 
@@ -1424,16 +1443,26 @@ class HomekitService:
         except asyncio.CancelledError:
             pass
 
-    def trigger_package(self, camera_id: str, event_id: Optional[int] = None) -> bool:
+    def trigger_package(
+        self,
+        camera_id: str,
+        event_id: Optional[int] = None,
+        delivery_carrier: Optional[str] = None
+    ) -> bool:
         """
-        Trigger package detection for a camera (Story P5-1.6 AC3).
+        Trigger package detection for a camera (Story P5-1.6 AC3, P7-2.3).
 
         Sets motion_detected = True and starts auto-reset timer.
         Package sensor has a longer timeout (60s) since packages persist.
 
+        Story P7-2.3 adds carrier logging for debugging package deliveries.
+        When per_carrier_sensors is enabled, also triggers a carrier-specific sensor.
+
         Args:
             camera_id: Camera identifier (UUID or MAC address)
             event_id: Optional event ID for logging
+            delivery_carrier: Optional carrier name (fedex, ups, usps, amazon, dhl)
+                             from carrier extractor service (Story P7-2.3 AC2, AC4)
 
         Returns:
             True if package detection triggered successfully
@@ -1444,7 +1473,13 @@ class HomekitService:
         if not sensor:
             logger.debug(
                 f"No HomeKit package sensor found for camera: {camera_id}",
-                extra={"camera_id": camera_id, "event_id": event_id}
+                extra={
+                    "diagnostic_category": "event",
+                    "camera_id": camera_id,
+                    "event_id": event_id,
+                    "delivery_carrier": delivery_carrier,
+                    "sensor_type": "package"
+                }
             )
             return False
 
@@ -1456,12 +1491,156 @@ class HomekitService:
         # Start new reset timer
         self._start_package_reset_timer(resolved_id)
 
+        # Story P7-2.3 AC3: Trigger carrier-specific sensor if configured
+        carrier_triggered = False
+        if self.config.per_carrier_sensors and delivery_carrier:
+            carrier_triggered = self._trigger_carrier_sensor(
+                resolved_id, delivery_carrier, event_id
+            )
+
+        # Story P7-2.3 AC2, AC4: Log carrier info for debugging
         logger.info(
-            f"HomeKit package triggered for camera: {sensor.name}",
-            extra={"camera_id": camera_id, "event_id": event_id, "timeout": self.config.package_reset_seconds}
+            f"HomeKit package triggered for camera: {sensor.name}"
+            + (f" (carrier: {delivery_carrier})" if delivery_carrier else ""),
+            extra={
+                "diagnostic_category": "event",
+                "camera_id": camera_id,
+                "event_id": event_id,
+                "sensor_type": "package",
+                "delivery_carrier": delivery_carrier,
+                "carrier_sensor_triggered": carrier_triggered,
+                "timeout": self.config.package_reset_seconds,
+                "delivered": True
+            }
         )
 
         return True
+
+    def _trigger_carrier_sensor(
+        self,
+        camera_id: str,
+        carrier: str,
+        event_id: Optional[int] = None
+    ) -> bool:
+        """
+        Trigger a carrier-specific package sensor (Story P7-2.3 AC3).
+
+        Args:
+            camera_id: Resolved camera identifier
+            carrier: Carrier name (fedex, ups, usps, amazon, dhl)
+            event_id: Optional event ID for logging
+
+        Returns:
+            True if carrier sensor was triggered
+        """
+        # Generate carrier sensor key
+        carrier_key = f"{camera_id}_{carrier}"
+        carrier_sensor = self._carrier_sensors.get(carrier_key)
+
+        if not carrier_sensor:
+            logger.debug(
+                f"No per-carrier sensor found for {carrier} on camera {camera_id}",
+                extra={
+                    "diagnostic_category": "event",
+                    "camera_id": camera_id,
+                    "carrier": carrier,
+                    "carrier_key": carrier_key,
+                    "event_id": event_id
+                }
+            )
+            return False
+
+        carrier_sensor.trigger_motion()
+
+        # Cancel existing carrier reset timer if any
+        if carrier_key in self._carrier_reset_tasks:
+            task = self._carrier_reset_tasks.pop(carrier_key)
+            if not task.done():
+                task.cancel()
+
+        # Start new reset timer for carrier sensor
+        try:
+            loop = asyncio.get_running_loop()
+            task = loop.create_task(
+                self._carrier_reset_coroutine(carrier_key),
+                name=f"homekit_carrier_reset_{carrier_key}"
+            )
+            self._carrier_reset_tasks[carrier_key] = task
+        except RuntimeError:
+            logger.debug("Could not start carrier reset timer - no running event loop")
+
+        logger.info(
+            f"HomeKit carrier sensor triggered: {carrier_sensor.name}",
+            extra={
+                "diagnostic_category": "event",
+                "camera_id": camera_id,
+                "carrier": carrier,
+                "sensor_name": carrier_sensor.name,
+                "event_id": event_id,
+                "timeout": self.config.package_reset_seconds
+            }
+        )
+
+        return True
+
+    async def _carrier_reset_coroutine(self, carrier_key: str) -> None:
+        """Coroutine that waits and then clears carrier package detection."""
+        try:
+            await asyncio.sleep(self.config.package_reset_seconds)
+            sensor = self._carrier_sensors.get(carrier_key)
+            if sensor:
+                sensor.clear_motion()
+            self._carrier_reset_tasks.pop(carrier_key, None)
+            logger.debug(
+                f"HomeKit carrier sensor reset after {self.config.package_reset_seconds}s",
+                extra={"carrier_key": carrier_key}
+            )
+        except asyncio.CancelledError:
+            pass
+
+    def _create_carrier_sensors(self, camera_id: str, camera_name: str) -> None:
+        """
+        Create per-carrier package sensors for a camera (Story P7-2.3 AC3).
+
+        Creates separate package sensors for each supported carrier:
+        - FedEx, UPS, USPS, Amazon, DHL
+
+        Args:
+            camera_id: Camera identifier
+            camera_name: Camera display name (for sensor naming)
+        """
+        # Import carrier display names for naming
+        from app.services.carrier_extractor import CARRIER_DISPLAY_NAMES
+
+        carriers_created = []
+        for carrier_key, carrier_display in CARRIER_DISPLAY_NAMES.items():
+            sensor_key = f"{camera_id}_{carrier_key}"
+            sensor_name = f"{camera_name} {carrier_display} Package"
+
+            # Reuse existing CameraPackageSensor with carrier-specific name
+            carrier_sensor = create_package_sensor(
+                driver=self._driver,
+                camera_id=sensor_key,  # Use composite key for uniqueness
+                camera_name=sensor_name,
+                manufacturer=self.config.manufacturer,
+            )
+            if carrier_sensor:
+                self._carrier_sensors[sensor_key] = carrier_sensor
+                self._bridge.add_accessory(carrier_sensor.accessory)
+                carriers_created.append(carrier_display)
+
+        if carriers_created:
+            logger.info(
+                f"Added HomeKit per-carrier package sensors for camera: {camera_name} "
+                f"(carriers: {', '.join(carriers_created)})",
+                extra={
+                    "diagnostic_category": "lifecycle",
+                    "camera_id": camera_id,
+                    "camera_name": camera_name,
+                    "carriers": carriers_created,
+                    "carrier_count": len(carriers_created)
+                }
+            )
 
     def _cancel_package_reset_timer(self, camera_id: str) -> None:
         """Cancel existing package reset timer for a camera."""

@@ -1,0 +1,205 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P7-4</epicId>
+    <storyId>3</storyId>
+    <title>Stub Entity Alert Configuration UI</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-4-3-stub-entity-alert-configuration-ui.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home user wanting customized notifications for recognized entities</asA>
+    <iWant>a modal UI to configure entity-based alerts with options like notify when seen or not seen for X hours</iWant>
+    <soThat>I understand how future entity alerting will work and can prepare my preferences</soThat>
+    <tasks>
+      <task id="1" title="Create EntityAlertModal Component">
+        <subtask>1.1 Create frontend/components/entities/EntityAlertModal.tsx</subtask>
+        <subtask>1.2 Accept props: isOpen, onClose, entity</subtask>
+        <subtask>1.3 Add "Notify when seen" toggle/checkbox</subtask>
+        <subtask>1.4 Add "Notify when NOT seen for X hours" option with number input</subtask>
+        <subtask>1.5 Add time range configuration (all day toggle, time pickers)</subtask>
+        <subtask>1.6 Style modal using shadcn/ui Dialog component</subtask>
+      </task>
+      <task id="2" title="Connect Modal to EntityCard">
+        <subtask>2.1 Update EntityCard to track modal open state</subtask>
+        <subtask>2.2 Change Add Alert button to open modal instead of showing toast</subtask>
+        <subtask>2.3 Pass entity data to modal component</subtask>
+      </task>
+      <task id="3" title="Add Coming Soon Behavior">
+        <subtask>3.1 Add Save button to modal footer</subtask>
+        <subtask>3.2 On save click, display Coming Soon toast message</subtask>
+        <subtask>3.3 Add link to /rules (alert rules page) in modal footer</subtask>
+        <subtask>3.4 Style save button and link appropriately</subtask>
+      </task>
+      <task id="4" title="Add Tests">
+        <subtask>4.1 Write test for modal opening when button clicked</subtask>
+        <subtask>4.2 Write test for Notify when seen option presence</subtask>
+        <subtask>4.3 Write test for Notify when NOT seen option with input</subtask>
+        <subtask>4.4 Write test for time range configuration</subtask>
+        <subtask>4.5 Write test for Coming Soon message on save</subtask>
+        <subtask>4.6 Write test for link to rules page</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1">Create Alert modal opens from entity card Add Alert button</ac>
+    <ac id="2">Modal shows Notify when seen option</ac>
+    <ac id="3">Modal shows Notify when NOT seen for X hours option with hour input</ac>
+    <ac id="4">Time range configuration displayed (all day / schedule)</ac>
+    <ac id="5">Coming Soon message shown when save attempted</ac>
+    <ac id="6">Link to alert rules page provided</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P7-4.md</path>
+        <title>Epic Technical Specification: Entities Page and Alert Stub</title>
+        <section>Story P7-4.3 Acceptance Criteria</section>
+        <snippet>Modal opens from entity card, shows options for notify when seen / not seen for X hours, time range config, Coming Soon message on save, link to alert rules page.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase7.md</path>
+        <title>Phase 7 Epics: HomeKit Integration and Enhancements</title>
+        <section>Epic P7-4: Entities Page and Alert Stub</section>
+        <snippet>Story P7-4.3 creates non-functional UI for entity-based alerts with Coming Soon message.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p7-4-2-create-entities-list-page.md</path>
+        <title>Story P7-4.2: Create Entities List Page</title>
+        <section>Dev Agent Record</section>
+        <snippet>Add Alert button already exists on EntityCard with toast. This story replaces toast with modal dialog.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>frontend/components/entities/EntityCard.tsx</path>
+        <kind>component</kind>
+        <symbol>EntityCard, handleAddAlert</symbol>
+        <lines>70-76</lines>
+        <reason>Existing Add Alert button handler that shows toast - needs to be replaced with modal open logic</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/entities/EntityList.tsx</path>
+        <kind>component</kind>
+        <symbol>EntityList</symbol>
+        <lines>63-333</lines>
+        <reason>Parent component that renders EntityCard grid - context for where modal state might need to live</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/entity.ts</path>
+        <kind>types</kind>
+        <symbol>IEntity, EntityType</symbol>
+        <lines>1-72</lines>
+        <reason>Entity interface used to pass entity data to the modal</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/ui/dialog.tsx</path>
+        <kind>ui-component</kind>
+        <symbol>Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription</symbol>
+        <lines>1-144</lines>
+        <reason>shadcn/ui Dialog component to use for the modal</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/__tests__/components/entities/EntityCard.test.tsx</path>
+        <kind>test</kind>
+        <symbol>EntityCard tests</symbol>
+        <lines>170-198</lines>
+        <reason>Existing tests for Add Alert button - need to update or add new tests for modal behavior</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <node>
+        <package>@radix-ui/react-dialog</package>
+        <version>^1.1.6</version>
+        <purpose>Dialog primitive for shadcn/ui Dialog component</purpose>
+      </node>
+      <node>
+        <package>sonner</package>
+        <version>^1.7.0</version>
+        <purpose>Toast notifications for Coming Soon message</purpose>
+      </node>
+      <node>
+        <package>lucide-react</package>
+        <version>^0.454.0</version>
+        <purpose>Icons for Bell, Clock, etc.</purpose>
+      </node>
+      <node>
+        <package>@tanstack/react-query</package>
+        <version>^5.60.6</version>
+        <purpose>Data fetching hooks</purpose>
+      </node>
+      <node>
+        <package>next</package>
+        <version>15.0.3</version>
+        <purpose>Next.js framework with App Router</purpose>
+      </node>
+      <node>
+        <package>react</package>
+        <version>^19.0.0</version>
+        <purpose>React 19</purpose>
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Modal is UI-only stub - NO backend implementation for entity alerts yet</constraint>
+    <constraint type="architecture">Coming Soon message must clearly indicate feature is not implemented</constraint>
+    <constraint type="ux">Modal should follow existing shadcn/ui Dialog patterns</constraint>
+    <constraint type="ux">Form elements use shadcn/ui Switch, Input, Label, RadioGroup components</constraint>
+    <constraint type="ux">Link to /rules page provides alternative for current alerting needs</constraint>
+    <constraint type="testing">Tests must use Vitest and React Testing Library</constraint>
+    <constraint type="testing">Component tests follow patterns in EntityCard.test.tsx</constraint>
+    <constraint type="style">Use Tailwind CSS for styling</constraint>
+    <constraint type="style">Follow existing component patterns in entities folder</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>EntityAlertModal Props</name>
+      <kind>React Component Props</kind>
+      <signature>interface EntityAlertModalProps { isOpen: boolean; onClose: () => void; entity: IEntity; }</signature>
+      <path>frontend/components/entities/EntityAlertModal.tsx (to be created)</path>
+    </interface>
+    <interface>
+      <name>IEntity</name>
+      <kind>TypeScript Interface</kind>
+      <signature>interface IEntity { id: string; entity_type: string; name: string | null; first_seen_at: string; last_seen_at: string; occurrence_count: number; }</signature>
+      <path>frontend/types/entity.ts</path>
+    </interface>
+    <interface>
+      <name>Dialog Component</name>
+      <kind>React Component</kind>
+      <signature>Dialog, DialogTrigger, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription, DialogClose</signature>
+      <path>frontend/components/ui/dialog.tsx</path>
+    </interface>
+    <interface>
+      <name>toast</name>
+      <kind>Function</kind>
+      <signature>toast.info(message: string, options?: { description?: string })</signature>
+      <path>sonner package</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend tests use Vitest as the test runner and React Testing Library for component testing. Tests should verify component rendering, user interactions (clicks, inputs), and proper state management. Mock functions are created with vi.fn(). Tests are organized in __tests__ directories mirroring source structure.</standards>
+    <locations>
+      <location>frontend/__tests__/components/entities/*.test.tsx</location>
+      <location>frontend/__tests__/components/**/*.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that clicking Add Alert button opens the modal dialog</idea>
+      <idea ac="2">Test that modal contains Notify when seen toggle/checkbox</idea>
+      <idea ac="3">Test that modal contains Notify when NOT seen option with numeric hour input</idea>
+      <idea ac="4">Test that modal displays time range configuration (All day / Custom schedule)</idea>
+      <idea ac="5">Test that clicking Save button shows Coming Soon toast message</idea>
+      <idea ac="6">Test that modal contains link to /rules page</idea>
+      <idea>Test that modal closes when Close button clicked</idea>
+      <idea>Test that modal receives correct entity data via props</idea>
+      <idea>Test proper aria-labels for accessibility</idea>
+    </ideas>
+  </tests>
+</story-context>

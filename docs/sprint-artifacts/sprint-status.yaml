@@ -424,7 +424,7 @@ development_status:
   epic-p7-4: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P7-4.md
   p7-4-1-design-entities-data-model: done
   p7-4-2-create-entities-list-page: done
-  p7-4-3-stub-entity-alert-configuration-ui: backlog
+  p7-4-3-stub-entity-alert-configuration-ui: done
   epic-p7-4-retrospective: optional
 
   # ============================================================================

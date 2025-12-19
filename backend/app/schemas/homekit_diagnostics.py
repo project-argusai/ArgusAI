@@ -1,8 +1,9 @@
 """
-HomeKit Diagnostics Pydantic Schemas (Story P7-1.1, P7-1.2)
+HomeKit Diagnostics Pydantic Schemas (Story P7-1.1, P7-1.2, P7-3.3)
 
 Defines schemas for diagnostic logging and monitoring of the HomeKit bridge.
 Story P7-1.2 adds connectivity test response schema.
+Story P7-3.3 adds camera streaming diagnostics schemas.
 """
 from datetime import datetime
 from typing import List, Optional
@@ -174,6 +175,171 @@ class HomeKitDiagnosticsResponse(BaseModel):
                 ],
                 "warnings": [],
                 "errors": []
+            }
+        }
+    )
+
+
+# ============================================================================
+# Stream Diagnostics Schemas (Story P7-3.3)
+# ============================================================================
+
+
+class CameraStreamInfo(BaseModel):
+    """
+    Per-camera streaming status information (Story P7-3.3 AC2).
+    """
+    camera_id: str = Field(..., description="Camera unique identifier")
+    camera_name: str = Field(..., description="Human-readable camera name")
+    streaming_enabled: bool = Field(
+        ...,
+        description="Whether camera streaming is enabled in HomeKit"
+    )
+    snapshot_supported: bool = Field(
+        True,
+        description="Whether snapshot capture is supported"
+    )
+    last_snapshot: Optional[datetime] = Field(
+        None,
+        description="Timestamp of last snapshot capture"
+    )
+    active_streams: int = Field(
+        0,
+        description="Number of currently active streams (max 2)"
+    )
+    quality: Optional[str] = Field(
+        None,
+        description="Current stream quality level (low/medium/high)"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "camera_id": "abc-123",
+                "camera_name": "Front Door",
+                "streaming_enabled": True,
+                "snapshot_supported": True,
+                "last_snapshot": "2025-12-19T14:30:00Z",
+                "active_streams": 1,
+                "quality": "medium"
+            }
+        }
+    )
+
+
+class StreamDiagnostics(BaseModel):
+    """
+    Aggregated camera streaming diagnostics (Story P7-3.3 AC2).
+    """
+    cameras: List[CameraStreamInfo] = Field(
+        default_factory=list,
+        description="Per-camera streaming status"
+    )
+    total_active_streams: int = Field(
+        0,
+        description="Total active streams across all cameras"
+    )
+    ffmpeg_available: bool = Field(
+        False,
+        description="Whether ffmpeg is available for streaming"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "cameras": [
+                    {
+                        "camera_id": "abc-123",
+                        "camera_name": "Front Door",
+                        "streaming_enabled": True,
+                        "snapshot_supported": True,
+                        "last_snapshot": "2025-12-19T14:30:00Z",
+                        "active_streams": 1,
+                        "quality": "medium"
+                    }
+                ],
+                "total_active_streams": 1,
+                "ffmpeg_available": True
+            }
+        }
+    )
+
+
+class StreamTestResponse(BaseModel):
+    """
+    Response from camera stream test endpoint (Story P7-3.3 AC3).
+
+    Validates RTSP connectivity and ffmpeg compatibility for HomeKit streaming.
+    """
+    success: bool = Field(
+        ...,
+        description="Whether the stream test passed all checks"
+    )
+    rtsp_accessible: bool = Field(
+        ...,
+        description="Whether the camera RTSP stream is accessible"
+    )
+    ffmpeg_compatible: bool = Field(
+        ...,
+        description="Whether ffmpeg can process the stream"
+    )
+    source_resolution: Optional[str] = Field(
+        None,
+        description="Detected source resolution (e.g., '1920x1080')"
+    )
+    source_fps: Optional[int] = Field(
+        None,
+        description="Detected source frame rate"
+    )
+    source_codec: Optional[str] = Field(
+        None,
+        description="Detected source video codec (e.g., 'h264')"
+    )
+    target_resolution: Optional[str] = Field(
+        None,
+        description="Target resolution for HomeKit (e.g., '1280x720')"
+    )
+    target_fps: Optional[int] = Field(
+        None,
+        description="Target frame rate for HomeKit"
+    )
+    target_bitrate: Optional[int] = Field(
+        None,
+        description="Target bitrate in kbps"
+    )
+    estimated_latency_ms: Optional[int] = Field(
+        None,
+        description="Estimated stream latency in milliseconds"
+    )
+    ffmpeg_command: Optional[str] = Field(
+        None,
+        description="Sanitized ffmpeg command for debugging (SRTP keys removed)"
+    )
+    error: Optional[str] = Field(
+        None,
+        description="Error message if test failed"
+    )
+    test_duration_ms: int = Field(
+        ...,
+        description="Time taken to complete the test in milliseconds"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "rtsp_accessible": True,
+                "ffmpeg_compatible": True,
+                "source_resolution": "1920x1080",
+                "source_fps": 30,
+                "source_codec": "h264",
+                "target_resolution": "1280x720",
+                "target_fps": 25,
+                "target_bitrate": 1500,
+                "estimated_latency_ms": 500,
+                "ffmpeg_command": "ffmpeg -rtsp_transport tcp -i rtsp://... -vcodec libx264 ...",
+                "error": None,
+                "test_duration_ms": 3500
             }
         }
     )

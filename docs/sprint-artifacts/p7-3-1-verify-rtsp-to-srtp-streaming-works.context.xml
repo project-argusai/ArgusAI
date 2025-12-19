@@ -1,0 +1,171 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P7-3</epicId>
+    <storyId>P7-3.1</storyId>
+    <title>Verify RTSP-to-SRTP Streaming Works</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-3-1-verify-rtsp-to-srtp-streaming-works.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner with Apple Home</asA>
+    <iWant>my security cameras to stream reliably in the Apple Home app</iWant>
+    <soThat>I can view live camera feeds directly from my iPhone, iPad, or Apple TV without needing a separate app</soThat>
+    <tasks>
+      <task id="1">Add StreamQuality Configuration to Camera Model (AC: 5)
+        <subtask id="1.1">Add homekit_stream_quality field to Camera model (enum: low, medium, high)</subtask>
+        <subtask id="1.2">Create Alembic migration for new field</subtask>
+        <subtask id="1.3">Add field to CameraCreate/CameraUpdate schemas</subtask>
+        <subtask id="1.4">Default to medium quality for existing cameras</subtask>
+      </task>
+      <task id="2">Implement Stream Quality Mapping (AC: 5, AC3)
+        <subtask id="2.1">Create StreamQuality enum with resolution/fps/bitrate mappings</subtask>
+        <subtask id="2.2">Update _build_ffmpeg_command() to use quality settings from camera config</subtask>
+        <subtask id="2.3">Add unit tests for quality-to-ffmpeg-args mapping</subtask>
+      </task>
+      <task id="3">Verify and Fix ffmpeg Transcoding Pipeline (AC: 2, AC3)
+        <subtask id="3.1">Review current ffmpeg command for SRTP compatibility</subtask>
+        <subtask id="3.2">Ensure baseline H.264 profile is used (maximum compatibility)</subtask>
+        <subtask id="3.3">Add -tune zerolatency for reduced latency</subtask>
+        <subtask id="3.4">Verify SRTP encryption params (AES_CM_128_HMAC_SHA1_80)</subtask>
+        <subtask id="3.5">Add integration test that validates ffmpeg command structure</subtask>
+      </task>
+      <task id="4">Enhance Concurrent Stream Tracking (AC: 4)
+        <subtask id="4.1">Verify MAX_CONCURRENT_STREAMS=2 is enforced per camera</subtask>
+        <subtask id="4.2">Add test for concurrent stream limit enforcement</subtask>
+        <subtask id="4.3">Log stream rejection with clear error message</subtask>
+        <subtask id="4.4">Add Prometheus metric: argusai_homekit_streams_active</subtask>
+      </task>
+      <task id="5">Add Stream Quality UI Selector (AC: 5)
+        <subtask id="5.1">Add quality dropdown to camera edit form in Settings</subtask>
+        <subtask id="5.2">Display current stream quality on camera detail</subtask>
+        <subtask id="5.3">Update API client with quality field support</subtask>
+      </task>
+      <task id="6">Manual Testing and Verification (AC: 1)
+        <subtask id="6.1">Test camera preview on iPhone with Home app</subtask>
+        <subtask id="6.2">Test camera preview on iPad with Home app</subtask>
+        <subtask id="6.3">Test starting two concurrent streams</subtask>
+        <subtask id="6.4">Verify stream quality changes take effect</subtask>
+        <subtask id="6.5">Document any compatibility issues found</subtask>
+      </task>
+      <task id="7">Unit and Integration Tests
+        <subtask id="7.1">Unit test: StreamQuality enum mappings</subtask>
+        <subtask id="7.2">Unit test: ffmpeg command generation with different qualities</subtask>
+        <subtask id="7.3">Integration test: Camera API with stream_quality field</subtask>
+        <subtask id="7.4">Integration test: Concurrent stream limit enforcement</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Camera preview works in Apple Home app</criterion>
+    <criterion id="AC2">ffmpeg transcoding pipeline verified (RTSP input, SRTP output)</criterion>
+    <criterion id="AC3">Codec/resolution compatibility issues fixed (baseline H.264, configurable resolution)</criterion>
+    <criterion id="AC4">Multiple concurrent streams supported (up to 2 per camera)</criterion>
+    <criterion id="AC5">Stream quality configuration added (low/medium/high) to Camera model and UI</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P7-3.md" title="Epic P7-3 Tech Spec" section="Detailed Design">
+        Contains StreamQuality enum definition, StreamConfig dataclass, API endpoints for stream diagnostics,
+        and ffmpeg command structure for RTSP-to-SRTP transcoding.
+      </doc>
+      <doc path="docs/epics-phase7.md" title="Phase 7 Epics" section="Epic P7-3: HomeKit Camera Streaming">
+        Defines story acceptance criteria: test camera preview, verify ffmpeg pipeline, fix codec issues,
+        support concurrent streams, add quality configuration.
+      </doc>
+      <doc path="CLAUDE.md" title="Project Guidelines" section="Phase 5 Architecture">
+        Documents HomeKit camera accessory implementation from P5-1.3, RTSP-to-SRTP via ffmpeg,
+        HAP-python integration patterns.
+      </doc>
+    </docs>
+    <code>
+      <file path="backend/app/services/homekit_camera.py" kind="service" symbol="HomeKitCameraAccessory" lines="52-569" reason="Core camera streaming implementation. Contains _build_ffmpeg_command(), _start_stream(), _stop_stream(), MAX_CONCURRENT_STREAMS constant. Must be modified to support configurable quality."/>
+      <file path="backend/app/services/homekit_service.py" kind="service" symbol="HomekitService" lines="101-1931" reason="HomeKit bridge service. Manages camera accessories, tracks active streams via HomeKitCameraAccessory.get_active_stream_count()."/>
+      <file path="backend/app/models/camera.py" kind="model" symbol="Camera" lines="13-154" reason="Camera ORM model. Must add homekit_stream_quality field. Already has analysis_mode enum pattern to follow."/>
+      <file path="backend/app/schemas/camera.py" kind="schema" symbol="CameraCreate,CameraUpdate,CameraResponse" lines="37-245" reason="Camera Pydantic schemas. Must add homekit_stream_quality field to create/update/response schemas."/>
+      <file path="backend/app/api/v1/homekit.py" kind="api" symbol="homekit_router" reason="HomeKit API endpoints. May need streaming diagnostics endpoint updates."/>
+      <file path="backend/app/config/homekit.py" kind="config" symbol="HomekitConfig" reason="HomeKit configuration. Contains motion_reset_seconds pattern for config fields."/>
+      <file path="frontend/components/settings/HomeKitDiagnostics.tsx" kind="component" reason="HomeKit diagnostics UI component. May need stream quality display."/>
+    </code>
+    <dependencies>
+      <python>
+        <package name="HAP-python" version=">=4.9.0" reason="HomeKit Accessory Protocol implementation with Camera class"/>
+        <package name="Pillow" version=">=10.0.0" reason="Image processing for snapshots"/>
+        <package name="ffmpeg" version=">=6.0" reason="RTSP to SRTP transcoding (system dependency)"/>
+        <package name="SQLAlchemy" version=">=2.0" reason="ORM for Camera model"/>
+        <package name="alembic" version=">=1.12" reason="Database migrations"/>
+        <package name="pydantic" version=">=2.0" reason="API schemas"/>
+      </python>
+      <frontend>
+        <package name="react" version="^19.0.0"/>
+        <package name="next" version="^15.0.0"/>
+        <package name="@tanstack/react-query" version="^5.0.0"/>
+        <package name="tailwindcss" version="^4.0.0"/>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">ffmpeg 6.0+ required for SRTP output with AES_CM_128_HMAC_SHA1_80 encryption</constraint>
+    <constraint type="architecture">Camera must provide H.264 or H.265 RTSP stream (ffmpeg transcodes to H.264 baseline)</constraint>
+    <constraint type="architecture">Maximum 2 concurrent streams per camera (iOS HomeKit limitation)</constraint>
+    <constraint type="architecture">Maximum 10 total streams for bridge (HAP-python recommendation)</constraint>
+    <constraint type="performance">Stream start latency must be less than 3 seconds from request to first frame</constraint>
+    <constraint type="performance">ffmpeg memory usage must be less than 100MB per stream</constraint>
+    <constraint type="security">SRTP encryption mandatory - no plain RTP streams allowed</constraint>
+    <constraint type="security">Camera credentials never exposed to HomeKit clients</constraint>
+    <constraint type="pattern">Follow existing analysis_mode enum pattern in Camera model for homekit_stream_quality</constraint>
+    <constraint type="pattern">Use Alembic migrations for schema changes - never modify database directly</constraint>
+    <constraint type="pattern">Use Pydantic field validators for JSON serialization in schemas</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="StreamQuality" kind="enum" path="backend/app/services/homekit_camera.py">
+      <signature>
+class StreamQuality(str, Enum):
+    LOW = "low"      # 640x480, 15fps, 500kbps
+    MEDIUM = "medium"  # 1280x720, 25fps, 1500kbps
+    HIGH = "high"    # 1920x1080, 30fps, 3000kbps
+      </signature>
+    </interface>
+    <interface name="Camera.homekit_stream_quality" kind="model_field" path="backend/app/models/camera.py">
+      <signature>homekit_stream_quality = Column(String(20), default='medium', nullable=False)</signature>
+    </interface>
+    <interface name="_build_ffmpeg_command" kind="method" path="backend/app/services/homekit_camera.py">
+      <signature>def _build_ffmpeg_command(self, session_info: dict, stream_config: dict, quality: StreamQuality = StreamQuality.MEDIUM) -> Optional[List[str]]</signature>
+    </interface>
+    <interface name="GET /api/v1/homekit/status" kind="REST endpoint" path="backend/app/api/v1/homekit.py">
+      <signature>Returns HomekitStatus including active_streams count, ffmpeg_available flag</signature>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with fixtures in conftest.py. Tests organized by type in backend/tests/
+      (test_api/, test_services/, test_models/). Use async test functions with @pytest.mark.asyncio.
+      Mock external dependencies (ffmpeg subprocess, HAP-python) for unit tests.
+      Frontend uses Vitest with React Testing Library. Component tests in __tests__ directories.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_homekit_camera.py</location>
+      <location>backend/tests/test_api/test_cameras.py</location>
+      <location>backend/tests/test_models/test_camera.py</location>
+      <location>frontend/components/cameras/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea acRef="AC2,AC3">Unit test: Verify ffmpeg command includes -profile:v baseline, -tune zerolatency, and correct SRTP params</idea>
+      <idea acRef="AC4">Unit test: Verify stream rejection when MAX_CONCURRENT_STREAMS exceeded</idea>
+      <idea acRef="AC5">Unit test: StreamQuality.LOW maps to 640x480, 15fps, 500kbps</idea>
+      <idea acRef="AC5">Unit test: StreamQuality.MEDIUM maps to 1280x720, 25fps, 1500kbps</idea>
+      <idea acRef="AC5">Unit test: StreamQuality.HIGH maps to 1920x1080, 30fps, 3000kbps</idea>
+      <idea acRef="AC5">Integration test: Camera API accepts homekit_stream_quality in create/update</idea>
+      <idea acRef="AC5">Integration test: Camera API returns homekit_stream_quality in response</idea>
+      <idea acRef="AC4">Integration test: Start 2 streams successfully, 3rd rejected with 429</idea>
+      <idea acRef="AC1">Manual test: Open Apple Home app, verify camera tile shows live preview</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -32,6 +32,11 @@ class CameraBase(BaseModel):
         default='single_frame',
         description="AI analysis mode: single_frame (fast, low cost), multi_frame (balanced), video_native (best quality, highest cost)"
     )
+    # Phase 7: HomeKit streaming quality
+    homekit_stream_quality: Literal['low', 'medium', 'high'] = Field(
+        default='medium',
+        description="HomeKit stream quality: low (480p, 15fps), medium (720p, 25fps), high (1080p, 30fps)"
+    )
 
 
 class CameraCreate(CameraBase):
@@ -117,6 +122,11 @@ class CameraUpdate(BaseModel):
         None,
         description="AI analysis mode: single_frame (fast, low cost), multi_frame (balanced), video_native (best quality, highest cost)"
     )
+    # Phase 7: HomeKit streaming quality
+    homekit_stream_quality: Optional[Literal['low', 'medium', 'high']] = Field(
+        None,
+        description="HomeKit stream quality: low (480p, 15fps), medium (720p, 25fps), high (1080p, 30fps)"
+    )
     # Phase 6 (P6-3.1): Audio stream extraction
     audio_enabled: Optional[bool] = Field(None, description="Whether audio stream extraction is enabled")
     # Phase 6 (P6-3.3): Per-camera audio event settings
@@ -182,7 +192,7 @@ class CameraResponse(CameraBase):
     audio_threshold: Optional[float] = Field(None, description="Per-camera confidence threshold override (0.0-1.0)")
 
     # Note: password field is intentionally omitted (write-only field)
-    # Note: analysis_mode is inherited from CameraBase
+    # Note: analysis_mode and homekit_stream_quality are inherited from CameraBase
 
     @field_validator('audio_event_types', mode='before')
     @classmethod

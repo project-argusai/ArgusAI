@@ -73,6 +73,7 @@ function NewCameraPageContent() {
       motion_algorithm: 'mog2',
       source_type: 'rtsp',
       analysis_mode: 'single_frame',
+      homekit_stream_quality: 'medium', // Phase 7: HomeKit stream quality
       audio_enabled: false, // Phase 6: Audio settings
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

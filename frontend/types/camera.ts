@@ -32,6 +32,15 @@ export type MotionAlgorithm = 'mog2' | 'knn' | 'frame_diff';
 export type AnalysisMode = 'single_frame' | 'multi_frame' | 'video_native';
 
 /**
+ * HomeKit stream quality options (Phase 7 - Story P7-3.1)
+ * Controls resolution, fps, and bitrate for HomeKit camera streaming
+ * - low: 640x480, 15fps, 500kbps - Best for slow networks
+ * - medium: 1280x720, 25fps, 1500kbps - Balanced quality/bandwidth
+ * - high: 1920x1080, 30fps, 3000kbps - Best quality, high bandwidth
+ */
+export type HomeKitStreamQuality = 'low' | 'medium' | 'high';
+
+/**
  * Detection zone vertex coordinate
  * Normalized to 0-1 scale relative to image dimensions
  */
@@ -97,6 +106,8 @@ export interface ICamera {
   detection_schedule?: IDetectionSchedule | null; // Optional detection schedule configuration
   // Phase 3: AI analysis mode
   analysis_mode: AnalysisMode; // AI analysis mode for event processing
+  // Phase 7: HomeKit stream quality (Story P7-3.1)
+  homekit_stream_quality: HomeKitStreamQuality; // HomeKit streaming quality level
   // Phase 6: Audio settings
   audio_enabled: boolean; // Whether audio capture is enabled
   audio_codec?: string | null; // Detected audio codec
@@ -132,6 +143,7 @@ export interface ICameraCreate {
   detection_zones?: IDetectionZone[];
   detection_schedule?: IDetectionSchedule | null;
   analysis_mode?: AnalysisMode; // Phase 3: AI analysis mode
+  homekit_stream_quality?: HomeKitStreamQuality; // Phase 7: HomeKit stream quality
   // Phase 6: Audio settings
   audio_enabled?: boolean;
   audio_event_types?: string[];
@@ -157,6 +169,7 @@ export interface ICameraUpdate {
   detection_zones?: IDetectionZone[];
   detection_schedule?: IDetectionSchedule | null;
   analysis_mode?: AnalysisMode; // Phase 3: AI analysis mode
+  homekit_stream_quality?: HomeKitStreamQuality; // Phase 7: HomeKit stream quality
   // Phase 6: Audio settings
   audio_enabled?: boolean;
   audio_event_types?: string[];

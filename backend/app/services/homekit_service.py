@@ -62,6 +62,8 @@ from app.services.homekit_camera import (
     HomeKitCameraAccessory,
     create_camera_accessory,
     check_ffmpeg_available,
+    StreamQuality,
+    StreamConfig,
 )
 from app.services.homekit_diagnostics import (
     get_diagnostic_handler,
@@ -696,16 +698,19 @@ class HomekitService:
                         self._bridge.add_accessory(doorbell_sensor.accessory)
                         logger.info(f"Added HomeKit doorbell sensor for camera: {camera_name}")
 
-                # Story P5-1.3: Add camera accessory for streaming (only if ffmpeg available)
+                # Story P5-1.3, P7-3.1: Add camera accessory for streaming (only if ffmpeg available)
                 if self._ffmpeg_available:
                     rtsp_url = self._get_camera_rtsp_url(camera)
                     if rtsp_url:
+                        # P7-3.1: Get stream quality from camera model (default: medium)
+                        stream_quality = getattr(camera, 'homekit_stream_quality', 'medium') or 'medium'
                         camera_accessory = create_camera_accessory(
                             driver=self._driver,
                             camera_id=camera_id,
                             camera_name=camera_name,
                             rtsp_url=rtsp_url,
                             manufacturer=self.config.manufacturer,
+                            stream_quality=stream_quality,
                         )
 
                         if camera_accessory:
@@ -1734,6 +1739,225 @@ class HomekitService:
         )
 
         return True
+
+    async def get_camera_snapshot(self, camera_id: str) -> Optional[bytes]:
+        """
+        Get a snapshot from a camera accessory (Story P7-3.2 AC1, AC2).
+
+        Calls the camera's _get_snapshot() method which includes caching (AC3)
+        and placeholder fallback for offline cameras (AC4).
+
+        Args:
+            camera_id: Camera identifier
+
+        Returns:
+            JPEG bytes or None if camera not found
+        """
+        if not self.is_running:
+            logger.warning(
+                "Cannot get camera snapshot - HomeKit service not running",
+                extra={"camera_id": camera_id}
+            )
+            return None
+
+        camera = self._cameras.get(camera_id)
+        if not camera:
+            logger.warning(
+                f"Camera not found in HomeKit bridge: {camera_id}",
+                extra={"camera_id": camera_id}
+            )
+            return None
+
+        try:
+            # Call the camera's snapshot method (includes caching)
+            snapshot = await camera._get_snapshot({"image-width": 640, "image-height": 480})
+            logger.debug(
+                f"Got snapshot from camera {camera.camera_name}",
+                extra={
+                    "camera_id": camera_id,
+                    "size": len(snapshot) if snapshot else 0,
+                    "cached": camera._is_snapshot_cache_valid()
+                }
+            )
+            return snapshot
+        except Exception as e:
+            logger.error(
+                f"Failed to get snapshot from camera {camera_id}: {e}",
+                extra={"camera_id": camera_id}
+            )
+            return None
+
+    def get_stream_diagnostics(self) -> "StreamDiagnostics":
+        """
+        Get stream diagnostics for all cameras (Story P7-3.3 AC2).
+
+        Returns:
+            StreamDiagnostics with per-camera streaming status and totals
+        """
+        from app.schemas.homekit_diagnostics import StreamDiagnostics, CameraStreamInfo
+
+        cameras_info = []
+        total_active = 0
+
+        for camera_id, camera in self._cameras.items():
+            diag = camera.get_stream_diagnostics()
+            cameras_info.append(CameraStreamInfo(
+                camera_id=diag["camera_id"],
+                camera_name=diag["camera_name"],
+                streaming_enabled=diag["streaming_enabled"],
+                snapshot_supported=diag["snapshot_supported"],
+                last_snapshot=diag["last_snapshot"],
+                active_streams=diag["active_streams"],
+                quality=diag["quality"],
+            ))
+            total_active += diag["active_streams"]
+
+        return StreamDiagnostics(
+            cameras=cameras_info,
+            total_active_streams=total_active,
+            ffmpeg_available=self._ffmpeg_available,
+        )
+
+    async def test_camera_stream(self, camera_id: str) -> "StreamTestResponse":
+        """
+        Test camera streaming capability (Story P7-3.3 AC3).
+
+        Validates RTSP accessibility and ffmpeg compatibility without
+        starting an actual stream.
+
+        Args:
+            camera_id: Camera identifier to test
+
+        Returns:
+            StreamTestResponse with test results and sanitized ffmpeg command
+        """
+        import time
+        import subprocess
+        from app.schemas.homekit_diagnostics import StreamTestResponse
+
+        start_time = time.time()
+
+        camera = self._cameras.get(camera_id)
+        if not camera:
+            return StreamTestResponse(
+                success=False,
+                rtsp_accessible=False,
+                ffmpeg_compatible=False,
+                error=f"Camera not found in HomeKit bridge: {camera_id}",
+                test_duration_ms=int((time.time() - start_time) * 1000),
+            )
+
+        # Test RTSP accessibility using ffprobe
+        rtsp_accessible = False
+        source_resolution = None
+        source_fps = None
+        source_codec = None
+        ffmpeg_compatible = False
+        error_msg = None
+
+        # Get camera's RTSP URL
+        rtsp_url = camera.rtsp_url
+        stream_config = camera.stream_config
+
+        try:
+            # Test 1: Check RTSP stream with ffprobe (10s timeout)
+            ffprobe_cmd = [
+                "ffprobe",
+                "-rtsp_transport", "tcp",
+                "-v", "error",
+                "-show_entries", "stream=width,height,r_frame_rate,codec_name",
+                "-of", "json",
+                "-i", rtsp_url,
+            ]
+
+            result = subprocess.run(
+                ffprobe_cmd,
+                capture_output=True,
+                timeout=10.0,
+            )
+
+            if result.returncode == 0:
+                rtsp_accessible = True
+                # Parse stream info
+                try:
+                    import json
+                    probe_data = json.loads(result.stdout)
+                    streams = probe_data.get("streams", [])
+                    for stream in streams:
+                        if stream.get("codec_name"):
+                            source_codec = stream.get("codec_name")
+                            width = stream.get("width")
+                            height = stream.get("height")
+                            if width and height:
+                                source_resolution = f"{width}x{height}"
+                            fps_str = stream.get("r_frame_rate", "0/1")
+                            if "/" in fps_str:
+                                num, den = fps_str.split("/")
+                                if int(den) > 0:
+                                    source_fps = int(int(num) / int(den))
+                            break
+                except Exception:
+                    pass
+            else:
+                error_msg = result.stderr.decode("utf-8", errors="replace")[:200]
+
+        except subprocess.TimeoutExpired:
+            error_msg = "RTSP probe timeout (10s)"
+        except FileNotFoundError:
+            error_msg = "ffprobe not found - install ffmpeg"
+        except Exception as e:
+            error_msg = str(e)[:200]
+
+        # Test 2: Check ffmpeg compatibility
+        if rtsp_accessible and not error_msg:
+            ffmpeg_compatible = self._ffmpeg_available
+
+        # Build test ffmpeg command (for display, never actually run with SRTP)
+        test_session_info = {
+            "address": "192.168.1.100",
+            "v_port": 51826,
+            "v_srtp_key": "test-key-placeholder",
+            "v_ssrc": 12345,
+        }
+        test_cmd, _ = camera._build_ffmpeg_command_with_params(
+            test_session_info, {}
+        )
+
+        # Sanitize the command for display (Story P7-3.3 AC3)
+        sanitized_cmd = HomeKitCameraAccessory.sanitize_ffmpeg_command(test_cmd) if test_cmd else None
+
+        test_duration_ms = int((time.time() - start_time) * 1000)
+
+        success = rtsp_accessible and ffmpeg_compatible and not error_msg
+
+        logger.info(
+            f"Stream test completed for camera {camera.camera_name}",
+            extra={
+                "event_type": "homekit_stream_test",
+                "camera_id": camera_id,
+                "camera_name": camera.camera_name,
+                "success": success,
+                "rtsp_accessible": rtsp_accessible,
+                "ffmpeg_compatible": ffmpeg_compatible,
+                "test_duration_ms": test_duration_ms,
+            }
+        )
+
+        return StreamTestResponse(
+            success=success,
+            rtsp_accessible=rtsp_accessible,
+            ffmpeg_compatible=ffmpeg_compatible,
+            source_resolution=source_resolution,
+            source_fps=source_fps,
+            source_codec=source_codec,
+            target_resolution=f"{stream_config.width}x{stream_config.height}",
+            target_fps=stream_config.fps,
+            target_bitrate=stream_config.bitrate,
+            estimated_latency_ms=500 if success else None,  # Estimate based on P5-1.3 AC2
+            ffmpeg_command=sanitized_cmd,
+            error=error_msg,
+            test_duration_ms=test_duration_ms,
+        )
 
     async def reset_pairing(self) -> bool:
         """

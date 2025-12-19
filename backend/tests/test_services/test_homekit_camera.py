@@ -547,6 +547,230 @@ class TestSnapshotGeneration:
         assert len(result) > 0
 
 
+class TestSnapshotCaching:
+    """Tests for snapshot caching behavior (Story P7-3.2 AC3)."""
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    def test_snapshot_cache_initially_empty(self, mock_camera_class):
+        """AC3: Snapshot cache starts empty."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test",
+            camera_name="Test",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        assert accessory._snapshot_cache is None
+        assert accessory._snapshot_timestamp is None
+        assert accessory._is_snapshot_cache_valid() is False
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    @patch("app.services.homekit_camera.subprocess.run")
+    @pytest.mark.asyncio
+    async def test_snapshot_cached_after_capture(self, mock_run, mock_camera_class):
+        """AC3: Snapshot is cached after successful capture."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+        jpeg_data = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10] + [0] * 100 + [0xFF, 0xD9])
+        mock_run.return_value = Mock(returncode=0, stdout=jpeg_data)
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test-cache",
+            camera_name="Test Cache",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        result = await accessory._get_snapshot({"image-width": 640, "image-height": 480})
+
+        assert result == jpeg_data
+        assert accessory._snapshot_cache == jpeg_data
+        assert accessory._snapshot_timestamp is not None
+        assert accessory._is_snapshot_cache_valid() is True
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    @patch("app.services.homekit_camera.subprocess.run")
+    @pytest.mark.asyncio
+    async def test_snapshot_cache_hit(self, mock_run, mock_camera_class):
+        """AC3: Second snapshot request returns cached data without calling ffmpeg."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+        jpeg_data = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10] + [0] * 100 + [0xFF, 0xD9])
+        mock_run.return_value = Mock(returncode=0, stdout=jpeg_data)
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test-cache-hit",
+            camera_name="Test Cache Hit",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        # First call - should capture
+        result1 = await accessory._get_snapshot({"image-width": 640, "image-height": 480})
+        call_count_after_first = mock_run.call_count
+
+        # Second call - should use cache
+        result2 = await accessory._get_snapshot({"image-width": 640, "image-height": 480})
+        call_count_after_second = mock_run.call_count
+
+        assert result1 == result2
+        assert call_count_after_first == call_count_after_second  # No additional calls
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    @patch("app.services.homekit_camera.subprocess.run")
+    @pytest.mark.asyncio
+    async def test_snapshot_cache_expires(self, mock_run, mock_camera_class):
+        """AC3: Snapshot cache expires after 5 seconds."""
+        from datetime import datetime, timedelta
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+        jpeg_data = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10] + [0] * 100 + [0xFF, 0xD9])
+        mock_run.return_value = Mock(returncode=0, stdout=jpeg_data)
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test-cache-expire",
+            camera_name="Test Cache Expire",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        # First call - populates cache
+        await accessory._get_snapshot({"image-width": 640, "image-height": 480})
+
+        # Manually set timestamp to 6 seconds ago (beyond 5-second cache)
+        accessory._snapshot_timestamp = datetime.utcnow() - timedelta(seconds=6)
+
+        # Cache should now be invalid
+        assert accessory._is_snapshot_cache_valid() is False
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    def test_snapshot_cache_validity_within_window(self, mock_camera_class):
+        """AC3: Snapshot cache is valid within 5-second window."""
+        from datetime import datetime, timedelta
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test-cache-valid",
+            camera_name="Test Cache Valid",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        # Set cache with timestamp 2 seconds ago
+        accessory._snapshot_cache = b"test-snapshot-data"
+        accessory._snapshot_timestamp = datetime.utcnow() - timedelta(seconds=2)
+
+        assert accessory._is_snapshot_cache_valid() is True
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    def test_snapshot_supported_property(self, mock_camera_class):
+        """AC1: Camera accessory reports snapshot_supported = True."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test",
+            camera_name="Test",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        assert accessory.snapshot_supported is True
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    def test_last_snapshot_time_property(self, mock_camera_class):
+        """AC1: Camera accessory tracks last_snapshot_time."""
+        from datetime import datetime
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test",
+            camera_name="Test",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        # Initially None
+        assert accessory.last_snapshot_time is None
+
+        # After setting timestamp
+        test_time = datetime.utcnow()
+        accessory._snapshot_timestamp = test_time
+        assert accessory.last_snapshot_time == test_time
+
+
+class TestPlaceholderImage:
+    """Tests for placeholder image generation (Story P7-3.2 AC4)."""
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    def test_placeholder_returns_jpeg_bytes(self, mock_camera_class):
+        """AC4: Placeholder image returns valid bytes."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test",
+            camera_name="Test",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        placeholder = accessory._get_placeholder_image(640, 480)
+
+        assert placeholder is not None
+        assert len(placeholder) > 0
+        # Check for JPEG magic bytes
+        assert placeholder[:2] == bytes([0xFF, 0xD8])
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    @patch("app.services.homekit_camera.subprocess.run")
+    @pytest.mark.asyncio
+    async def test_placeholder_on_timeout(self, mock_run, mock_camera_class):
+        """AC4: Placeholder returned on ffmpeg timeout."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+        mock_run.side_effect = subprocess.TimeoutExpired("ffmpeg", 5)
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test-timeout",
+            camera_name="Test Timeout",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        result = await accessory._get_snapshot({"image-width": 640, "image-height": 480})
+
+        # Should return placeholder, not raise exception
+        assert result is not None
+        assert len(result) > 0
+
+    @patch("app.services.homekit_camera.HAP_AVAILABLE", True)
+    @patch("app.services.homekit_camera.Camera")
+    @patch("app.services.homekit_camera.subprocess.run")
+    @pytest.mark.asyncio
+    async def test_placeholder_on_connection_error(self, mock_run, mock_camera_class):
+        """AC4: Placeholder returned when camera offline."""
+        mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
+        mock_run.return_value = Mock(returncode=1, stdout=b"", stderr=b"Connection refused")
+
+        accessory = HomeKitCameraAccessory(
+            driver=Mock(),
+            camera_id="test-offline",
+            camera_name="Test Offline",
+            rtsp_url="rtsp://test/stream",
+        )
+
+        result = await accessory._get_snapshot({"image-width": 640, "image-height": 480})
+
+        assert result is not None
+        assert len(result) > 0
+
+
 class TestCameraAccessoryFactory:
     """Tests for create_camera_accessory factory function."""
 

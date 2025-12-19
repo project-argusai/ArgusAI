@@ -1,0 +1,187 @@
+<story-context id="bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P7-3</epicId>
+    <storyId>P7-3.2</storyId>
+    <title>Add Camera Snapshot Support</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-3-2-add-camera-snapshot-support.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner with Apple Home</asA>
+    <iWant>camera tiles in the Home app to display up-to-date preview thumbnails</iWant>
+    <soThat>I can quickly see what each camera is looking at without starting a live stream</soThat>
+    <tasks>
+      <task id="1" title="Add Snapshot Caching Infrastructure">
+        <subtask>1.1 Add _snapshot_cache: Optional[bytes] class attribute to HomeKitCameraAccessory</subtask>
+        <subtask>1.2 Add _snapshot_timestamp: Optional[datetime] class attribute</subtask>
+        <subtask>1.3 Add SNAPSHOT_CACHE_SECONDS = 5 constant</subtask>
+        <subtask>1.4 Add _is_snapshot_cache_valid() method to check cache freshness</subtask>
+      </task>
+      <task id="2" title="Enhance get_snapshot() with Caching">
+        <subtask>2.1 Update _get_snapshot() to check cache first before capturing</subtask>
+        <subtask>2.2 Store captured snapshot in cache with timestamp</subtask>
+        <subtask>2.3 Return cached snapshot if within cache validity window</subtask>
+        <subtask>2.4 Add logging for cache hits vs misses for debugging</subtask>
+        <subtask>2.5 Add Prometheus metrics: argusai_homekit_snapshot_cache_hits_total, argusai_homekit_snapshot_cache_misses_total</subtask>
+      </task>
+      <task id="3" title="Improve Offline Camera Handling">
+        <subtask>3.1 Verify placeholder image includes "Camera Offline" text (already exists)</subtask>
+        <subtask>3.2 Add logging when returning placeholder due to camera offline</subtask>
+        <subtask>3.3 Ensure placeholder is returned within reasonable time (&lt;1s)</subtask>
+      </task>
+      <task id="4" title="Add Snapshot API Endpoint for Testing">
+        <subtask>4.1 Add GET /api/v1/homekit/cameras/{camera_id}/snapshot endpoint</subtask>
+        <subtask>4.2 Return JPEG image with appropriate Content-Type header</subtask>
+        <subtask>4.3 Return 503 if camera is offline with placeholder_available flag</subtask>
+        <subtask>4.4 Add to API client for testing from frontend</subtask>
+      </task>
+      <task id="5" title="Update HomeKit Status with Snapshot Info">
+        <subtask>5.1 Add snapshot_supported: bool and last_snapshot: datetime to camera status</subtask>
+        <subtask>5.2 Display last snapshot time in HomeKit Settings UI (optional enhancement)</subtask>
+      </task>
+      <task id="6" title="Unit and Integration Tests">
+        <subtask>6.1 Unit test: Snapshot cache behavior (cache hit, cache miss, expiry)</subtask>
+        <subtask>6.2 Unit test: Placeholder image generation on offline camera</subtask>
+        <subtask>6.3 Unit test: JPEG output format validation</subtask>
+        <subtask>6.4 Integration test: /api/v1/homekit/cameras/{id}/snapshot returns JPEG</subtask>
+        <subtask>6.5 Integration test: Snapshot endpoint returns 503 for offline camera</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">get_snapshot() method implemented in camera accessory</criterion>
+    <criterion id="AC2">JPEG snapshot returned from camera</criterion>
+    <criterion id="AC3">Snapshot cached for 5 seconds to reduce load</criterion>
+    <criterion id="AC4">Camera offline returns placeholder gracefully</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P7-3.md</path>
+        <title>Epic P7-3 Technical Specification</title>
+        <section>Story P7-3.2: Add Camera Snapshot Support</section>
+        <snippet>Implement get_snapshot() for camera tiles. Return JPEG snapshot from camera. Cache snapshot for 5 seconds to reduce load. Handle camera offline gracefully with placeholder.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase7.md</path>
+        <title>Phase 7 Epics</title>
+        <section>Epic P7-3: HomeKit Camera Streaming</section>
+        <snippet>Story P7-3.2: Add Camera Snapshot Support - Implement snapshot capture for HomeKit camera tiles with caching and offline handling.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p7-3-1-verify-rtsp-to-srtp-streaming-works.md</path>
+        <title>Previous Story P7-3.1</title>
+        <section>Completion Notes</section>
+        <snippet>StreamQuality enum, StreamConfig dataclass, ffmpeg command patterns, Prometheus metrics for HomeKit streaming added.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/homekit_camera.py</path>
+        <kind>service</kind>
+        <symbol>HomeKitCameraAccessory._get_snapshot</symbol>
+        <lines>517-579</lines>
+        <reason>Existing snapshot method that needs caching enhancement. Also contains _get_placeholder_image() at lines 581-647.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/homekit_camera.py</path>
+        <kind>service</kind>
+        <symbol>HomeKitCameraAccessory.__init__</symbol>
+        <lines>150-205</lines>
+        <reason>Constructor where snapshot cache instance variables should be added.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/homekit.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-756</lines>
+        <reason>HomeKit API endpoints - add snapshot test endpoint here.</reason>
+      </file>
+      <file>
+        <path>backend/app/core/metrics.py</path>
+        <kind>module</kind>
+        <symbol>homekit_streams_*</symbol>
+        <lines>219-248</lines>
+        <reason>HomeKit streaming metrics - add snapshot cache metrics following same pattern.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_homekit_camera.py</path>
+        <kind>test</kind>
+        <symbol>TestHomeKitCamera</symbol>
+        <reason>Existing HomeKit camera tests - add snapshot caching tests here.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/homekit_service.py</path>
+        <kind>service</kind>
+        <symbol>HomeKitService</symbol>
+        <reason>Main HomeKit service - may need to expose camera snapshot method for API endpoint.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="pyhap" version="^4.9">HomeKit Accessory Protocol implementation</package>
+        <package name="Pillow" version="^10.0">Image processing for placeholder generation</package>
+        <package name="prometheus-client" version="^0.20">Metrics collection</package>
+      </python>
+      <system>
+        <tool name="ffmpeg" version="6.0+">RTSP to JPEG frame capture</tool>
+      </system>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">Snapshot capture uses ffmpeg subprocess with 5-second timeout</constraint>
+    <constraint type="architecture">Cache is per-camera instance, not global</constraint>
+    <constraint type="architecture">Placeholder image generated via Pillow with "Camera Unavailable" text</constraint>
+    <constraint type="performance">Snapshot capture must complete within 5 seconds</constraint>
+    <constraint type="performance">Cached snapshot return must complete within 50ms</constraint>
+    <constraint type="security">Camera credentials never exposed to HomeKit clients</constraint>
+    <constraint type="pattern">Follow existing record_homekit_* and update_homekit_* metric function patterns</constraint>
+    <constraint type="testing">All new code must have corresponding unit tests</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>_get_snapshot</name>
+      <kind>async method</kind>
+      <signature>async def _get_snapshot(self, image_size: dict) -> bytes</signature>
+      <path>backend/app/services/homekit_camera.py:517</path>
+    </interface>
+    <interface>
+      <name>_get_placeholder_image</name>
+      <kind>method</kind>
+      <signature>def _get_placeholder_image(self, width: int = 640, height: int = 480) -> bytes</signature>
+      <path>backend/app/services/homekit_camera.py:581</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/homekit/cameras/{camera_id}/snapshot</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/homekit/cameras/{camera_id}/snapshot -> image/jpeg | 503</signature>
+      <path>backend/app/api/v1/homekit.py (to be added)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>pytest with async support (pytest-asyncio). Tests in backend/tests/. Mock external dependencies (ffmpeg, RTSP). Use fixtures for camera accessories. Follow test naming: test_{functionality}_{scenario}.</standards>
+    <locations>
+      <location>backend/tests/test_services/test_homekit_camera.py</location>
+      <location>backend/tests/test_api/test_homekit.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test that get_snapshot returns bytes for valid camera</idea>
+      <idea ac="AC2">Test that returned bytes are valid JPEG (check magic bytes)</idea>
+      <idea ac="AC3">Test cache hit: call twice within 5s, verify only one ffmpeg call</idea>
+      <idea ac="AC3">Test cache miss: call after 5s, verify new ffmpeg call</idea>
+      <idea ac="AC3">Test cache expiry: wait 5+ seconds between calls, verify fresh capture</idea>
+      <idea ac="AC4">Test offline camera: mock ffmpeg timeout, verify placeholder returned</idea>
+      <idea ac="AC4">Test placeholder image: verify valid JPEG with expected dimensions</idea>
+      <idea ac="API">Test snapshot endpoint returns 200 with image/jpeg content-type</idea>
+      <idea ac="API">Test snapshot endpoint returns 503 for offline camera</idea>
+    </ideas>
+  </tests>
+</story-context>

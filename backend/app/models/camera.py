@@ -42,6 +42,10 @@ class Camera(Base):
             - video_native: Best quality, highest cost - sends video directly to AI
         audio_enabled: Whether audio stream extraction is enabled (Phase 6)
         audio_codec: Detected audio codec from RTSP stream ('aac', 'pcmu', 'opus', etc.) (Phase 6)
+        homekit_stream_quality: HomeKit streaming quality - 'low', 'medium', or 'high' (Phase 7)
+            - low: 640x480, 15fps, 500kbps
+            - medium: 1280x720, 25fps, 1500kbps
+            - high: 1920x1080, 30fps, 3000kbps
         created_at: Record creation timestamp (UTC)
         updated_at: Last modification timestamp (UTC)
     """
@@ -77,6 +81,8 @@ class Camera(Base):
     # Phase 6 (P6-3.1): Audio stream extraction configuration
     audio_enabled = Column(Boolean, default=False, nullable=False)
     audio_codec = Column(String(20), nullable=True)  # Detected codec: 'aac', 'pcmu', 'opus', etc.
+    # Phase 7 (P7-3.1): HomeKit stream quality configuration
+    homekit_stream_quality = Column(String(20), default='medium', nullable=False)  # 'low', 'medium', 'high'
     # Phase 6 (P6-3.3): Per-camera audio event settings
     audio_event_types = Column(Text, nullable=True)  # JSON array: ["glass_break", "gunshot", "scream", "doorbell"]
     audio_threshold = Column(Float, nullable=True)  # Per-camera threshold override (0.0-1.0), null = use global
@@ -95,6 +101,7 @@ class Camera(Base):
         CheckConstraint("motion_sensitivity IN ('low', 'medium', 'high')", name='check_sensitivity'),
         CheckConstraint("motion_cooldown >= 0 AND motion_cooldown <= 300", name='check_cooldown'),
         CheckConstraint("analysis_mode IN ('single_frame', 'multi_frame', 'video_native')", name='check_analysis_mode'),
+        CheckConstraint("homekit_stream_quality IN ('low', 'medium', 'high')", name='check_homekit_stream_quality'),
     )
     
     @validates('password')

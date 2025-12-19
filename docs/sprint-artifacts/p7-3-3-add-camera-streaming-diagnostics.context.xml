@@ -1,0 +1,199 @@
+<story-context id="p7-3-3-add-camera-streaming-diagnostics" v="1.0">
+  <metadata>
+    <epicId>P7-3</epicId>
+    <storyId>P7-3.3</storyId>
+    <title>Add Camera Streaming Diagnostics</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-3-3-add-camera-streaming-diagnostics.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner troubleshooting HomeKit camera streaming</asA>
+    <iWant>visibility into active streams, ffmpeg commands, and stream test capabilities</iWant>
+    <soThat>I can diagnose and resolve camera streaming issues in Apple Home app</soThat>
+    <tasks>
+      <task id="1" title="Enhance Stream Logging">
+        <subtask id="1.1">Add structured logging on stream start with: session_id, camera_id, quality, client_address, resolution, fps, bitrate</subtask>
+        <subtask id="1.2">Add structured logging on stream stop with: session_id, camera_id, duration_seconds, reason</subtask>
+        <subtask id="1.3">Add logging when stream rejected due to concurrent limit</subtask>
+        <subtask id="1.4">Capture and log ffmpeg stderr on stream failure</subtask>
+      </task>
+      <task id="2" title="Implement Stream Diagnostics API">
+        <subtask id="2.1">Add StreamDiagnostics schema to backend/app/schemas/homekit_diagnostics.py</subtask>
+        <subtask id="2.2">Update GET /api/v1/homekit/status response to include stream_diagnostics</subtask>
+        <subtask id="2.3">Create POST /api/v1/homekit/cameras/{camera_id}/test-stream endpoint</subtask>
+        <subtask id="2.4">Implement stream test logic: verify RTSP accessible, check ffmpeg compatibility</subtask>
+        <subtask id="2.5">Return ffmpeg_command string (sanitized - no SRTP keys) in test-stream response</subtask>
+      </task>
+      <task id="3" title="Add Active Stream Tracking to HomeKit Service">
+        <subtask id="3.1">Add get_stream_diagnostics() method to HomeKitService</subtask>
+        <subtask id="3.2">Track active stream count, start time, and quality per camera accessory</subtask>
+        <subtask id="3.3">Include stream info in HomekitStatus dataclass</subtask>
+      </task>
+      <task id="4" title="Create Stream Test Frontend UI">
+        <subtask id="4.1">Add useHomekitTestStream hook in frontend/hooks/useHomekitStatus.ts</subtask>
+        <subtask id="4.2">Add stream test button to HomeKitSettings camera section</subtask>
+        <subtask id="4.3">Display test results: RTSP accessible, ffmpeg compatible, estimated latency</subtask>
+        <subtask id="4.4">Show test loading state and error handling</subtask>
+      </task>
+      <task id="5" title="Unit and Integration Tests">
+        <subtask id="5.1">Unit test: Stream start/stop logging includes required fields</subtask>
+        <subtask id="5.2">Unit test: get_stream_diagnostics() returns correct per-camera info</subtask>
+        <subtask id="5.3">Integration test: GET /api/v1/homekit/status includes stream_diagnostics</subtask>
+        <subtask id="5.4">Integration test: POST /api/v1/homekit/cameras/{id}/test-stream returns expected fields</subtask>
+        <subtask id="5.5">Unit test: ffmpeg_command is sanitized (no SRTP keys exposed)</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1" description="Stream start/stop events logged">
+      Verify log entries contain session_id, camera_id, quality on start; session_id, camera_id, duration_seconds, reason on stop
+    </criterion>
+    <criterion id="AC2" description="Active streams shown in HomeKit status panel">
+      GET /api/v1/homekit/status includes stream_diagnostics with per-camera stream info
+    </criterion>
+    <criterion id="AC3" description="ffmpeg command displayed for debugging">
+      POST /api/v1/homekit/cameras/{id}/test-stream returns ffmpeg_command in response (sanitized, no SRTP keys)
+    </criterion>
+    <criterion id="AC4" description="Stream test button added in camera settings">
+      Click test button in HomeKitSettings, see stream test results with RTSP/ffmpeg status
+    </criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P7-3.md" title="Epic P7-3 Tech Spec" section="Story P7-3.3 Acceptance Criteria">
+        Stream logging, stream_diagnostics in status, test-stream endpoint, stream test button requirements
+      </doc>
+      <doc path="docs/epics-phase7.md" title="Phase 7 Epics" section="Epic P7-3: HomeKit Camera Streaming">
+        Story P7-3.3 acceptance criteria: log stream events, show active streams, display ffmpeg command, add test button
+      </doc>
+      <doc path="docs/sprint-artifacts/p7-3-2-add-camera-snapshot-support.md" title="Previous Story P7-3.2" section="Dev Agent Record">
+        Patterns for HomeKit API endpoints, service integration, Prometheus metrics, test structure
+      </doc>
+      <doc path="docs/architecture/phase-5-additions.md" title="Phase 5 Architecture" section="HomeKit Camera Streaming Pipeline">
+        RTSP → ffmpeg → SRTP streaming architecture, max 2 concurrent streams per camera
+      </doc>
+    </docs>
+    <code>
+      <file path="backend/app/services/homekit_camera.py" kind="service" symbol="HomeKitCameraAccessory">
+        <lines>270-419</lines>
+        <reason>Contains _start_stream() and _stop_stream() methods that need enhanced logging; StreamSession tracking, _build_ffmpeg_command() to expose</reason>
+      </file>
+      <file path="backend/app/services/homekit_service.py" kind="service" symbol="HomekitService">
+        <lines>1-200</lines>
+        <reason>Service singleton with get_status(), needs get_stream_diagnostics() method; contains _cameras dict tracking camera accessories</reason>
+      </file>
+      <file path="backend/app/api/v1/homekit.py" kind="router" symbol="get_homekit_status, get_camera_snapshot">
+        <lines>270-311, 764-831</lines>
+        <reason>Existing status endpoint to update with stream_diagnostics; snapshot endpoint pattern to follow for test-stream</reason>
+      </file>
+      <file path="backend/app/schemas/homekit_diagnostics.py" kind="schema" symbol="HomeKitDiagnosticsResponse, HomeKitConnectivityTestResponse">
+        <lines>92-233</lines>
+        <reason>Existing diagnostic schemas; add StreamDiagnostics and StreamTestResponse following same patterns</reason>
+      </file>
+      <file path="frontend/hooks/useHomekitStatus.ts" kind="hook" symbol="useHomekitTestConnectivity">
+        <lines>278-312</lines>
+        <reason>Pattern for test mutation hook; add useHomekitTestStream following same structure</reason>
+      </file>
+      <file path="frontend/components/settings/HomeKitSettings.tsx" kind="component" symbol="ConnectivityTest">
+        <lines>56-171</lines>
+        <reason>Pattern for test button component with results display; add StreamTest component similarly</reason>
+      </file>
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="apiClient.homekit">
+        <lines>1456-1556</lines>
+        <reason>HomeKit API methods; add testCameraStream() method for POST /homekit/cameras/{id}/test-stream</reason>
+      </file>
+      <file path="backend/app/core/metrics.py" kind="metrics" symbol="record_homekit_stream_start, update_homekit_active_streams">
+        <reason>Existing stream metrics; may need stream test metric</reason>
+      </file>
+      <file path="backend/tests/test_services/test_homekit_camera.py" kind="test" symbol="TestStreamQuality">
+        <reason>Existing HomeKit camera tests; add TestStreamLogging, TestStreamDiagnostics test classes</reason>
+      </file>
+      <file path="backend/tests/test_api/test_homekit.py" kind="test" symbol="TestSnapshotEndpoint">
+        <reason>Existing HomeKit API tests; add TestStreamTestEndpoint test class</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="pyhap" version="4.9+">HomeKit Accessory Protocol</package>
+        <package name="pydantic" version="2.0+">Schema validation</package>
+        <package name="fastapi" version="0.115+">API framework</package>
+        <package name="pytest" version="7.0+">Testing</package>
+      </python>
+      <node>
+        <package name="@tanstack/react-query" version="5.0+">Server state management</package>
+        <package name="react" version="19+">UI framework</package>
+        <package name="next" version="15+">App framework</package>
+      </node>
+      <system>
+        <package name="ffmpeg" version="6.0+">RTSP to SRTP transcoding</package>
+      </system>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="security">ffmpeg command in test-stream response MUST NOT include SRTP keys or other secrets</constraint>
+    <constraint type="performance">Stream test should timeout after 10 seconds max</constraint>
+    <constraint type="architecture">Maximum 2 concurrent streams per camera (existing limit from P5-1.3)</constraint>
+    <constraint type="architecture">Stream test must not interfere with active HomeKit streams</constraint>
+    <constraint type="testing">All new endpoints must have integration tests</constraint>
+    <constraint type="testing">Logging changes must have unit tests verifying field presence</constraint>
+    <constraint type="api">Follow existing HomeKit API patterns from homekit.py</constraint>
+    <constraint type="frontend">Follow existing mutation hook patterns from useHomekitStatus.ts</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/homekit/status" kind="REST endpoint">
+      <signature>Returns HomeKitStatusResponse with new stream_diagnostics field</signature>
+      <path>backend/app/api/v1/homekit.py:270</path>
+      <update>Add stream_diagnostics: { cameras: [{ camera_id, camera_name, streaming_enabled, active_streams, quality }] }</update>
+    </interface>
+    <interface name="POST /api/v1/homekit/cameras/{camera_id}/test-stream" kind="REST endpoint">
+      <signature>POST with camera_id path param, returns StreamTestResponse</signature>
+      <path>backend/app/api/v1/homekit.py (new)</path>
+      <response>{ success, rtsp_accessible, ffmpeg_compatible, source_resolution, source_fps, source_codec, target_resolution, target_fps, target_bitrate, estimated_latency_ms, ffmpeg_command }</response>
+    </interface>
+    <interface name="HomeKitService.get_stream_diagnostics()" kind="method">
+      <signature>def get_stream_diagnostics(self) -> List[CameraStreamDiagnostics]</signature>
+      <path>backend/app/services/homekit_service.py (new method)</path>
+      <returns>Per-camera streaming status including active_streams, quality, snapshot info</returns>
+    </interface>
+    <interface name="useHomekitTestStream" kind="React hook">
+      <signature>export function useHomekitTestStream(): UseMutationResult&lt;StreamTestResponse, Error, string&gt;</signature>
+      <path>frontend/hooks/useHomekitStatus.ts (new hook)</path>
+    </interface>
+    <interface name="apiClient.homekit.testCameraStream" kind="API client method">
+      <signature>testCameraStream: async (cameraId: string) => Promise&lt;StreamTestResponse&gt;</signature>
+      <path>frontend/lib/api-client.ts (new method)</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Mock ffmpeg subprocess calls. Use existing test fixtures from conftest.py.
+      Frontend: Vitest with React Testing Library. Mock API responses. Follow patterns from existing HomeKit tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_homekit_camera.py</location>
+      <location>backend/tests/test_api/test_homekit.py</location>
+      <location>frontend/components/**/*.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea ac="AC1">Test _start_stream logs session_id, camera_id, quality, client_address, resolution, fps, bitrate</idea>
+      <idea ac="AC1">Test _stop_stream logs session_id, camera_id, duration_seconds, reason</idea>
+      <idea ac="AC1">Test stream rejection logs correctly when max concurrent reached</idea>
+      <idea ac="AC2">Test GET /api/v1/homekit/status returns stream_diagnostics with camera list</idea>
+      <idea ac="AC2">Test stream_diagnostics includes active_streams count per camera</idea>
+      <idea ac="AC3">Test POST /api/v1/homekit/cameras/{id}/test-stream returns all expected fields</idea>
+      <idea ac="AC3">Test ffmpeg_command in response does NOT contain SRTP keys</idea>
+      <idea ac="AC3">Test test-stream endpoint returns 404 for unknown camera</idea>
+      <idea ac="AC4">Frontend: Test stream test button renders when HomeKit running</idea>
+      <idea ac="AC4">Frontend: Test loading state shown during test</idea>
+      <idea ac="AC4">Frontend: Test results displayed after successful test</idea>
+    </ideas>
+  </tests>
+</story-context>

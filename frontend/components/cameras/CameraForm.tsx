@@ -39,6 +39,7 @@ import { DetectionZoneList } from './DetectionZoneList';
 import { ZonePresetTemplates } from './ZonePresetTemplates';
 import { DetectionScheduleEditor } from './DetectionScheduleEditor';
 import { AnalysisModeSelector } from './AnalysisModeSelector';
+import { HomeKitStreamQualitySelector } from './HomeKitStreamQualitySelector';
 
 interface CameraFormProps {
   /**
@@ -104,6 +105,8 @@ export function CameraForm({
             days: [0, 1, 2, 3, 4],
           },
           analysis_mode: initialData.analysis_mode || 'single_frame',
+          // Phase 7: HomeKit stream quality
+          homekit_stream_quality: initialData.homekit_stream_quality || 'medium',
           // Phase 6: Audio settings
           audio_enabled: initialData.audio_enabled ?? false,
           audio_event_types: (initialData.audio_event_types ?? []) as Array<'glass_break' | 'gunshot' | 'scream' | 'doorbell'>,
@@ -126,6 +129,8 @@ export function CameraForm({
             days: [0, 1, 2, 3, 4],
           },
           analysis_mode: 'single_frame',
+          // Phase 7: HomeKit stream quality (default medium for new cameras)
+          homekit_stream_quality: 'medium',
           // Phase 6: Audio settings (default disabled for new cameras)
           audio_enabled: false,
           audio_event_types: [],
@@ -486,6 +491,9 @@ export function CameraForm({
           form={form}
           sourceType={initialData?.source_type || cameraType}
         />
+
+        {/* HomeKit Stream Quality */}
+        <HomeKitStreamQualitySelector form={form} />
 
         {/* Audio Detection Settings - only for RTSP cameras */}
         {cameraType === 'rtsp' && (

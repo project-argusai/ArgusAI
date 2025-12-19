@@ -217,6 +217,55 @@ mqtt_reconnect_attempts_total = Counter(
 )
 
 # ============================================================================
+# HomeKit Streaming Metrics (Story P7-3.1)
+# ============================================================================
+
+homekit_streams_active = Gauge(
+    'argusai_homekit_streams_active',
+    'Number of active HomeKit camera streams',
+    ['camera_id'],
+    registry=REGISTRY
+)
+
+homekit_streams_total = Gauge(
+    'argusai_homekit_streams_total',
+    'Total number of active HomeKit streams across all cameras',
+    registry=REGISTRY
+)
+
+homekit_stream_starts_total = Counter(
+    'argusai_homekit_stream_starts_total',
+    'Total HomeKit stream start attempts',
+    ['camera_id', 'quality', 'status'],  # status: success, rejected, error
+    registry=REGISTRY
+)
+
+homekit_stream_rejections_total = Counter(
+    'argusai_homekit_stream_rejections_total',
+    'Total HomeKit stream rejections due to concurrent limit',
+    ['camera_id'],
+    registry=REGISTRY
+)
+
+# ============================================================================
+# HomeKit Snapshot Metrics (Story P7-3.2)
+# ============================================================================
+
+homekit_snapshot_cache_hits_total = Counter(
+    'argusai_homekit_snapshot_cache_hits_total',
+    'Total HomeKit snapshot cache hits',
+    ['camera_id'],
+    registry=REGISTRY
+)
+
+homekit_snapshot_cache_misses_total = Counter(
+    'argusai_homekit_snapshot_cache_misses_total',
+    'Total HomeKit snapshot cache misses',
+    ['camera_id'],
+    registry=REGISTRY
+)
+
+# ============================================================================
 # System Resource Metrics
 # ============================================================================
 
@@ -443,6 +492,70 @@ def record_mqtt_publish_error():
 def record_mqtt_reconnect_attempt():
     """Record an MQTT reconnect attempt."""
     mqtt_reconnect_attempts_total.inc()
+
+
+def record_homekit_stream_start(
+    camera_id: str,
+    quality: str,
+    status: str
+):
+    """
+    Record a HomeKit stream start attempt (Story P7-3.1 AC4).
+
+    Args:
+        camera_id: Camera ID
+        quality: Stream quality (low, medium, high)
+        status: Result status (success, rejected, error)
+    """
+    homekit_stream_starts_total.labels(
+        camera_id=camera_id,
+        quality=quality,
+        status=status
+    ).inc()
+
+    if status == 'rejected':
+        homekit_stream_rejections_total.labels(camera_id=camera_id).inc()
+
+
+def update_homekit_active_streams(camera_id: str, count: int):
+    """
+    Update the active stream count for a camera (Story P7-3.1 AC4).
+
+    Args:
+        camera_id: Camera ID
+        count: Number of active streams for this camera
+    """
+    homekit_streams_active.labels(camera_id=camera_id).set(count)
+
+
+def update_homekit_total_streams(total_count: int):
+    """
+    Update the total active stream count (Story P7-3.1 AC4).
+
+    Args:
+        total_count: Total number of active streams across all cameras
+    """
+    homekit_streams_total.set(total_count)
+
+
+def record_homekit_snapshot_cache_hit(camera_id: str):
+    """
+    Record a HomeKit snapshot cache hit (Story P7-3.2 AC3).
+
+    Args:
+        camera_id: Camera ID
+    """
+    homekit_snapshot_cache_hits_total.labels(camera_id=camera_id).inc()
+
+
+def record_homekit_snapshot_cache_miss(camera_id: str):
+    """
+    Record a HomeKit snapshot cache miss (Story P7-3.2 AC3).
+
+    Args:
+        camera_id: Camera ID
+    """
+    homekit_snapshot_cache_misses_total.labels(camera_id=camera_id).inc()
 
 
 def update_system_metrics():

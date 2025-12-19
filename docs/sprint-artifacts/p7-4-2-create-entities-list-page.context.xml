@@ -1,0 +1,121 @@
+<story-context id=".bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P7-4</epicId>
+    <storyId>P7-4.2</storyId>
+    <title>Create Entities List Page</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-4-2-create-entities-list-page.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>home user managing recognized people and vehicles</asA>
+    <iWant>search functionality and an "Add Alert" button on the entities page</iWant>
+    <soThat>I can find specific entities by name and prepare for future entity-based alerting</soThat>
+    <tasks>
+      <task n="1">Add search input to EntityList with 300ms debounce, URL persistence, combined with type filter</task>
+      <task n="2">Add "Add Alert" button to EntityCard that shows "Coming Soon" toast</task>
+      <task n="3">Update tests for new functionality</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1">Search by name supported with debounced input (300ms)</criterion>
+    <criterion id="AC2">Search shows "No results" message when no matches</criterion>
+    <criterion id="AC3">Placeholder "Add Alert" button present on entity cards</criterion>
+    <criterion id="AC4">"Add Alert" button shows "Coming Soon" toast when clicked</criterion>
+    <criterion id="AC5">Search query persisted in URL</criterion>
+    <criterion id="AC6">Search combined with type filter works correctly</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P7-4.md" title="Epic P7-4 Tech Spec" section="Story P7-4.2">
+        Defines entity list page with search/filter by name and type, placeholder Add Alert button
+      </doc>
+      <doc path="docs/epics-phase7.md" title="Phase 7 Epics" section="Epic P7-4: Entities Page">
+        Story P7-4.2 acceptance criteria: grid with thumbnail, editable name, search, filter, Add Alert placeholder
+      </doc>
+      <doc path="docs/sprint-artifacts/p7-4-1-design-entities-data-model.md" title="P7-4.1 Story" section="Completion Notes">
+        API endpoints at /api/v1/context/entities, RecognizedEntity model with thumbnail_path and notes
+      </doc>
+    </docs>
+
+    <code>
+      <file path="frontend/components/entities/EntityList.tsx" kind="component" reason="Main component to add search functionality - already has type filter and pagination">
+        Lines 46-58: filter state and queryParams - add search state here
+      </file>
+      <file path="frontend/components/entities/EntityCard.tsx" kind="component" reason="Add 'Add Alert' button to card">
+        Lines 81-144: Card rendering - add button in details section
+      </file>
+      <file path="frontend/components/entities/EmptyEntitiesState.tsx" kind="component" reason="Update to show search-specific empty message">
+        Existing empty state component to extend
+      </file>
+      <file path="frontend/hooks/useEntities.ts" kind="hook" reason="Update to accept search param">
+        TanStack Query hook for fetching entities
+      </file>
+      <file path="frontend/lib/api-client.ts" kind="api" lines="1649-1678" reason="Entity API functions - check for search param support">
+        apiClient.entities.list() - verify search param is passed
+      </file>
+      <file path="frontend/__tests__/components/entities/EntityCard.test.tsx" kind="test" reason="Add test for Add Alert button">
+        Existing tests to extend
+      </file>
+      <file path="backend/app/api/v1/context.py" kind="router" lines="526-580" reason="Entity list endpoint - verify search param support">
+        GET /api/v1/context/entities with query params
+      </file>
+      <file path="backend/app/services/entity_service.py" kind="service" lines="456-507" reason="get_all_entities method - verify search support">
+        May need to add search filter to query
+      </file>
+    </code>
+
+    <dependencies>
+      <frontend>
+        <package>@tanstack/react-query</package>
+        <package>sonner</package>
+        <package>next</package>
+        <package>date-fns</package>
+        <package>lucide-react</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Backend entity API is at /api/v1/context/entities (not /api/v1/entities)</constraint>
+    <constraint>Entity model uses RecognizedEntity from Phase 4, has entity_type field</constraint>
+    <constraint>Add Alert button must be non-functional - shows "Coming Soon" toast only</constraint>
+    <constraint>Search must be debounced (300ms) to avoid excessive API calls</constraint>
+    <constraint>Search must combine with existing type filter</constraint>
+    <constraint>URL persistence for search allows bookmarking/sharing</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/context/entities" kind="REST endpoint">
+      Query params: limit, offset, entity_type, named_only, search (if supported)
+      Response: { entities: EntityResponse[], total: number }
+    </interface>
+    <interface name="apiClient.entities.list" kind="TypeScript function">
+      params: { limit?, offset?, entity_type?, named_only? } - may need search added
+    </interface>
+    <interface name="useEntities hook" kind="React hook">
+      params: UseEntitiesParams with limit, offset, entity_type, named_only - add search
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Vitest + React Testing Library for frontend component tests.
+      Test interactions with userEvent, mock API responses with MSW patterns.
+      Follow existing test patterns in __tests__/components/entities/ directory.
+    </standards>
+    <locations>
+      frontend/__tests__/components/entities/EntityCard.test.tsx
+      frontend/__tests__/components/entities/EmptyEntitiesState.test.tsx
+    </locations>
+    <ideas>
+      <idea ac="AC3">Test that EntityCard renders "Add Alert" button</idea>
+      <idea ac="AC4">Test that clicking "Add Alert" button triggers toast</idea>
+      <idea ac="AC1,AC2">Test search input debounce behavior (may require timer mocks)</idea>
+    </ideas>
+  </tests>
+</story-context>

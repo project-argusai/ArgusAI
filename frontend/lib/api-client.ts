@@ -1649,7 +1649,7 @@ export const apiClient = {
   entities: {
     /**
      * Get all recognized entities with pagination and filtering
-     * @param params Query parameters (limit, offset, entity_type, named_only)
+     * @param params Query parameters (limit, offset, entity_type, named_only, search)
      * @returns List of entities with total count
      */
     list: async (params?: {
@@ -1657,6 +1657,7 @@ export const apiClient = {
       offset?: number;
       entity_type?: 'person' | 'vehicle' | 'unknown';
       named_only?: boolean;
+      search?: string;
     }): Promise<{
       entities: Array<{
         id: string;
@@ -1673,6 +1674,7 @@ export const apiClient = {
       if (params?.offset) searchParams.set('offset', String(params.offset));
       if (params?.entity_type) searchParams.set('entity_type', params.entity_type);
       if (params?.named_only) searchParams.set('named_only', 'true');
+      if (params?.search) searchParams.set('search', params.search);
 
       const queryString = searchParams.toString();
       return apiFetch(`/context/entities${queryString ? `?${queryString}` : ''}`);

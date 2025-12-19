@@ -166,4 +166,33 @@ describe('EntityCard', () => {
     const nameElement = screen.getByText('Unknown person');
     expect(nameElement).toHaveClass('italic');
   });
+
+  // Story P7-4.2 AC3: Add Alert button exists
+  it('renders "Add Alert" button (Story P7-4.2 AC3)', () => {
+    render(
+      <EntityCard
+        entity={mockEntity}
+        onClick={mockOnClick}
+      />
+    );
+
+    const addAlertButton = screen.getByRole('button', { name: /add alert/i });
+    expect(addAlertButton).toBeInTheDocument();
+  });
+
+  // Story P7-4.2 AC4: Add Alert button does not trigger card click
+  it('"Add Alert" button click does not trigger card onClick (Story P7-4.2 AC4)', () => {
+    render(
+      <EntityCard
+        entity={mockEntity}
+        onClick={mockOnClick}
+      />
+    );
+
+    const addAlertButton = screen.getByRole('button', { name: /add alert/i });
+    fireEvent.click(addAlertButton);
+
+    // Card onClick should NOT have been called
+    expect(mockOnClick).not.toHaveBeenCalled();
+  });
 });

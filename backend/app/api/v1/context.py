@@ -544,6 +544,10 @@ async def list_entities(
         default=False,
         description="Only return named entities"
     ),
+    search: Optional[str] = Query(
+        default=None,
+        description="Search by entity name (case-insensitive partial match)"
+    ),
     db: Session = Depends(get_db),
     entity_service: EntityService = Depends(get_entity_service),
 ):
@@ -551,15 +555,17 @@ async def list_entities(
     Get all recognized entities with pagination.
 
     Story P4-3.3: Recurring Visitor Detection (AC7)
+    Story P7-4.2: Search functionality added
 
     Returns a list of all entities that have been recognized, sorted by
-    most recently seen. Supports filtering by type and named-only.
+    most recently seen. Supports filtering by type, named-only, and search.
 
     Args:
         limit: Maximum number of entities (1-100, default 50)
         offset: Pagination offset
         entity_type: Filter by entity type
         named_only: Only return entities that have been named
+        search: Search string to filter by name
         db: Database session
         entity_service: Entity service instance
 
@@ -572,6 +578,7 @@ async def list_entities(
         offset=offset,
         entity_type=entity_type,
         named_only=named_only,
+        search=search,
     )
 
     return EntityListResponse(

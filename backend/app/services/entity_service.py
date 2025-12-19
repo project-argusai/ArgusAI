@@ -460,6 +460,7 @@ class EntityService:
         offset: int = 0,
         entity_type: Optional[str] = None,
         named_only: bool = False,
+        search: Optional[str] = None,
     ) -> tuple[list[dict], int]:
         """
         Get all recognized entities with pagination.
@@ -470,6 +471,7 @@ class EntityService:
             offset: Pagination offset
             entity_type: Filter by entity type (person, vehicle, etc.)
             named_only: If True, only return named entities
+            search: Search string to filter by name (case-insensitive partial match)
 
         Returns:
             Tuple of (list of entity dicts, total count)
@@ -483,6 +485,10 @@ class EntityService:
 
         if named_only:
             query = query.filter(RecognizedEntity.name.isnot(None))
+
+        if search:
+            # Case-insensitive search on name field
+            query = query.filter(RecognizedEntity.name.ilike(f"%{search}%"))
 
         total = query.count()
 

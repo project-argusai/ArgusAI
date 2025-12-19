@@ -4,16 +4,19 @@
  * AC3: Filter by entity_type
  * AC4: Filter by named_only
  * AC5: Pagination with configurable page size
+ * Story P7-4.2: Search by name with debounce and URL persistence
  */
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useEntities, type UseEntitiesParams } from '@/hooks/useEntities';
 import { EntityCard } from './EntityCard';
 import { EntityCardSkeleton } from './EntityCardSkeleton';
 import { EmptyEntitiesState } from './EmptyEntitiesState';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -23,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import type { EntityType, IEntity } from '@/types/entity';
 
 interface EntityListProps {
@@ -36,19 +39,64 @@ interface EntityListProps {
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
 /**
- * EntityList component with filtering and pagination
+ * Custom hook for debounced value
+ */
+function useDebounce<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
+
+/**
+ * EntityList component with filtering, search, and pagination
  */
 export function EntityList({
   onEntityClick,
   pageSize: defaultPageSize = 50,
 }: EntityListProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Initialize state from URL params (Story P7-4.2 AC5)
+  const initialSearch = searchParams.get('search') || '';
+  const initialType = (searchParams.get('type') as EntityType | 'all') || 'all';
+
   // Filter state
-  const [entityTypeFilter, setEntityTypeFilter] = useState<EntityType | 'all'>('all');
+  const [entityTypeFilter, setEntityTypeFilter] = useState<EntityType | 'all'>(initialType);
   const [namedOnly, setNamedOnly] = useState(false);
+
+  // Search state (Story P7-4.2 AC1)
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const debouncedSearch = useDebounce(searchInput, 300);
 
   // Pagination state
   const [pageSize, setPageSize] = useState(defaultPageSize);
   const [currentPage, setCurrentPage] = useState(0);
+
+  // Update URL when search or filter changes (Story P7-4.2 AC5)
+  const updateURL = useCallback((search: string, type: EntityType | 'all') => {
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (type !== 'all') params.set('type', type);
+    const queryString = params.toString();
+    router.replace(`${pathname}${queryString ? `?${queryString}` : ''}`, { scroll: false });
+  }, [router, pathname]);
+
+  // Sync URL when debounced search changes
+  useEffect(() => {
+    updateURL(debouncedSearch, entityTypeFilter);
+  }, [debouncedSearch, entityTypeFilter, updateURL]);
 
   // Build query params
   const queryParams: UseEntitiesParams = useMemo(() => ({
@@ -56,7 +104,8 @@ export function EntityList({
     offset: currentPage * pageSize,
     entity_type: entityTypeFilter !== 'all' ? entityTypeFilter : undefined,
     named_only: namedOnly || undefined,
-  }), [pageSize, currentPage, entityTypeFilter, namedOnly]);
+    search: debouncedSearch || undefined,
+  }), [pageSize, currentPage, entityTypeFilter, namedOnly, debouncedSearch]);
 
   // Fetch entities
   const { data, isLoading, error, refetch } = useEntities(queryParams);
@@ -77,11 +126,26 @@ export function EntityList({
     setCurrentPage(0);
   };
 
+  // Search handler (Story P7-4.2 AC1)
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchInput(e.target.value);
+    setCurrentPage(0);
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput('');
+    setCurrentPage(0);
+  };
+
   const handleClearFilters = () => {
     setEntityTypeFilter('all');
     setNamedOnly(false);
+    setSearchInput('');
     setCurrentPage(0);
   };
+
+  // Check if we have active filters/search
+  const hasFilters = entityTypeFilter !== 'all' || namedOnly || debouncedSearch !== '';
 
   // Calculate pagination info
   const totalEntities = data?.total ?? 0;
@@ -112,8 +176,30 @@ export function EntityList({
 
   return (
     <div className="space-y-6">
-      {/* Filters Row */}
+      {/* Search and Filters Row (Story P7-4.2) */}
       <div className="flex flex-wrap items-center gap-4">
+        {/* Search Input (Story P7-4.2 AC1) */}
+        <div className="relative flex-1 min-w-[200px] max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search by name..."
+            value={searchInput}
+            onChange={handleSearchChange}
+            className="pl-9 pr-9"
+            aria-label="Search entities by name"
+          />
+          {searchInput && (
+            <button
+              onClick={handleClearSearch}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {/* Entity Type Filter */}
         <div className="flex items-center gap-2">
           <Label htmlFor="entity-type-filter" className="text-sm font-medium">
@@ -167,10 +253,11 @@ export function EntityList({
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty State (Story P7-4.2 AC2) */}
       {!isLoading && data?.entities.length === 0 && (
         <EmptyEntitiesState
-          hasFilters={entityTypeFilter !== 'all' || namedOnly}
+          hasFilters={hasFilters}
+          searchQuery={debouncedSearch}
           onClearFilters={handleClearFilters}
         />
       )}

@@ -1,16 +1,19 @@
 /**
  * EntityCard component - displays individual entity in the entities list (Story P4-3.6)
  * Shows thumbnail, name, type badge, occurrence count, and timestamps
+ * Story P7-4.2: Add "Add Alert" button (AC3, AC4)
  */
 
 'use client';
 
 import { memo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { User, Car, HelpCircle } from 'lucide-react';
+import { User, Car, HelpCircle, Bell } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import type { IEntity } from '@/types/entity';
 
 interface EntityCardProps {
@@ -62,6 +65,14 @@ export const EntityCard = memo(function EntityCard({
   onClick,
 }: EntityCardProps) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  // Story P7-4.2 AC4: "Add Alert" button handler
+  const handleAddAlert = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent card click from triggering
+    toast.info('Coming Soon', {
+      description: 'Entity-based alerts will be available in a future update.',
+    });
+  };
 
   // Build full thumbnail URL if path is relative
   const fullThumbnailUrl = thumbnailUrl
@@ -139,6 +150,20 @@ export const EntityCard = memo(function EntityCard({
         <div className="text-xs text-muted-foreground space-y-1">
           <p>Last seen: {lastSeenRelative}</p>
           <p>First seen: {firstSeenDate.toLocaleDateString()}</p>
+        </div>
+
+        {/* Story P7-4.2 AC3: Add Alert button */}
+        <div className="pt-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-2"
+            onClick={handleAddAlert}
+            aria-label={`Add alert for ${displayName}`}
+          >
+            <Bell className="h-4 w-4" />
+            Add Alert
+          </Button>
         </div>
       </div>
     </Card>

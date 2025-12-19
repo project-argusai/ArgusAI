@@ -16,6 +16,7 @@ export interface UseEntitiesParams {
   offset?: number;
   entity_type?: EntityType;
   named_only?: boolean;
+  search?: string;
 }
 
 /**

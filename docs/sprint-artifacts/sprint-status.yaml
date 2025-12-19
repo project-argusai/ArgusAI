@@ -408,7 +408,7 @@ development_status:
   # Epic P7-2: Package Delivery Alerts
   epic-p7-2: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P7-2.md
   p7-2-1-add-carrier-detection-to-ai-analysis: done  # PR #71
-  p7-2-2-create-package-delivery-alert-rule-type: backlog
+  p7-2-2-create-package-delivery-alert-rule-type: done
   p7-2-3-add-package-delivery-to-homekit: backlog
   p7-2-4-create-package-delivery-dashboard-widget: backlog
   epic-p7-2-retrospective: optional

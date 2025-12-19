@@ -290,6 +290,13 @@ class WebhookService:
                 "severity": severity,
             }
 
+        # Story P7-2.2: Add delivery carrier if available
+        delivery_carrier = getattr(event, 'delivery_carrier', None)
+        if delivery_carrier:
+            from app.services.carrier_extractor import get_carrier_display_name
+            payload["delivery_carrier"] = delivery_carrier
+            payload["delivery_carrier_display"] = get_carrier_display_name(delivery_carrier)
+
         return payload
 
     async def _send_single_request(

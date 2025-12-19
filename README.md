@@ -2,15 +2,15 @@
 
 AI-powered event detection and monitoring for home security. Analyzes video feeds from multiple camera sources, detects motion and smart events, and uses AI to generate natural language descriptions of what's happening.
 
-## What's New (Phase 4 Complete)
+## What's New (Phase 7 Complete)
 
-- **Named Entity Alerts** - Personalized notifications like "John is at the door" instead of generic "Person detected"
-- **Person & Vehicle Recognition** - Privacy-first face/vehicle embeddings with VIP alerts and blocklist
-- **Behavioral Anomaly Detection** - Baseline activity learning with anomaly scoring and alerts
-- **HomeKit Integration** - Motion sensor accessories for Apple Home with real-time triggers
-- **Voice Query API** - Natural language queries ("What happened at the front door today?")
-- **Push Notifications** - Web Push with thumbnails and PWA support
-- **Home Assistant via MQTT** - Auto-discovery, event publishing, camera status sensors
+- **Package Delivery Alerts** - Carrier detection (USPS, FedEx, UPS, Amazon) with dedicated alert rules and dashboard widget
+- **Entities Page** - Browse and manage recognized people and vehicles with search, filtering, and alert configuration stub
+- **HomeKit Camera Streaming** - RTSP-to-SRTP streaming with snapshot support and diagnostics
+- **HomeKit Fixes** - Resolved bridge discovery issues, improved event delivery reliability
+- **ONVIF Camera Discovery** - Auto-discover ONVIF-compatible cameras on your network
+- **Audio Analysis** - Glass break, alarm, and doorbell sound detection from camera audio streams
+- **Motion Events Export** - Download motion detection data as CSV for analysis
 
 ## Features
 
@@ -21,41 +21,64 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
   - Doorbell ring event detection with distinct styling
   - Multi-camera event correlation across cameras
   - Real-time camera status sync
+- **ONVIF Camera Discovery** (Phase 5) - Auto-discover compatible IP cameras
 - **RTSP IP Cameras** - Connect to any RTSP-compatible camera
 - **USB/Webcam Support** - Use local cameras for testing or monitoring
 
 ### AI-Powered Analysis
 - **Multi-Provider Support**: OpenAI GPT-4o → xAI Grok → Claude Haiku → Gemini Flash (automatic fallback)
 - **xAI Grok Integration** (Phase 2) - Vision-capable AI with fast response times
+- **Video Analysis** (Phase 3) - Multi-frame and native video analysis modes
+- **Audio Analysis** (Phase 6) - Glass break, alarm, and doorbell sound detection
 - **Natural Language Descriptions**: Rich, contextual descriptions of events
+- **Confidence Scoring** (Phase 3) - Quality indicators with re-analyze option
 - **Smart Filtering**: Configure which event types trigger AI analysis per camera
 
 ### Monitoring & Alerts
 - **Real-Time Dashboard**: Live camera previews with event timeline
 - **Alert Rules**: Custom rules based on detected objects/events
+- **Package Delivery Alerts** (Phase 7) - Carrier-specific delivery notifications
 - **Webhook Integration**: Send alerts to external systems (Home Assistant, Slack, etc.)
 - **In-App Notifications**: Real-time notification center
 - **Push Notifications** (Phase 4) - Web Push with thumbnails, PWA support
 - **Activity Summaries** (Phase 4) - Daily digests and on-demand reports
+- **Cost Monitoring** (Phase 3) - Track AI usage with daily/monthly caps
 
-### Smart Home Integration (Phase 4)
-- **Home Assistant via MQTT**: Auto-discovery, event publishing, camera status sensors
-- **HomeKit Integration**: Motion sensor accessories, real-time event triggers
-- **Voice Query API**: Natural language queries ("What happened at the front door today?")
+### Smart Home Integration
+- **Home Assistant via MQTT** (Phase 4): Auto-discovery, event publishing, camera status sensors
+- **HomeKit Integration** (Phase 5) - Native HAP-Python bridge with:
+  - Motion sensor accessories for all cameras
+  - Occupancy sensors for person detection
+  - Package, vehicle, and animal sensors
+  - Doorbell accessory for Protect cameras
+  - Camera streaming with RTSP-to-SRTP (Phase 7)
+  - QR code pairing and diagnostics
+- **Voice Query API** (Phase 4): Natural language queries ("What happened at the front door today?")
 
 ### Intelligent Context (Phase 4)
 - **Temporal Context Engine**: Find similar past events, recurring visitor detection
 - **Pattern Detection**: Identify activity patterns and anomalies
+- **Behavioral Anomaly Detection**: Baseline learning with anomaly scoring and alerts
 - **Entity Management**: Track recognized people and vehicles
+- **Entities Page** (Phase 7) - Browse, search, and manage recognized entities
 - **User Feedback Loop**: Thumbs up/down to improve AI accuracy
+- **Named Entity Alerts**: Personalized notifications like "John is at the door"
 
 ### Event Management
 - **Persistent Storage**: Events stored with thumbnails and AI descriptions
 - **Search & Filter**: Find events by description, camera, date, object type, or source type
 - **Event Source Display**: Visual badges showing RTSP/USB/Protect source for each event
 - **Multi-Camera Correlation**: View related events captured across multiple cameras simultaneously
+- **Key Frames Gallery** (Phase 3) - View extracted frames from video analysis
 - **Data Retention**: Configurable automatic cleanup policies
 - **Export**: Download events as CSV or JSON
+- **Motion Events Export** (Phase 6) - Export motion detection data for analysis
+
+### Performance & Accessibility (Phase 6)
+- **Virtual Scrolling**: Efficient camera list rendering for large deployments
+- **React Query Caching**: Optimized data fetching with automatic revalidation
+- **Skip-to-Content Links**: Keyboard navigation improvements
+- **ARIA Labels**: Full accessibility audit and fixes
 
 ## Architecture
 
@@ -97,8 +120,10 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 | **Database** | SQLite (default) / PostgreSQL | 3.x |
 | **ORM** | SQLAlchemy + Alembic | 2.0+ |
 | **Camera Processing** | OpenCV + PyAV | 4.12+ |
-| **AI Providers** | OpenAI, Anthropic, Google | Latest APIs |
+| **AI Providers** | OpenAI, xAI, Anthropic, Google | Latest APIs |
 | **UniFi Integration** | uiprotect | Latest |
+| **HomeKit** | HAP-Python | Latest |
+| **MQTT** | aiomqtt | 2.x |
 
 ## Quick Start
 
@@ -278,6 +303,14 @@ npm run build
 5. Enable cameras from the discovered list
 6. Configure event type filters per camera (Person, Vehicle, Package, etc.)
 
+### ONVIF Discovery (Phase 5)
+
+1. Navigate to **Settings** → **Cameras**
+2. Click **Discover Cameras**
+3. Wait for network scan to complete
+4. Select cameras to add and configure credentials
+5. Test connection and save
+
 ### RTSP Cameras
 
 1. Navigate to **Cameras** → **Add Camera**
@@ -313,6 +346,24 @@ To enable xAI Grok:
 2. Add to **Settings** → **AI Providers** → **xAI Grok**
 3. Grok uses the `grok-2-vision-1212` model for image analysis
 
+## HomeKit Setup (Phase 5+)
+
+ArgusAI includes native HomeKit integration via HAP-Python:
+
+1. Navigate to **Settings** → **HomeKit**
+2. Enable HomeKit Bridge
+3. Scan the QR code with Apple Home app
+4. Accessories are auto-created for enabled cameras:
+   - Motion sensors for all detection events
+   - Occupancy sensors for person detection
+   - Package/vehicle/animal sensors
+   - Doorbell accessory for Protect doorbells
+   - Camera streaming (Phase 7)
+
+### HomeKit Troubleshooting
+
+See [Troubleshooting Guide](docs/troubleshooting-protect.md) for common issues.
+
 ## Project Structure
 
 ```
@@ -328,6 +379,7 @@ argusai/
 │   │       ├── ai_service.py          # Multi-provider AI
 │   │       ├── event_processor.py     # Event pipeline
 │   │       ├── correlation_service.py # Multi-camera correlation
+│   │       ├── homekit_service.py     # HomeKit bridge
 │   │       └── alert_engine.py        # Rule evaluation
 │   ├── alembic/             # Database migrations
 │   └── tests/               # 2,250+ tests
@@ -335,14 +387,16 @@ argusai/
 │   ├── app/                 # App Router pages
 │   ├── components/          # React components
 │   │   ├── cameras/        # Camera management UI
+│   │   ├── entities/       # Entity management
 │   │   ├── events/         # Event timeline
 │   │   ├── protect/        # UniFi Protect components
+│   │   ├── settings/       # Settings pages
 │   │   └── ui/             # shadcn/ui components
 │   └── lib/                 # API client, utilities
 └── docs/                    # Project documentation
     ├── architecture.md      # System architecture
-    ├── PRD-phase2.md        # Phase 2 requirements
-    ├── epics-phase2.md      # Story breakdown
+    ├── PRD-phase*.md        # Phase requirements
+    ├── epics-phase*.md      # Story breakdowns
     └── sprint-artifacts/    # Completed stories
 ```
 
@@ -371,6 +425,12 @@ pytest tests/test_api/test_protect.py -v
 ```bash
 cd frontend
 
+# Run tests
+npm run test:run
+
+# Run with coverage
+npm run test:coverage
+
 # Lint check
 npm run lint
 
@@ -397,6 +457,9 @@ GOOGLE_API_KEY=AIza...
 DEBUG=True
 LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:3000
+
+# HomeKit (auto-generated if not set)
+HOMEKIT_PIN=123-45-678
 ```
 
 Generate encryption key:
@@ -433,46 +496,79 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 | [PRD Phase 2](docs/PRD-phase2.md) | UniFi Protect integration requirements |
 | [PRD Phase 3](docs/PRD-phase3.md) | Video analysis requirements |
 | [PRD Phase 4](docs/PRD-phase4.md) | Context & smart home requirements |
-| [Epics Phase 3](docs/epics-phase3.md) | Phase 3 story breakdown |
-| [Epics Phase 4](docs/epics-phase4.md) | Phase 4 story breakdown |
+| [PRD Phase 5](docs/PRD-phase5.md) | HomeKit & quality requirements |
+| [Epics Phase 5](docs/epics-phase5.md) | Phase 5 story breakdown |
+| [Epics Phase 6](docs/epics-phase6.md) | Phase 6 story breakdown |
+| [Epics Phase 7](docs/epics-phase7.md) | Phase 7 story breakdown |
 
 ## Roadmap
 
-### Completed (MVP + Phase 2 + Phase 3 + Phase 4)
+### Completed (MVP through Phase 7)
+
+**MVP (Phase 1)**
 - ✅ RTSP/USB camera support with motion detection
-- ✅ Multi-provider AI descriptions (OpenAI, xAI Grok, Claude, Gemini)
+- ✅ Multi-provider AI descriptions (OpenAI, Claude, Gemini)
 - ✅ Event storage with search and retention
 - ✅ Alert rules with webhook integration
 - ✅ Real-time dashboard with notifications
+
+**Phase 2: UniFi Protect Integration**
 - ✅ UniFi Protect controller integration
 - ✅ Camera auto-discovery and smart detection filtering
 - ✅ Real-time camera status sync
 - ✅ Event source type display (RTSP/USB/Protect badges)
 - ✅ Doorbell ring event detection and distinct styling
 - ✅ Multi-camera event correlation service
-- ✅ Correlated events display in dashboard (link indicators, related events section)
 - ✅ xAI Grok provider with vision capabilities
-- ✅ RTSP/USB/Protect camera coexistence
-- ✅ Comprehensive error handling and recovery
-- ✅ **Phase 3: Video Analysis**
-  - Video clip download from UniFi Protect
-  - Multi-frame analysis mode (3-5 key frames)
-  - AI confidence scoring and quality indicators
-  - Cost monitoring dashboard with daily/monthly caps
-  - Key frames gallery on event detail
-  - Analysis mode filter on timeline
-- ✅ **Phase 4: Intelligent Context & Smart Home**
-  - Push notifications with thumbnails (PWA support)
-  - Home Assistant integration via MQTT with auto-discovery
-  - Temporal context engine (similar events, recurring visitors)
-  - Activity summaries and daily digests
-  - User feedback loop for AI accuracy improvement
-  - HomeKit integration with motion sensor accessories
-  - Voice query API for natural language event queries
-  - Behavioral anomaly detection (baseline learning, anomaly scoring, alerts)
-  - Person & vehicle recognition (privacy-first face/vehicle embeddings)
-  - Named entity alerts ("John is at the door" personalized notifications)
-  - VIP alerts and entity blocklist for notification control
+
+**Phase 3: Video Analysis**
+- ✅ Video clip download from UniFi Protect
+- ✅ Multi-frame analysis mode (3-5 key frames)
+- ✅ Native video analysis for supported providers
+- ✅ AI confidence scoring and quality indicators
+- ✅ Cost monitoring dashboard with daily/monthly caps
+- ✅ Key frames gallery on event detail
+
+**Phase 4: Intelligent Context & Smart Home**
+- ✅ Push notifications with thumbnails (PWA support)
+- ✅ Home Assistant integration via MQTT with auto-discovery
+- ✅ Temporal context engine (similar events, recurring visitors)
+- ✅ Activity summaries and daily digests
+- ✅ User feedback loop for AI accuracy improvement
+- ✅ Voice query API for natural language event queries
+- ✅ Behavioral anomaly detection
+- ✅ Person & vehicle recognition (privacy-first embeddings)
+- ✅ Named entity alerts ("John is at the door")
+
+**Phase 5: HomeKit & Quality**
+- ✅ Native HomeKit integration via HAP-Python
+- ✅ HomeKit pairing with QR code
+- ✅ Motion/occupancy/package/vehicle/animal sensors
+- ✅ Doorbell accessory for Protect events
+- ✅ ONVIF camera discovery
+- ✅ CI/CD with GitHub Actions
+- ✅ Frontend testing with Vitest
+- ✅ Accessibility improvements (ARIA, keyboard nav)
+- ✅ MQTT 5.0 enhancements
+
+**Phase 6: Polish & Performance**
+- ✅ Pre-save camera connection testing
+- ✅ Virtual scrolling for camera lists
+- ✅ React Query caching optimization
+- ✅ Skip-to-content and ARIA audit
+- ✅ Audio analysis (glass break, alarms)
+- ✅ Motion events CSV export
+
+**Phase 7: HomeKit & Entities**
+- ✅ HomeKit diagnostic logging and fixes
+- ✅ HomeKit bridge discovery improvements
+- ✅ HomeKit event delivery reliability
+- ✅ Package delivery carrier detection (USPS, FedEx, UPS, Amazon)
+- ✅ Package delivery alert rules and dashboard widget
+- ✅ HomeKit camera streaming (RTSP-to-SRTP)
+- ✅ Camera snapshot support
+- ✅ Entities page with search and filtering
+- ✅ Entity alert configuration stub UI
 
 ### Future
 - 📋 Local LLM support (Ollama)
@@ -506,14 +602,14 @@ This project uses the **BMAD Method** for structured development:
 
 - **Backend**: Follow FastAPI patterns, use async/await, add type hints
 - **Frontend**: Use TypeScript, follow existing component patterns
-- **Testing**: Write tests for all new functionality (pytest for backend)
+- **Testing**: Write tests for all new functionality (pytest for backend, Vitest for frontend)
 - **Documentation**: Update relevant docs when adding features
 
 ### Pull Request Process
 
-1. Create a feature branch from `development`
+1. Create a feature branch from `main`
 2. Make your changes following existing code patterns
-3. Ensure all tests pass: `pytest tests/ -v`
+3. Ensure all tests pass: `pytest tests/ -v` and `npm run test:run`
 4. Update documentation as needed
 5. Submit a PR with a clear description of changes
 

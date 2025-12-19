@@ -1,0 +1,194 @@
+<story-context id="p7-2-2" v="1.0">
+  <metadata>
+    <epicId>P7-2</epicId>
+    <storyId>P7-2.2</storyId>
+    <title>Create Package Delivery Alert Rule Type</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-2-2-create-package-delivery-alert-rule-type.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner using ArgusAI</asA>
+    <iWant>a dedicated "Package Delivery" alert rule type that can filter by carrier</iWant>
+    <soThat>I receive targeted notifications when packages from specific carriers are delivered</soThat>
+    <tasks>
+      <task id="1" ac="1">Add Package Delivery Rule Type to Backend Schema
+        <subtask>Add rule_type field to AlertRuleConditions schema with enum values: any, package_delivery</subtask>
+        <subtask>Add carriers field to conditions schema (Optional[List[str]])</subtask>
+        <subtask>Update backend AlertRuleCreate/AlertRuleUpdate schemas with new fields</subtask>
+        <subtask>Write schema validation tests</subtask>
+      </task>
+      <task id="2" ac="2,3">Implement Package Delivery Rule Evaluation in Alert Engine
+        <subtask>Add _check_rule_type() method to AlertEngine class</subtask>
+        <subtask>Implement package delivery check: smart_detection_type='package' AND delivery_carrier is set</subtask>
+        <subtask>Add _check_carriers() method for carrier filtering</subtask>
+        <subtask>Integrate new checks into evaluate_rule() method</subtask>
+        <subtask>Write unit tests for package delivery rule evaluation</subtask>
+      </task>
+      <task id="3" ac="4">Include Carrier in Alert Messages
+        <subtask>Update _execute_dashboard_notification() to include carrier in message</subtask>
+        <subtask>Update webhook payload builder to include delivery_carrier field</subtask>
+        <subtask>Format notification message: "Package delivered by {carrier} at {camera}"</subtask>
+        <subtask>Write tests verifying carrier appears in notifications</subtask>
+      </task>
+      <task id="4" ac="1">Update Frontend Alert Rule Types
+        <subtask>Add rule_type and carriers to IAlertRuleConditions TypeScript type</subtask>
+        <subtask>Add RULE_TYPES constant with 'any' and 'package_delivery' options</subtask>
+        <subtask>Add CARRIERS constant with fedex, ups, usps, amazon, dhl options</subtask>
+      </task>
+      <task id="5" ac="2">Create Carrier Selector UI Component
+        <subtask>Create CarrierSelector.tsx component in components/rules/</subtask>
+        <subtask>Display carrier checkboxes with brand names (FedEx, UPS, USPS, Amazon, DHL)</subtask>
+        <subtask>Only show when rule_type is 'package_delivery'</subtask>
+        <subtask>Integrate into RuleFormDialog.tsx</subtask>
+      </task>
+      <task id="6" ac="1">Add Rule Type Selector to Rule Form
+        <subtask>Create RuleTypeSelector.tsx component with radio/toggle options</subtask>
+        <subtask>Options: "Any Detection" (default) and "Package Delivery"</subtask>
+        <subtask>Add to top of conditions section in RuleFormDialog.tsx</subtask>
+        <subtask>Conditionally show ObjectTypeSelector (hidden for package_delivery)</subtask>
+        <subtask>Conditionally show CarrierSelector (shown only for package_delivery)</subtask>
+      </task>
+      <task id="7" ac="5">Integration Testing
+        <subtask>Test package delivery rule triggers push notification with carrier</subtask>
+        <subtask>Test package delivery rule triggers webhook with carrier in payload</subtask>
+        <subtask>Test package delivery rule triggers MQTT with carrier in topic/payload</subtask>
+        <subtask>Test rule doesn't trigger for packages without carrier detection</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">"Package Delivery" added to alert rule types (new rule_type field in conditions)</criterion>
+    <criterion id="2">Support filtering by carrier (any, specific carrier, multiple carriers via carriers array)</criterion>
+    <criterion id="3">Rule triggers when package detected (smart_detection_type='package') AND carrier identified (delivery_carrier is set)</criterion>
+    <criterion id="4">Carrier name included in alert message (notification and webhook payload)</criterion>
+    <criterion id="5">All notification channels supported (push notification, webhook, MQTT)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P7-2.md" title="Epic P7-2 Tech Spec" section="Story P7-2.2">
+        Defines rule_type='package_delivery' with carriers filter array. Alert triggers when smart_detection_type='package' AND delivery_carrier is set. Include carrier name in message template.
+      </doc>
+      <doc path="docs/epics-phase7.md" title="Phase 7 Epics" section="Epic P7-2: Package Delivery Alerts">
+        Story P7-2.2 acceptance criteria: Add Package Delivery to rule types, filter by carrier, trigger on package+carrier, include carrier in message, support all channels.
+      </doc>
+      <doc path="docs/sprint-artifacts/p7-2-1-add-carrier-detection-to-ai-analysis.md" title="Previous Story P7-2.1" section="Dev Agent Record">
+        Created carrier_extractor.py with CARRIER_DISPLAY_NAMES mapping. Added delivery_carrier field to Event model. Use extract_carrier() and get_carrier_display_name() for carrier data.
+      </doc>
+      <doc path="CLAUDE.md" title="Project Guide" section="Architecture">
+        Backend: FastAPI 0.115 + SQLAlchemy 2.0. Frontend: Next.js 15 + React 19 + TanStack Query. Alert rules use JSON conditions field for flexible condition storage.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/alert_engine.py" kind="service" symbol="AlertEngine" lines="1-1009" reason="Core alert rule evaluation engine. Add _check_rule_type() and _check_carriers() methods here. Integrate new checks into evaluate_rule()." />
+      <file path="backend/app/schemas/alert_rule.py" kind="schema" symbol="AlertRuleConditions" lines="45-103" reason="Add rule_type and carriers fields to conditions schema." />
+      <file path="backend/app/models/alert_rule.py" kind="model" symbol="AlertRule" lines="8-82" reason="AlertRule model with JSON conditions field. No model changes needed - new fields go in JSON." />
+      <file path="backend/app/services/carrier_extractor.py" kind="service" symbol="CARRIER_DISPLAY_NAMES, extract_carrier" lines="1-107" reason="Carrier extraction patterns and display names mapping. Reuse CARRIER_DISPLAY_NAMES for carrier options." />
+      <file path="backend/app/models/event.py" kind="model" symbol="Event.delivery_carrier" reason="Event model has delivery_carrier field (added in P7-2.1). Use for rule matching." />
+      <file path="backend/app/services/push_notification_service.py" kind="service" symbol="PushNotificationService, format_rich_notification" lines="166-826" reason="Push notification service. Update format_rich_notification() to include carrier in title for package deliveries." />
+      <file path="backend/app/services/mqtt_service.py" kind="service" symbol="MQTTService" lines="51-100" reason="MQTT service for Home Assistant. Include carrier in event payload." />
+      <file path="frontend/types/alert-rule.ts" kind="type" symbol="IAlertRuleConditions, OBJECT_TYPES" lines="1-149" reason="Add rule_type and carriers to IAlertRuleConditions. Add CARRIERS constant like OBJECT_TYPES." />
+      <file path="frontend/components/rules/RuleFormDialog.tsx" kind="component" symbol="RuleFormDialog" lines="1-418" reason="Main rule form dialog. Add RuleTypeSelector and CarrierSelector components. Conditionally show ObjectTypeSelector." />
+      <file path="frontend/components/rules/ObjectTypeSelector.tsx" kind="component" symbol="ObjectTypeSelector" lines="1-51" reason="Object type checkbox component. Follow same pattern for CarrierSelector." />
+      <file path="backend/tests/test_services/test_alert_engine.py" kind="test" symbol="TestAlertRuleEvaluation" lines="1-100" reason="Alert engine tests. Follow pattern for package delivery rule tests." />
+    </code>
+
+    <dependencies>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="pydantic" version=">=2.10.0" />
+        <package name="paho-mqtt" version=">=2.0.0" />
+        <package name="pywebpush" version=">=2.0.0" />
+        <package name="pytest" version="7.4.3" />
+      </backend>
+      <frontend>
+        <package name="next" version="^16.0.10" />
+        <package name="react" version="19.2.0" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="zod" version="^4.1.12" />
+        <package name="@radix-ui/react-checkbox" version="^1.3.3" />
+        <package name="@radix-ui/react-radio-group" version="^1.3.8" />
+        <package name="vitest" version="^4.0.15" />
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="tech-spec">Rule evaluation uses AND logic between conditions. Carrier filter uses OR logic (any carrier in list matches).</constraint>
+    <constraint source="tech-spec">Carrier extraction must complete in &lt;10ms (simple list membership check).</constraint>
+    <constraint source="architecture">Alert rules use JSON conditions field for flexible storage. No database migration needed.</constraint>
+    <constraint source="p7-2-1">Use CARRIER_DISPLAY_NAMES from carrier_extractor.py for display names. Valid carriers: fedex, ups, usps, amazon, dhl.</constraint>
+    <constraint source="architecture">Package delivery rule requires: smart_detection_type='package' AND delivery_carrier is not null.</constraint>
+    <constraint source="testing">Backend: pytest with fixtures. Frontend: Vitest + React Testing Library.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AlertRuleConditions Schema (Backend)" kind="pydantic_model" path="backend/app/schemas/alert_rule.py">
+      class AlertRuleConditions(BaseModel):
+          rule_type: Optional[str] = Field(default="any", description="Rule type: 'any' or 'package_delivery'")
+          carriers: Optional[List[str]] = Field(default=None, description="Carrier filter for package_delivery: ['fedex', 'ups', ...]")
+          object_types: Optional[List[str]] = None
+          cameras: Optional[List[str]] = None
+          # ... existing fields
+    </interface>
+    <interface name="AlertEngine._check_rule_type() (Backend)" kind="method" path="backend/app/services/alert_engine.py">
+      def _check_rule_type(self, event: Event, rule_type: Optional[str]) -> bool:
+          """Check if event matches rule type. For 'package_delivery': requires smart_detection_type='package' AND delivery_carrier set."""
+    </interface>
+    <interface name="_check_carriers() (Backend)" kind="method" path="backend/app/services/alert_engine.py">
+      def _check_carriers(self, event_carrier: Optional[str], rule_carriers: Optional[List[str]]) -> bool:
+          """Check if event carrier matches any in rule's carrier list. None/empty list = match any carrier."""
+    </interface>
+    <interface name="IAlertRuleConditions (Frontend)" kind="typescript_interface" path="frontend/types/alert-rule.ts">
+      export interface IAlertRuleConditions {
+        rule_type?: string;  // 'any' or 'package_delivery'
+        carriers?: string[];  // ['fedex', 'ups', 'usps', 'amazon', 'dhl']
+        object_types?: string[];
+        cameras?: string[];
+        // ... existing fields
+      }
+    </interface>
+    <interface name="CARRIERS Constant (Frontend)" kind="constant" path="frontend/types/alert-rule.ts">
+      export const CARRIERS = [
+        { value: 'fedex', label: 'FedEx' },
+        { value: 'ups', label: 'UPS' },
+        { value: 'usps', label: 'USPS' },
+        { value: 'amazon', label: 'Amazon' },
+        { value: 'dhl', label: 'DHL' },
+      ] as const;
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with fixtures in backend/tests/. Test classes follow pattern TestXxxYyy. Use db_session fixture for database access. Mock external services. Frontend uses Vitest + React Testing Library with jsdom. Test files in __tests__ folders or *.test.tsx. Use render() and user-event for component tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_alert_engine*.py</location>
+      <location>backend/tests/test_api/test_alert_rules.py</location>
+      <location>frontend/components/rules/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test AlertRuleConditions schema accepts rule_type='package_delivery' and carriers array</idea>
+      <idea ac="2">Test _check_carriers() returns true when event carrier in rule carriers list</idea>
+      <idea ac="2">Test _check_carriers() returns true when rule carriers is None (any carrier)</idea>
+      <idea ac="2">Test _check_carriers() returns false when event carrier not in rule carriers list</idea>
+      <idea ac="3">Test _check_rule_type('package_delivery') requires smart_detection_type='package' AND delivery_carrier set</idea>
+      <idea ac="3">Test _check_rule_type('package_delivery') fails for package without carrier</idea>
+      <idea ac="3">Test _check_rule_type('any') matches any event (existing behavior)</idea>
+      <idea ac="4">Test notification message includes carrier display name for package deliveries</idea>
+      <idea ac="4">Test webhook payload includes delivery_carrier and delivery_carrier_display fields</idea>
+      <idea ac="5">Test MQTT event payload includes carrier info</idea>
+      <idea ac="1">Test RuleTypeSelector renders both options</idea>
+      <idea ac="2">Test CarrierSelector shows checkboxes for all 5 carriers</idea>
+      <idea ac="2">Test CarrierSelector only visible when rule_type='package_delivery'</idea>
+    </ideas>
+  </tests>
+</story-context>

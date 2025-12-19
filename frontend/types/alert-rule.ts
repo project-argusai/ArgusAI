@@ -17,6 +17,8 @@ export interface IWebhookConfig {
 
 // Alert rule conditions (AND logic between conditions, OR logic within object_types)
 export interface IAlertRuleConditions {
+  rule_type?: string;           // 'any' (default) or 'package_delivery' (Story P7-2.2)
+  carriers?: string[];          // Carrier filter for package_delivery: fedex, ups, usps, amazon, dhl (Story P7-2.2)
   object_types?: string[];      // Valid: person, vehicle, animal, package, unknown
   cameras?: string[];           // Camera UUIDs, empty = any camera
   time_of_day?: ITimeOfDay;     // Optional time range
@@ -84,6 +86,23 @@ export interface IAlertRuleTestResponse {
 // Valid object types for UI
 export const OBJECT_TYPES = ['person', 'vehicle', 'animal', 'package', 'unknown'] as const;
 export type ObjectType = typeof OBJECT_TYPES[number];
+
+// Story P7-2.2: Rule types for alert rules
+export const RULE_TYPES = [
+  { value: 'any', label: 'Any Detection', description: 'Match any detection type (default)' },
+  { value: 'package_delivery', label: 'Package Delivery', description: 'Match package deliveries with carrier identification' },
+] as const;
+export type RuleType = typeof RULE_TYPES[number]['value'];
+
+// Story P7-2.2: Delivery carriers for package delivery rules
+export const CARRIERS = [
+  { value: 'fedex', label: 'FedEx' },
+  { value: 'ups', label: 'UPS' },
+  { value: 'usps', label: 'USPS' },
+  { value: 'amazon', label: 'Amazon' },
+  { value: 'dhl', label: 'DHL' },
+] as const;
+export type Carrier = typeof CARRIERS[number]['value'];
 
 // Days of week for UI
 export const DAYS_OF_WEEK = [

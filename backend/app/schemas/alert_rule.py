@@ -44,6 +44,14 @@ class WebhookConfig(BaseModel):
 
 class AlertRuleConditions(BaseModel):
     """Conditions that must match for the rule to trigger (AND logic between conditions)"""
+    rule_type: Optional[str] = Field(
+        default="any",
+        description="Rule type: 'any' (default, matches any detection) or 'package_delivery' (requires package + carrier)"
+    )
+    carriers: Optional[List[str]] = Field(
+        default=None,
+        description="Carrier filter for package_delivery rules. Valid values: fedex, ups, usps, amazon, dhl. Empty/null = any carrier."
+    )
     object_types: Optional[List[str]] = Field(
         default=None,
         description="Object types to match (OR logic within list). Empty/null = any object."
@@ -66,6 +74,26 @@ class AlertRuleConditions(BaseModel):
         le=100,
         description="Minimum confidence threshold (0-100). Null = no threshold."
     )
+
+    @field_validator('rule_type')
+    @classmethod
+    def validate_rule_type(cls, v):
+        """Validate rule_type is valid"""
+        valid_types = {"any", "package_delivery"}
+        if v is not None and v not in valid_types:
+            raise ValueError(f"Invalid rule_type '{v}'. Valid types: {valid_types}")
+        return v
+
+    @field_validator('carriers')
+    @classmethod
+    def validate_carriers(cls, v):
+        """Validate carriers are valid delivery carrier names"""
+        valid_carriers = {"fedex", "ups", "usps", "amazon", "dhl"}
+        if v is not None:
+            for carrier in v:
+                if carrier not in valid_carriers:
+                    raise ValueError(f"Invalid carrier '{carrier}'. Valid carriers: {valid_carriers}")
+        return v
 
     @field_validator('days_of_week')
     @classmethod
@@ -92,11 +120,19 @@ class AlertRuleConditions(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
+                    "rule_type": "any",
                     "object_types": ["person", "package"],
                     "cameras": [],
                     "time_of_day": {"start": "09:00", "end": "17:00"},
                     "days_of_week": [1, 2, 3, 4, 5],
                     "min_confidence": 80
+                },
+                {
+                    "rule_type": "package_delivery",
+                    "carriers": ["fedex", "ups", "amazon"],
+                    "cameras": [],
+                    "time_of_day": {"start": "08:00", "end": "20:00"},
+                    "min_confidence": 70
                 }
             ]
         }

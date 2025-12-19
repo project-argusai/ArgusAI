@@ -37,7 +37,9 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 
+import { RuleTypeSelector } from './RuleTypeSelector';
 import { ObjectTypeSelector } from './ObjectTypeSelector';
+import { CarrierSelector } from './CarrierSelector';
 import { CameraSelector } from './CameraSelector';
 import { TimeRangePicker } from './TimeRangePicker';
 import { DaysOfWeekSelector } from './DaysOfWeekSelector';
@@ -49,6 +51,8 @@ export interface RuleFormValues {
   name: string;
   is_enabled: boolean;
   conditions: {
+    rule_type?: string;  // Story P7-2.2: 'any' or 'package_delivery'
+    carriers?: string[];  // Story P7-2.2: for package_delivery rules
     object_types?: string[];
     cameras?: string[];
     time_of_day?: { start: string; end: string } | null;
@@ -67,6 +71,8 @@ const ruleFormSchema = z.object({
   name: z.string().min(1, 'Rule name is required').max(200, 'Name must be 200 characters or less'),
   is_enabled: z.boolean(),
   conditions: z.object({
+    rule_type: z.string().optional(),  // Story P7-2.2
+    carriers: z.array(z.string()).optional(),  // Story P7-2.2
     object_types: z.array(z.string()).optional(),
     cameras: z.array(z.string()).optional(),
     time_of_day: z.object({
@@ -102,6 +108,8 @@ export function RuleFormDialog({ open, onOpenChange, rule, onClose }: RuleFormDi
     name: '',
     is_enabled: true,
     conditions: {
+      rule_type: 'any',  // Story P7-2.2
+      carriers: undefined,  // Story P7-2.2
       object_types: [],
       cameras: [],
       time_of_day: null,
@@ -128,6 +136,8 @@ export function RuleFormDialog({ open, onOpenChange, rule, onClose }: RuleFormDi
         name: rule.name,
         is_enabled: rule.is_enabled,
         conditions: {
+          rule_type: rule.conditions.rule_type || 'any',  // Story P7-2.2
+          carriers: rule.conditions.carriers || undefined,  // Story P7-2.2
           object_types: rule.conditions.object_types || [],
           cameras: rule.conditions.cameras || [],
           time_of_day: rule.conditions.time_of_day || null,
@@ -180,7 +190,20 @@ export function RuleFormDialog({ open, onOpenChange, rule, onClose }: RuleFormDi
   const onSubmit = (values: RuleFormValues) => {
     // Clean up conditions - remove empty/default values
     const conditions: IAlertRuleConditions = {};
-    if (values.conditions.object_types && values.conditions.object_types.length > 0) {
+
+    // Story P7-2.2: Include rule_type if not default
+    if (values.conditions.rule_type && values.conditions.rule_type !== 'any') {
+      conditions.rule_type = values.conditions.rule_type;
+    }
+
+    // Story P7-2.2: Include carriers if specified (only for package_delivery rules)
+    if (values.conditions.carriers && values.conditions.carriers.length > 0) {
+      conditions.carriers = values.conditions.carriers;
+    }
+
+    // Only include object_types for non-package_delivery rules
+    if (values.conditions.rule_type !== 'package_delivery' &&
+        values.conditions.object_types && values.conditions.object_types.length > 0) {
       conditions.object_types = values.conditions.object_types;
     }
     if (values.conditions.cameras && values.conditions.cameras.length > 0) {
@@ -292,7 +315,18 @@ export function RuleFormDialog({ open, onOpenChange, rule, onClose }: RuleFormDi
                 <CardTitle className="text-base">Conditions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <ObjectTypeSelector form={form} />
+                {/* Story P7-2.2: Rule Type Selector */}
+                <RuleTypeSelector form={form} />
+
+                {/* Story P7-2.2: Conditionally show ObjectTypeSelector or CarrierSelector */}
+                {form.watch('conditions.rule_type') !== 'package_delivery' && (
+                  <ObjectTypeSelector form={form} />
+                )}
+
+                {form.watch('conditions.rule_type') === 'package_delivery' && (
+                  <CarrierSelector form={form} />
+                )}
+
                 <CameraSelector form={form} />
                 <TimeRangePicker form={form} />
                 <DaysOfWeekSelector form={form} />

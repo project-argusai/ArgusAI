@@ -45,6 +45,7 @@ from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
+from app.services.carrier_extractor import extract_carrier
 from app.core.database import SessionLocal
 
 if TYPE_CHECKING:
@@ -779,6 +780,26 @@ class EventProcessor:
                 }
             )
 
+            # Story P7-2.1: Extract delivery carrier from AI description
+            # Best-effort extraction - failures don't block event processing
+            delivery_carrier = None
+            try:
+                delivery_carrier = extract_carrier(ai_result.description)
+                if delivery_carrier:
+                    logger.info(
+                        f"Delivery carrier detected for camera {event.camera_name}: {delivery_carrier}",
+                        extra={
+                            "camera_id": event.camera_id,
+                            "carrier": delivery_carrier,
+                        }
+                    )
+            except Exception as carrier_error:
+                # Carrier extraction failures should NOT block event processing
+                logger.warning(
+                    f"Carrier extraction failed for camera {event.camera_name}: {carrier_error}",
+                    extra={"camera_id": event.camera_id, "error": str(carrier_error)}
+                )
+
             # Step 3: Store event in database
             event_data = {
                 "camera_id": event.camera_id,
@@ -790,7 +811,8 @@ class EventProcessor:
                 "alert_triggered": False,  # Will be set by alert evaluation (Epic 5)
                 "provider_used": ai_result.provider,  # Story P2-5.3: Track AI provider
                 "description_retry_needed": False,  # Successfully processed
-                "ai_cost": ai_result.cost_estimate  # Story P3-7.1: Track AI cost
+                "ai_cost": ai_result.cost_estimate,  # Story P3-7.1: Track AI cost
+                "delivery_carrier": delivery_carrier,  # Story P7-2.1: Carrier detection
             }
 
             logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
@@ -1066,13 +1088,22 @@ class EventProcessor:
                         )
 
                     # AC3: Package detection triggers only package sensor
+                    # Story P7-2.3: Pass carrier to HomeKit for logging
                     if smart_detection_type == "package":
+                        delivery_carrier = getattr(event, 'delivery_carrier', None)
                         asyncio.create_task(
-                            self._trigger_homekit_package(homekit_service, event.camera_id, event_id)
+                            self._trigger_homekit_package(
+                                homekit_service, event.camera_id, event_id, delivery_carrier
+                            )
                         )
                         logger.debug(
                             f"HomeKit package trigger task created for event {event_id}",
-                            extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                            extra={
+                                "event_id": event_id,
+                                "camera_id": event.camera_id,
+                                "smart_detection_type": smart_detection_type,
+                                "delivery_carrier": delivery_carrier
+                            }
                         )
             except Exception as homekit_error:
                 # HomeKit failures must not block event processing (AC6)
@@ -1406,6 +1437,7 @@ class EventProcessor:
                     provider_used=event_data.get("provider_used"),  # Story P2-5.3: AI provider tracking
                     description_retry_needed=event_data.get("description_retry_needed", False),  # Story P2-6.3 AC13
                     ai_cost=event_data.get("ai_cost"),  # Story P3-7.1: AI cost tracking
+                    delivery_carrier=event_data.get("delivery_carrier"),  # Story P7-2.1: Carrier detection
                 )
 
                 db.add(event)
@@ -1662,30 +1694,40 @@ class EventProcessor:
         self,
         homekit_service,
         camera_id: str,
-        event_id: str
+        event_id: str,
+        delivery_carrier: Optional[str] = None
     ) -> None:
         """
-        Trigger HomeKit package sensor for package detection (Story P5-1.6 AC3).
+        Trigger HomeKit package sensor for package detection (Story P5-1.6 AC3, P7-2.3).
 
         This is a fire-and-forget async task. Errors are logged but not propagated.
         Only called when smart_detection_type == 'package'.
         Package sensor has a longer timeout (60s) since packages persist.
 
+        Story P7-2.3: Pass carrier info to HomeKit service for logging.
+
         Args:
             homekit_service: HomekitService instance
             camera_id: Camera identifier
             event_id: Event ID for logging
+            delivery_carrier: Optional carrier name (fedex, ups, usps, amazon, dhl)
         """
         try:
-            success = homekit_service.trigger_package(camera_id, event_id=event_id)
+            # Story P7-2.3: Pass carrier to trigger_package for logging
+            success = homekit_service.trigger_package(
+                camera_id, event_id=event_id, delivery_carrier=delivery_carrier
+            )
 
             if success:
+                # Story P7-2.3 AC2, AC4: Log carrier info for debugging
                 logger.info(
-                    f"HomeKit package triggered for package detection",
+                    f"HomeKit package triggered for package detection"
+                    + (f" (carrier: {delivery_carrier})" if delivery_carrier else ""),
                     extra={
                         "event_type": "homekit_package_triggered",
                         "event_id": event_id,
-                        "camera_id": camera_id
+                        "camera_id": camera_id,
+                        "delivery_carrier": delivery_carrier
                     }
                 )
             else:
@@ -1694,7 +1736,8 @@ class EventProcessor:
                     extra={
                         "event_type": "homekit_package_no_sensor",
                         "event_id": event_id,
-                        "camera_id": camera_id
+                        "camera_id": camera_id,
+                        "delivery_carrier": delivery_carrier
                     }
                 )
         except Exception as e:
@@ -1704,6 +1747,7 @@ class EventProcessor:
                     "event_type": "homekit_package_error",
                     "event_id": event_id,
                     "camera_id": camera_id,
+                    "delivery_carrier": delivery_carrier,
                     "error": str(e)
                 }
             )

@@ -7,6 +7,7 @@ import { CameraGrid } from "@/components/cameras/CameraGrid";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { SummaryCard } from "@/components/dashboard/SummaryCard";
+import { PackageDeliveryWidget } from "@/components/dashboard/PackageDeliveryWidget";
 
 export const metadata = {
   title: "Dashboard - ArgusAI",
@@ -27,8 +28,15 @@ export default function DashboardPage() {
       {/* Stats Grid - Real data */}
       <DashboardStats />
 
-      {/* Activity Summary Card (Story P4-4.4) */}
-      <SummaryCard />
+      {/* Activity Summary and Package Deliveries Grid */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <SummaryCard />
+        </div>
+        <div>
+          <PackageDeliveryWidget />
+        </div>
+      </div>
 
       {/* Live Camera Preview Grid */}
       <CameraGrid />

@@ -510,6 +510,8 @@ def list_events(
                 "vague_reason": event.vague_reason,
                 "reanalyzed_at": event.reanalyzed_at,
                 "reanalysis_count": event.reanalysis_count or 0,
+                # Story P7-2.1: Delivery carrier detection
+                "delivery_carrier": getattr(event, 'delivery_carrier', None),
             }
             # BUG-004: Include feedback if exists so UI can show persisted state
             if event.feedback:
@@ -539,6 +541,112 @@ def list_events(
 
 
 # IMPORTANT: These routes must come BEFORE /{event_id} to avoid path parameter shadowing
+
+# Story P7-2.4: Package Delivery Dashboard Widget Endpoint
+@router.get("/packages/today")
+def get_package_deliveries_today(
+    db: Session = Depends(get_db)
+):
+    """
+    Get today's package delivery summary for dashboard widget (Story P7-2.4)
+
+    Returns a summary of package deliveries detected today, including:
+    - Total count of package deliveries
+    - Breakdown by carrier (FedEx, UPS, USPS, Amazon, DHL, unknown)
+    - Recent 5 package delivery events with camera name and timestamp
+
+    Package events are identified by:
+    - smart_detection_type = 'package', OR
+    - objects_detected contains 'package'
+
+    Args:
+        db: Database session
+
+    Returns:
+        PackageDeliveriesTodayResponse with total_count, by_carrier, and recent_events
+
+    Examples:
+        GET /events/packages/today
+
+    Response:
+        {
+            "total_count": 5,
+            "by_carrier": {"fedex": 2, "ups": 1, "amazon": 1, "unknown": 1},
+            "recent_events": [...]
+        }
+    """
+    from app.schemas.event import PackageDeliveriesTodayResponse, PackageEventSummary, CARRIER_DISPLAY_NAMES
+    from collections import Counter
+
+    try:
+        # Calculate today's date range in UTC
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start + timedelta(days=1)
+
+        # Query for package events today
+        # Package events: smart_detection_type='package' OR objects_detected contains 'package'
+        query = db.query(Event).filter(
+            Event.timestamp >= today_start,
+            Event.timestamp < today_end,
+            or_(
+                Event.smart_detection_type == 'package',
+                Event.objects_detected.like('%"package"%')
+            )
+        ).order_by(desc(Event.timestamp))
+
+        # Get all matching events
+        all_package_events = query.all()
+        total_count = len(all_package_events)
+
+        # Count by carrier
+        carrier_counts: Counter = Counter()
+        for event in all_package_events:
+            carrier = event.delivery_carrier if event.delivery_carrier else 'unknown'
+            carrier_counts[carrier] += 1
+
+        by_carrier = dict(carrier_counts)
+
+        # Get camera names for recent events
+        camera_ids = list(set(e.camera_id for e in all_package_events[:5]))
+        camera_map = {}
+        if camera_ids:
+            cameras = db.query(Camera.id, Camera.name).filter(Camera.id.in_(camera_ids)).all()
+            camera_map = {c.id: c.name for c in cameras}
+
+        # Build recent events list (limit to 5)
+        recent_events = []
+        for event in all_package_events[:5]:
+            carrier_code = event.delivery_carrier
+            carrier_display = CARRIER_DISPLAY_NAMES.get(carrier_code, 'Unknown') if carrier_code else 'Unknown'
+
+            recent_events.append(PackageEventSummary(
+                id=event.id,
+                timestamp=event.timestamp,
+                delivery_carrier=carrier_code,
+                delivery_carrier_display=carrier_display,
+                camera_name=camera_map.get(event.camera_id, f"Camera {event.camera_id[:8]}"),
+                thumbnail_path=event.thumbnail_path
+            ))
+
+        logger.info(
+            f"Package deliveries today: total={total_count}, by_carrier={by_carrier}",
+            extra={"total_count": total_count, "by_carrier": by_carrier}
+        )
+
+        return PackageDeliveriesTodayResponse(
+            total_count=total_count,
+            by_carrier=by_carrier,
+            recent_events=recent_events
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get package deliveries today: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get package deliveries"
+        )
+
+
 @router.get("/export")
 async def export_events(
     format: str = Query(..., pattern="^(json|csv)$", description="Export format (json or csv)"),
@@ -1191,6 +1299,8 @@ async def get_event(
             "vague_reason": event.vague_reason,
             "reanalyzed_at": event.reanalyzed_at,
             "reanalysis_count": event.reanalysis_count or 0,
+            # Story P7-2.1: Delivery carrier detection
+            "delivery_carrier": getattr(event, 'delivery_carrier', None),
         }
 
         # Story P4-3.3: Add matched entity if available (AC12)

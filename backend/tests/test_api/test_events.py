@@ -800,6 +800,122 @@ def test_get_event_stats_time_range(test_camera):
     assert data["alerts_triggered"] == 1
 
 
+# ==================== Package Delivery Tests (Story P7-2.4) ====================
+
+def test_get_package_deliveries_today_empty(test_camera):
+    """Test getting package deliveries when none exist"""
+    response = client.get("/api/v1/events/packages/today")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_count"] == 0
+    assert data["by_carrier"] == {}
+    assert data["recent_events"] == []
+
+
+def test_get_package_deliveries_today_with_data(test_camera):
+    """Test getting package deliveries with carrier breakdown"""
+    db = TestingSessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+
+        # Create package events with carriers
+        event1 = Event(
+            id="pkg-event-1",
+            camera_id=test_camera.id,
+            timestamp=now - timedelta(hours=1),
+            description="FedEx delivery",
+            confidence=85,
+            objects_detected=json.dumps(["package"]),
+            smart_detection_type="package",
+            delivery_carrier="fedex",
+            alert_triggered=False
+        )
+        event2 = Event(
+            id="pkg-event-2",
+            camera_id=test_camera.id,
+            timestamp=now - timedelta(hours=2),
+            description="Amazon delivery",
+            confidence=80,
+            objects_detected=json.dumps(["package", "person"]),
+            smart_detection_type="package",
+            delivery_carrier="amazon",
+            alert_triggered=False
+        )
+        event3 = Event(
+            id="pkg-event-3",
+            camera_id=test_camera.id,
+            timestamp=now - timedelta(hours=3),
+            description="Unknown carrier package",
+            confidence=75,
+            objects_detected=json.dumps(["package"]),
+            smart_detection_type="package",
+            delivery_carrier=None,  # Unknown carrier
+            alert_triggered=False
+        )
+        db.add_all([event1, event2, event3])
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/v1/events/packages/today")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_count"] == 3
+    assert data["by_carrier"]["fedex"] == 1
+    assert data["by_carrier"]["amazon"] == 1
+    assert data["by_carrier"]["unknown"] == 1
+    assert len(data["recent_events"]) == 3
+    # Most recent first
+    assert data["recent_events"][0]["id"] == "pkg-event-1"
+    assert data["recent_events"][0]["delivery_carrier_display"] == "FedEx"
+
+
+def test_get_package_deliveries_today_excludes_yesterday(test_camera):
+    """Test that only today's deliveries are included"""
+    db = TestingSessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+
+        # Today's package
+        event_today = Event(
+            id="pkg-today",
+            camera_id=test_camera.id,
+            timestamp=now - timedelta(hours=1),
+            description="Today's package",
+            confidence=85,
+            objects_detected=json.dumps(["package"]),
+            smart_detection_type="package",
+            delivery_carrier="ups",
+            alert_triggered=False
+        )
+        # Yesterday's package
+        event_yesterday = Event(
+            id="pkg-yesterday",
+            camera_id=test_camera.id,
+            timestamp=now - timedelta(days=1, hours=5),
+            description="Yesterday's package",
+            confidence=85,
+            objects_detected=json.dumps(["package"]),
+            smart_detection_type="package",
+            delivery_carrier="fedex",
+            alert_triggered=False
+        )
+        db.add_all([event_today, event_yesterday])
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/v1/events/packages/today")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_count"] == 1
+    assert data["by_carrier"]["ups"] == 1
+    assert "fedex" not in data["by_carrier"]
+
+
 # ==================== Performance Tests ====================
 
 def test_list_events_performance_large_dataset(test_camera):
@@ -1828,3 +1944,136 @@ def test_list_events_analysis_mode_invalid_ignored(test_camera):
     data = response.json()
     # Since invalid mode is filtered out, no filter is applied
     assert data["total_count"] == 1
+
+
+# ==================== Delivery Carrier Tests (Story P7-2.1) ====================
+
+def test_event_response_includes_delivery_carrier_field(test_camera):
+    """Test that event response includes delivery_carrier field (AC: 5)"""
+    db = TestingSessionLocal()
+    try:
+        event = Event(
+            id="event-carrier-fedex",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="FedEx driver delivered a package",
+            confidence=85,
+            objects_detected=json.dumps(["person", "package"]),
+            alert_triggered=False,
+            delivery_carrier="fedex"
+        )
+        db.add(event)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/v1/events/event-carrier-fedex")
+    assert response.status_code == 200
+    data = response.json()
+    assert "delivery_carrier" in data
+    assert data["delivery_carrier"] == "fedex"
+    assert "delivery_carrier_display" in data
+    assert data["delivery_carrier_display"] == "FedEx"
+
+
+def test_event_response_delivery_carrier_null_when_not_detected(test_camera):
+    """Test that delivery_carrier is null when not detected (AC: 5)"""
+    db = TestingSessionLocal()
+    try:
+        event = Event(
+            id="event-no-carrier",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Person walking across the driveway",
+            confidence=80,
+            objects_detected=json.dumps(["person"]),
+            alert_triggered=False,
+            delivery_carrier=None
+        )
+        db.add(event)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get("/api/v1/events/event-no-carrier")
+    assert response.status_code == 200
+    data = response.json()
+    assert "delivery_carrier" in data
+    assert data["delivery_carrier"] is None
+    assert "delivery_carrier_display" in data
+    assert data["delivery_carrier_display"] is None
+
+
+def test_event_list_includes_delivery_carrier_fields(test_camera):
+    """Test that event list response includes delivery_carrier fields (AC: 5)"""
+    db = TestingSessionLocal()
+    try:
+        event1 = Event(
+            id="event-list-carrier-1",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="UPS driver dropped off package",
+            confidence=90,
+            objects_detected=json.dumps(["person", "package"]),
+            alert_triggered=False,
+            delivery_carrier="ups"
+        )
+        event2 = Event(
+            id="event-list-carrier-2",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Amazon van parked in driveway",
+            confidence=85,
+            objects_detected=json.dumps(["vehicle"]),
+            alert_triggered=False,
+            delivery_carrier="amazon"
+        )
+        db.add_all([event1, event2])
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(f"/api/v1/events?camera_id={test_camera.id}&limit=10")
+    assert response.status_code == 200
+    data = response.json()
+    # Find the carrier events in the list
+    carriers_found = {}
+    for event in data["events"]:
+        if event.get("delivery_carrier"):
+            carriers_found[event["delivery_carrier"]] = event.get("delivery_carrier_display")
+
+    # Verify at least our test carriers are present
+    assert "ups" in carriers_found or "amazon" in carriers_found
+
+
+@pytest.mark.parametrize("carrier,display_name", [
+    ("fedex", "FedEx"),
+    ("ups", "UPS"),
+    ("usps", "USPS"),
+    ("amazon", "Amazon"),
+    ("dhl", "DHL"),
+])
+def test_delivery_carrier_display_name_mapping(test_camera, carrier, display_name):
+    """Test that each carrier has correct display name (AC: 5)"""
+    db = TestingSessionLocal()
+    try:
+        event = Event(
+            id=f"event-carrier-{carrier}",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description=f"{display_name} delivery",
+            confidence=85,
+            objects_detected=json.dumps(["person"]),
+            alert_triggered=False,
+            delivery_carrier=carrier
+        )
+        db.add(event)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(f"/api/v1/events/event-carrier-{carrier}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["delivery_carrier"] == carrier
+    assert data["delivery_carrier_display"] == display_name

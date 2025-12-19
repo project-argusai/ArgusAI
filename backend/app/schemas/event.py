@@ -1,8 +1,17 @@
 """Event API Pydantic schemas for request/response validation"""
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
 from typing import List, Optional, Literal
 from app.schemas.feedback import FeedbackResponse
+
+# Story P7-2.1: Human-readable display names for carriers
+CARRIER_DISPLAY_NAMES = {
+    'fedex': 'FedEx',
+    'ups': 'UPS',
+    'usps': 'USPS',
+    'amazon': 'Amazon',
+    'dhl': 'DHL',
+}
 
 
 class MatchedEntitySummary(BaseModel):
@@ -152,6 +161,9 @@ class EventResponse(BaseModel):
     audio_event_type: Optional[str] = Field(None, description="Detected audio event type (glass_break/gunshot/scream/doorbell/other)")
     audio_confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Audio event detection confidence score (0.0-1.0)")
     audio_duration_ms: Optional[int] = Field(None, ge=0, description="Duration of audio event in milliseconds")
+    # Story P7-2.1: Delivery carrier detection
+    delivery_carrier: Optional[str] = Field(None, description="Detected delivery carrier (fedex/ups/usps/amazon/dhl)")
+    delivery_carrier_display: Optional[str] = Field(None, description="Human-readable carrier name (FedEx/UPS/USPS/Amazon/DHL)")
 
     @field_validator('objects_detected', mode='before')
     @classmethod
@@ -179,6 +191,16 @@ class EventResponse(BaseModel):
             import json
             return json.loads(v)
         return v
+
+    @model_validator(mode='after')
+    def compute_delivery_carrier_display(self) -> 'EventResponse':
+        """Compute human-readable carrier display name from carrier code (Story P7-2.1)"""
+        if self.delivery_carrier:
+            self.delivery_carrier_display = CARRIER_DISPLAY_NAMES.get(
+                self.delivery_carrier,
+                self.delivery_carrier.upper()  # Fallback: uppercase the code
+            )
+        return self
 
     model_config = {
         "from_attributes": True,  # Enable ORM mode for SQLAlchemy models
@@ -330,6 +352,60 @@ class ReanalyzeRequest(BaseModel):
             "examples": [
                 {
                     "analysis_mode": "multi_frame"
+                }
+            ]
+        }
+    }
+
+
+# Story P7-2.4: Package Delivery Dashboard Widget Schemas
+class PackageEventSummary(BaseModel):
+    """Summary of a package delivery event for dashboard widget"""
+    id: str = Field(..., description="Event UUID")
+    timestamp: datetime = Field(..., description="Event timestamp (UTC)")
+    delivery_carrier: Optional[str] = Field(None, description="Detected carrier code (fedex/ups/usps/amazon/dhl)")
+    delivery_carrier_display: str = Field(..., description="Human-readable carrier name")
+    camera_name: str = Field(..., description="Camera name for display")
+    thumbnail_path: Optional[str] = Field(None, description="Relative path to thumbnail")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "timestamp": "2025-12-19T14:30:00Z",
+                    "delivery_carrier": "fedex",
+                    "delivery_carrier_display": "FedEx",
+                    "camera_name": "Front Door",
+                    "thumbnail_path": "thumbnails/2025-12-19/event_123.jpg"
+                }
+            ]
+        }
+    }
+
+
+class PackageDeliveriesTodayResponse(BaseModel):
+    """Response schema for GET /api/v1/events/packages/today (Story P7-2.4)"""
+    total_count: int = Field(..., ge=0, description="Total package deliveries today")
+    by_carrier: dict[str, int] = Field(..., description="Package count by carrier code")
+    recent_events: List[PackageEventSummary] = Field(..., description="Recent 5 package delivery events")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "total_count": 5,
+                    "by_carrier": {"fedex": 2, "ups": 1, "amazon": 1, "unknown": 1},
+                    "recent_events": [
+                        {
+                            "id": "123e4567-e89b-12d3-a456-426614174000",
+                            "timestamp": "2025-12-19T14:30:00Z",
+                            "delivery_carrier": "fedex",
+                            "delivery_carrier_display": "FedEx",
+                            "camera_name": "Front Door",
+                            "thumbnail_path": "thumbnails/2025-12-19/event_123.jpg"
+                        }
+                    ]
                 }
             ]
         }

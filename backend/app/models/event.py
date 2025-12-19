@@ -45,6 +45,7 @@ class Event(Base):
         audio_event_type: Detected audio event type - glass_break/gunshot/scream/doorbell/other (Story P6-3.2)
         audio_confidence: Confidence score (0.0-1.0) for audio event detection (Story P6-3.2)
         audio_duration_ms: Duration of detected audio event in milliseconds (Story P6-3.2)
+        delivery_carrier: Detected delivery carrier - fedex/ups/usps/amazon/dhl (Story P7-2.1)
         created_at: Record creation timestamp (UTC with timezone)
     """
 
@@ -106,6 +107,8 @@ class Event(Base):
     audio_event_type = Column(String(30), nullable=True)  # 'glass_break', 'gunshot', 'scream', 'doorbell', 'other' (null = no audio event)
     audio_confidence = Column(Float, nullable=True)  # 0.0-1.0 confidence score for audio detection (null = not detected)
     audio_duration_ms = Column(Integer, nullable=True)  # Duration of audio event in milliseconds (null = not detected)
+    # Story P7-2.1: Delivery carrier detection
+    delivery_carrier = Column(String(32), nullable=True)  # 'fedex', 'ups', 'usps', 'amazon', 'dhl' (null = not detected)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

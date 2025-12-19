@@ -1,0 +1,196 @@
+<story-context id="p7-2-1-add-carrier-detection-to-ai-analysis" v="1.0">
+  <metadata>
+    <epicId>P7-2</epicId>
+    <storyId>1</storyId>
+    <title>Add Carrier Detection to AI Analysis</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-18</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-2-1-add-carrier-detection-to-ai-analysis.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner using ArgusAI</asA>
+    <iWant>the AI to identify delivery carriers (FedEx, UPS, USPS, Amazon, DHL) when analyzing camera footage</iWant>
+    <soThat>I know which carrier delivered my packages and can set up carrier-specific alerts</soThat>
+    <tasks>
+      <task id="1">Update AI Prompt for Carrier Detection (AC: 1)</task>
+      <task id="2">Add delivery_carrier Field to Event Model (AC: 2)</task>
+      <task id="3">Implement CarrierExtractor Service (AC: 3)</task>
+      <task id="4">Integrate Carrier Extraction into Event Pipeline (AC: 4)</task>
+      <task id="5">Update Event Schemas and API Responses (AC: 5)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">AI prompt updated to identify FedEx, UPS, USPS, Amazon, DHL carriers</criterion>
+    <criterion id="2">delivery_carrier field added to Event model (migration required)</criterion>
+    <criterion id="3">Carrier extracted from AI description using pattern matching</criterion>
+    <criterion id="4">Carrier stored in event record when detected</criterion>
+    <criterion id="5">Carrier returned in event API responses (delivery_carrier and delivery_carrier_display fields)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P7-2.md</path>
+        <title>Epic Technical Specification: Package Delivery Alerts</title>
+        <section>Story P7-2.1 Acceptance Criteria</section>
+        <snippet>AI prompt updated to identify FedEx, UPS, USPS, Amazon, DHL. delivery_carrier field added to Event model. Carrier extracted from AI description using pattern matching.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase7.md</path>
+        <title>Phase 7 Epics: HomeKit Integration and Enhancements</title>
+        <section>Story P7-2.1</section>
+        <snippet>Add Carrier Detection to AI Analysis - Extend AI description prompt to identify delivery carriers from uniforms/trucks.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p7-1-4-add-homekit-connection-status-monitoring.md</path>
+        <title>Previous Story Learnings</title>
+        <section>Dev Agent Record</section>
+        <snippet>Schema Pattern: Added new fields to response schemas. Service Pattern: Enhanced existing service with new functionality. Test Pattern: Added dedicated test class for new feature.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIProviderBase.user_prompt_template</symbol>
+        <lines>186-197</lines>
+        <reason>Contains the base prompt template where carrier detection instructions must be added</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>MULTI_FRAME_SYSTEM_PROMPT</symbol>
+        <lines>61-76</lines>
+        <reason>Multi-frame prompt also needs carrier detection enhancement</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event.py</path>
+        <kind>model</kind>
+        <symbol>Event</symbol>
+        <lines>9-127</lines>
+        <reason>Event model where delivery_carrier column must be added</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/event.py</path>
+        <kind>schema</kind>
+        <symbol>EventResponse</symbol>
+        <lines>104-201</lines>
+        <reason>Response schema where delivery_carrier and delivery_carrier_display must be added</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor._process_event</symbol>
+        <lines>542-1327</lines>
+        <reason>Event processing pipeline where carrier extraction must be integrated after AI description generation</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>EventProcessor._store_event_with_retry</symbol>
+        <lines>1329-1448</lines>
+        <reason>Event storage method where delivery_carrier must be persisted</reason>
+      </file>
+      <file>
+        <path>backend/alembic/versions/</path>
+        <kind>migrations</kind>
+        <symbol>migrations directory</symbol>
+        <lines>N/A</lines>
+        <reason>Location for new migration adding delivery_carrier column</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="sqlalchemy" version=">=2.0.36">ORM for database models</package>
+        <package name="alembic" version=">=1.14.0">Database migrations</package>
+        <package name="pydantic" version=">=2.10.0">Schema validation</package>
+        <package name="openai" version=">=1.54.0">OpenAI API client</package>
+        <package name="anthropic" version=">=0.39.0">Claude API client</package>
+        <package name="google-generativeai" version=">=0.8.0">Gemini API client</package>
+        <package name="pytest" version="7.4.3">Testing framework</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="tech-spec">Carrier extraction must complete in less than 10ms (regex-based pattern matching)</constraint>
+    <constraint source="tech-spec">Failed carrier extraction should NOT fail event processing (best-effort detection)</constraint>
+    <constraint source="tech-spec">AI prompt enhancement must not significantly increase token usage</constraint>
+    <constraint source="CLAUDE.md">Event model uses SQLAlchemy 2.0 with Alembic migrations</constraint>
+    <constraint source="architecture">All AI providers must receive enhanced prompt (OpenAI, Grok, Claude, Gemini)</constraint>
+    <constraint source="architecture">Carrier detection is purely visual - no tracking API integration</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Event Model Extension</name>
+      <kind>SQLAlchemy column</kind>
+      <signature>delivery_carrier = Column(String(32), nullable=True)</signature>
+      <path>backend/app/models/event.py</path>
+    </interface>
+    <interface>
+      <name>CarrierExtractor</name>
+      <kind>function</kind>
+      <signature>def extract_carrier(description: str) -> Optional[str]</signature>
+      <path>backend/app/services/carrier_extractor.py (NEW)</path>
+    </interface>
+    <interface>
+      <name>EventResponse Schema</name>
+      <kind>Pydantic field</kind>
+      <signature>delivery_carrier: Optional[str] = Field(None, description="Detected carrier if package delivery")</signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface>
+      <name>EventResponse Schema</name>
+      <kind>Pydantic computed field</kind>
+      <signature>delivery_carrier_display: Optional[str] = Field(None, description="Human-readable carrier name")</signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend uses pytest with fixtures in backend/tests/. Follow existing patterns in test_services/ and test_api/. Mock AI responses with carrier mentions for integration tests. Create dedicated test class for carrier extraction patterns.</standards>
+    <locations>
+      <location>backend/tests/test_services/</location>
+      <location>backend/tests/test_api/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test that AI prompts include carrier detection instructions for all providers</idea>
+      <idea ac="2">Test Alembic migration applies successfully, verify column exists</idea>
+      <idea ac="3">Test pattern matching for each carrier: fedex (10+ variations), ups, usps, amazon, dhl</idea>
+      <idea ac="3">Test case-insensitive matching: "FedEx", "FEDEX", "fedex"</idea>
+      <idea ac="3">Test multi-carrier descriptions return first match</idea>
+      <idea ac="3">Test non-delivery descriptions return None</idea>
+      <idea ac="4">Integration test: process event with carrier mention, verify carrier saved</idea>
+      <idea ac="4">Integration test: carrier extraction failure doesn't block event storage</idea>
+      <idea ac="5">API test: GET /api/v1/events returns delivery_carrier field</idea>
+      <idea ac="5">API test: GET /api/v1/events/{id} includes delivery_carrier_display</idea>
+      <idea ac="5">API test: verify CARRIER_DISPLAY_NAMES mapping (fedex -> FedEx)</idea>
+    </ideas>
+  </tests>
+
+  <carrierPatterns>
+    <!-- From tech spec - copy for easy reference during implementation -->
+    <pattern carrier="fedex">fedex, fed\s*ex, federal\s*express</pattern>
+    <pattern carrier="ups">\bups\b, united\s*parcel</pattern>
+    <pattern carrier="usps">usps, postal\s*service, mail\s*carrier, mailman</pattern>
+    <pattern carrier="amazon">amazon, prime</pattern>
+    <pattern carrier="dhl">\bdhl\b, dhl\s*express</pattern>
+  </carrierPatterns>
+
+  <promptEnhancement>
+    <!-- From tech spec - carrier detection prompt to add -->
+    <text>
+If you see a delivery person or truck, identify the carrier:
+- FedEx (purple/orange colors, FedEx logo)
+- UPS (brown uniform, brown truck)
+- USPS (blue uniform, postal logo, mail truck)
+- Amazon (blue vest, Amazon logo, Amazon van)
+- DHL (yellow/red colors, DHL logo)
+Include the carrier name in your description.
+    </text>
+  </promptEnhancement>
+</story-context>

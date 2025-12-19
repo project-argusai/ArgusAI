@@ -1391,6 +1391,12 @@ def serialize_event_for_mqtt(
     if event.correlation_group_id:
         payload["correlation_group_id"] = event.correlation_group_id
 
+    # Story P7-2.2: Add delivery carrier if available
+    if hasattr(event, 'delivery_carrier') and event.delivery_carrier:
+        from app.services.carrier_extractor import get_carrier_display_name
+        payload["delivery_carrier"] = event.delivery_carrier
+        payload["delivery_carrier_display"] = get_carrier_display_name(event.delivery_carrier)
+
     return payload
 
 

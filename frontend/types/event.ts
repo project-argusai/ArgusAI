@@ -333,3 +333,45 @@ export interface IPromptHistoryResponse {
   current_version: number;
   total_count: number;
 }
+
+// ==============================================================================
+// Story P7-2.4: Package Delivery Dashboard Widget Types
+// ==============================================================================
+
+/**
+ * Known delivery carriers for package detection
+ */
+export type DeliveryCarrier = 'fedex' | 'ups' | 'usps' | 'amazon' | 'dhl' | 'unknown';
+
+/**
+ * Summary of a package delivery event for the dashboard widget
+ */
+export interface IPackageEventSummary {
+  id: string;                       // Event UUID
+  timestamp: string;                // ISO 8601 datetime
+  delivery_carrier: string | null;  // Carrier code (fedex, ups, etc.)
+  delivery_carrier_display: string; // Human-readable carrier name
+  camera_name: string;              // Camera that detected the package
+  thumbnail_path: string | null;    // Relative path to thumbnail
+}
+
+/**
+ * Response from GET /api/v1/events/packages/today
+ */
+export interface IPackageDeliveriesTodayResponse {
+  total_count: number;                    // Total package deliveries today
+  by_carrier: Record<string, number>;     // Count by carrier code
+  recent_events: IPackageEventSummary[];  // Recent 5 package events
+}
+
+/**
+ * Carrier display configuration for badges
+ */
+export const CARRIER_CONFIG: Record<string, { display: string; color: string; bgColor: string }> = {
+  fedex: { display: 'FedEx', color: 'text-purple-700', bgColor: 'bg-purple-100' },
+  ups: { display: 'UPS', color: 'text-amber-800', bgColor: 'bg-amber-100' },
+  usps: { display: 'USPS', color: 'text-blue-700', bgColor: 'bg-blue-100' },
+  amazon: { display: 'Amazon', color: 'text-orange-700', bgColor: 'bg-orange-100' },
+  dhl: { display: 'DHL', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
+  unknown: { display: 'Unknown', color: 'text-gray-600', bgColor: 'bg-gray-100' },
+};

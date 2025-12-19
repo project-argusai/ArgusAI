@@ -282,6 +282,67 @@ class AlertEngine:
 
         return event_anomaly_score >= anomaly_threshold
 
+    def _check_rule_type(
+        self,
+        event: Event,
+        rule_type: Optional[str]
+    ) -> bool:
+        """
+        Check if event matches the rule type (Story P7-2.2).
+
+        For 'any' (default): matches any event (existing behavior).
+        For 'package_delivery': requires smart_detection_type='package' AND delivery_carrier is set.
+
+        Args:
+            event: Event to check
+            rule_type: Rule type ('any' or 'package_delivery')
+
+        Returns:
+            True if event matches rule type requirements
+        """
+        # No rule_type or 'any' = match all events (existing behavior)
+        if not rule_type or rule_type == "any":
+            return True
+
+        if rule_type == "package_delivery":
+            # Must be a package detection
+            is_package = getattr(event, 'smart_detection_type', None) == 'package'
+
+            # Must have carrier identified
+            has_carrier = bool(getattr(event, 'delivery_carrier', None))
+
+            return is_package and has_carrier
+
+        # Unknown rule type = default to True (fail open)
+        logger.warning(f"Unknown rule_type '{rule_type}', defaulting to match")
+        return True
+
+    def _check_delivery_carriers(
+        self,
+        event_carrier: Optional[str],
+        rule_carriers: Optional[List[str]]
+    ) -> bool:
+        """
+        Check if event's carrier matches any in the rule's carrier list (Story P7-2.2).
+
+        Args:
+            event_carrier: Delivery carrier from event (e.g., 'fedex', 'ups')
+            rule_carriers: List of carriers to match (None/empty = any carrier)
+
+        Returns:
+            True if carrier matches or rule has no carrier filter
+        """
+        # No filter = match any carrier
+        if not rule_carriers:
+            return True
+
+        # No carrier on event = can't match carrier-specific rules
+        if not event_carrier:
+            return False
+
+        # OR logic: event carrier must match at least one in list
+        return event_carrier.lower() in [c.lower() for c in rule_carriers]
+
     def _check_audio_event_types(
         self,
         event_audio_type: Optional[str],
@@ -597,6 +658,43 @@ class AlertEngine:
             )
             return False, details
 
+        # 10. Story P7-2.2: Rule type (package_delivery requires package + carrier)
+        rule_type_match = self._check_rule_type(
+            event,
+            conditions.get("rule_type")
+        )
+        details["conditions_checked"]["rule_type"] = rule_type_match
+
+        if not rule_type_match:
+            logger.debug(
+                f"Rule '{rule.name}' failed rule_type check",
+                extra={
+                    "rule_id": rule.id,
+                    "rule_type": conditions.get("rule_type"),
+                    "event_smart_detection_type": getattr(event, 'smart_detection_type', None),
+                    "event_delivery_carrier": getattr(event, 'delivery_carrier', None)
+                }
+            )
+            return False, details
+
+        # 11. Story P7-2.2: Carrier filter (for package_delivery rules)
+        carriers_match = self._check_delivery_carriers(
+            getattr(event, 'delivery_carrier', None),
+            conditions.get("carriers")
+        )
+        details["conditions_checked"]["carriers"] = carriers_match
+
+        if not carriers_match:
+            logger.debug(
+                f"Rule '{rule.name}' failed carriers check",
+                extra={
+                    "rule_id": rule.id,
+                    "event_carrier": getattr(event, 'delivery_carrier', None),
+                    "rule_carriers": conditions.get("carriers")
+                }
+            )
+            return False, details
+
         # All conditions passed
         logger.info(
             f"Rule '{rule.name}' matched event {event.id}",
@@ -608,6 +706,7 @@ class AlertEngine:
                 "event_entity_ids": event_entity_ids,
                 "event_entity_names": event_entity_names,
                 "event_audio_type": getattr(event, 'audio_event_type', None),
+                "event_delivery_carrier": getattr(event, 'delivery_carrier', None),
             }
         )
 

@@ -538,6 +538,26 @@ export const apiClient = {
         body: JSON.stringify({ analysis_mode: analysisMode }),
       });
     },
+
+    /**
+     * Get today's package deliveries summary (Story P7-2.4)
+     * Returns total count, breakdown by carrier, and recent 5 events
+     * @returns Package delivery summary for dashboard widget
+     */
+    getPackageDeliveriesToday: async (): Promise<{
+      total_count: number;
+      by_carrier: Record<string, number>;
+      recent_events: Array<{
+        id: string;
+        timestamp: string;
+        delivery_carrier: string | null;
+        delivery_carrier_display: string;
+        camera_name: string;
+        thumbnail_path: string | null;
+      }>;
+    }> => {
+      return apiFetch('/events/packages/today');
+    },
   },
 
   settings: {

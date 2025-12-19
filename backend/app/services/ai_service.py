@@ -73,6 +73,14 @@ IMPORTANT - Use dynamic descriptions, NOT static ones:
 - GOOD: "A car pulled into the driveway and parked. The driver exited and walked toward the house."
 - BAD: "A car is parked in the driveway. A person is standing nearby."
 
+If you see a delivery person or truck, identify the carrier:
+- FedEx (purple/orange colors, FedEx logo)
+- UPS (brown uniform, brown truck)
+- USPS (blue uniform, postal logo, mail truck)
+- Amazon (blue vest, Amazon logo, Amazon van)
+- DHL (yellow/red colors, DHL logo)
+Include the carrier name in your description.
+
 Be specific about the narrative - this is video showing motion over time, not a static photograph. Describe the complete sequence of what happened."""
 
 
@@ -193,7 +201,14 @@ class AIProviderBase(ABC):
             "WHAT (objects, vehicles, packages), "
             "WHERE (location in frame), "
             "and ACTIONS (what is happening). "
-            "Be specific and detailed."
+            "Be specific and detailed.\n\n"
+            "If you see a delivery person or truck, identify the carrier:\n"
+            "- FedEx (purple/orange colors, FedEx logo)\n"
+            "- UPS (brown uniform, brown truck)\n"
+            "- USPS (blue uniform, postal logo, mail truck)\n"
+            "- Amazon (blue vest, Amazon logo, Amazon van)\n"
+            "- DHL (yellow/red colors, DHL logo)\n"
+            "Include the carrier name in your description."
         )
 
     @abstractmethod

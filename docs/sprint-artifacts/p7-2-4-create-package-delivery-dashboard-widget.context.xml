@@ -1,0 +1,180 @@
+<story-context id="p7-2-4" v="1.0">
+  <metadata>
+    <epicId>P7-2</epicId>
+    <storyId>P7-2.4</storyId>
+    <title>Create Package Delivery Dashboard Widget</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-19</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p7-2-4-create-package-delivery-dashboard-widget.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>homeowner</asA>
+    <iWant>a dashboard widget showing today's package deliveries</iWant>
+    <soThat>I can quickly see all deliveries at a glance without navigating to the events page</soThat>
+    <tasks>
+      <task id="1">Create /api/v1/events/packages/today endpoint in events.py</task>
+      <task id="2">Add query filtering for package events with carrier aggregation</task>
+      <task id="3">Return structured response with counts and recent events</task>
+      <task id="4">Create PackageDeliveryWidget component</task>
+      <task id="5">Add carrier badge component with color coding</task>
+      <task id="6">Create TypeScript interfaces for API response</task>
+      <task id="7">Add getPackageDeliveriesToday() to api-client.ts</task>
+      <task id="8">Integrate widget into dashboard page</task>
+      <task id="9">Implement loading/error/empty states</task>
+      <task id="10">Add auto-refresh with 60-second interval</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="1" title="Dashboard Widget Component">
+      <criteria>Create PackageDeliveryWidget.tsx component in frontend/components/dashboard/</criteria>
+      <criteria>Widget displays a summary card with total package count for today</criteria>
+      <criteria>Widget shows breakdown of packages by carrier (FedEx, UPS, USPS, Amazon, DHL, Unknown)</criteria>
+      <criteria>Each carrier entry shows carrier icon/badge and count</criteria>
+    </ac>
+    <ac id="2" title="Recent Deliveries List">
+      <criteria>Widget shows recent 5 package delivery events with timestamps</criteria>
+      <criteria>Each entry shows carrier badge, time (relative format like "2h ago"), and camera name</criteria>
+      <criteria>Clicking an entry navigates to the event detail page</criteria>
+    </ac>
+    <ac id="3" title="Empty State">
+      <criteria>When no deliveries today, show friendly empty state message</criteria>
+      <criteria>Empty state includes an icon and text: "No package deliveries detected today"</criteria>
+    </ac>
+    <ac id="4" title="Loading and Error States">
+      <criteria>Show skeleton loader while fetching data</criteria>
+      <criteria>Handle API errors gracefully with error message display</criteria>
+      <criteria>Auto-refresh every 60 seconds to catch new deliveries</criteria>
+    </ac>
+    <ac id="5" title="Integration with Dashboard">
+      <criteria>Add widget to main dashboard page (frontend/app/page.tsx)</criteria>
+      <criteria>Widget placed prominently in dashboard grid layout</criteria>
+      <criteria>Responsive design for mobile and desktop</criteria>
+    </ac>
+    <ac id="6" title="Backend API Endpoint">
+      <criteria>Create GET /api/v1/events/packages/today endpoint</criteria>
+      <criteria>Returns package events from today with carrier breakdown</criteria>
+      <criteria>Response includes: total_count, by_carrier (dict), recent_events (list)</criteria>
+      <criteria>Filter by smart_detection_type='package' OR objects_detected contains 'package'</criteria>
+    </ac>
+    <ac id="7" title="Frontend API Integration">
+      <criteria>Add getPackageDeliveriesToday() method to api-client.ts</criteria>
+      <criteria>Define TypeScript interface for package delivery summary response</criteria>
+      <criteria>Use TanStack Query for data fetching with 60-second refetch interval</criteria>
+    </ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase7.md" title="Phase 7 Epics" section="Epic P7-2: Package Delivery Alerts" snippet="Epic covering carrier detection, alert rules, HomeKit sensors, and dashboard widget for package deliveries."/>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P7-2.md" title="Tech Spec: Package Delivery" section="P7-2.4 Dashboard Widget" snippet="Technical specifications for the package delivery dashboard widget including API design and UI components."/>
+      <doc path="docs/architecture.md" title="Architecture" section="Event Processing Pipeline" snippet="Camera Capture -> Motion Detection -> Event Queue -> AI Description -> Database -> Alert Rules -> Notifications -> WebSocket"/>
+    </docs>
+    <code>
+      <!-- Backend: Event Model with delivery_carrier field -->
+      <file path="backend/app/models/event.py" kind="model" symbol="Event" lines="110-111" reason="Event model with delivery_carrier field (Story P7-2.1)"/>
+
+      <!-- Backend: Event Schema with carrier display -->
+      <file path="backend/app/schemas/event.py" kind="schema" symbol="EventResponse" lines="164-166" reason="Schema with delivery_carrier and delivery_carrier_display fields"/>
+      <file path="backend/app/schemas/event.py" kind="schema" symbol="CARRIER_DISPLAY_NAMES" lines="8-14" reason="Carrier code to display name mapping"/>
+
+      <!-- Backend: Events API -->
+      <file path="backend/app/api/v1/events.py" kind="router" symbol="router" reason="Events API router - add new /packages/today endpoint here"/>
+      <file path="backend/app/api/v1/events.py" kind="function" symbol="list_events" lines="257-540" reason="Existing event list endpoint with package/smart_detection_type filtering"/>
+
+      <!-- Backend: Carrier Extractor -->
+      <file path="backend/app/services/carrier_extractor.py" kind="service" symbol="CarrierExtractor" reason="Service that extracts carrier from AI descriptions"/>
+
+      <!-- Frontend: Dashboard Components -->
+      <file path="frontend/app/page.tsx" kind="page" symbol="DashboardPage" reason="Main dashboard page - integrate widget here"/>
+      <file path="frontend/components/dashboard/RecentActivity.tsx" kind="component" symbol="RecentActivity" reason="Pattern for dashboard widget with event list"/>
+      <file path="frontend/components/dashboard/SummaryCard.tsx" kind="component" symbol="SummaryCard" reason="Pattern for summary/stats card widget"/>
+
+      <!-- Frontend: API Client -->
+      <file path="frontend/lib/api-client.ts" kind="service" symbol="apiClient" reason="API client - add getPackageDeliveriesToday method"/>
+
+      <!-- Frontend: Event Types -->
+      <file path="frontend/types/event.ts" kind="types" symbol="IEvent" lines="88-131" reason="Event interface with delivery_carrier fields"/>
+
+      <!-- Frontend: Carrier Selector (existing carrier badge pattern) -->
+      <file path="frontend/components/rules/CarrierSelector.tsx" kind="component" symbol="CarrierSelector" reason="Existing carrier badge styling and colors"/>
+    </code>
+    <dependencies>
+      <node>
+        <package name="@tanstack/react-query" version="^5.x" reason="Data fetching with refetch interval"/>
+        <package name="lucide-react" version="*" reason="Icons for carrier badges and empty state"/>
+        <package name="date-fns" version="^4.x" reason="Relative time formatting (formatDistanceToNow)"/>
+      </node>
+      <python>
+        <package name="fastapi" version=">=0.115" reason="API endpoint creation"/>
+        <package name="sqlalchemy" version=">=2.0" reason="Database queries"/>
+        <package name="pydantic" version=">=2.0" reason="Response schema"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Follow FastAPI service layer pattern in /app/services/</constraint>
+    <constraint source="architecture">Use TanStack Query for all API data fetching in frontend</constraint>
+    <constraint source="devNotes">Use shadcn/ui Card component for widget container</constraint>
+    <constraint source="devNotes">Use existing CARRIER_DISPLAY_NAMES for consistent carrier naming</constraint>
+    <constraint source="pattern">Follow SummaryCard pattern for stats display</constraint>
+    <constraint source="pattern">Follow RecentActivity pattern for event list with timestamps</constraint>
+    <constraint source="testing">Backend tests with pytest, frontend with vitest</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/events/packages/today" kind="REST endpoint">
+      <signature>GET /api/v1/events/packages/today -> PackageDeliveriesTodayResponse</signature>
+      <path>backend/app/api/v1/events.py</path>
+    </interface>
+    <interface name="PackageDeliveriesTodayResponse" kind="Pydantic schema">
+      <signature>
+class PackageDeliveriesTodayResponse(BaseModel):
+    total_count: int
+    by_carrier: dict[str, int]  # {"fedex": 2, "ups": 1, ...}
+    recent_events: list[PackageEventSummary]
+      </signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface name="PackageEventSummary" kind="Pydantic schema">
+      <signature>
+class PackageEventSummary(BaseModel):
+    id: str
+    timestamp: datetime
+    delivery_carrier: Optional[str]
+    delivery_carrier_display: str
+    camera_name: str
+    thumbnail_path: Optional[str]
+      </signature>
+      <path>backend/app/schemas/event.py</path>
+    </interface>
+    <interface name="getPackageDeliveriesToday" kind="TypeScript function">
+      <signature>getPackageDeliveriesToday(): Promise&lt;PackageDeliveriesTodayResponse&gt;</signature>
+      <path>frontend/lib/api-client.ts</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with async support, mock database sessions.
+      Frontend: vitest + @testing-library/react for component tests.
+      Follow existing test patterns in backend/tests/ and frontend/__tests__/.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_events.py</location>
+      <location>frontend/components/dashboard/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea ac="6">Test /packages/today returns correct counts for multiple carriers</idea>
+      <idea ac="6">Test /packages/today filters only today's events (timezone handling)</idea>
+      <idea ac="6">Test /packages/today returns empty response when no deliveries</idea>
+      <idea ac="6">Test /packages/today includes events with objects_detected containing 'package'</idea>
+      <idea ac="1">Test PackageDeliveryWidget renders carrier breakdown</idea>
+      <idea ac="3">Test empty state renders when no deliveries</idea>
+      <idea ac="4">Test loading skeleton displays during fetch</idea>
+    </ideas>
+  </tests>
+</story-context>

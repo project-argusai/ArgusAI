@@ -700,6 +700,8 @@ def format_rich_notification(
     entity_names: Optional[List[str]] = None,
     is_vip: bool = False,
     recognition_status: Optional[str] = None,
+    delivery_carrier: Optional[str] = None,
+    delivery_carrier_display: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Format a rich notification payload for an event (Story P4-1.3, P4-7.3, P4-8.4).
@@ -768,6 +770,11 @@ def format_rich_notification(
             "motion": "Motion Detected",
         }
         detection_label = detection_labels.get(smart_detection_type, "Motion Detected")
+
+        # Story P7-2.2: Special handling for package with carrier
+        if smart_detection_type == "package" and delivery_carrier_display:
+            detection_label = f"Package delivered by {delivery_carrier_display}"
+
         # P4-7.3: Add "Unusual" prefix for high anomaly events
         if is_high_anomaly:
             title = f"{vip_prefix}{camera_name}: Unusual Activity - {detection_label}"
@@ -807,6 +814,11 @@ def format_rich_notification(
         data["is_vip"] = True
     if recognition_status:
         data["recognition_status"] = recognition_status
+    # Story P7-2.2: Include carrier data in payload
+    if delivery_carrier:
+        data["delivery_carrier"] = delivery_carrier
+    if delivery_carrier_display:
+        data["delivery_carrier_display"] = delivery_carrier_display
 
     # Build full notification payload
     notification = {
@@ -836,6 +848,8 @@ async def send_event_notification(
     entity_names: Optional[List[str]] = None,
     is_vip: bool = False,
     recognition_status: Optional[str] = None,
+    delivery_carrier: Optional[str] = None,
+    delivery_carrier_display: Optional[str] = None,
     db: Optional[Session] = None
 ) -> List[NotificationResult]:
     """
@@ -878,7 +892,7 @@ async def send_event_notification(
         # Use camera_id for collapse tag, fallback to event_id
         collapse_tag = camera_id or event_id
 
-        # Format rich notification (P4-1.3, P4-7.3, P4-8.4)
+        # Format rich notification (P4-1.3, P4-7.3, P4-8.4, P7-2.2)
         notification = format_rich_notification(
             event_id=event_id,
             camera_id=collapse_tag,
@@ -890,6 +904,8 @@ async def send_event_notification(
             entity_names=entity_names,
             is_vip=is_vip,
             recognition_status=recognition_status,
+            delivery_carrier=delivery_carrier,
+            delivery_carrier_display=delivery_carrier_display,
         )
 
         # Use broadcast_event_notification for preference filtering (P4-1.4)

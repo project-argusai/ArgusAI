@@ -1,6 +1,6 @@
 # Sprint Status
-# Auto-generated from epics.md, epics-phase2.md, epics-phase3.md, epics-phase4.md, epics-phase5.md, epics-phase6.md
-# Last updated: 2025-12-17
+# Auto-generated from epics.md, epics-phase2.md, epics-phase3.md, epics-phase4.md, epics-phase5.md, epics-phase6.md, epics-phase7.md, epics-phase8.md
+# Last updated: 2025-12-20
 
 # STATUS DEFINITIONS:
 # ==================
@@ -433,3 +433,49 @@ development_status:
   # Source: docs/backlog.md
 
   td-001-frontend-testing-framework: done
+
+  # ============================================================================
+  # PHASE 8: Bug Fixes, Video Analysis & Apple Apps Foundation
+  # ============================================================================
+  # Source: docs/epics-phase8.md
+  # Architecture: docs/architecture-phase8.md
+  # Backlog: docs/backlog.md (BUG-005 through BUG-007, IMP-006 through IMP-008, FF-019 through FF-025)
+
+  # Epic P8-1: Bug Fixes & Stability
+  # Priority: P2 (Critical)
+  # Focus: Re-analysis bug, installation script, push notifications
+  epic-p8-1: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-1.md
+  p8-1-1-fix-re-analyse-function-error: done
+  p8-1-2-fix-installation-script-for-non-arm64-systems: backlog
+  p8-1-3-fix-push-notifications-only-working-once: backlog
+  epic-p8-1-retrospective: optional
+
+  # Epic P8-2: Video Analysis Enhancements
+  # Priority: P2-P3
+  # Focus: Frame storage, adaptive sampling, user configuration
+  epic-p8-2: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-2.md
+  p8-2-1-store-all-analysis-frames-during-event-processing: backlog
+  p8-2-2-display-analysis-frames-gallery-on-event-cards: backlog
+  p8-2-3-add-configurable-frame-count-setting: backlog
+  p8-2-4-implement-adaptive-frame-sampling: backlog
+  p8-2-5-add-frame-sampling-strategy-selection-in-settings: backlog
+  epic-p8-2-retrospective: optional
+
+  # Epic P8-3: AI & Settings Improvements
+  # Priority: P3-P4
+  # Focus: UX polish, video storage, AI prompt refinement
+  epic-p8-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-3.md
+  p8-3-1-hide-mqtt-form-when-integration-disabled: backlog
+  p8-3-2-add-full-motion-video-download-toggle: backlog
+  p8-3-3-implement-ai-assisted-prompt-refinement: backlog
+  epic-p8-3-retrospective: optional
+
+  # Epic P8-4: Native Apple Apps Foundation
+  # Priority: P3
+  # Focus: Research, architecture, prototype
+  epic-p8-4: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-4.md
+  p8-4-1-research-native-apple-app-technologies: backlog
+  p8-4-2-design-cloud-relay-architecture: backlog
+  p8-4-3-create-argusai-api-specification-for-mobile: backlog
+  p8-4-4-prototype-iphone-app-structure: backlog
+  epic-p8-4-retrospective: optional

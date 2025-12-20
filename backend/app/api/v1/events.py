@@ -1513,12 +1513,27 @@ async def reanalyze_event(
             # Decode base64 to numpy array for AI service
             import io
             from PIL import Image as PILImage
+            from PIL import UnidentifiedImageError
 
-            image_data = base64.b64decode(image_base64)
-            pil_image = PILImage.open(io.BytesIO(image_data))
-            frame = np.array(pil_image)
-            if len(frame.shape) == 3 and frame.shape[2] == 3:
-                frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            try:
+                image_data = base64.b64decode(image_base64)
+                pil_image = PILImage.open(io.BytesIO(image_data))
+                frame = np.array(pil_image)
+                if len(frame.shape) == 3 and frame.shape[2] == 3:
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            except (UnidentifiedImageError, ValueError, Exception) as img_err:
+                logger.error(
+                    f"Failed to decode thumbnail image for event {event_id}",
+                    extra={
+                        "event_type": "reanalyze_image_decode_error",
+                        "event_id": event_id,
+                        "error": str(img_err)
+                    }
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Thumbnail image is corrupted or invalid. Please capture a new event."
+                )
 
             result = await ai_service.generate_description(
                 frame=frame,
@@ -1649,10 +1664,20 @@ async def reanalyze_event(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to re-analyze event {event_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to re-analyze event {event_id}: {e}",
+            exc_info=True,
+            extra={
+                "event_type": "reanalyze_error",
+                "event_id": event_id,
+                "error_type": type(e).__name__,
+                "error_message": str(e)
+            }
+        )
+        # Provide user-friendly error message without exposing internal details
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Re-analysis failed: {str(e)}"
+            detail="Re-analysis failed. Please try again or contact support if the issue persists."
         )
 
 

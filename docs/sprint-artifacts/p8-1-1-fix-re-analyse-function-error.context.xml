@@ -1,0 +1,128 @@
+<story-context id="p8-1-1" v="1.0">
+  <metadata>
+    <epicId>P8-1</epicId>
+    <storyId>P8-1.1</storyId>
+    <title>Fix Re-Analyse Function Error</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-20</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-1-1-fix-re-analyse-function-error.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>the re-analyse button on event cards to work correctly</iWant>
+    <soThat>I can regenerate AI descriptions for events when needed</soThat>
+    <tasks>
+      <task id="1">Investigate and diagnose the re-analyse error (AC: 1.1, 1.5, 1.6)</task>
+      <task id="2">Fix backend re-analyse endpoint (AC: 1.1, 1.5, 1.6)</task>
+      <task id="3">Fix frontend API client and error handling (AC: 1.2, 1.3, 1.4, 1.5, 1.7)</task>
+      <task id="4">Update EventCard component (AC: 1.2, 1.3)</task>
+      <task id="5">Write tests (AC: All)</task>
+      <task id="6">Manual testing and validation (AC: All)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1.1">Given an event with a thumbnail, when user clicks re-analyse, then AI generates new description</criterion>
+    <criterion id="AC1.2">Given re-analysis in progress, when processing, then loading indicator is displayed</criterion>
+    <criterion id="AC1.3">Given successful re-analysis, then event card updates with new description</criterion>
+    <criterion id="AC1.4">Given successful re-analysis, then success toast notification is shown</criterion>
+    <criterion id="AC1.5">Given re-analysis failure, then clear error message is displayed</criterion>
+    <criterion id="AC1.6">Given re-analysis failure, then error is logged with stack trace</criterion>
+    <criterion id="AC1.7">Given previous failure, when user retries, then retry works without page refresh</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P8-1.md" title="Tech Spec Epic P8-1" section="P8-1.1: Fix Re-Analyse Function Error">
+        Contains investigation points, API contract, workflow diagrams for re-analyse fix
+      </doc>
+      <doc path="docs/epics-phase8.md" title="Phase 8 Epics" section="P8-1.1">
+        Story definition with acceptance criteria and effort estimates
+      </doc>
+      <doc path="docs/backlog.md" title="Backlog" section="BUG-005">
+        Original bug report: fix re-analyse function gives an error
+      </doc>
+    </docs>
+    <code>
+      <file path="backend/app/api/v1/events.py" kind="api" symbol="reanalyze_event" lines="1338-1656" reason="Main re-analyse endpoint - investigate errors in thumbnail loading, AI service calls, and error handling">
+        POST /api/v1/events/{event_id}/reanalyze endpoint implementation
+      </file>
+      <file path="backend/app/services/ai_service.py" kind="service" reason="AI service for generating descriptions - verify image preprocessing">
+        Handles AI provider calls for image analysis
+      </file>
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="reanalyze" lines="530-540" reason="Frontend API call for reanalyze - check error handling">
+        apiFetch call to /events/{id}/reanalyze
+      </file>
+      <file path="frontend/components/events/EventCard.tsx" kind="component" reason="Event card component that includes ReAnalyzeButton">
+        Main event display component with re-analyse action
+      </file>
+      <file path="frontend/components/events/ReAnalyzeButton.tsx" kind="component" reason="Re-analyse button that opens modal">
+        Button shown for low_confidence events, opens ReAnalyzeModal
+      </file>
+      <file path="frontend/components/events/ReAnalyzeModal.tsx" kind="component" reason="Modal for selecting analysis mode and triggering re-analysis">
+        Modal dialog with mode selection and API mutation call
+      </file>
+    </code>
+    <dependencies>
+      <backend>
+        <package name="fastapi" version=">=0.115.0" />
+        <package name="sqlalchemy" version=">=2.0.0" />
+        <package name="opencv-python" version=">=4.12.0" />
+        <package name="pillow" required="image processing" />
+      </backend>
+      <frontend>
+        <package name="next" version="15.x" />
+        <package name="react" version="19.x" />
+        <package name="@tanstack/react-query" version="5.x" />
+        <package name="sonner" note="toast notifications" />
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="architecture">No changes to database schema required</constraint>
+    <constraint type="architecture">No new dependencies required</constraint>
+    <constraint type="architecture">Must maintain backwards compatibility</constraint>
+    <constraint type="testing">All acceptance criteria must have at least one test</constraint>
+    <constraint type="testing">Bug fixes must include regression tests</constraint>
+    <constraint type="performance">Re-analyse response time &lt;10 seconds (AI processing)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/events/{event_id}/reanalyze" kind="REST endpoint" path="backend/app/api/v1/events.py:1338">
+      <signature>POST /api/v1/events/{event_id}/reanalyze</signature>
+      <request>{"analysis_mode": "single_frame" | "multi_frame" | "video_native"}</request>
+      <response>EventResponse with updated description, confidence, ai_confidence</response>
+    </interface>
+    <interface name="apiClient.events.reanalyze" kind="function" path="frontend/lib/api-client.ts:535">
+      <signature>reanalyze(eventId: string, analysisMode: string): Promise&lt;IEvent&gt;</signature>
+    </interface>
+    <interface name="AIService.generate_description" kind="class method" path="backend/app/services/ai_service.py">
+      <signature>async def generate_description(frame: np.ndarray, camera_name: str, timestamp: str, detected_objects: List[str]) -> AIResult</signature>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      pytest for backend tests with TestClient for API integration tests.
+      React Testing Library / vitest for frontend component tests.
+      All error paths must be tested.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/</location>
+      <location>backend/tests/test_services/</location>
+      <location>frontend/__tests__/components/events/</location>
+    </locations>
+    <ideas>
+      <test ac="AC1.1">test_reanalyze_endpoint_success - verify successful re-analysis with mock AI</test>
+      <test ac="AC1.1">test_reanalyze_endpoint_no_thumbnail - verify graceful error when no thumbnail</test>
+      <test ac="AC1.5">test_reanalyze_endpoint_ai_failure - verify error handling when AI fails</test>
+      <test ac="AC1.3">test_reanalyze_updates_event - integration test verifying DB update</test>
+      <test ac="AC1.2">test_reanalyze_button_loading_state - component test for loading indicator</test>
+      <test ac="AC1.4">test_reanalyze_success_toast - verify success notification shown</test>
+      <test ac="AC1.7">test_reanalyze_retry_after_failure - verify retry works without refresh</test>
+    </ideas>
+  </tests>
+</story-context>

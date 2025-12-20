@@ -1560,6 +1560,42 @@ def test_reanalyze_request_schema_validation():
     assert response.status_code == 422
 
 
+def test_reanalyze_event_corrupted_thumbnail(test_camera):
+    """Test re-analyze fails gracefully when thumbnail is corrupted (AC1.5, AC1.6)
+
+    Story P8-1.1: Fix Re-Analyse Function Error
+    - AC1.5: Given re-analysis failure, then clear error message is displayed
+    - AC1.6: Given re-analysis failure, then error is logged with stack trace
+    """
+    db = TestingSessionLocal()
+    try:
+        event = Event(
+            id="event-corrupt-thumb",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Event with corrupted thumbnail",
+            confidence=40,
+            objects_detected=json.dumps(["person"]),
+            alert_triggered=False,
+            source_type="rtsp",
+            low_confidence=True,
+            # This is NOT valid image data - just random base64 text
+            thumbnail_base64="dGhpcyBpcyBub3QgYSB2YWxpZCBpbWFnZQ=="
+        )
+        db.add(event)
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/events/event-corrupt-thumb/reanalyze",
+        json={"analysis_mode": "single_frame"}
+    )
+    assert response.status_code == 400
+    # AC1.5: Clear error message
+    assert "corrupted" in response.json()["detail"].lower() or "invalid" in response.json()["detail"].lower()
+
+
 def test_reanalyze_event_response_includes_reanalyzed_fields(test_camera):
     """Test that response includes reanalyzed_at and reanalysis_count fields"""
     db = TestingSessionLocal()

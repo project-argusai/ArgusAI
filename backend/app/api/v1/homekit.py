@@ -32,6 +32,10 @@ from app.schemas.homekit_diagnostics import (
     HomeKitConnectivityTestResponse,
     StreamTestResponse,
 )
+from app.schemas.homekit_test_event import (
+    HomeKitTestEventRequest,
+    HomeKitTestEventResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -908,4 +912,90 @@ async def test_camera_stream(camera_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to test stream: {str(e)}"
+        )
+
+
+# ============================================================================
+# Test Event Endpoint (Story P7-1.3)
+# ============================================================================
+
+
+@router.post("/test-event", response_model=HomeKitTestEventResponse)
+async def trigger_test_event(
+    request: HomeKitTestEventRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Trigger a test HomeKit event for debugging (Story P7-1.3 AC5).
+
+    Manually triggers a motion/occupancy/vehicle/animal/package/doorbell event
+    for the specified camera. Used to verify HomeKit event delivery is working
+    correctly without waiting for actual camera events.
+
+    Args:
+        request: HomeKitTestEventRequest with camera_id and event_type
+
+    Returns:
+        HomeKitTestEventResponse with trigger result and delivery info
+
+    Raises:
+        400: HomeKit bridge is not running or sensor not found
+        404: Camera not found
+        422: Invalid request (empty camera_id or invalid event_type)
+    """
+    try:
+        service = get_homekit_service()
+
+        if not service.is_running:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="HomeKit bridge is not running"
+            )
+
+        # Verify camera exists in database
+        camera = db.query(Camera).filter(Camera.id == request.camera_id).first()
+        if not camera:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Camera not found: {request.camera_id}"
+            )
+
+        # Trigger the test event via HomeKit service
+        result = service.trigger_test_event(
+            camera_id=request.camera_id,
+            event_type=request.event_type
+        )
+
+        if not result.get("success", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("message", "No sensor found for camera")
+            )
+
+        logger.info(
+            f"Test event triggered: {request.event_type} for camera {request.camera_id}",
+            extra={
+                "event_type": "homekit_test_event",
+                "camera_id": request.camera_id,
+                "homekit_event_type": request.event_type,
+                "delivered_to_clients": result.get("delivered_to_clients", 0)
+            }
+        )
+
+        return HomeKitTestEventResponse(
+            success=True,
+            message=result.get("message", f"{request.event_type} event triggered"),
+            camera_id=request.camera_id,
+            event_type=request.event_type,
+            sensor_name=result.get("sensor_name"),
+            delivered_to_clients=result.get("delivered_to_clients", 0)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to trigger test event: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger test event: {str(e)}"
         )

@@ -31,7 +31,7 @@ export function EmptyEntitiesState({
         <div className="mb-4 p-4 bg-muted rounded-full">
           <Search className="h-12 w-12 text-muted-foreground" />
         </div>
-        <h3 className="text-lg font-semibold mb-2">No results for "{searchQuery}"</h3>
+        <h3 className="text-lg font-semibold mb-2">No results for &ldquo;{searchQuery}&rdquo;</h3>
         <p className="text-sm text-muted-foreground mb-6 max-w-md">
           No entities match your search. Try a different name or clear the search.
         </p>

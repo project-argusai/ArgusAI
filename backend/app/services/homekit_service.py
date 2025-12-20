@@ -1740,6 +1740,84 @@ class HomekitService:
 
         return True
 
+    # =========================================================================
+    # Story P7-1.3: Test Event Trigger Method
+    # =========================================================================
+
+    def trigger_test_event(
+        self, camera_id: str, event_type: str
+    ) -> dict:
+        """
+        Trigger a test HomeKit event for debugging (Story P7-1.3 AC5).
+
+        Dispatches to the appropriate trigger method based on event_type.
+        Used by the /api/v1/homekit/test-event endpoint for manual testing.
+
+        Args:
+            camera_id: Camera identifier (UUID)
+            event_type: Type of event - motion, occupancy, vehicle, animal, package, doorbell
+
+        Returns:
+            dict with:
+                - success: bool
+                - message: str
+                - sensor_name: Optional[str]
+                - delivered_to_clients: int
+        """
+        # Map event types to their trigger methods and sensor dictionaries
+        event_handlers = {
+            "motion": (self.trigger_motion, self._sensors, "Motion"),
+            "occupancy": (self.trigger_occupancy, self._occupancy_sensors, "Occupancy"),
+            "vehicle": (self.trigger_vehicle, self._vehicle_sensors, "Vehicle"),
+            "animal": (self.trigger_animal, self._animal_sensors, "Animal"),
+            "package": (self.trigger_package, self._package_sensors, "Package"),
+            "doorbell": (self.trigger_doorbell, self._doorbell_sensors, "Doorbell"),
+        }
+
+        if event_type not in event_handlers:
+            return {
+                "success": False,
+                "message": f"Invalid event type: {event_type}",
+                "sensor_name": None,
+                "delivered_to_clients": 0
+            }
+
+        trigger_method, sensor_dict, sensor_suffix = event_handlers[event_type]
+
+        # Check if sensor exists for this camera
+        resolved_id = self._resolve_camera_id(camera_id)
+        sensor = sensor_dict.get(resolved_id)
+
+        if not sensor:
+            return {
+                "success": False,
+                "message": f"No {event_type} sensor found for camera: {camera_id}",
+                "sensor_name": None,
+                "delivered_to_clients": 0
+            }
+
+        # Trigger the event
+        success = trigger_method(camera_id)
+
+        if success:
+            sensor_name = getattr(sensor, "name", f"Camera {sensor_suffix}")
+            # Count connected clients (estimate based on if service is running)
+            delivered_to = 1 if self.is_paired else 0
+
+            return {
+                "success": True,
+                "message": f"{event_type.capitalize()} event triggered for {sensor_name}",
+                "sensor_name": sensor_name,
+                "delivered_to_clients": delivered_to
+            }
+
+        return {
+            "success": False,
+            "message": f"Failed to trigger {event_type} event for camera: {camera_id}",
+            "sensor_name": None,
+            "delivered_to_clients": 0
+        }
+
     async def get_camera_snapshot(self, camera_id: str) -> Optional[bytes]:
         """
         Get a snapshot from a camera accessory (Story P7-3.2 AC1, AC2).

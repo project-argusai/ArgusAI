@@ -446,7 +446,7 @@ development_status:
   # Focus: Re-analysis bug, installation script, push notifications
   epic-p8-1: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-1.md
   p8-1-1-fix-re-analyse-function-error: done
-  p8-1-2-fix-installation-script-for-non-arm64-systems: backlog
+  p8-1-2-fix-installation-script-for-non-arm64-systems: done
   p8-1-3-fix-push-notifications-only-working-once: backlog
   epic-p8-1-retrospective: optional
 

@@ -1,0 +1,189 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>P8-1</epicId>
+    <storyId>1.2</storyId>
+    <title>Fix Installation Script for Non-ARM64 Systems</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-20</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-1-2-fix-installation-script-for-non-arm64-systems.md</sourceStoryPath>
+    <githubIssue>https://github.com/bbengt1/ArgusAI/issues/75</githubIssue>
+  </metadata>
+
+  <story>
+    <asA>user with an Intel/AMD system</asA>
+    <iWant>the installation script to work on my x86_64 machine</iWant>
+    <soThat>I can deploy ArgusAI on any common hardware</soThat>
+    <tasks>
+      <task id="1" title="Investigate current install.sh for architecture-specific code">
+        <subtask>1.1: Review install.sh for hardcoded ARM64 paths (e.g., /opt/homebrew/)</subtask>
+        <subtask>1.2: Identify all platform-specific logic in the script</subtask>
+        <subtask>1.3: Document current architecture detection (if any)</subtask>
+      </task>
+      <task id="2" title="Implement architecture detection">
+        <subtask>2.1: Add architecture detection at script start using uname -m</subtask>
+        <subtask>2.2: Log detected architecture for troubleshooting</subtask>
+        <subtask>2.3: Set OS type using uname -s for cross-platform support</subtask>
+      </task>
+      <task id="3" title="Fix Homebrew paths for macOS">
+        <subtask>3.1: Use $(brew --prefix) for portable Homebrew paths if available</subtask>
+        <subtask>3.2: Fall back to conditional paths: ARM64 = /opt/homebrew/, Intel = /usr/local/</subtask>
+        <subtask>3.3: Update launchd plist generation to use correct paths</subtask>
+      </task>
+      <task id="4" title="Ensure Linux compatibility">
+        <subtask>4.1: Verify apt-get path detection works for x86_64 Linux</subtask>
+        <subtask>4.2: Confirm Python/pip paths work on x86_64 Ubuntu/Debian</subtask>
+        <subtask>4.3: Test systemd service generation on Linux paths</subtask>
+      </task>
+      <task id="5" title="Update generated service files">
+        <subtask>5.1: Fix launchd plist to use dynamic Homebrew prefix</subtask>
+        <subtask>5.2: Fix npm path in frontend launchd plist</subtask>
+        <subtask>5.3: Verify systemd service paths are architecture-agnostic</subtask>
+      </task>
+      <task id="6" title="Testing and validation">
+        <subtask>6.1: Test script syntax with bash -n install.sh</subtask>
+        <subtask>6.2: Verify architecture detection outputs correctly</subtask>
+        <subtask>6.3: Document test results for each platform type</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC2.1">Given x86_64 macOS system, when running install.sh, then script completes successfully</criterion>
+    <criterion id="AC2.2">Given x86_64 Linux system, when running install.sh, then script completes successfully</criterion>
+    <criterion id="AC2.3">Given ARM64 system, when running install.sh, then existing behavior preserved</criterion>
+    <criterion id="AC2.4">Given any system, when script runs, then correct Homebrew/pip paths used</criterion>
+    <criterion id="AC2.5">Given architecture detection, when script starts, then architecture logged</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/epics-phase8.md</path>
+        <title>Phase 8 Epic Breakdown</title>
+        <section>Story P8-1.2: Fix Installation Script for Non-ARM64 Systems</section>
+        <snippet>As a user with an Intel/AMD system, I want the installation script to work on my x86_64 machine, so that I can deploy ArgusAI on any common hardware.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P8-1.md</path>
+        <title>Epic P8-1 Technical Specification</title>
+        <section>P8-1.2: Fix Installation Script</section>
+        <snippet>No API changes. Script modifications include architecture detection using uname -m and conditional Homebrew paths for Intel vs ARM64 macOS.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>BUG-006</section>
+        <snippet>Installation script fails on non-arm64 based systems (x86_64/amd64). Investigate and fix architecture-specific dependencies or paths to support Intel/AMD processors.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <item>
+        <path>install.sh</path>
+        <kind>shell-script</kind>
+        <symbol>main installation script</symbol>
+        <lines>1-775</lines>
+        <reason>Primary file to modify - contains all installation logic and service file generation</reason>
+      </item>
+      <item>
+        <path>install.sh</path>
+        <kind>shell-function</kind>
+        <symbol>generate_launchd_plist</symbol>
+        <lines>393-491</lines>
+        <reason>Contains hardcoded /usr/local/bin/npm path that needs to be dynamic based on architecture</reason>
+      </item>
+      <item>
+        <path>install.sh</path>
+        <kind>shell-function</kind>
+        <symbol>generate_systemd_service</symbol>
+        <lines>318-391</lines>
+        <reason>Systemd service generation - verify paths are architecture-agnostic</reason>
+      </item>
+      <item>
+        <path>install.sh</path>
+        <kind>shell-function</kind>
+        <symbol>check_python</symbol>
+        <lines>111-138</lines>
+        <reason>Python detection logic - already architecture-agnostic, good pattern to follow</reason>
+      </item>
+    </code>
+    <dependencies>
+      <python>
+        <package>fastapi==0.115.0</package>
+        <package>uvicorn==0.24.0</package>
+        <package>sqlalchemy>=2.0.36</package>
+        <package>alembic>=1.14.0</package>
+        <package>cryptography==44.0.1</package>
+      </python>
+      <node>
+        <package>next@^16.0.10</package>
+        <package>react@19.2.0</package>
+        <package>typescript@^5</package>
+        <package>vitest@^4.0.15</package>
+      </node>
+      <system>
+        <tool>Python 3.11+</tool>
+        <tool>Node.js 18+</tool>
+        <tool>npm</tool>
+        <tool>Homebrew (macOS)</tool>
+        <tool>apt-get (Linux)</tool>
+      </system>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="backward-compatibility">Must preserve existing behavior for ARM64 macOS systems</constraint>
+    <constraint type="no-breaking-changes">Installation process should work identically on ARM64 after changes</constraint>
+    <constraint type="portable-paths">Use $(brew --prefix) for Homebrew paths when available, fall back to conditional detection</constraint>
+    <constraint type="cross-platform">Support macOS (ARM64, Intel) and Linux (x86_64, amd64)</constraint>
+    <constraint type="no-hardcoded-paths">Avoid hardcoding architecture-specific paths directly</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Architecture Detection Pattern</name>
+      <kind>shell-pattern</kind>
+      <signature>
+ARCH=$(uname -m)
+OS=$(uname -s)
+if [ "$OS" = "Darwin" ]; then
+    if command -v brew &amp;> /dev/null; then
+        BREW_PREFIX=$(brew --prefix)
+    elif [ "$ARCH" = "arm64" ]; then
+        BREW_PREFIX="/opt/homebrew"
+    else
+        BREW_PREFIX="/usr/local"
+    fi
+fi
+      </signature>
+      <path>install.sh</path>
+    </interface>
+    <interface>
+      <name>Homebrew Path Variables</name>
+      <kind>shell-variable</kind>
+      <signature>BREW_PREFIX - dynamic path to Homebrew installation (ARM64: /opt/homebrew, Intel: /usr/local)</signature>
+      <path>install.sh</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Bash scripts should be validated with `bash -n script.sh` for syntax errors.
+      Test architecture detection by running on different platforms or simulating via environment variables.
+      Manual testing on ARM64 macOS, Intel macOS, and x86_64 Linux recommended.
+      CI/CD can use matrix builds to test on multiple architectures.
+    </standards>
+    <locations>
+      <location>install.sh (manual testing)</location>
+      <location>.github/workflows/ (CI matrix builds for multi-arch testing)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC2.1">Run install.sh --check on x86_64 macOS to verify dependency detection</idea>
+      <idea ac="AC2.2">Run install.sh --check on x86_64 Linux (Ubuntu) to verify paths</idea>
+      <idea ac="AC2.3">Run install.sh on ARM64 macOS to verify no regression</idea>
+      <idea ac="AC2.4">Verify $BREW_PREFIX is set correctly based on architecture</idea>
+      <idea ac="AC2.5">Check log output includes architecture information</idea>
+      <idea ac="all">Run bash -n install.sh to verify syntax is valid</idea>
+    </ideas>
+  </tests>
+</story-context>

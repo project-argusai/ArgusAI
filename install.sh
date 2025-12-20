@@ -34,6 +34,22 @@ DATA_DIR="$BACKEND_DIR/data"
 MIN_PYTHON_VERSION="3.11"
 MIN_NODE_VERSION="18"
 
+# Architecture detection
+ARCH=$(uname -m)
+OS=$(uname -s)
+
+# Detect Homebrew prefix (macOS only)
+BREW_PREFIX=""
+if [ "$OS" = "Darwin" ]; then
+    if command -v brew &> /dev/null; then
+        BREW_PREFIX=$(brew --prefix)
+    elif [ "$ARCH" = "arm64" ]; then
+        BREW_PREFIX="/opt/homebrew"
+    else
+        BREW_PREFIX="/usr/local"
+    fi
+fi
+
 # Flags
 INSTALL_BACKEND=true
 INSTALL_FRONTEND=true
@@ -188,11 +204,22 @@ check_git() {
     fi
 }
 
+check_architecture() {
+    print_step "Detecting system architecture..."
+    print_info "  Architecture: $ARCH"
+    print_info "  OS: $OS"
+    if [ -n "$BREW_PREFIX" ]; then
+        print_info "  Homebrew prefix: $BREW_PREFIX"
+    fi
+    print_success "Architecture detected"
+}
+
 check_all_dependencies() {
     print_header "Checking Dependencies"
 
     local all_good=true
 
+    check_architecture
     check_python || all_good=false
     check_node || all_good=false
     check_npm || all_good=false
@@ -424,7 +451,7 @@ generate_launchd_plist() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>$BACKEND_DIR/venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <string>$BACKEND_DIR/venv/bin:$BREW_PREFIX/bin:/usr/local/bin:/usr/bin:/bin</string>
     </dict>
 
     <key>RunAtLoad</key>
@@ -455,7 +482,7 @@ EOF
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/npm</string>
+        <string>$BREW_PREFIX/bin/npm</string>
         <string>run</string>
         <string>start</string>
     </array>

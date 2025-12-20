@@ -30,6 +30,9 @@ vi.mock('@/lib/api-client', () => ({
     feedback: {
       getStats: vi.fn(),
     },
+    events: {
+      getFeedbackStats: vi.fn(),
+    },
     cameras: {
       getAll: vi.fn().mockResolvedValue({ data: [] }),
     },

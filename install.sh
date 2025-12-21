@@ -236,6 +236,64 @@ check_all_dependencies() {
 }
 
 #-------------------------------------------------------------------------------
+# Linux System Configuration (Firewall, SELinux)
+#-------------------------------------------------------------------------------
+
+configure_linux_system() {
+    # Only run on Linux
+    if [ "$OS" != "Linux" ]; then
+        return 0
+    fi
+
+    print_header "Configuring Linux System"
+
+    # Configure SELinux
+    if command -v getenforce &> /dev/null; then
+        local selinux_status=$(getenforce 2>/dev/null || echo "Disabled")
+        if [ "$selinux_status" = "Enforcing" ]; then
+            print_step "Configuring SELinux..."
+            # Set to permissive immediately
+            setenforce 0 2>/dev/null || print_warning "Could not set SELinux to permissive (may need root)"
+            # Make permanent
+            if [ -f /etc/selinux/config ]; then
+                if grep -q "^SELINUX=enforcing" /etc/selinux/config; then
+                    sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config 2>/dev/null || \
+                        print_warning "Could not update SELinux config (may need root)"
+                    print_success "SELinux set to permissive"
+                fi
+            fi
+        else
+            print_success "SELinux is already $selinux_status"
+        fi
+    fi
+
+    # Configure firewall
+    if command -v firewall-cmd &> /dev/null; then
+        print_step "Configuring firewall ports..."
+        # Check if firewalld is running
+        if systemctl is-active --quiet firewalld 2>/dev/null; then
+            # Add ports
+            firewall-cmd --add-port=3000/tcp --permanent 2>/dev/null || \
+                print_warning "Could not add port 3000 (may need root)"
+            firewall-cmd --add-port=8000/tcp --permanent 2>/dev/null || \
+                print_warning "Could not add port 8000 (may need root)"
+            firewall-cmd --reload 2>/dev/null || \
+                print_warning "Could not reload firewall (may need root)"
+            print_success "Firewall ports 3000 and 8000 opened"
+        else
+            print_info "firewalld is not running, skipping firewall configuration"
+        fi
+    elif command -v ufw &> /dev/null; then
+        print_step "Configuring UFW firewall..."
+        ufw allow 3000/tcp 2>/dev/null || print_warning "Could not add port 3000 (may need root)"
+        ufw allow 8000/tcp 2>/dev/null || print_warning "Could not add port 8000 (may need root)"
+        print_success "Firewall ports 3000 and 8000 opened"
+    else
+        print_info "No firewall detected, skipping firewall configuration"
+    fi
+}
+
+#-------------------------------------------------------------------------------
 # Backend Installation
 #-------------------------------------------------------------------------------
 
@@ -783,6 +841,9 @@ main() {
     if [ "$CHECK_ONLY" = true ]; then
         exit 0
     fi
+
+    # Configure Linux system (firewall, SELinux)
+    configure_linux_system
 
     # Install components
     if [ "$INSTALL_BACKEND" = true ]; then

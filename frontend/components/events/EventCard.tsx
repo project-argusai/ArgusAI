@@ -6,7 +6,7 @@
 
 import { useState, memo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { Video, ChevronDown, ChevronUp } from 'lucide-react';
+import { Video, ChevronDown, ChevronUp, Images } from 'lucide-react';
 import type { IEvent, SmartDetectionType } from '@/types/event';
 import { Card } from '@/components/ui/card';
 import { SourceTypeBadge } from './SourceTypeBadge';
@@ -19,6 +19,7 @@ import { ReAnalyzeButton } from './ReAnalyzeButton';
 import { ReanalyzedIndicator } from './ReanalyzedIndicator';
 import { FeedbackButtons } from './FeedbackButtons';
 import { AnomalyBadge } from './AnomalyBadge';
+import { FrameGalleryModal } from './FrameGalleryModal';
 import { cn } from '@/lib/utils';
 
 interface EventCardProps {
@@ -58,6 +59,8 @@ export const EventCard = memo(function EventCard({
 }: EventCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  // Story P8-2.2: Frame gallery modal state
+  const [frameGalleryOpen, setFrameGalleryOpen] = useState(false);
 
   // Story P2-4.4: Check if event has correlations
   const hasCorrelations = event.correlated_events && event.correlated_events.length > 0;
@@ -97,24 +100,40 @@ export const EventCard = memo(function EventCard({
       data-event-id={event.id}
     >
       <div className="flex flex-col sm:flex-row">
-        {/* Thumbnail */}
-        <div className="relative w-full sm:w-80 h-48 bg-gray-100 flex-shrink-0">
+        {/* Thumbnail - Story P8-2.2: Clickable to open frame gallery */}
+        <button
+          type="button"
+          className="relative w-full sm:w-80 h-48 bg-gray-100 flex-shrink-0 group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
+          onClick={(e) => {
+            e.stopPropagation();
+            setFrameGalleryOpen(true);
+          }}
+          aria-label="View analysis frames"
+        >
           {thumbnailSrc && !imageError ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={thumbnailSrc}
-              src={thumbnailSrc}
-              alt="Event thumbnail"
-              className="w-full h-full object-cover"
-              onError={() => setImageError(true)}
-            />
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                key={thumbnailSrc}
+                src={thumbnailSrc}
+                alt="Event thumbnail"
+                className="w-full h-full object-cover transition-transform group-hover:scale-[1.02]"
+                onError={() => setImageError(true)}
+              />
+              {/* Hover overlay to indicate clickability */}
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                <div className="opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded-full p-3">
+                  <Images className="w-6 h-6 text-white" />
+                </div>
+              </div>
+            </>
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-200">
               <Video className="w-12 h-12 text-gray-400" />
               <span className="sr-only">No thumbnail available</span>
             </div>
           )}
-        </div>
+        </button>
 
         {/* Event Details */}
         <div className="flex-1 p-4 space-y-3">
@@ -223,6 +242,13 @@ export const EventCard = memo(function EventCard({
           </div>
         </div>
       </div>
+
+      {/* Story P8-2.2: Frame Gallery Modal (AC2.1 - AC2.8) */}
+      <FrameGalleryModal
+        eventId={event.id}
+        open={frameGalleryOpen}
+        onOpenChange={setFrameGalleryOpen}
+      />
     </Card>
   );
 });

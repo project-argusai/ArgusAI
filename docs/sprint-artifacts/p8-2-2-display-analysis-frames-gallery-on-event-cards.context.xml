@@ -1,0 +1,184 @@
+<story-context id="p8-2-2-display-analysis-frames-gallery-on-event-cards" v="1.0">
+  <metadata>
+    <epicId>P8-2</epicId>
+    <storyId>P8-2.2</storyId>
+    <title>Display Analysis Frames Gallery on Event Cards</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-20</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-2-2-display-analysis-frames-gallery-on-event-cards.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to click on an event thumbnail to see all frames that were analyzed</iWant>
+    <soThat>I understand what the AI used to generate the description</soThat>
+    <tasks>
+      <task id="1" title="Create backend API endpoint for frames">
+        <subtask>Add GET /api/v1/events/{event_id}/frames endpoint to backend/app/api/v1/events.py</subtask>
+        <subtask>Return list of EventFrame records with frame_number, url, timestamp_offset_ms, width, height</subtask>
+        <subtask>Return 404 if event not found</subtask>
+        <subtask>Return empty frames array with message if no frames stored</subtask>
+      </task>
+      <task id="2" title="Create backend endpoint to serve individual frame images">
+        <subtask>Add GET /api/v1/events/{event_id}/frames/{frame_number} endpoint</subtask>
+        <subtask>Return JPEG image file with proper Content-Type header</subtask>
+        <subtask>Return 404 if frame not found</subtask>
+        <subtask>Add caching headers for performance (Cache-Control: max-age=86400)</subtask>
+      </task>
+      <task id="3" title="Add frame endpoints to frontend API client">
+        <subtask>Add getEventFrames(eventId) function to frontend/lib/api-client.ts</subtask>
+        <subtask>Add types for EventFrameResponse and EventFramesResponse</subtask>
+        <subtask>Return typed response with frames array</subtask>
+      </task>
+      <task id="4" title="Create FrameGalleryModal component">
+        <subtask>Create frontend/components/events/FrameGalleryModal.tsx</subtask>
+        <subtask>Use Radix Dialog for accessible modal base</subtask>
+        <subtask>Display current frame image in center</subtask>
+        <subtask>Add prev/next navigation arrows</subtask>
+        <subtask>Display frame indicator (e.g., "3 of 10")</subtask>
+        <subtask>Display timestamp offset for current frame</subtask>
+        <subtask>Add close button and click-outside-to-close</subtask>
+      </task>
+      <task id="5" title="Implement keyboard navigation">
+        <subtask>Add useEffect for keyboard event listeners</subtask>
+        <subtask>Left arrow → previous frame</subtask>
+        <subtask>Right arrow → next frame</subtask>
+        <subtask>Escape → close modal</subtask>
+        <subtask>Clean up listeners on unmount</subtask>
+      </task>
+      <task id="6" title="Handle empty/no frames state">
+        <subtask>Check if frames array is empty in modal</subtask>
+        <subtask>Display placeholder message: "No analysis frames available"</subtask>
+        <subtask>Show info icon and explanation</subtask>
+      </task>
+      <task id="7" title="Integrate gallery into EventCard component">
+        <subtask>Modify frontend/components/events/EventCard.tsx</subtask>
+        <subtask>Make thumbnail clickable with cursor-pointer styling</subtask>
+        <subtask>Add onClick handler to open FrameGalleryModal</subtask>
+        <subtask>Pass event ID to modal for fetching frames</subtask>
+        <subtask>Add visual indicator that thumbnail is clickable</subtask>
+      </task>
+      <task id="8" title="Add loading and error states">
+        <subtask>Show loading skeleton while frames are being fetched</subtask>
+        <subtask>Handle API errors gracefully with error message</subtask>
+        <subtask>Add retry button on error</subtask>
+      </task>
+      <task id="9" title="Write unit and integration tests">
+        <subtask>Test backend frames list endpoint returns correct data</subtask>
+        <subtask>Test backend frame image endpoint returns JPEG</subtask>
+        <subtask>Test 404 responses for missing event/frame</subtask>
+        <subtask>Test FrameGalleryModal renders with frames</subtask>
+        <subtask>Test keyboard navigation in modal</subtask>
+        <subtask>Test empty state rendering</subtask>
+        <subtask>Test thumbnail click opens modal</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC2.1">Given event with frames, when user clicks thumbnail, then gallery modal opens</criterion>
+    <criterion id="AC2.2">Given gallery open, when viewing, then all frames shown in sequence</criterion>
+    <criterion id="AC2.3">Given gallery, when navigating, then prev/next arrows work</criterion>
+    <criterion id="AC2.4">Given gallery, when viewing, then frame number indicator shows (e.g., "3 of 10")</criterion>
+    <criterion id="AC2.5">Given gallery, when viewing, then timestamp offset displayed per frame</criterion>
+    <criterion id="AC2.6">Given gallery, when pressing arrow keys, then navigation works</criterion>
+    <criterion id="AC2.7">Given gallery, when pressing Escape, then modal closes</criterion>
+    <criterion id="AC2.8">Given event without frames, when clicked, then placeholder message shown</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase8.md" title="Phase 8 Epic Breakdown" section="Story P8-2.2" snippet="Display frames used for AI analysis in a gallery modal with navigation, timestamps, and keyboard support" />
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P8-2.md" title="Epic P8-2 Technical Specification" section="P8-2.2: Display Analysis Frames Gallery" snippet="Create FrameGalleryModal component using Radix Dialog, fetch frames via GET /api/v1/events/{id}/frames, implement keyboard navigation" />
+      <doc path="docs/architecture-phase8.md" title="Phase 8 Architecture" section="API Contracts" snippet="GET /api/v1/events/{event_id}/frames returns frame_count, sampling_strategy, and frames array with frame_number, url, timestamp_offset_ms" />
+      <doc path="docs/sprint-artifacts/p8-2-1-store-all-analysis-frames-during-event-processing.md" title="Previous Story P8-2.1" section="Dev Agent Record" snippet="Created EventFrame model, FrameStorageService, frames relationship on Event. Storage at data/frames/{event_id}/frame_NNN.jpg. Advisory: P8-2.2 needs to add API endpoint to serve frame files." />
+    </docs>
+
+    <code>
+      <file path="backend/app/models/event_frame.py" kind="model" symbol="EventFrame" lines="1-61" reason="Database model for frame metadata - has id, event_id, frame_number, frame_path, timestamp_offset_ms, width, height, file_size_bytes" />
+      <file path="backend/app/models/event.py" kind="model" symbol="Event.frames" lines="123" reason="Event model has frames relationship with cascade delete-orphan" />
+      <file path="backend/app/schemas/event_frame.py" kind="schema" symbol="EventFrameResponse, EventFrameListResponse" lines="1-56" reason="Pydantic schemas for frame API responses - includes url field for frontend access" />
+      <file path="backend/app/services/frame_storage_service.py" kind="service" symbol="FrameStorageService" lines="1-402" reason="Service that saves/deletes frames - frames stored at data/frames/{event_id}/frame_NNN.jpg" />
+      <file path="backend/app/api/v1/events.py" kind="api" symbol="router" lines="1-2050" reason="Events API router - needs new frames endpoints added" />
+      <file path="frontend/components/events/EventCard.tsx" kind="component" symbol="EventCard" lines="1-229" reason="Event card component - thumbnail needs onClick handler to open gallery modal" />
+      <file path="frontend/components/events/KeyFramesGallery.tsx" kind="component" symbol="KeyFramesGallery" lines="1-196" reason="Existing similar component showing key frames - uses Radix Dialog, has lightbox with navigation arrows, can reuse patterns" />
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="API client" lines="1-100" reason="Frontend API client - needs getEventFrames function added" />
+      <file path="frontend/components/ui/dialog.tsx" kind="component" symbol="Dialog" lines="all" reason="Radix Dialog wrapper from shadcn/ui - use for modal" />
+    </code>
+
+    <dependencies>
+      <backend>
+        <package name="fastapi" version="0.115.0" />
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="opencv-python" version=">=4.12.0" />
+        <package name="pillow" version=">=10.0.0" />
+      </backend>
+      <frontend>
+        <package name="@radix-ui/react-dialog" version="^1.1.15" />
+        <package name="lucide-react" version="^0.553.0" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="date-fns" version="^4.1.0" />
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Use Radix Dialog for accessible modal (consistent with existing modals like KeyFramesGallery, CameraPreviewModal)</constraint>
+    <constraint type="pattern">Follow existing API patterns: prefix with /api/v1, use FastAPI dependency injection, return proper HTTP status codes</constraint>
+    <constraint type="pattern">Follow frontend patterns: hooks in hooks/, components in components/events/, typed API responses</constraint>
+    <constraint type="performance">Lazy load frames for performance - don't load all frame images at once</constraint>
+    <constraint type="performance">Add caching headers (Cache-Control: max-age=86400) to frame image responses</constraint>
+    <constraint type="accessibility">Support keyboard navigation (arrow keys, Escape)</constraint>
+    <constraint type="accessibility">Use proper ARIA labels for navigation buttons and modal</constraint>
+    <constraint type="storage">Frame images are JPEG, ~50KB each, stored at data/frames/{event_id}/frame_NNN.jpg</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="GET /api/v1/events/{event_id}/frames" kind="REST endpoint">
+      <signature>GET /api/v1/events/{event_id}/frames -> EventFrameListResponse</signature>
+      <path>backend/app/api/v1/events.py (to be added)</path>
+      <notes>Returns event_id, frame_count, sampling_strategy, frames array</notes>
+    </interface>
+    <interface name="GET /api/v1/events/{event_id}/frames/{frame_number}" kind="REST endpoint">
+      <signature>GET /api/v1/events/{event_id}/frames/{frame_number} -> image/jpeg</signature>
+      <path>backend/app/api/v1/events.py (to be added)</path>
+      <notes>Returns raw JPEG image with Cache-Control header</notes>
+    </interface>
+    <interface name="EventFrameResponse" kind="schema">
+      <signature>id, event_id, frame_number, frame_path, timestamp_offset_ms, width, height, file_size_bytes, created_at, url</signature>
+      <path>backend/app/schemas/event_frame.py</path>
+    </interface>
+    <interface name="EventFrame model" kind="SQLAlchemy model">
+      <signature>id, event_id (FK), frame_number, frame_path, timestamp_offset_ms, width, height, file_size_bytes, created_at</signature>
+      <path>backend/app/models/event_frame.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests. Frontend uses Vitest with React Testing Library.
+      Tests should follow existing patterns in backend/tests/ and frontend/__tests__/.
+      Use fixtures for database sessions and mock data.
+      Test both success and error paths.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_events.py (add frame endpoint tests)</location>
+      <location>frontend/__tests__/components/events/FrameGalleryModal.test.tsx (new)</location>
+      <location>frontend/__tests__/components/events/EventCard.test.tsx (add click handler tests)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC2.1">Test EventCard thumbnail click triggers modal open callback</idea>
+      <idea ac="AC2.2">Test GET /api/v1/events/{id}/frames returns all frames in order</idea>
+      <idea ac="AC2.3">Test navigation arrows change selected frame index</idea>
+      <idea ac="AC2.4">Test frame indicator shows "N of M" format</idea>
+      <idea ac="AC2.5">Test timestamp offset displayed in readable format (+X.Xs)</idea>
+      <idea ac="AC2.6">Test keyboard arrow keys navigate frames</idea>
+      <idea ac="AC2.7">Test Escape key closes modal</idea>
+      <idea ac="AC2.8">Test empty state when frames array is empty</idea>
+      <idea ac="AC2.1">Test 404 response when event not found</idea>
+      <idea ac="AC2.2">Test frame image endpoint returns JPEG content type</idea>
+      <idea ac="AC2.2">Test frame image endpoint returns 404 for missing frame</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -2047,3 +2047,189 @@ async def delete_feedback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete feedback"
         )
+
+
+# ============================================================================
+# Story P8-2.2: Event Frames Gallery Endpoints
+# ============================================================================
+
+# Frame storage directory (same as in frame_storage_service.py)
+FRAME_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'frames')
+
+
+@router.get("/{event_id}/frames")
+async def get_event_frames(
+    event_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of frames for an event (Story P8-2.2)
+
+    Returns all frames stored for an event during AI analysis,
+    including metadata and URLs for each frame image.
+
+    Args:
+        event_id: Event UUID
+        db: Database session
+
+    Returns:
+        EventFrameListResponse with frame metadata and URLs
+
+    Raises:
+        404: Event not found
+
+    Example:
+        GET /events/123e4567-e89b-12d3-a456-426614174000/frames
+    """
+    from app.models.event_frame import EventFrame
+    from app.schemas.event_frame import EventFrameResponse, EventFrameListResponse
+
+    try:
+        # Verify event exists
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Event {event_id} not found"
+            )
+
+        # Query frames for this event, ordered by frame number
+        frames = db.query(EventFrame).filter(
+            EventFrame.event_id == event_id
+        ).order_by(EventFrame.frame_number).all()
+
+        # Build response with URLs
+        frame_responses = []
+        total_size = 0
+        for frame in frames:
+            # Build URL for accessing frame image
+            url = f"/api/v1/events/{event_id}/frames/{frame.frame_number}"
+
+            frame_responses.append(EventFrameResponse(
+                id=frame.id,
+                event_id=frame.event_id,
+                frame_number=frame.frame_number,
+                frame_path=frame.frame_path,
+                timestamp_offset_ms=frame.timestamp_offset_ms,
+                width=frame.width,
+                height=frame.height,
+                file_size_bytes=frame.file_size_bytes,
+                created_at=frame.created_at,
+                url=url
+            ))
+            if frame.file_size_bytes:
+                total_size += frame.file_size_bytes
+
+        logger.debug(
+            f"Retrieved {len(frames)} frames for event {event_id}",
+            extra={"event_id": event_id, "frame_count": len(frames)}
+        )
+
+        return EventFrameListResponse(
+            event_id=event_id,
+            frames=frame_responses,
+            total_count=len(frames),
+            total_size_bytes=total_size
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get frames for event {event_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get event frames"
+        )
+
+
+@router.get("/{event_id}/frames/{frame_number}")
+async def get_event_frame_image(
+    event_id: str,
+    frame_number: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Get a specific frame image for an event (Story P8-2.2)
+
+    Returns the JPEG image file for a specific frame.
+    Includes caching headers for performance.
+
+    Args:
+        event_id: Event UUID
+        frame_number: 1-indexed frame number
+        db: Database session
+
+    Returns:
+        JPEG image file with Cache-Control headers
+
+    Raises:
+        404: Event or frame not found
+
+    Example:
+        GET /events/123e4567-e89b-12d3-a456-426614174000/frames/1
+    """
+    from app.models.event_frame import EventFrame
+    from fastapi.responses import FileResponse
+
+    try:
+        # Verify event exists
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Event {event_id} not found"
+            )
+
+        # Get frame record
+        frame = db.query(EventFrame).filter(
+            EventFrame.event_id == event_id,
+            EventFrame.frame_number == frame_number
+        ).first()
+
+        if not frame:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Frame {frame_number} not found for event {event_id}"
+            )
+
+        # Build full path to frame file
+        # frame_path is relative like "frames/{event_id}/frame_001.jpg"
+        # We need to construct the absolute path
+        frame_file = os.path.join(
+            os.path.dirname(FRAME_DIR),  # data/
+            frame.frame_path  # frames/{event_id}/frame_NNN.jpg
+        )
+
+        if not os.path.exists(frame_file):
+            logger.warning(
+                f"Frame file not found on disk: {frame_file}",
+                extra={"event_id": event_id, "frame_number": frame_number}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Frame file not found on disk"
+            )
+
+        logger.debug(
+            f"Serving frame {frame_number} for event {event_id}",
+            extra={"event_id": event_id, "frame_number": frame_number, "path": frame_file}
+        )
+
+        # Return file with caching headers (24 hours)
+        return FileResponse(
+            path=frame_file,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=86400",
+                "Content-Disposition": f'inline; filename="frame_{frame_number:03d}.jpg"'
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get frame {frame_number} for event {event_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get event frame"
+        )

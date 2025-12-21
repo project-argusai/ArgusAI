@@ -558,6 +558,42 @@ export const apiClient = {
     }> => {
       return apiFetch('/events/packages/today');
     },
+
+    /**
+     * Get frames for an event (Story P8-2.2)
+     * Returns list of frames used for AI analysis with URLs
+     * @param eventId Event ID (UUID string)
+     * @returns Event frames response with frame metadata and URLs
+     */
+    getFrames: async (eventId: string): Promise<{
+      event_id: string;
+      frames: Array<{
+        id: string;
+        event_id: string;
+        frame_number: number;
+        frame_path: string;
+        timestamp_offset_ms: number;
+        width: number | null;
+        height: number | null;
+        file_size_bytes: number | null;
+        created_at: string;
+        url: string;
+      }>;
+      total_count: number;
+      total_size_bytes: number;
+    }> => {
+      return apiFetch(`/events/${eventId}/frames`);
+    },
+
+    /**
+     * Get full URL for an event frame image (Story P8-2.2)
+     * @param eventId Event ID (UUID string)
+     * @param frameNumber 1-indexed frame number
+     * @returns Full URL to the frame image
+     */
+    getFrameUrl: (eventId: string, frameNumber: number): string => {
+      return `${API_BASE_URL}${API_V1_PREFIX}/events/${eventId}/frames/${frameNumber}`;
+    },
   },
 
   settings: {

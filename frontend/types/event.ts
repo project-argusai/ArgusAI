@@ -375,3 +375,34 @@ export const CARRIER_CONFIG: Record<string, { display: string; color: string; bg
   dhl: { display: 'DHL', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
   unknown: { display: 'Unknown', color: 'text-gray-600', bgColor: 'bg-gray-100' },
 };
+
+// ==============================================================================
+// Story P8-2.2: Event Frame Gallery Types
+// ==============================================================================
+
+/**
+ * Response for a single event frame
+ * Matches backend EventFrameResponse schema
+ */
+export interface IEventFrame {
+  id: string;                     // Frame UUID
+  event_id: string;               // Parent event UUID
+  frame_number: number;           // 1-indexed frame number
+  frame_path: string;             // Relative path to frame file
+  timestamp_offset_ms: number;    // Milliseconds from video start
+  width: number | null;           // Frame width in pixels
+  height: number | null;          // Frame height in pixels
+  file_size_bytes: number | null; // Frame file size in bytes
+  created_at: string;             // ISO 8601 datetime
+  url: string;                    // URL to access the frame image
+}
+
+/**
+ * Response from GET /api/v1/events/{event_id}/frames
+ */
+export interface IEventFramesResponse {
+  event_id: string;               // Parent event UUID
+  frames: IEventFrame[];          // List of frames
+  total_count: number;            // Total number of frames
+  total_size_bytes: number;       // Total size of all frames in bytes
+}

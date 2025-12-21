@@ -1,0 +1,172 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>P8-3</epicId>
+    <storyId>P8-3.1</storyId>
+    <title>Hide MQTT Form When Integration Disabled</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-21</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-3-1-hide-mqtt-form-when-integration-disabled.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>MQTT configuration fields hidden when the integration is disabled</iWant>
+    <soThat>the settings page is less cluttered and shows only relevant options</soThat>
+    <tasks>
+      <task id="1">Implement conditional rendering for MQTT form sections (AC: 1.1)
+        <subtask id="1.1">Wrap broker configuration section in conditional based on enabled state</subtask>
+        <subtask id="1.2">Wrap topic configuration section in conditional based on enabled state</subtask>
+        <subtask id="1.3">Wrap availability messages section in conditional based on enabled state</subtask>
+        <subtask id="1.4">Wrap Home Assistant discovery section in conditional based on enabled state</subtask>
+        <subtask id="1.5">Keep connection status display conditional on enabled (already done)</subtask>
+        <subtask id="1.6">Keep Save button always visible regardless of toggle state</subtask>
+      </task>
+      <task id="2">Add smooth CSS transition animations (AC: 1.2, 1.3)
+        <subtask id="2.1">Wrap conditional sections in animation container component</subtask>
+        <subtask id="2.2">Use CSS transitions for height and opacity (max 300ms per tech spec)</subtask>
+        <subtask id="2.3">Add overflow-hidden during animation to prevent layout jumps</subtask>
+        <subtask id="2.4">Test animation smoothness on toggle ON</subtask>
+        <subtask id="2.5">Test animation smoothness on toggle OFF</subtask>
+      </task>
+      <task id="3">Preserve form values when toggling visibility (AC: 1.4, 1.5)
+        <subtask id="3.1">Verify form state management does not reset values when sections hidden</subtask>
+        <subtask id="3.2">Test that saved values are restored when re-enabling toggle</subtask>
+        <subtask id="3.3">Test that saving with hidden fields does not clear MQTT config</subtask>
+        <subtask id="3.4">Test rapid toggle does not cause state issues</subtask>
+      </task>
+      <task id="4">Write frontend component tests (AC: 1.1-1.5)
+        <subtask id="4.1">Test test_mqtt_fields_hidden_when_disabled</subtask>
+        <subtask id="4.2">Test test_mqtt_fields_show_on_enable</subtask>
+        <subtask id="4.3">Test test_mqtt_values_preserved_after_toggle</subtask>
+        <subtask id="4.4">Test test_rapid_toggle_stability</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC1.1">Given MQTT toggle OFF, when viewing settings, then all MQTT config fields hidden</criterion>
+    <criterion id="AC1.2">Given MQTT toggle OFF, when toggling ON, then fields animate into view</criterion>
+    <criterion id="AC1.3">Given MQTT toggle ON, when toggling OFF, then fields animate out of view</criterion>
+    <criterion id="AC1.4">Given fields hidden, when re-enabling, then previously saved values preserved</criterion>
+    <criterion id="AC1.5">Given hidden fields, when saving settings, then MQTT config not cleared</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P8-3.md</path>
+        <title>Epic P8-3 Technical Specification</title>
+        <section>P8-3.1: Hide MQTT Form When Integration Disabled</section>
+        <snippet>Component to modify: frontend/components/settings/MQTTSettings.tsx. Use conditional rendering based on enabled state. Add CSS transitions for smooth show/hide animation (less than 300ms).</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase8.md</path>
+        <title>Phase 8 Epic Breakdown</title>
+        <section>Story P8-3.1</section>
+        <snippet>Hide MQTT configuration fields when the integration is disabled. Fields should animate into view smoothly. Form state preserved when hidden. Estimated complexity: Small (1-2 hours).</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture-phase8.md</path>
+        <title>Phase 8 Architecture</title>
+        <section>Existing Patterns</section>
+        <snippet>Follow existing patterns: Service layer in backend/app/services/, React hooks in frontend/hooks/, shadcn/ui components in frontend/components/ui/.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>frontend/components/settings/MQTTSettings.tsx</path>
+        <kind>component</kind>
+        <symbol>MQTTSettings</symbol>
+        <lines>84-700</lines>
+        <reason>Primary component to modify. Contains master enable toggle at lines 307-321, broker config at 363-476, topic config at 479-560, availability messages at 563-615, discovery section at 618-666.</reason>
+      </file>
+      <file>
+        <path>frontend/__tests__/components/settings/MQTTSettings.test.tsx</path>
+        <kind>test</kind>
+        <symbol>MQTTSettings tests</symbol>
+        <lines>1-592</lines>
+        <reason>Existing test file to extend with new visibility tests. Uses vitest, React Testing Library, mocks apiClient.</reason>
+      </file>
+      <file>
+        <path>frontend/types/settings.ts</path>
+        <kind>types</kind>
+        <symbol>MQTTConfigResponse, MQTTConfigUpdate</symbol>
+        <lines>175-241</lines>
+        <reason>TypeScript types for MQTT configuration. Includes enabled boolean field that controls visibility.</reason>
+      </file>
+      <file>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>service</kind>
+        <symbol>apiClient.mqtt</symbol>
+        <reason>API client methods: getConfig, updateConfig, getStatus, testConnection, publishDiscovery.</reason>
+      </file>
+      <file>
+        <path>frontend/components/ui/switch.tsx</path>
+        <kind>component</kind>
+        <symbol>Switch</symbol>
+        <reason>shadcn/ui Switch component used for the enable toggle.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <frontend>
+        <package name="react" version="19.2.0" />
+        <package name="react-hook-form" version="^7.66.0" />
+        <package name="@tanstack/react-query" version="^5.90.10" />
+        <package name="@radix-ui/react-switch" version="^1.2.6" />
+        <package name="tailwind-merge" version="^3.4.0" />
+        <package name="zod" version="^4.1.12" />
+        <package name="vitest" version="dev" />
+        <package name="@testing-library/react" version="dev" />
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Use conditional rendering based on form.watch('enabled') state</constraint>
+    <constraint>CSS transition duration must be less than 300ms per tech spec NFRs</constraint>
+    <constraint>Form state must be preserved when sections are hidden (react-hook-form handles this)</constraint>
+    <constraint>Do not clear MQTT config when saving with hidden fields</constraint>
+    <constraint>Keep Save button visible regardless of toggle state</constraint>
+    <constraint>Keep Info alert visible as educational content</constraint>
+    <constraint>Follow existing test patterns in frontend/__tests__/components/settings/</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>form.watch('enabled')</name>
+      <kind>react-hook-form method</kind>
+      <signature>form.watch(fieldName: string): value</signature>
+      <path>frontend/components/settings/MQTTSettings.tsx</path>
+    </interface>
+    <interface>
+      <name>MQTTSettings component sections</name>
+      <kind>JSX regions</kind>
+      <signature>
+        - Broker Configuration: lines 363-476
+        - Topic Configuration: lines 479-560
+        - Availability Messages: lines 563-615
+        - Home Assistant Discovery: lines 618-666
+      </signature>
+      <path>frontend/components/settings/MQTTSettings.tsx</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Use vitest as the test runner with React Testing Library for component testing. Mock API calls with vi.mock(). Use the renderWithProviders helper that wraps components in QueryClientProvider. Follow existing patterns in MQTTSettings.test.tsx which tests all existing acceptance criteria.
+    </standards>
+    <locations>
+      <location>frontend/__tests__/components/settings/</location>
+      <location>frontend/__tests__/components/</location>
+    </locations>
+    <ideas>
+      <idea acRef="AC1.1">test_mqtt_fields_hidden_when_disabled: Set enabled=false in mock config, verify broker/topic/availability/discovery sections are not in document</idea>
+      <idea acRef="AC1.2">test_mqtt_fields_show_on_enable: Start with enabled=false, click toggle, verify sections appear</idea>
+      <idea acRef="AC1.3">test_mqtt_fields_hide_on_disable: Start with enabled=true, click toggle, verify sections disappear</idea>
+      <idea acRef="AC1.4">test_mqtt_values_preserved_after_toggle: Set values, toggle off/on, verify values still present</idea>
+      <idea acRef="AC1.5">test_save_with_hidden_fields: Toggle off, save, verify updateConfig still called with all field values</idea>
+      <idea>test_rapid_toggle_stability: Toggle quickly multiple times, verify no state corruption</idea>
+    </ideas>
+  </tests>
+</story-context>

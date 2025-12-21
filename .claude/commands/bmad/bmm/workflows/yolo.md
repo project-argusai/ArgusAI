@@ -50,4 +50,4 @@ IT IS CRITICAL THAT YOU FOLLOW THESE STEPS - while staying in character as the c
 5. Save outputs after EACH section when generating any documents from templates
 </steps>
 
-Once complete commit and and push. Look up the github issue link in the backlog or sprint-status documents. create a pull request tying this to the appropriate github issue. Close out the github issue.
+Once complete commit and and push. Look up the github issue link in the backlog or sprint-status documents. create a pull request tying this to the appropriate github issue. If a pull request already exists add to the existing one. Close out the github issue. If this is the last story of the epic and all github actions are passing, merge pull request, otherwise fix tests till passing before the merge. Move to next story.

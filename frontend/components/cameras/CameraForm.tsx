@@ -152,7 +152,7 @@ export function CameraForm({
     try {
       if (initialData) {
         // Existing camera: use camera ID endpoint
-        const result = await apiClient.cameras.test(Number(initialData.id));
+        const result = await apiClient.cameras.test(initialData.id);
         setTestState({ loading: false, result });
       } else {
         // New camera: use discovery test endpoint with form values

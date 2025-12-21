@@ -1796,3 +1796,98 @@ async def get_ai_cost_status(db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve AI cost status"
         )
+
+
+# ============================================================================
+# Delete All Data Endpoint
+# ============================================================================
+
+
+class DeleteDataResponse(BaseModel):
+    """Response from delete all data operation"""
+    deleted_count: int = Field(..., description="Number of events deleted")
+    success: bool = Field(..., description="Whether deletion was successful")
+
+
+@router.delete("/data", response_model=DeleteDataResponse)
+async def delete_all_data(db: Session = Depends(get_db)):
+    """
+    Delete all event data from the system
+
+    This permanently deletes:
+    - All events and their thumbnails
+    - All motion events
+    - All event embeddings and feedback
+    - All AI usage records
+
+    **WARNING: This action cannot be undone!**
+
+    **Response:**
+    ```json
+    {
+        "deleted_count": 1234,
+        "success": true
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Data deleted successfully
+    - 500: Internal server error
+    """
+    from app.models.event import Event
+    from app.models.motion_event import MotionEvent
+    from app.models.event_embedding import EventEmbedding
+    from app.models.event_feedback import EventFeedback
+    from app.models.recognized_entity import EntityEvent
+    from app.models.event_frame import EventFrame
+
+    try:
+        # Count events before deletion
+        event_count = db.query(Event).count()
+
+        # Delete related records first (foreign key constraints)
+        db.query(EventFeedback).delete()
+        db.query(EventEmbedding).delete()
+        db.query(EntityEvent).delete()
+        db.query(EventFrame).delete()
+        db.query(MotionEvent).delete()
+
+        # Delete all events
+        db.query(Event).delete()
+
+        # Delete AI usage records
+        db.query(AIUsage).delete()
+
+        db.commit()
+
+        # Clean up thumbnail and frame files
+        import shutil
+        thumbnails_dir = Path("data/thumbnails")
+        frames_dir = Path("data/frames")
+        videos_dir = Path("data/videos")
+
+        for dir_path in [thumbnails_dir, frames_dir, videos_dir]:
+            if dir_path.exists():
+                for item in dir_path.iterdir():
+                    try:
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
+                    except Exception as e:
+                        logger.warning(f"Failed to delete {item}: {e}")
+
+        logger.info(f"Deleted all data: {event_count} events")
+
+        return DeleteDataResponse(
+            deleted_count=event_count,
+            success=True
+        )
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting all data: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete data: {str(e)}"
+        )

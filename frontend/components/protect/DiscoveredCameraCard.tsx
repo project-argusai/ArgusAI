@@ -168,7 +168,7 @@ export function DiscoveredCameraCard({
         {/* AI Mode Button with Popover (Story P3-3.3) */}
         {camera.camera_id && (
           <AnalysisModePopover
-            cameraId={String(camera.camera_id)}
+            cameraId={camera.camera_id}
             currentMode={(camera.analysis_mode || 'single_frame') as AnalysisMode}
             isEnabled={camera.is_enabled_for_ai}
             onModeUpdated={onFiltersUpdated}

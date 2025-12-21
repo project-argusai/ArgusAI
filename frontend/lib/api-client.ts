@@ -108,7 +108,7 @@ export interface ProtectDiscoveredCamera {
   smart_detect_types: string[];
   is_enabled_for_ai: boolean;
   event_filters: string[];
-  camera_id?: number; // Database camera ID if enabled
+  camera_id?: string; // Database camera UUID if enabled
   analysis_mode?: string;
   is_new?: boolean;
 }
@@ -239,7 +239,7 @@ export const apiClient = {
     /**
      * Get single camera by ID
      */
-    get: async (id: number): Promise<ICamera> => {
+    get: async (id: string): Promise<ICamera> => {
       return apiFetch(`/cameras/${id}`);
     },
 
@@ -256,7 +256,7 @@ export const apiClient = {
     /**
      * Update camera
      */
-    update: async (id: number, camera: ICameraUpdate): Promise<ICamera> => {
+    update: async (id: string, camera: ICameraUpdate): Promise<ICamera> => {
       return apiFetch(`/cameras/${id}`, {
         method: 'PUT',
         body: JSON.stringify(camera),
@@ -266,7 +266,7 @@ export const apiClient = {
     /**
      * Delete camera
      */
-    delete: async (id: number): Promise<void> => {
+    delete: async (id: string): Promise<void> => {
       return apiFetch(`/cameras/${id}`, {
         method: 'DELETE',
       });
@@ -275,7 +275,7 @@ export const apiClient = {
     /**
      * Test camera connection
      */
-    test: async (id: number): Promise<ICameraTestResponse> => {
+    test: async (id: string): Promise<ICameraTestResponse> => {
       return apiFetch(`/cameras/${id}/test`, {
         method: 'POST',
       });
@@ -626,7 +626,7 @@ export const apiClient = {
      * Test AI API key
      */
     testAIKey: async (request: AIKeyTestRequest): Promise<AIKeyTestResponse> => {
-      return apiFetch('/ai/test-key', {
+      return apiFetch('/system/test-key', {
         method: 'POST',
         body: JSON.stringify(request),
       });

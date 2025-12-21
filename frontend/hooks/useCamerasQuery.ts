@@ -66,7 +66,7 @@ export function useCamerasQuery(params: UseCamerasQueryParams = {}) {
 export function useCameraQuery(cameraId: string | null) {
   return useQuery({
     queryKey: cameraKeys.detail(cameraId ?? ''),
-    queryFn: () => cameraId ? apiClient.cameras.get(Number(cameraId)) : null,
+    queryFn: () => cameraId ? apiClient.cameras.get(cameraId) : null,
     enabled: !!cameraId,
     staleTime: 30000,
     refetchOnWindowFocus: true,
@@ -100,7 +100,7 @@ export function useCameraUpdate() {
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: ICameraUpdate }) =>
-      apiClient.cameras.update(Number(id), data),
+      apiClient.cameras.update(id, data),
     onSuccess: (updatedCamera) => {
       // Invalidate camera lists
       queryClient.invalidateQueries({ queryKey: cameraKeys.lists() });
@@ -119,7 +119,7 @@ export function useCameraDelete() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (cameraId: string) => apiClient.cameras.delete(Number(cameraId)),
+    mutationFn: (cameraId: string) => apiClient.cameras.delete(cameraId),
     onSuccess: (_data, cameraId) => {
       // Invalidate camera lists
       queryClient.invalidateQueries({ queryKey: cameraKeys.lists() });

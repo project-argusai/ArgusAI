@@ -59,7 +59,7 @@ export function useCameraDetail(
     setError(null);
 
     try {
-      const data = await apiClient.cameras.get(Number(id));
+      const data = await apiClient.cameras.get(id);
       setCamera(data);
     } catch (err) {
       const errorMessage =

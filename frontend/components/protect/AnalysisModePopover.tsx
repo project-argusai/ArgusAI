@@ -91,7 +91,7 @@ export function AnalysisModePopover({
   // Mutation for updating analysis mode
   const modeMutation = useMutation({
     mutationFn: (mode: AnalysisMode) =>
-      apiClient.cameras.update(Number(cameraId), { analysis_mode: mode }),
+      apiClient.cameras.update(cameraId, { analysis_mode: mode }),
     onSuccess: () => {
       toast.success('Analysis mode updated');
       // Invalidate camera queries to refresh

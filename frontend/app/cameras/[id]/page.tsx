@@ -46,7 +46,7 @@ export default function EditCameraPage({ params }: EditCameraPageProps) {
 
     try {
       console.log('Sending PUT request to update camera...');
-      await apiClient.cameras.update(Number(camera.id), data);
+      await apiClient.cameras.update(camera.id, data);
       console.log('Camera updated successfully');
       showSuccess('Camera updated successfully! Changes have been saved.');
       // Stay on the edit page - don't redirect
@@ -77,7 +77,7 @@ export default function EditCameraPage({ params }: EditCameraPageProps) {
     if (!camera) return;
 
     try {
-      await apiClient.cameras.delete(Number(camera.id));
+      await apiClient.cameras.delete(camera.id);
       showSuccess('Camera deleted successfully');
       router.push('/cameras');
     } catch (err) {

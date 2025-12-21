@@ -479,7 +479,7 @@ export const apiClient = {
       if (params?.camera_id) searchParams.set('camera_id', String(params.camera_id));
       if (params?.days) searchParams.set('days', String(params.days));
       const queryString = searchParams.toString();
-      return apiFetch(`/events/feedback/stats${queryString ? `?${queryString}` : ''}`);
+      return apiFetch(`/feedback/stats${queryString ? `?${queryString}` : ''}`);
     },
 
     /**
@@ -487,7 +487,7 @@ export const apiClient = {
      * @returns Prompt improvement suggestions
      */
     getPromptInsights: async (): Promise<IPromptInsightsResponse> => {
-      return apiFetch('/events/feedback/prompt-insights');
+      return apiFetch('/feedback/prompt-insights');
     },
 
     /**
@@ -496,7 +496,7 @@ export const apiClient = {
      * @returns Result of applying the suggestion
      */
     applyPromptSuggestion: async (request: IApplySuggestionRequest): Promise<IApplySuggestionResponse> => {
-      return apiFetch('/events/feedback/apply-suggestion', {
+      return apiFetch('/feedback/apply-suggestion', {
         method: 'POST',
         body: JSON.stringify(request),
       });
@@ -507,7 +507,7 @@ export const apiClient = {
      * @returns A/B test comparison data
      */
     getABTestResults: async (): Promise<IABTestResultsResponse> => {
-      return apiFetch('/events/feedback/ab-test-results');
+      return apiFetch('/feedback/ab-test-results');
     },
 
     /**
@@ -523,7 +523,7 @@ export const apiClient = {
       if (params?.limit) searchParams.set('limit', String(params.limit));
       if (params?.offset) searchParams.set('offset', String(params.offset));
       const queryString = searchParams.toString();
-      return apiFetch(`/events/feedback/prompt-history${queryString ? `?${queryString}` : ''}`);
+      return apiFetch(`/feedback/prompt-history${queryString ? `?${queryString}` : ''}`);
     },
 
     /**

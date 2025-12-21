@@ -465,7 +465,7 @@ development_status:
   # Priority: P3-P4
   # Focus: UX polish, video storage, AI prompt refinement
   epic-p8-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-3.md
-  p8-3-1-hide-mqtt-form-when-integration-disabled: backlog
+  p8-3-1-hide-mqtt-form-when-integration-disabled: done
   p8-3-2-add-full-motion-video-download-toggle: backlog
   p8-3-3-implement-ai-assisted-prompt-refinement: backlog
   epic-p8-3-retrospective: optional

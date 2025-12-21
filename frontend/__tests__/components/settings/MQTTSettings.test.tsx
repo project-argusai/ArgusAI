@@ -588,4 +588,243 @@ describe('MQTTSettings', () => {
       });
     });
   });
+
+  /**
+   * Story P8-3.1: Hide MQTT Form When Integration Disabled
+   *
+   * Tests all acceptance criteria:
+   * - AC1.1: Given MQTT toggle OFF, when viewing settings, then all MQTT config fields hidden
+   * - AC1.2: Given MQTT toggle OFF, when toggling ON, then fields animate into view
+   * - AC1.3: Given MQTT toggle ON, when toggling OFF, then fields animate out of view
+   * - AC1.4: Given fields hidden, when re-enabling, then previously saved values preserved
+   * - AC1.5: Given hidden fields, when saving settings, then MQTT config not cleared
+   */
+  describe('P8-3.1: Form visibility based on enabled state', () => {
+    it('AC1.1: hides config fields when MQTT is disabled', async () => {
+      // Mock config with enabled=false
+      vi.mocked(apiClient.mqtt.getConfig).mockResolvedValue({
+        ...mockConfig,
+        enabled: false,
+      });
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Config sections container should have opacity-0 class when disabled
+      const configSections = screen.getByTestId('mqtt-config-sections');
+      expect(configSections).toHaveClass('opacity-0');
+      expect(configSections).toHaveClass('grid-rows-[0fr]');
+    });
+
+    it('AC1.1: shows config fields when MQTT is enabled', async () => {
+      // Mock config with enabled=true (default mockConfig)
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Config sections container should have opacity-100 class when enabled
+      const configSections = screen.getByTestId('mqtt-config-sections');
+      expect(configSections).toHaveClass('opacity-100');
+      expect(configSections).toHaveClass('grid-rows-[1fr]');
+    });
+
+    it('AC1.2: shows fields when toggling from OFF to ON', async () => {
+      const user = userEvent.setup();
+
+      // Mock config with enabled=false
+      vi.mocked(apiClient.mqtt.getConfig).mockResolvedValue({
+        ...mockConfig,
+        enabled: false,
+      });
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Initially hidden
+      const configSections = screen.getByTestId('mqtt-config-sections');
+      expect(configSections).toHaveClass('opacity-0');
+
+      // Toggle ON
+      const toggle = screen.getByLabelText(/enable mqtt integration/i);
+      await user.click(toggle);
+
+      // Should now be visible
+      await waitFor(() => {
+        expect(configSections).toHaveClass('opacity-100');
+        expect(configSections).toHaveClass('grid-rows-[1fr]');
+      });
+    });
+
+    it('AC1.3: hides fields when toggling from ON to OFF', async () => {
+      const user = userEvent.setup();
+
+      // Mock config with enabled=true
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Initially visible
+      const configSections = screen.getByTestId('mqtt-config-sections');
+      expect(configSections).toHaveClass('opacity-100');
+
+      // Toggle OFF
+      const toggle = screen.getByLabelText(/enable mqtt integration/i);
+      await user.click(toggle);
+
+      // Should now be hidden
+      await waitFor(() => {
+        expect(configSections).toHaveClass('opacity-0');
+        expect(configSections).toHaveClass('grid-rows-[0fr]');
+      });
+    });
+
+    it('AC1.4: preserves form values when toggling visibility', async () => {
+      const user = userEvent.setup();
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load with initial values
+      await waitFor(() => {
+        const hostInput = screen.getByLabelText(/broker host/i) as HTMLInputElement;
+        expect(hostInput.value).toBe('192.168.1.100');
+      });
+
+      // Toggle OFF
+      const toggle = screen.getByLabelText(/enable mqtt integration/i);
+      await user.click(toggle);
+
+      // Toggle back ON
+      await user.click(toggle);
+
+      // Values should still be preserved
+      await waitFor(() => {
+        const hostInput = screen.getByLabelText(/broker host/i) as HTMLInputElement;
+        expect(hostInput.value).toBe('192.168.1.100');
+      });
+
+      const portInput = screen.getByLabelText(/port/i) as HTMLInputElement;
+      expect(portInput.value).toBe('1883');
+
+      const topicInput = screen.getByLabelText(/topic prefix/i) as HTMLInputElement;
+      expect(topicInput.value).toBe('liveobject');
+    });
+
+    it('AC1.5: save button calls updateConfig with all values even when fields hidden', async () => {
+      const user = userEvent.setup();
+      vi.mocked(apiClient.mqtt.updateConfig).mockResolvedValue({
+        ...mockConfig,
+        enabled: false,
+      });
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Toggle OFF (this makes form dirty)
+      const toggle = screen.getByLabelText(/enable mqtt integration/i);
+      await user.click(toggle);
+
+      // Save button should be enabled
+      const saveButton = screen.getByRole('button', { name: /save changes/i });
+      expect(saveButton).not.toBeDisabled();
+
+      // Save
+      await user.click(saveButton);
+
+      // updateConfig should be called with all field values preserved
+      await waitFor(() => {
+        expect(apiClient.mqtt.updateConfig).toHaveBeenCalledWith(
+          expect.objectContaining({
+            enabled: false,
+            broker_host: '192.168.1.100',
+            broker_port: 1883,
+            topic_prefix: 'liveobject',
+            discovery_prefix: 'homeassistant',
+          })
+        );
+      });
+    });
+
+    it('always shows Info Alert regardless of toggle state', async () => {
+      // Mock config with enabled=false
+      vi.mocked(apiClient.mqtt.getConfig).mockResolvedValue({
+        ...mockConfig,
+        enabled: false,
+      });
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Info alert should always be visible
+      expect(screen.getByText('Home Assistant Integration')).toBeInTheDocument();
+    });
+
+    it('always shows Save button regardless of toggle state', async () => {
+      // Mock config with enabled=false
+      vi.mocked(apiClient.mqtt.getConfig).mockResolvedValue({
+        ...mockConfig,
+        enabled: false,
+      });
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      // Save button should always be visible
+      expect(screen.getByRole('button', { name: /save changes/i })).toBeInTheDocument();
+    });
+
+    it('rapid toggle does not cause state issues', async () => {
+      const user = userEvent.setup();
+
+      renderWithProviders(<MQTTSettings />);
+
+      // Wait for form to load
+      await waitFor(() => {
+        expect(screen.getByLabelText(/enable mqtt integration/i)).toBeInTheDocument();
+      });
+
+      const toggle = screen.getByLabelText(/enable mqtt integration/i);
+      const configSections = screen.getByTestId('mqtt-config-sections');
+
+      // Rapidly toggle multiple times
+      await user.click(toggle); // OFF
+      await user.click(toggle); // ON
+      await user.click(toggle); // OFF
+      await user.click(toggle); // ON
+
+      // Should end up visible
+      await waitFor(() => {
+        expect(configSections).toHaveClass('opacity-100');
+      });
+
+      // Form values should still be correct
+      const hostInput = screen.getByLabelText(/broker host/i) as HTMLInputElement;
+      expect(hostInput.value).toBe('192.168.1.100');
+    });
+  });
 });

@@ -1,5 +1,5 @@
 /**
- * MQTT Settings Component (Story P4-2.4, P5-6.2)
+ * MQTT Settings Component (Story P4-2.4, P5-6.2, P8-3.1)
  *
  * Features:
  * - MQTT broker configuration form (AC 2, 6, 7, 9)
@@ -8,6 +8,7 @@
  * - Save functionality with validation (AC 5, 8)
  * - Publish discovery button (AC 10)
  * - Birth/Will message configuration (P5-6.2)
+ * - Conditional visibility of form fields based on enabled state (P8-3.1)
  */
 
 'use client';
@@ -320,352 +321,366 @@ export function MQTTSettings() {
             />
           </div>
 
-          {/* Connection Status Display (AC 4) */}
-          {statusQuery.data && form.watch('enabled') && (
-            <div className="rounded-lg bg-muted/50 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                {statusQuery.data.connected ? (
-                  <Wifi className="h-4 w-4 text-green-600" />
-                ) : (
-                  <WifiOff className="h-4 w-4 text-destructive" />
-                )}
-                <span className="font-medium">
-                  {statusQuery.data.connected ? 'Connected' : 'Disconnected'}
-                </span>
-                {statusQuery.data.broker && (
-                  <span className="text-sm text-muted-foreground">
-                    to {statusQuery.data.broker}
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Messages Published: </span>
-                  <span className="font-medium">{statusQuery.data.messages_published.toLocaleString()}</span>
-                </div>
-                {statusQuery.data.reconnect_attempt > 0 && (
-                  <div>
-                    <span className="text-muted-foreground">Reconnect Attempts: </span>
-                    <span className="font-medium">{statusQuery.data.reconnect_attempt}</span>
+          {/* Collapsible Configuration Sections (P8-3.1) */}
+          <div
+            data-testid="mqtt-config-sections"
+            className={`grid transition-all duration-300 ease-in-out ${
+              form.watch('enabled')
+                ? 'grid-rows-[1fr] opacity-100'
+                : 'grid-rows-[0fr] opacity-0'
+            }`}
+          >
+            <div className="overflow-hidden">
+              <div className="space-y-6">
+                {/* Connection Status Display (AC 4) */}
+                {statusQuery.data && (
+                  <div className="rounded-lg bg-muted/50 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      {statusQuery.data.connected ? (
+                        <Wifi className="h-4 w-4 text-green-600" />
+                      ) : (
+                        <WifiOff className="h-4 w-4 text-destructive" />
+                      )}
+                      <span className="font-medium">
+                        {statusQuery.data.connected ? 'Connected' : 'Disconnected'}
+                      </span>
+                      {statusQuery.data.broker && (
+                        <span className="text-sm text-muted-foreground">
+                          to {statusQuery.data.broker}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Messages Published: </span>
+                        <span className="font-medium">{statusQuery.data.messages_published.toLocaleString()}</span>
+                      </div>
+                      {statusQuery.data.reconnect_attempt > 0 && (
+                        <div>
+                          <span className="text-muted-foreground">Reconnect Attempts: </span>
+                          <span className="font-medium">{statusQuery.data.reconnect_attempt}</span>
+                        </div>
+                      )}
+                    </div>
+                    {statusQuery.data.last_error && (
+                      <Alert variant="destructive" className="mt-2">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertDescription>{statusQuery.data.last_error}</AlertDescription>
+                      </Alert>
+                    )}
                   </div>
                 )}
-              </div>
-              {statusQuery.data.last_error && (
-                <Alert variant="destructive" className="mt-2">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription>{statusQuery.data.last_error}</AlertDescription>
-                </Alert>
-              )}
-            </div>
-          )}
 
-          {/* Broker Configuration (AC 2) */}
-          <div className="space-y-4">
-            <h4 className="font-medium">Broker Connection</h4>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2 space-y-2">
-                <Label htmlFor="broker_host">Broker Host</Label>
-                <Input
-                  id="broker_host"
-                  placeholder="192.168.1.100 or mqtt.example.com"
-                  {...form.register('broker_host')}
-                />
-                {errors.broker_host && (
-                  <p className="text-sm text-destructive">{errors.broker_host.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="broker_port">Port</Label>
-                <Input
-                  id="broker_port"
-                  type="number"
-                  placeholder="1883"
-                  {...form.register('broker_port')}
-                />
-                {errors.broker_port && (
-                  <p className="text-sm text-destructive">{errors.broker_port.message}</p>
-                )}
-              </div>
-            </div>
+                {/* Broker Configuration (AC 2) */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Broker Connection</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="md:col-span-2 space-y-2">
+                      <Label htmlFor="broker_host">Broker Host</Label>
+                      <Input
+                        id="broker_host"
+                        placeholder="192.168.1.100 or mqtt.example.com"
+                        {...form.register('broker_host')}
+                      />
+                      {errors.broker_host && (
+                        <p className="text-sm text-destructive">{errors.broker_host.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="broker_port">Port</Label>
+                      <Input
+                        id="broker_port"
+                        type="number"
+                        placeholder="1883"
+                        {...form.register('broker_port')}
+                      />
+                      {errors.broker_port && (
+                        <p className="text-sm text-destructive">{errors.broker_port.message}</p>
+                      )}
+                    </div>
+                  </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="username">Username (optional)</Label>
-                <Input
-                  id="username"
-                  placeholder="mqtt_user"
-                  autoComplete="username"
-                  {...form.register('username')}
-                />
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Password (optional)</Label>
-                  {/* Password configured indicator (AC 9) */}
-                  {configQuery.data?.has_password && !form.watch('password') && (
-                    <Badge variant="secondary" className="text-xs">
-                      <CheckCircle2 className="mr-1 h-3 w-3" />
-                      Configured
-                    </Badge>
-                  )}
-                </div>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder={configQuery.data?.has_password ? '••••••••' : 'Enter password'}
-                    autoComplete="current-password"
-                    {...form.register('password')}
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="username">Username (optional)</Label>
+                      <Input
+                        id="username"
+                        placeholder="mqtt_user"
+                        autoComplete="username"
+                        {...form.register('username')}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="password">Password (optional)</Label>
+                        {/* Password configured indicator (AC 9) */}
+                        {configQuery.data?.has_password && !form.watch('password') && (
+                          <Badge variant="secondary" className="text-xs">
+                            <CheckCircle2 className="mr-1 h-3 w-3" />
+                            Configured
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <Input
+                          id="password"
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder={configQuery.data?.has_password ? '••••••••' : 'Enter password'}
+                          autoComplete="current-password"
+                          {...form.register('password')}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                          onClick={() => setShowPassword(!showPassword)}
+                        >
+                          {showPassword ? (
+                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </Button>
+                      </div>
+                      {configQuery.data?.has_password && (
+                        <p className="text-xs text-muted-foreground">
+                          Leave empty to keep existing password
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* TLS Toggle */}
+                  <div className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="use_tls">Use TLS/SSL</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Enable secure connection (port 8883 is common for TLS)
+                      </p>
+                    </div>
+                    <Switch
+                      id="use_tls"
+                      checked={form.watch('use_tls')}
+                      onCheckedChange={(checked) => form.setValue('use_tls', checked, { shouldDirty: true })}
+                    />
+                  </div>
+
+                  {/* Test Connection Button (AC 3) */}
                   <Button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
+                    variant="outline"
+                    onClick={handleTestConnection}
+                    disabled={isTesting || !form.watch('broker_host')}
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+                    {isTesting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Testing...
+                      </>
                     ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Test Connection
+                      </>
                     )}
                   </Button>
                 </div>
-                {configQuery.data?.has_password && (
-                  <p className="text-xs text-muted-foreground">
-                    Leave empty to keep existing password
-                  </p>
-                )}
-              </div>
-            </div>
 
-            {/* TLS Toggle */}
-            <div className="flex items-center justify-between rounded-lg border p-3">
-              <div className="space-y-0.5">
-                <Label htmlFor="use_tls">Use TLS/SSL</Label>
-                <p className="text-xs text-muted-foreground">
-                  Enable secure connection (port 8883 is common for TLS)
-                </p>
-              </div>
-              <Switch
-                id="use_tls"
-                checked={form.watch('use_tls')}
-                onCheckedChange={(checked) => form.setValue('use_tls', checked, { shouldDirty: true })}
-              />
-            </div>
+                {/* Topic Configuration (AC 6) */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Topic Configuration</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="topic_prefix">Topic Prefix</Label>
+                      <Input
+                        id="topic_prefix"
+                        placeholder="liveobject"
+                        {...form.register('topic_prefix')}
+                      />
+                      {errors.topic_prefix && (
+                        <p className="text-sm text-destructive">{errors.topic_prefix.message}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Events published to: {form.watch('topic_prefix')}/camera_name/event
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="discovery_prefix">Discovery Prefix</Label>
+                      <Input
+                        id="discovery_prefix"
+                        placeholder="homeassistant"
+                        {...form.register('discovery_prefix')}
+                      />
+                      {errors.discovery_prefix && (
+                        <p className="text-sm text-destructive">{errors.discovery_prefix.message}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Home Assistant default: homeassistant
+                      </p>
+                    </div>
+                  </div>
 
-            {/* Test Connection Button (AC 3) */}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleTestConnection}
-              disabled={isTesting || !form.watch('broker_host')}
-            >
-              {isTesting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Testing...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Test Connection
-                </>
-              )}
-            </Button>
-          </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="qos">Quality of Service (QoS)</Label>
+                      <Select
+                        value={String(form.watch('qos'))}
+                        onValueChange={(value) => form.setValue('qos', parseInt(value) as 0 | 1 | 2, { shouldDirty: true })}
+                      >
+                        <SelectTrigger id="qos">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">0 - At most once</SelectItem>
+                          <SelectItem value="1">1 - At least once (recommended)</SelectItem>
+                          <SelectItem value="2">2 - Exactly once</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-between rounded-lg border p-3 h-fit">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="retain_messages">Retain Messages</Label>
+                        <p className="text-xs text-muted-foreground">Keep last message on broker</p>
+                      </div>
+                      <Switch
+                        id="retain_messages"
+                        checked={form.watch('retain_messages')}
+                        onCheckedChange={(checked) => form.setValue('retain_messages', checked, { shouldDirty: true })}
+                      />
+                    </div>
+                  </div>
 
-          {/* Topic Configuration (AC 6) */}
-          <div className="space-y-4">
-            <h4 className="font-medium">Topic Configuration</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="topic_prefix">Topic Prefix</Label>
-                <Input
-                  id="topic_prefix"
-                  placeholder="liveobject"
-                  {...form.register('topic_prefix')}
-                />
-                {errors.topic_prefix && (
-                  <p className="text-sm text-destructive">{errors.topic_prefix.message}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Events published to: {form.watch('topic_prefix')}/camera_name/event
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="discovery_prefix">Discovery Prefix</Label>
-                <Input
-                  id="discovery_prefix"
-                  placeholder="homeassistant"
-                  {...form.register('discovery_prefix')}
-                />
-                {errors.discovery_prefix && (
-                  <p className="text-sm text-destructive">{errors.discovery_prefix.message}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Home Assistant default: homeassistant
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="qos">Quality of Service (QoS)</Label>
-                <Select
-                  value={String(form.watch('qos'))}
-                  onValueChange={(value) => form.setValue('qos', parseInt(value) as 0 | 1 | 2, { shouldDirty: true })}
-                >
-                  <SelectTrigger id="qos">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">0 - At most once</SelectItem>
-                    <SelectItem value="1">1 - At least once (recommended)</SelectItem>
-                    <SelectItem value="2">2 - Exactly once</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border p-3 h-fit">
-                <div className="space-y-0.5">
-                  <Label htmlFor="retain_messages">Retain Messages</Label>
-                  <p className="text-xs text-muted-foreground">Keep last message on broker</p>
+                  {/* Message Expiry (P5-6.1) */}
+                  <div className="space-y-2">
+                    <Label htmlFor="message_expiry_seconds">Message Expiry (seconds)</Label>
+                    <Input
+                      id="message_expiry_seconds"
+                      type="number"
+                      min={60}
+                      max={3600}
+                      placeholder="300"
+                      {...form.register('message_expiry_seconds')}
+                    />
+                    {errors.message_expiry_seconds && (
+                      <p className="text-sm text-destructive">{errors.message_expiry_seconds.message}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      MQTT 5.0 message expiry interval (60-3600 seconds). Messages not consumed within this time are discarded by the broker.
+                    </p>
+                  </div>
                 </div>
-                <Switch
-                  id="retain_messages"
-                  checked={form.watch('retain_messages')}
-                  onCheckedChange={(checked) => form.setValue('retain_messages', checked, { shouldDirty: true })}
-                />
-              </div>
-            </div>
 
-            {/* Message Expiry (P5-6.1) */}
-            <div className="space-y-2">
-              <Label htmlFor="message_expiry_seconds">Message Expiry (seconds)</Label>
-              <Input
-                id="message_expiry_seconds"
-                type="number"
-                min={60}
-                max={3600}
-                placeholder="300"
-                {...form.register('message_expiry_seconds')}
-              />
-              {errors.message_expiry_seconds && (
-                <p className="text-sm text-destructive">{errors.message_expiry_seconds.message}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                MQTT 5.0 message expiry interval (60-3600 seconds). Messages not consumed within this time are discarded by the broker.
-              </p>
-            </div>
-          </div>
-
-          {/* Availability Messages (P5-6.2) */}
-          <div className="space-y-4">
-            <h4 className="font-medium">Availability Messages</h4>
-            <p className="text-sm text-muted-foreground">
-              Birth and will messages announce ArgusAI&apos;s connection state to Home Assistant.
-              The broker publishes the will message if ArgusAI disconnects unexpectedly.
-            </p>
-
-            <div className="space-y-2">
-              <Label htmlFor="availability_topic">Availability Topic</Label>
-              <Input
-                id="availability_topic"
-                placeholder={`${form.watch('topic_prefix')}/status`}
-                {...form.register('availability_topic')}
-              />
-              {errors.availability_topic && (
-                <p className="text-sm text-destructive">{errors.availability_topic.message}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Topic for online/offline status. Leave empty to use default: {form.watch('topic_prefix')}/status
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="birth_message">Birth Message (online)</Label>
-                <Input
-                  id="birth_message"
-                  placeholder="online"
-                  {...form.register('birth_message')}
-                />
-                {errors.birth_message && (
-                  <p className="text-sm text-destructive">{errors.birth_message.message}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Published when ArgusAI connects
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="will_message">Will Message (offline)</Label>
-                <Input
-                  id="will_message"
-                  placeholder="offline"
-                  {...form.register('will_message')}
-                />
-                {errors.will_message && (
-                  <p className="text-sm text-destructive">{errors.will_message.message}</p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Published when ArgusAI disconnects
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Home Assistant Discovery (AC 7) */}
-          <div className="space-y-4">
-            <h4 className="font-medium">Home Assistant Discovery</h4>
-            <div className="flex items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <Label htmlFor="discovery_enabled" className="text-base">
-                  Enable Auto-Discovery
-                </Label>
-                <p className="text-sm text-muted-foreground">
-                  Automatically register cameras as sensors in Home Assistant
-                </p>
-              </div>
-              <Switch
-                id="discovery_enabled"
-                checked={form.watch('discovery_enabled')}
-                onCheckedChange={(checked) => form.setValue('discovery_enabled', checked, { shouldDirty: true })}
-              />
-            </div>
-
-            {/* Publish Discovery Button (AC 10) */}
-            {form.watch('discovery_enabled') && (
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div className="space-y-0.5">
-                  <p className="text-sm font-medium">Manual Discovery Publish</p>
+                {/* Availability Messages (P5-6.2) */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Availability Messages</h4>
                   <p className="text-sm text-muted-foreground">
-                    Re-publish discovery configs for all cameras
+                    Birth and will messages announce ArgusAI&apos;s connection state to Home Assistant.
+                    The broker publishes the will message if ArgusAI disconnects unexpectedly.
                   </p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="availability_topic">Availability Topic</Label>
+                    <Input
+                      id="availability_topic"
+                      placeholder={`${form.watch('topic_prefix')}/status`}
+                      {...form.register('availability_topic')}
+                    />
+                    {errors.availability_topic && (
+                      <p className="text-sm text-destructive">{errors.availability_topic.message}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Topic for online/offline status. Leave empty to use default: {form.watch('topic_prefix')}/status
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="birth_message">Birth Message (online)</Label>
+                      <Input
+                        id="birth_message"
+                        placeholder="online"
+                        {...form.register('birth_message')}
+                      />
+                      {errors.birth_message && (
+                        <p className="text-sm text-destructive">{errors.birth_message.message}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Published when ArgusAI connects
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="will_message">Will Message (offline)</Label>
+                      <Input
+                        id="will_message"
+                        placeholder="offline"
+                        {...form.register('will_message')}
+                      />
+                      {errors.will_message && (
+                        <p className="text-sm text-destructive">{errors.will_message.message}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        Published when ArgusAI disconnects
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handlePublishDiscovery}
-                  disabled={isPublishing || !statusQuery.data?.connected}
-                >
-                  {isPublishing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Publishing...
-                    </>
-                  ) : (
-                    <>
-                      <Send className="mr-2 h-4 w-4" />
-                      Publish Discovery
-                    </>
+
+                {/* Home Assistant Discovery (AC 7) */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Home Assistant Discovery</h4>
+                  <div className="flex items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <Label htmlFor="discovery_enabled" className="text-base">
+                        Enable Auto-Discovery
+                      </Label>
+                      <p className="text-sm text-muted-foreground">
+                        Automatically register cameras as sensors in Home Assistant
+                      </p>
+                    </div>
+                    <Switch
+                      id="discovery_enabled"
+                      checked={form.watch('discovery_enabled')}
+                      onCheckedChange={(checked) => form.setValue('discovery_enabled', checked, { shouldDirty: true })}
+                    />
+                  </div>
+
+                  {/* Publish Discovery Button (AC 10) */}
+                  {form.watch('discovery_enabled') && (
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-medium">Manual Discovery Publish</p>
+                        <p className="text-sm text-muted-foreground">
+                          Re-publish discovery configs for all cameras
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handlePublishDiscovery}
+                        disabled={isPublishing || !statusQuery.data?.connected}
+                      >
+                        {isPublishing ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Publishing...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="mr-2 h-4 w-4" />
+                            Publish Discovery
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   )}
-                </Button>
+                </div>
               </div>
-            )}
+            </div>
           </div>
 
-          {/* Info Alert */}
+          {/* Info Alert - Always visible */}
           <Alert>
             <Info className="h-4 w-4" />
             <AlertTitle>Home Assistant Integration</AlertTitle>
@@ -676,7 +691,7 @@ export function MQTTSettings() {
             </AlertDescription>
           </Alert>
 
-          {/* Save Button (AC 5) */}
+          {/* Save Button (AC 5) - Always visible */}
           <div className="flex justify-end">
             <Button
               type="button"

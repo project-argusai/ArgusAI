@@ -876,21 +876,21 @@ export const apiClient = {
       if (params?.start_time) searchParams.set('start_time', params.start_time);
       if (params?.end_time) searchParams.set('end_time', params.end_time);
       const queryString = searchParams.toString();
-      return apiFetch(`/system/logs${queryString ? `?${queryString}` : ''}`);
+      return apiFetch(`/logs${queryString ? `?${queryString}` : ''}`);
     },
 
     /**
      * Get available log files for download
      */
     logFiles: async (): Promise<LogFilesResponse> => {
-      return apiFetch('/system/logs/files');
+      return apiFetch('/logs/files');
     },
 
     /**
      * Get download URL for a log file
      */
     getLogFileUrl: (filename: string): string => {
-      return `${API_BASE_URL}${API_V1_PREFIX}/system/logs/files/${encodeURIComponent(filename)}`;
+      return `${API_BASE_URL}${API_V1_PREFIX}/logs/files/${encodeURIComponent(filename)}`;
     },
 
     /**
@@ -898,7 +898,7 @@ export const apiClient = {
      */
     downloadLogs: async (_params?: LogsQueryParams, source?: string): Promise<Blob> => {
       const filename = source ? `${source}.log` : 'app.log';
-      const response = await fetch(`${API_BASE_URL}${API_V1_PREFIX}/system/logs/files/${encodeURIComponent(filename)}`, {
+      const response = await fetch(`${API_BASE_URL}${API_V1_PREFIX}/logs/files/${encodeURIComponent(filename)}`, {
         method: 'GET',
         headers: getAuthHeaders(),
       });

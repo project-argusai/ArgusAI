@@ -175,6 +175,11 @@ class SystemSettings(BaseModel):
     thumbnail_storage: Literal["filesystem", "database"] = Field(default="filesystem")
     auto_cleanup: bool = Field(default=True)
 
+    # Story P8-2.3: Configurable Frame Count Setting
+    analysis_frame_count: Literal[5, 10, 15, 20] = Field(
+        default=10, description="Number of frames to extract for AI analysis"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -298,6 +303,11 @@ class SystemSettingsUpdate(BaseModel):
     )
     auto_create_vehicles: Optional[bool] = Field(
         None, description="Automatically create new vehicle when no match found (default: true)"
+    )
+
+    # Story P8-2.3: Configurable Frame Count Setting
+    analysis_frame_count: Optional[Literal[5, 10, 15, 20]] = Field(
+        None, description="Number of frames to extract for AI analysis (default: 10)"
     )
 
 

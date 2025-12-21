@@ -43,6 +43,9 @@ export interface SystemSettings {
   // Story P3-7.3: Cost Cap Settings
   ai_daily_cost_cap?: number | null;  // Daily AI cost cap in dollars
   ai_monthly_cost_cap?: number | null;  // Monthly AI cost cap in dollars
+
+  // Story P8-2.3: Configurable Frame Count Setting
+  analysis_frame_count?: 5 | 10 | 15 | 20;  // Number of frames for AI analysis (default: 10)
 }
 
 export interface StorageStats {

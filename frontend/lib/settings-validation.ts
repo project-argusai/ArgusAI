@@ -15,6 +15,8 @@ export const generalSettingsSchema = z.object({
   language: z.string().min(1, 'Language is required'),
   date_format: z.enum(['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD']),
   time_format: z.enum(['12h', '24h']),
+  // Story P8-2.3: Configurable frame count for AI analysis
+  analysis_frame_count: z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20)]).optional(),
 });
 
 // AI Models Settings Schema

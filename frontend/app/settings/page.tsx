@@ -58,6 +58,7 @@ import { MQTTSettings } from '@/components/settings/MQTTSettings';
 import { HomekitSettings } from '@/components/settings/HomekitSettings';
 import { AnomalySettings } from '@/components/settings/AnomalySettings';
 import { MotionEventsExport } from '@/components/settings/MotionEventsExport';
+import { CostWarningModal } from '@/components/settings/CostWarningModal';
 import { ControllerForm, type ControllerData, DeleteControllerDialog, DiscoveredCameraList } from '@/components/protect';
 import { useQuery } from '@tanstack/react-query';
 import type { AIProvider } from '@/types/settings';
@@ -94,6 +95,10 @@ export default function SettingsPage() {
   const [editingController, setEditingController] = useState<ControllerData | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
+  // Story P8-2.3: Frame count setting state
+  const [costWarningOpen, setCostWarningOpen] = useState(false);
+  const [pendingFrameCount, setPendingFrameCount] = useState<5 | 10 | 15 | 20 | null>(null);
+
   // Query for existing Protect controllers
   const controllersQuery = useQuery({
     queryKey: ['protect-controllers'],
@@ -121,6 +126,7 @@ export default function SettingsPage() {
       retention_days: 30,
       thumbnail_storage: 'filesystem',
       auto_cleanup: true,
+      analysis_frame_count: 10, // Story P8-2.3: Default frame count
     },
   });
 
@@ -419,8 +425,59 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Story P8-2.3: Analysis Frame Count Setting */}
+                  <div className="space-y-2 pt-4 border-t">
+                    <Label htmlFor="analysis-frame-count">Analysis Frame Count</Label>
+                    <Select
+                      value={String(form.watch('analysis_frame_count') || 10)}
+                      onValueChange={(value) => {
+                        const newValue = parseInt(value, 10) as 5 | 10 | 15 | 20;
+                        // Show cost warning modal before applying change
+                        setPendingFrameCount(newValue);
+                        setCostWarningOpen(true);
+                      }}
+                    >
+                      <SelectTrigger id="analysis-frame-count">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">5 frames (fastest, lowest cost)</SelectItem>
+                        <SelectItem value="10">10 frames (default, balanced)</SelectItem>
+                        <SelectItem value="15">15 frames (higher accuracy)</SelectItem>
+                        <SelectItem value="20">20 frames (highest accuracy, highest cost)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Number of video frames extracted for AI analysis. More frames may improve description accuracy but increase AI costs.
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
+
+              {/* Story P8-2.3: Cost Warning Modal */}
+              <CostWarningModal
+                open={costWarningOpen}
+                onOpenChange={setCostWarningOpen}
+                newValue={pendingFrameCount || 10}
+                onConfirm={async () => {
+                  if (pendingFrameCount) {
+                    try {
+                      // Save immediately to backend
+                      await apiClient.settings.update({ analysis_frame_count: pendingFrameCount });
+                      form.setValue('analysis_frame_count', pendingFrameCount, { shouldDirty: false });
+                      toast.success(`Frame count updated to ${pendingFrameCount}`);
+                    } catch (error) {
+                      console.error('Failed to save frame count:', error);
+                      toast.error('Failed to save frame count setting');
+                    }
+                  }
+                  setPendingFrameCount(null);
+                }}
+                onCancel={() => {
+                  setPendingFrameCount(null);
+                }}
+              />
             </TabsContent>
 
             {/* AI Models Tab */}

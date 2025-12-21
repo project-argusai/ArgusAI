@@ -1,0 +1,195 @@
+<story-context id="p8-2-3" v="1.0">
+  <metadata>
+    <epicId>P8-2</epicId>
+    <storyId>P8-2.3</storyId>
+    <title>Add Configurable Frame Count Setting</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-20</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-2-3-add-configurable-frame-count-setting.md</sourceStoryPath>
+    <githubIssue>https://github.com/bbengt1/ArgusAI/issues/83</githubIssue>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to configure how many frames are extracted for AI analysis</iWant>
+    <soThat>I can balance description quality against AI costs</soThat>
+    <tasks>
+      <task n="1">Add analysis_frame_count to backend settings schema (AC: 3.6, 3.7)</task>
+      <task n="2">Update frame extraction service to use configurable count (AC: 3.6)</task>
+      <task n="3">Create CostWarningModal component (AC: 3.3, 3.4, 3.5)</task>
+      <task n="4">Add frame count setting to GeneralSettings UI (AC: 3.1, 3.2)</task>
+      <task n="5">Integrate cost warning modal with setting change (AC: 3.3, 3.4, 3.5)</task>
+      <task n="6">Write backend tests (AC: 3.6, 3.7)</task>
+      <task n="7">Write frontend component tests (AC: 3.1-3.5)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC3.1">Given Settings > General, when viewing, then "Analysis Frame Count" dropdown visible</criterion>
+    <criterion id="AC3.2">Given dropdown, when expanded, then options 5, 10, 15, 20 available</criterion>
+    <criterion id="AC3.3">Given value change, when selecting new value, then cost warning modal appears</criterion>
+    <criterion id="AC3.4">Given warning modal, when user clicks Cancel, then value reverts</criterion>
+    <criterion id="AC3.5">Given warning modal, when user clicks Confirm, then setting saved</criterion>
+    <criterion id="AC3.6">Given new setting, when event processed, then configured frame count used</criterion>
+    <criterion id="AC3.7">Given setting, when default, then value is 10</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P8-2.md</path>
+        <title>Epic P8-2 Technical Specification</title>
+        <section>P8-2.3: Add Configurable Frame Count Setting</section>
+        <snippet>Add analysis_frame_count to system settings schema with default 10, valid values [5, 10, 15, 20]. Use Radix AlertDialog for cost warning modal.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture-phase8.md</path>
+        <title>Phase 8 Architecture</title>
+        <section>New Settings Keys</section>
+        <snippet>analysis_frame_count (int, default 10): Number of frames to extract (5/10/15/20). frame_sampling_strategy (str, default "uniform").</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase8.md</path>
+        <title>Phase 8 Epics</title>
+        <section>Story P8-2.3</section>
+        <snippet>As a user, I want to configure how many frames are extracted for AI analysis, so that I can balance description quality against AI costs.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p8-2-2-display-analysis-frames-gallery-on-event-cards.md</path>
+        <title>Previous Story P8-2.2</title>
+        <section>Learnings</section>
+        <snippet>FrameGalleryModal uses Radix Dialog pattern. Frame storage integrated in protect_event_handler.py. TypeScript types in frontend/types/event.ts.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/schemas/system.py</path>
+        <kind>schema</kind>
+        <symbol>SystemSettingsUpdate</symbol>
+        <lines>203-302</lines>
+        <reason>Add analysis_frame_count field with Optional[Literal[5, 10, 15, 20]] validation</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/frame_extractor.py</path>
+        <kind>service</kind>
+        <symbol>FrameExtractor.extract_frames</symbol>
+        <lines>210-280</lines>
+        <reason>Currently uses FRAME_EXTRACT_DEFAULT_COUNT=5 and FRAME_EXTRACT_MAX_COUNT=10. Need to update limits and load from settings.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/protect_event_handler.py</path>
+        <kind>service</kind>
+        <symbol>frame extraction call</symbol>
+        <lines>1947-1979</lines>
+        <reason>Caller of frame_extractor.extract_frames - needs to pass configured frame count</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>api</kind>
+        <symbol>GET/PUT /api/v1/system/settings</symbol>
+        <lines>varies</lines>
+        <reason>Settings API already exists - new field will be included automatically via schema</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/app/settings/page.tsx</path>
+        <kind>page</kind>
+        <symbol>SettingsPage</symbol>
+        <lines>66-200</lines>
+        <reason>Main settings page with tabs. General tab needs frame count dropdown.</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/components/events/FrameGalleryModal.tsx</path>
+        <kind>component</kind>
+        <symbol>FrameGalleryModal</symbol>
+        <lines>all</lines>
+        <reason>Reference for Radix Dialog pattern to use in CostWarningModal</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/lib/api-client.ts</path>
+        <kind>client</kind>
+        <symbol>apiClient.settings</symbol>
+        <lines>varies</lines>
+        <reason>Settings API client - no changes needed, handles any setting keys</reason>
+      </artifact>
+      <artifact>
+        <path>frontend/types/settings.ts</path>
+        <kind>types</kind>
+        <symbol>SystemSettings</symbol>
+        <lines>varies</lines>
+        <reason>Add analysis_frame_count field to TypeScript interface</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <backend>
+        <package name="pydantic" version=">=2.0">Schema validation</package>
+        <package name="opencv-python" version=">=4.12.0">Frame extraction</package>
+        <package name="pyav" version=">=12.0.0">Video decoding</package>
+      </backend>
+      <frontend>
+        <package name="@radix-ui/react-alert-dialog" version="^1.0.0">CostWarningModal</package>
+        <package name="@radix-ui/react-select" version="^2.0.0">Frame count dropdown</package>
+        <package name="react-hook-form" version="^7.0.0">Form state management</package>
+        <package name="sonner" version="^1.0.0">Toast notifications</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="validation">Frame count must be one of [5, 10, 15, 20]</constraint>
+    <constraint type="default">Default value is 10 (current behavior)</constraint>
+    <constraint type="pattern">Use Radix AlertDialog for modal (consistent with existing patterns)</constraint>
+    <constraint type="pattern">Settings saved via PUT /api/v1/system/settings</constraint>
+    <constraint type="pattern">Frame count loaded from settings DB at extraction time</constraint>
+    <constraint type="ux">Cost warning modal must appear before saving</constraint>
+    <constraint type="ux">Cancel reverts selection, Confirm saves and applies</constraint>
+    <constraint type="backend">Update FRAME_EXTRACT_MAX_COUNT from 10 to 20</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>SystemSettings.analysis_frame_count</name>
+      <kind>setting</kind>
+      <signature>analysis_frame_count: Optional[Literal[5, 10, 15, 20]] = Field(None)</signature>
+      <path>backend/app/schemas/system.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/system/settings</name>
+      <kind>REST endpoint</kind>
+      <signature>Response includes: { "analysis_frame_count": 10, ... }</signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+    <interface>
+      <name>PUT /api/v1/system/settings</name>
+      <kind>REST endpoint</kind>
+      <signature>Request body: { "analysis_frame_count": 15 }</signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+    <interface>
+      <name>FrameExtractor.extract_frames</name>
+      <kind>async method</kind>
+      <signature>async def extract_frames(clip_path: Path, frame_count: int = 5, strategy: str = "evenly_spaced", filter_blur: bool = True) -> List[bytes]</signature>
+      <path>backend/app/services/frame_extractor.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend tests use pytest with async fixtures. Frontend tests use React Testing Library with Vitest. Follow existing test patterns in test_api/test_events.py and components tests.</standards>
+    <locations>
+      <location>backend/tests/test_api/test_system_settings.py</location>
+      <location>backend/tests/test_services/test_frame_extractor.py</location>
+      <location>frontend/__tests__/components/settings/</location>
+    </locations>
+    <ideas>
+      <test ac="AC3.1">Test that GeneralSettings renders Analysis Frame Count dropdown</test>
+      <test ac="AC3.2">Test dropdown contains exactly 4 options: 5, 10, 15, 20</test>
+      <test ac="AC3.3">Test dropdown change triggers CostWarningModal open</test>
+      <test ac="AC3.4">Test Cancel button closes modal and reverts selection</test>
+      <test ac="AC3.5">Test Confirm button saves setting and shows success toast</test>
+      <test ac="AC3.6">Test frame_extractor uses analysis_frame_count from settings</test>
+      <test ac="AC3.7">Test settings API returns default of 10 when not set</test>
+      <test>Test settings API rejects invalid values (0, 3, 25, "ten")</test>
+      <test>Test PUT settings with analysis_frame_count updates DB</test>
+    </ideas>
+  </tests>
+</story-context>

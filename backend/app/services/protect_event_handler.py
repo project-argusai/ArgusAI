@@ -1552,10 +1552,25 @@ class ProtectEventHandler:
                 }
             )
 
+            # Story P8-2.3: Load analysis_frame_count from settings (default: 10)
+            from app.models.system_setting import SystemSetting
+            from app.core.database import SessionLocal
+            frame_count = 10  # Default
+            try:
+                db = SessionLocal()
+                frame_count_setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == 'settings_analysis_frame_count'
+                ).first()
+                if frame_count_setting and frame_count_setting.value:
+                    frame_count = int(frame_count_setting.value)
+                db.close()
+            except Exception as e:
+                logger.warning(f"Failed to load analysis_frame_count setting, using default: {e}")
+
             # Story P3-7.5: Use extract_frames_with_timestamps to get both frames and timestamps
             frames, timestamps = await frame_extractor.extract_frames_with_timestamps(
                 clip_path=clip_path,
-                frame_count=5,  # Default frame count
+                frame_count=frame_count,  # Story P8-2.3: Use configured frame count
                 strategy="evenly_spaced",
                 filter_blur=True
             )

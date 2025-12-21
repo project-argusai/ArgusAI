@@ -456,7 +456,7 @@ development_status:
   epic-p8-2: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-2.md
   p8-2-1-store-all-analysis-frames-during-event-processing: done
   p8-2-2-display-analysis-frames-gallery-on-event-cards: done
-  p8-2-3-add-configurable-frame-count-setting: backlog
+  p8-2-3-add-configurable-frame-count-setting: done
   p8-2-4-implement-adaptive-frame-sampling: backlog
   p8-2-5-add-frame-sampling-strategy-selection-in-settings: backlog
   epic-p8-2-retrospective: optional

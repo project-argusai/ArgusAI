@@ -22,10 +22,10 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Frame extraction configuration (Story P3-2.1, FR8)
-FRAME_EXTRACT_DEFAULT_COUNT = 5
+# Frame extraction configuration (Story P3-2.1, FR8, P8-2.3)
+FRAME_EXTRACT_DEFAULT_COUNT = 10  # Story P8-2.3: Changed from 5 to 10
 FRAME_EXTRACT_MIN_COUNT = 3
-FRAME_EXTRACT_MAX_COUNT = 10
+FRAME_EXTRACT_MAX_COUNT = 20  # Story P8-2.3: Changed from 10 to 20 to support configurable count
 FRAME_JPEG_QUALITY = 85
 FRAME_MAX_WIDTH = 1280
 

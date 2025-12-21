@@ -1293,3 +1293,241 @@ class TestShouldSendNotification:
         )
 
         assert should_send is False
+
+
+# ============================================================================
+# Story P8-1.3: Subscription Persistence Tests
+# ============================================================================
+
+
+# Mock VAPID keys for tests (avoids py_vapid issues with Python 3.13)
+MOCK_PRIVATE_KEY = "mock-private-key"
+MOCK_PUBLIC_KEY = "mock-public-key"
+
+
+class TestSubscriptionPersistence:
+    """Tests for subscription persistence after multiple notifications (Story P8-1.3)."""
+
+    @pytest.mark.asyncio
+    @patch('app.services.push_notification_service.Vapid')
+    @patch('app.services.push_notification_service.webpush')
+    @patch('app.services.push_notification_service.ensure_vapid_keys')
+    async def test_subscription_persists_after_multiple_sends(
+        self, mock_ensure_keys, mock_webpush, mock_vapid, db_session
+    ):
+        """Subscription remains valid after multiple successful notifications (AC3.4)."""
+        mock_ensure_keys.return_value = (MOCK_PRIVATE_KEY, MOCK_PUBLIC_KEY)
+        mock_webpush.return_value = MagicMock()
+        mock_vapid.from_pem.return_value = MagicMock()
+
+        # Create subscription
+        subscription = PushSubscription(
+            endpoint="https://fcm.googleapis.com/fcm/send/persist-test",
+            p256dh_key="test_key",
+            auth_key="test_auth"
+        )
+        db_session.add(subscription)
+        db_session.commit()
+        subscription_id = subscription.id
+
+        service = PushNotificationService(db_session)
+
+        # Send 5 notifications
+        for i in range(5):
+            result = await service.send_notification(
+                subscription_id=subscription_id,
+                title=f"Test {i}",
+                body=f"Body {i}"
+            )
+            assert result.success is True, f"Notification {i} failed: {result.error}"
+
+        # Verify subscription still exists
+        persisted = db_session.query(PushSubscription).filter(
+            PushSubscription.id == subscription_id
+        ).first()
+
+        assert persisted is not None, "Subscription was deleted after successful sends"
+        assert persisted.endpoint == subscription.endpoint
+        assert persisted.last_used_at is not None, "last_used_at should be updated"
+
+    @pytest.mark.asyncio
+    @patch('app.services.push_notification_service.Vapid')
+    @patch('app.services.push_notification_service.webpush')
+    @patch('app.services.push_notification_service.ensure_vapid_keys')
+    async def test_concurrent_sends_preserve_subscription(
+        self, mock_ensure_keys, mock_webpush, mock_vapid, db_session
+    ):
+        """Concurrent notifications don't corrupt subscription (AC3.4)."""
+        mock_ensure_keys.return_value = (MOCK_PRIVATE_KEY, MOCK_PUBLIC_KEY)
+        mock_webpush.return_value = MagicMock()
+        mock_vapid.from_pem.return_value = MagicMock()
+
+        # Create subscription
+        subscription = PushSubscription(
+            endpoint="https://fcm.googleapis.com/fcm/send/concurrent-test",
+            p256dh_key="test_key",
+            auth_key="test_auth"
+        )
+        db_session.add(subscription)
+        db_session.commit()
+        subscription_id = subscription.id
+
+        service = PushNotificationService(db_session)
+
+        # Send 5 notifications concurrently
+        tasks = [
+            service.send_notification(
+                subscription_id=subscription_id,
+                title=f"Concurrent Test {i}",
+                body=f"Body {i}"
+            )
+            for i in range(5)
+        ]
+
+        results = await asyncio.gather(*tasks)
+
+        # All should succeed
+        for i, result in enumerate(results):
+            assert result.success is True, f"Concurrent notification {i} failed: {result.error}"
+
+        # Verify subscription still exists and is not corrupted
+        db_session.expire_all()  # Force refresh
+        persisted = db_session.query(PushSubscription).filter(
+            PushSubscription.id == subscription_id
+        ).first()
+
+        assert persisted is not None, "Subscription was deleted during concurrent sends"
+        assert persisted.endpoint == "https://fcm.googleapis.com/fcm/send/concurrent-test"
+
+    @pytest.mark.asyncio
+    @patch('app.services.push_notification_service.Vapid')
+    @patch('app.services.push_notification_service.webpush')
+    @patch('app.services.push_notification_service.ensure_vapid_keys')
+    async def test_broadcast_to_multiple_preserves_all_subscriptions(
+        self, mock_ensure_keys, mock_webpush, mock_vapid, db_session
+    ):
+        """Broadcasting to multiple subscriptions preserves all of them (AC3.1-3.3)."""
+        mock_ensure_keys.return_value = (MOCK_PRIVATE_KEY, MOCK_PUBLIC_KEY)
+        mock_webpush.return_value = MagicMock()
+        mock_vapid.from_pem.return_value = MagicMock()
+
+        # Create 3 subscriptions
+        subscription_ids = []
+        for i in range(3):
+            sub = PushSubscription(
+                endpoint=f"https://fcm.googleapis.com/fcm/send/broadcast-{i}",
+                p256dh_key=f"key_{i}",
+                auth_key=f"auth_{i}"
+            )
+            db_session.add(sub)
+            db_session.commit()
+            subscription_ids.append(sub.id)
+
+        service = PushNotificationService(db_session)
+
+        # Send 10 broadcasts (simulating 10 events)
+        for event_num in range(10):
+            results = await service.broadcast_notification(
+                title=f"Event {event_num}",
+                body=f"Description for event {event_num}"
+            )
+
+            # All 3 subscriptions should receive each notification
+            assert len(results) == 3, f"Event {event_num}: Expected 3 results, got {len(results)}"
+            assert all(r.success for r in results), f"Event {event_num}: Some notifications failed"
+
+        # Verify all subscriptions still exist
+        for sub_id in subscription_ids:
+            persisted = db_session.query(PushSubscription).filter(
+                PushSubscription.id == sub_id
+            ).first()
+            assert persisted is not None, f"Subscription {sub_id} was deleted during broadcasts"
+
+    @pytest.mark.asyncio
+    @patch('app.services.push_notification_service.Vapid')
+    @patch('app.services.push_notification_service.webpush')
+    @patch('app.services.push_notification_service.asyncio.sleep', new_callable=AsyncMock)
+    @patch('app.services.push_notification_service.ensure_vapid_keys')
+    async def test_retry_preserves_subscription_on_transient_failure(
+        self, mock_ensure_keys, mock_sleep, mock_webpush, mock_vapid, db_session
+    ):
+        """Subscription persists through retries on transient failures (AC3.5)."""
+        from pywebpush import WebPushException
+
+        mock_ensure_keys.return_value = (MOCK_PRIVATE_KEY, MOCK_PUBLIC_KEY)
+        mock_vapid.from_pem.return_value = MagicMock()
+
+        # Create subscription
+        subscription = PushSubscription(
+            endpoint="https://fcm.googleapis.com/fcm/send/retry-test",
+            p256dh_key="test_key",
+            auth_key="test_auth"
+        )
+        db_session.add(subscription)
+        db_session.commit()
+        subscription_id = subscription.id
+
+        # Mock: fail twice with 500, then succeed
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        call_count = 0
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise WebPushException("Server Error", response=mock_response)
+            return MagicMock()
+
+        mock_webpush.side_effect = side_effect
+
+        service = PushNotificationService(db_session)
+        result = await service.send_notification(
+            subscription_id=subscription_id,
+            title="Retry Test",
+            body="Should succeed after retries"
+        )
+
+        # Should succeed after retries
+        assert result.success is True
+        assert result.retries == 2
+
+        # Subscription should still exist
+        persisted = db_session.query(PushSubscription).filter(
+            PushSubscription.id == subscription_id
+        ).first()
+        assert persisted is not None, "Subscription was deleted during retry sequence"
+
+    @pytest.mark.asyncio
+    @patch('app.services.push_notification_service.PushNotificationService')
+    async def test_send_event_notification_logs_delivery_status(
+        self, MockService, db_session, caplog
+    ):
+        """send_event_notification logs delivery status (AC3.6)."""
+        import logging
+
+        mock_instance = MagicMock()
+        mock_instance.broadcast_event_notification = AsyncMock(return_value=[
+            NotificationResult(subscription_id="sub-1", success=True),
+            NotificationResult(subscription_id="sub-2", success=True),
+            NotificationResult(subscription_id="sub-3", success=False, error="Test error"),
+        ])
+        MockService.return_value = mock_instance
+
+        with caplog.at_level(logging.INFO):
+            results = await send_event_notification(
+                event_id="event-log-test",
+                camera_name="Test Camera",
+                description="Test description",
+                db=db_session
+            )
+
+        # Check that results summary was logged
+        assert len(results) == 3
+
+        # Verify log messages contain expected information
+        log_messages = [record.message for record in caplog.records]
+        assert any("send_event_notification called" in msg for msg in log_messages), \
+            "Missing 'send_event_notification called' log"
+        assert any("send_event_notification completed" in msg for msg in log_messages), \
+            "Missing 'send_event_notification completed' log"

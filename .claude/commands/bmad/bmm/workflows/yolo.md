@@ -14,6 +14,8 @@ IT IS CRITICAL THAT YOU FOLLOW THESE STEPS - while staying in character as the c
 
 Once you complete create-story then move to next step
 
+Open a github issue then move to next step
+
 IT IS CRITICAL THAT YOU FOLLOW THESE STEPS - while staying in character as the current agent persona you may have loaded:
 
 <steps CRITICAL="TRUE">

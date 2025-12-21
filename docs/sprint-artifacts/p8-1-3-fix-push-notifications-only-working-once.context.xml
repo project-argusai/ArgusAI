@@ -1,0 +1,183 @@
+<story-context id="p8-1-3-fix-push-notifications-only-working-once" v="1.0">
+  <metadata>
+    <epicId>P8-1</epicId>
+    <storyId>1.3</storyId>
+    <title>Fix Push Notifications Only Working Once</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-20</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-1-3-fix-push-notifications-only-working-once.md</sourceStoryPath>
+    <githubIssue>https://github.com/bbengt1/ArgusAI/issues/77</githubIssue>
+  </metadata>
+
+  <story>
+    <asA>user with push notifications enabled</asA>
+    <iWant>to receive notifications for every new event</iWant>
+    <soThat>I am alerted consistently, not just the first time</soThat>
+    <tasks>
+      <task id="1">Investigate and diagnose the root cause
+        <subtask>1.1: Review service worker registration persistence in frontend/public/sw.js</subtask>
+        <subtask>1.2: Check if PushSubscription is being overwritten or invalidated after first notification</subtask>
+        <subtask>1.3: Verify VAPID key consistency between sends in push_notification_service.py</subtask>
+        <subtask>1.4: Check browser notification throttling limits</subtask>
+        <subtask>1.5: Verify event_processor.py calls push service for every qualifying event</subtask>
+        <subtask>1.6: Test with Chrome DevTools Application Service Workers</subtask>
+        <subtask>1.7: Check database subscription persistence after first notification</subtask>
+        <subtask>1.8: Review send_event_notification fire-and-forget pattern for issues</subtask>
+      </task>
+      <task id="2">Fix backend push notification persistence
+        <subtask>2.1: Verify subscription is not deleted after successful send</subtask>
+        <subtask>2.2: Ensure last_used_at update doesn't invalidate subscription</subtask>
+        <subtask>2.3: Check for race conditions in concurrent notification sending</subtask>
+        <subtask>2.4: Review database session handling in send_event_notification</subtask>
+        <subtask>2.5: Ensure database commits don't close sessions prematurely</subtask>
+      </task>
+      <task id="3">Fix frontend service worker/subscription handling
+        <subtask>3.1: Verify service worker remains active after first notification</subtask>
+        <subtask>3.2: Check for service worker update/reinstall issues</subtask>
+        <subtask>3.3: Ensure subscription is not re-created unnecessarily</subtask>
+        <subtask>3.4: Verify usePushNotifications hook doesn't re-subscribe on mount</subtask>
+        <subtask>3.5: Check for subscription endpoint changes</subtask>
+      </task>
+      <task id="4">Add enhanced logging for debugging
+        <subtask>4.1: Add detailed logging to send_event_notification</subtask>
+        <subtask>4.2: Log subscription ID and status for each notification attempt</subtask>
+        <subtask>4.3: Log database session state during notification sending</subtask>
+        <subtask>4.4: Add service worker console logging for debugging</subtask>
+      </task>
+      <task id="5">Write regression tests
+        <subtask>5.1: Unit test: test_push_subscription_persists_after_send</subtask>
+        <subtask>5.2: Unit test: test_push_retry_on_failure</subtask>
+        <subtask>5.3: Integration test: test_multiple_events_trigger_push</subtask>
+        <subtask>5.4: Verify tests pass with mock push service</subtask>
+      </task>
+      <task id="6">Manual end-to-end verification
+        <subtask>6.1: Subscribe to push notifications in browser</subtask>
+        <subtask>6.2: Trigger first event and verify notification received</subtask>
+        <subtask>6.3: Trigger second event and verify notification received</subtask>
+        <subtask>6.4: Trigger 10 events and verify all notifications received</subtask>
+        <subtask>6.5: Document test results</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC3.1">Given push enabled, when first event occurs, then notification received</criterion>
+    <criterion id="AC3.2">Given push enabled, when second event occurs, then notification received</criterion>
+    <criterion id="AC3.3">Given push enabled, when tenth event occurs, then notification received</criterion>
+    <criterion id="AC3.4">Given subscription, when notification sent, then subscription remains valid</criterion>
+    <criterion id="AC3.5">Given push failure, when retry attempted, then notification eventually delivered</criterion>
+    <criterion id="AC3.6">Given any notification, when sent, then delivery status logged</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P8-1.md" title="Epic P8-1 Tech Spec" section="P8-1.3: Push Notification Flow">
+        Investigation points: subscription validity after first notification, service worker registration persistence, VAPID key consistency between sends, browser throttling limits.
+      </doc>
+      <doc path="docs/epics-phase8.md" title="Phase 8 Epics" section="Story P8-1.3">
+        Technical notes: investigate service worker registration persistence, check PushSubscription invalidation, review backend push sending logic, verify VAPID key consistency, test with Chrome DevTools.
+      </doc>
+      <doc path="docs/architecture/phase-4-additions.md" title="Phase 4 Architecture" section="Push Notifications">
+        Architecture context for Web Push implementation including VAPID authentication, service worker requirements, and notification delivery flow.
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/services/push_notification_service.py" kind="service" symbol="PushNotificationService" lines="166-656" reason="Core push notification service - sends notifications, handles retries, manages subscriptions. Key methods: send_notification, broadcast_notification, _send_to_subscription. Updates last_used_at after successful send."/>
+      <file path="backend/app/services/push_notification_service.py" kind="function" symbol="send_event_notification" lines="840-930" reason="Main entry point for event pipeline integration. Creates its own SessionLocal() and closes in finally block. Uses fire-and-forget pattern via asyncio.create_task()."/>
+      <file path="backend/app/services/event_processor.py" kind="service" symbol="EventProcessor._process_event" lines="851-890" reason="Calls send_event_notification as fire-and-forget task. Line 871: asyncio.create_task(send_event_notification(...)) - may lose exceptions silently."/>
+      <file path="backend/app/api/v1/push.py" kind="router" symbol="subscribe/unsubscribe endpoints" lines="151-329" reason="API endpoints for push subscription management. Upserts subscription on POST, deletes on DELETE."/>
+      <file path="backend/app/models/push_subscription.py" kind="model" symbol="PushSubscription" reason="Database model for push subscriptions. Fields: endpoint, p256dh_key, auth_key, last_used_at. get_subscription_info() returns pywebpush format."/>
+      <file path="frontend/public/sw.js" kind="service-worker" symbol="push event listener" lines="249-311" reason="Handles incoming push notifications. Parses payload and shows notification. No issues apparent here."/>
+      <file path="frontend/hooks/usePushNotifications.ts" kind="hook" symbol="usePushNotifications" lines="139-477" reason="React hook for push subscription management. Handles service worker registration, subscription lifecycle, VAPID key fetching. Key methods: subscribe, unsubscribe, registerServiceWorker."/>
+      <file path="backend/tests/test_services/test_push_notification_service.py" kind="test" symbol="TestPushNotificationService" lines="160-337" reason="Existing tests for push notification service. Contains test_send_notification_success, test_send_notification_updates_last_used_at, test_broadcast_notification_to_multiple."/>
+    </code>
+
+    <dependencies>
+      <backend>
+        <package name="pywebpush" version=">=2.0.0" purpose="Web Push with VAPID authentication"/>
+        <package name="fastapi" version="0.115.0" purpose="API framework"/>
+        <package name="sqlalchemy" version=">=2.0.36" purpose="Database ORM"/>
+        <package name="pytest" version="7.4.3" purpose="Testing framework"/>
+        <package name="pytest-asyncio" version="0.21.1" purpose="Async test support"/>
+      </backend>
+      <frontend>
+        <package name="next" version="^16.0.10" purpose="React framework with PWA support"/>
+        <package name="react" version="19.2.0" purpose="UI framework"/>
+        <package name="vitest" version="^4.0.15" purpose="Testing framework"/>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface name="PushNotificationService.send_notification" kind="async-method">
+      <signature>async def send_notification(self, subscription_id: str, title: str, body: str, data: Optional[Dict[str, Any]] = None, icon: str = "/icons/notification-192.svg", badge: str = "/icons/badge-72.svg", tag: Optional[str] = None, image: Optional[str] = None, actions: Optional[List[Dict[str, str]]] = None, renotify: bool = True) -> NotificationResult</signature>
+      <path>backend/app/services/push_notification_service.py:209</path>
+    </interface>
+    <interface name="send_event_notification" kind="async-function">
+      <signature>async def send_event_notification(event_id: str, camera_name: str, description: str, thumbnail_url: Optional[str] = None, camera_id: Optional[str] = None, smart_detection_type: Optional[str] = None, db: Optional[Session] = None) -> List[NotificationResult]</signature>
+      <path>backend/app/services/push_notification_service.py:840</path>
+    </interface>
+    <interface name="POST /api/v1/push/subscribe" kind="REST-endpoint">
+      <signature>POST /api/v1/push/subscribe - Register push subscription (endpoint, keys, user_agent)</signature>
+      <path>backend/app/api/v1/push.py:151</path>
+    </interface>
+    <interface name="DELETE /api/v1/push/subscribe" kind="REST-endpoint">
+      <signature>DELETE /api/v1/push/subscribe - Unsubscribe (endpoint in body)</signature>
+      <path>backend/app/api/v1/push.py:274</path>
+    </interface>
+    <interface name="usePushNotifications" kind="react-hook">
+      <signature>usePushNotifications(): {status, isSubscribed, permission, error, isLoading, subscribe, unsubscribe, sendTestNotification, ...}</signature>
+      <path>frontend/hooks/usePushNotifications.ts:139</path>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint source="tech-spec">No changes to database schema required</constraint>
+    <constraint source="tech-spec">No new dependencies required</constraint>
+    <constraint source="tech-spec">Must maintain backwards compatibility</constraint>
+    <constraint source="tech-spec">Must work with existing FastAPI + Next.js stack</constraint>
+    <constraint source="architecture">Push notification delivery must be under 2 seconds from event creation</constraint>
+    <constraint source="architecture">Subscription persistence must survive multiple notifications</constraint>
+    <constraint source="testing">All acceptance criteria must have at least one test</constraint>
+    <constraint source="testing">Bug fixes must include regression tests</constraint>
+    <constraint source="pattern">Use existing PushNotificationService interface - do not refactor</constraint>
+    <constraint source="pattern">Maintain fire-and-forget pattern in event_processor for performance</constraint>
+  </constraints>
+
+  <tests>
+    <standards>
+      Backend: pytest with pytest-asyncio for async tests. Mock pywebpush for unit tests.
+      Frontend: Manual testing with Chrome DevTools for service worker verification.
+      Test files: backend/tests/test_services/test_push_notification_service.py, backend/tests/test_api/test_push.py
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_push_notification_service.py</location>
+      <location>backend/tests/test_api/test_push.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC3.1,AC3.2,AC3.3">test_multiple_events_trigger_push: Create 3 subscriptions, send 10 mock events, verify all 30 notifications attempted</idea>
+      <idea ac="AC3.4">test_subscription_persists_after_multiple_sends: Send 5 notifications, verify subscription still exists in DB</idea>
+      <idea ac="AC3.5">test_push_retry_delivers_eventually: Mock first 2 attempts to fail with 500, verify 3rd succeeds</idea>
+      <idea ac="AC3.6">test_push_logs_delivery_status: Verify logger.info called with subscription_id and success status</idea>
+      <idea ac="AC3.4">test_last_used_at_update_preserves_subscription: Verify subscription not deleted after last_used_at update</idea>
+      <idea ac="AC3.4">test_concurrent_sends_no_race_condition: Send 5 notifications concurrently, verify no subscription corruption</idea>
+    </ideas>
+  </tests>
+
+  <rootCause>
+    <potentialCauses>
+      <cause id="1" likelihood="high">Database session lifecycle issue in send_event_notification. The function creates its own SessionLocal() and closes it in finally block, which may cause issues if the subscription is modified during async send operations and the session closes before proper commit.</cause>
+      <cause id="2" likelihood="medium">Fire-and-forget pattern in event_processor.py loses exceptions silently. If send_event_notification fails, the error is not logged or handled.</cause>
+      <cause id="3" likelihood="low">Service worker registration or subscription invalidation on frontend. Though existing code looks correct, need to verify in browser.</cause>
+      <cause id="4" likelihood="low">VAPID key inconsistency between sends, though keys are lazily loaded and cached in the service instance.</cause>
+    </potentialCauses>
+    <investigationPlan>
+      <step>Add logging to send_event_notification to capture subscription state before and after send</step>
+      <step>Add exception handler wrapper around asyncio.create_task in event_processor to log failures</step>
+      <step>Query database after first successful notification to verify subscription persists</step>
+      <step>Check browser DevTools Service Workers tab during testing</step>
+    </investigationPlan>
+  </rootCause>
+</story-context>

@@ -32,13 +32,13 @@ def client(db_session):
 @pytest.fixture
 def test_camera(db_session):
     """Create a test camera in the database."""
+    import uuid
     camera = Camera(
-        id="test-camera-uuid-1234",
+        id=str(uuid.uuid4()),
         name="Test Camera",
         type="rtsp",
         rtsp_url="rtsp://192.168.1.100/stream",
-        is_enabled=True,
-        homekit_enabled=True
+        is_enabled=True
     )
     db_session.add(camera)
     db_session.commit()

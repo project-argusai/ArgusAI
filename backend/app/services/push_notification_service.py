@@ -492,10 +492,25 @@ class PushNotificationService:
         Send notification to a single subscription with retry logic.
 
         Implements exponential backoff for transient failures.
-        Automatically removes invalid/expired subscriptions.
+        Automatically removes invalid/expired subscriptions (410/404 responses only).
         Supports rich notifications with images, actions, and collapse (P4-1.3).
         Supports silent mode for sound preference (P4-1.4).
+
+        Note (Story P8-1.3): This method preserves subscriptions unless the push
+        service explicitly returns 410 Gone or 404 Not Found. The last_used_at
+        timestamp is updated on successful sends but does not invalidate the
+        subscription.
         """
+        # Story P8-1.3: Log entry for debugging
+        logger.debug(
+            f"_send_to_subscription starting",
+            extra={
+                "subscription_id": subscription.id,
+                "endpoint_prefix": subscription.endpoint[:50] if subscription.endpoint else "N/A",
+                "title": title,
+            }
+        )
+
         private_key, _ = self._ensure_vapid_keys()
 
         # Build notification payload (P4-1.3: add rich notification fields)
@@ -867,6 +882,12 @@ async def send_event_notification(
     - VIP indicator (star emoji prefix)
     - Recognition status in payload
 
+    Note on session management (Story P8-1.3):
+    - This function creates its own database session if none provided
+    - The session is kept open until all notifications are sent
+    - Session is only closed in finally block after all async operations complete
+    - Subscriptions are NOT deleted or invalidated by this function (except for 410 responses)
+
     Args:
         event_id: UUID of the event
         camera_name: Name of the camera that detected the event
@@ -883,8 +904,22 @@ async def send_event_notification(
     Returns:
         List of NotificationResult for each subscription
     """
-    if db is None:
+    # Track whether we created the session (for cleanup)
+    session_created = db is None
+    if session_created:
         db = SessionLocal()
+
+    # Story P8-1.3: Enhanced logging for debugging notification flow
+    logger.info(
+        f"send_event_notification called",
+        extra={
+            "event_id": event_id,
+            "camera_name": camera_name,
+            "camera_id": camera_id,
+            "smart_detection_type": smart_detection_type,
+            "session_created": session_created,
+        }
+    )
 
     try:
         service = PushNotificationService(db)
@@ -909,7 +944,7 @@ async def send_event_notification(
         )
 
         # Use broadcast_event_notification for preference filtering (P4-1.4)
-        return await service.broadcast_event_notification(
+        results = await service.broadcast_event_notification(
             title=notification["title"],
             body=notification["body"],
             camera_id=camera_id,  # For preference filtering
@@ -921,9 +956,32 @@ async def send_event_notification(
             renotify=notification["renotify"],
         )
 
+        # Story P8-1.3: Log results summary
+        success_count = sum(1 for r in results if r.success)
+        logger.info(
+            f"send_event_notification completed",
+            extra={
+                "event_id": event_id,
+                "total_subscriptions": len(results),
+                "successful": success_count,
+                "failed": len(results) - success_count,
+            }
+        )
+
+        return results
+
     except Exception as e:
-        logger.error(f"Error sending event notification: {e}", exc_info=True)
+        logger.error(
+            f"Error sending event notification",
+            exc_info=True,
+            extra={
+                "event_id": event_id,
+                "error": str(e),
+            }
+        )
         return []
     finally:
-        if db:
+        # Only close session if we created it
+        if session_created and db:
             db.close()
+            logger.debug(f"Closed database session for event {event_id}")

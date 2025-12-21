@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile,
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional, List
+from typing import Literal, Optional, List, get_origin, get_args
 from pydantic import BaseModel, Field
 from pathlib import Path
 import logging
@@ -448,6 +448,13 @@ async def get_settings(db: Session = Depends(get_db)):
                     settings_dict[field_name] = int(db_value)
                 elif field_info.annotation == float:
                     settings_dict[field_name] = float(db_value)
+                # Story P8-2.3: Handle Literal types with integer values
+                elif get_origin(field_info.annotation) is Literal:
+                    literal_args = get_args(field_info.annotation)
+                    if literal_args and all(isinstance(arg, int) for arg in literal_args):
+                        settings_dict[field_name] = int(db_value)
+                    else:
+                        settings_dict[field_name] = db_value
                 else:
                     settings_dict[field_name] = db_value
             else:

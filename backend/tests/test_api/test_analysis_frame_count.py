@@ -29,6 +29,23 @@ class TestAnalysisFrameCountSettings:
         )
         assert response.status_code == 200
 
+    def test_saved_frame_count_persists_in_get_response(self, api_client):
+        """Verify that saved frame count is returned in GET response."""
+        # Save value 15
+        put_response = api_client.put(
+            "/api/v1/system/settings",
+            json={"analysis_frame_count": 15}
+        )
+        assert put_response.status_code == 200
+
+        # Get settings and verify value is returned as integer
+        get_response = api_client.get("/api/v1/system/settings")
+        assert get_response.status_code == 200
+        data = get_response.json()
+        assert "analysis_frame_count" in data
+        assert data["analysis_frame_count"] == 15
+        assert isinstance(data["analysis_frame_count"], int)
+
     def test_update_settings_with_valid_frame_count_10(self, api_client):
         """AC3.6: Setting accepts valid value 10."""
         response = api_client.put(

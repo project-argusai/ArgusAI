@@ -175,6 +175,11 @@ class SystemSettings(BaseModel):
     thumbnail_storage: Literal["filesystem", "database"] = Field(default="filesystem")
     auto_cleanup: bool = Field(default=True)
 
+    # Story P8-2.3: Configurable Frame Count Setting
+    analysis_frame_count: Literal[5, 10, 15, 20] = Field(
+        default=10, description="Number of frames to extract for AI analysis"
+    )
+
     class Config:
         json_schema_extra = {
             "example": {

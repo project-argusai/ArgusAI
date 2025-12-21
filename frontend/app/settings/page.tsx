@@ -27,6 +27,7 @@ import {
   Bell,
   Network,
   BarChart3,
+  Sparkles,
 } from 'lucide-react';
 
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
@@ -58,6 +59,7 @@ import { MQTTSettings } from '@/components/settings/MQTTSettings';
 import { HomekitSettings } from '@/components/settings/HomekitSettings';
 import { AnomalySettings } from '@/components/settings/AnomalySettings';
 import { MotionEventsExport } from '@/components/settings/MotionEventsExport';
+import { PromptRefinementModal } from '@/components/settings/PromptRefinementModal';
 import { CostWarningModal } from '@/components/settings/CostWarningModal';
 import { VideoStorageWarningModal } from '@/components/settings/VideoStorageWarningModal';
 import { FrameSamplingStrategySelector, type FrameSamplingStrategy } from '@/components/settings/FrameSamplingStrategySelector';
@@ -103,6 +105,9 @@ export default function SettingsPage() {
 
   // Story P8-3.2: Video storage setting state
   const [videoStorageWarningOpen, setVideoStorageWarningOpen] = useState(false);
+
+  // Story P8-3.3: Prompt refinement modal state
+  const [promptRefinementOpen, setPromptRefinementOpen] = useState(false);
 
   // Query for existing Protect controllers
   const controllersQuery = useQuery({
@@ -625,17 +630,29 @@ export default function SettingsPage() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="description-prompt">Prompt Template</Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          form.setValue('description_prompt', 'Describe what you see in this image in one concise sentence. Focus on objects, people, and actions.', { shouldDirty: true });
-                          toast.success('Prompt reset to default');
-                        }}
-                      >
-                        Reset to Default
-                      </Button>
+                      <div className="flex gap-2">
+                        {/* Story P8-3.3: AI-Assisted Prompt Refinement Button */}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPromptRefinementOpen(true)}
+                        >
+                          <Sparkles className="h-4 w-4 mr-2" />
+                          Refine with AI
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            form.setValue('description_prompt', 'Describe what you see in this image in one concise sentence. Focus on objects, people, and actions.', { shouldDirty: true });
+                            toast.success('Prompt reset to default');
+                          }}
+                        >
+                          Reset to Default
+                        </Button>
+                      </div>
                     </div>
                     <Textarea
                       id="description-prompt"
@@ -649,6 +666,16 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {/* Story P8-3.3: Prompt Refinement Modal */}
+              <PromptRefinementModal
+                open={promptRefinementOpen}
+                onOpenChange={setPromptRefinementOpen}
+                currentPrompt={form.watch('description_prompt') || ''}
+                onAccept={(newPrompt) => {
+                  form.setValue('description_prompt', newPrompt, { shouldDirty: true });
+                }}
+              />
             </TabsContent>
 
             {/* AI Usage Tab - Story P3-7.2 */}

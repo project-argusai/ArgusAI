@@ -2089,7 +2089,42 @@ export const apiClient = {
       return apiFetch(`/summaries?limit=${limit}&offset=${offset}`);
     },
   },
+
+  // ============================================================================
+  // AI Service (Story P8-3.3)
+  // ============================================================================
+  ai: {
+    /**
+     * Refine the AI description prompt using feedback data (Story P8-3.3)
+     * @param request Current prompt and options
+     * @returns Suggested refined prompt with analysis stats
+     */
+    refinePrompt: async (request: PromptRefinementRequest): Promise<PromptRefinementResponse> => {
+      return apiFetch('/ai/refine-prompt', {
+        method: 'POST',
+        body: JSON.stringify(request),
+      });
+    },
+  },
 };
+
+// ============================================================================
+// AI Prompt Refinement Types (Story P8-3.3)
+// ============================================================================
+
+export interface PromptRefinementRequest {
+  current_prompt: string;
+  include_feedback?: boolean;
+  max_feedback_samples?: number;
+}
+
+export interface PromptRefinementResponse {
+  suggested_prompt: string;
+  changes_summary: string;
+  feedback_analyzed: number;
+  positive_examples: number;
+  negative_examples: number;
+}
 
 // ============================================================================
 // Exported Types for Activity Summaries (Story P4-4.4, P4-4.5)

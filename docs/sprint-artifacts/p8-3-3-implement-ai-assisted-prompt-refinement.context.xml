@@ -1,0 +1,162 @@
+<story-context id="p8-3-3-implement-ai-assisted-prompt-refinement" v="1.0">
+  <metadata>
+    <epicId>P8-3</epicId>
+    <storyId>P8-3.3</storyId>
+    <title>Implement AI-Assisted Prompt Refinement</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-21</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p8-3-3-implement-ai-assisted-prompt-refinement.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>AI to suggest prompt improvements based on my feedback data</iWant>
+    <soThat>I can optimize descriptions without manual trial-and-error</soThat>
+    <tasks>
+      <task n="1" title="Create Prompt Refinement API Endpoint">
+        <subtask>1.1: Add PromptRefinementRequest and PromptRefinementResponse schemas in backend/app/schemas/ai.py</subtask>
+        <subtask>1.2: Create POST /api/v1/ai/refine-prompt endpoint in backend/app/api/v1/ai.py</subtask>
+        <subtask>1.3: Implement feedback data gathering from events table</subtask>
+        <subtask>1.4: Build meta-prompt with positive/negative examples</subtask>
+        <subtask>1.5: Send to position 1 AI provider and parse response</subtask>
+        <subtask>1.6: Return suggested prompt, changes summary, and feedback stats</subtask>
+        <subtask>1.7: Handle no feedback data case with 400 error</subtask>
+      </task>
+      <task n="2" title="Create PromptRefinementModal Component">
+        <subtask>2.1: Create frontend/components/settings/PromptRefinementModal.tsx</subtask>
+        <subtask>2.2: Display current prompt in read-only text area</subtask>
+        <subtask>2.3: Add loading indicator during AI processing</subtask>
+        <subtask>2.4: Display AI-suggested prompt in editable text area</subtask>
+        <subtask>2.5: Show changes summary and feedback stats</subtask>
+        <subtask>2.6: Implement Resubmit button for iterative refinement</subtask>
+        <subtask>2.7: Implement Accept button to save new prompt</subtask>
+        <subtask>2.8: Implement Cancel button to discard changes</subtask>
+        <subtask>2.9: Add character count indicator</subtask>
+      </task>
+      <task n="3" title="Integrate Refinement Button into AI Settings">
+        <subtask>3.1: Add Refine Prompt with AI button in AI Description Prompt section</subtask>
+        <subtask>3.2: Wire button to open PromptRefinementModal</subtask>
+        <subtask>3.3: Pass current prompt to modal</subtask>
+        <subtask>3.4: Handle modal close and save callback</subtask>
+      </task>
+      <task n="4" title="Implement API Client Method">
+        <subtask>4.1: Add refinePrompt method to frontend API client</subtask>
+        <subtask>4.2: Define TypeScript types for request/response</subtask>
+      </task>
+      <task n="5" title="Write Tests">
+        <subtask>5.1: Unit tests for prompt refinement endpoint</subtask>
+        <subtask>5.2: Test meta-prompt construction</subtask>
+        <subtask>5.3: Test empty feedback case</subtask>
+        <subtask>5.4: Component tests for PromptRefinementModal (optional)</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC3.1">Given Settings > AI Models, when viewing, then "Refine Prompt with AI" button visible</criterion>
+    <criterion id="AC3.2">Given button click, when modal opens, then current prompt shown read-only</criterion>
+    <criterion id="AC3.3">Given modal open, when processing, then loading indicator displayed</criterion>
+    <criterion id="AC3.4">Given processing complete, when response received, then suggested prompt shown</criterion>
+    <criterion id="AC3.5">Given suggested prompt, when viewing, then changes summary displayed</criterion>
+    <criterion id="AC3.6">Given suggested prompt, when editing, then text area is editable</criterion>
+    <criterion id="AC3.7">Given "Resubmit" click, when processing, then new refinement requested</criterion>
+    <criterion id="AC3.8">Given "Accept" click, when confirmed, then new prompt saved to settings</criterion>
+    <criterion id="AC3.9">Given "Cancel" click, when confirmed, then modal closes without saving</criterion>
+    <criterion id="AC3.10">Given no feedback data, when requested, then helpful error message shown</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P8-3.md" title="Epic P8-3 Tech Spec" section="P8-3.3: Implement AI-Assisted Prompt Refinement">
+        API contract for POST /api/v1/ai/refine-prompt including request/response schemas, meta-prompt structure, and workflow sequence
+      </doc>
+      <doc path="docs/epics-phase8.md" title="Phase 8 Epics" section="Story P8-3.3">
+        Full user story with acceptance criteria, technical notes, and implementation guidance for AI prompt refinement
+      </doc>
+      <doc path="docs/architecture-phase8.md" title="Phase 8 Architecture" section="API Contracts">
+        API endpoint definitions for prompt refinement and mobile APIs
+      </doc>
+    </docs>
+    <code>
+      <artifact path="backend/app/api/v1/ai.py" kind="api-router" symbol="router" lines="1-110" reason="Existing AI API router - add refine-prompt endpoint here"/>
+      <artifact path="backend/app/schemas/ai.py" kind="schema" symbol="AIUsageStatsResponse" lines="1-118" reason="Existing AI schemas - add PromptRefinementRequest/Response here"/>
+      <artifact path="backend/app/services/ai_service.py" kind="service" symbol="ai_service" reason="Use AIService to send meta-prompt to position 1 AI provider"/>
+      <artifact path="backend/app/services/feedback_analysis_service.py" kind="service" symbol="FeedbackAnalysisService" lines="1-402" reason="Existing service with feedback analysis patterns - can reuse categorization logic"/>
+      <artifact path="backend/app/models/event_feedback.py" kind="model" symbol="EventFeedback" lines="1-71" reason="EventFeedback model with rating (helpful/not_helpful) and correction fields"/>
+      <artifact path="frontend/app/settings/page.tsx" kind="page" symbol="SettingsPage" lines="616-651" reason="AI Description Prompt section - add Refine button here"/>
+      <artifact path="frontend/components/settings/VideoStorageWarningModal.tsx" kind="component" symbol="VideoStorageWarningModal" lines="1-97" reason="Reference modal pattern with AlertDialog for PromptRefinementModal"/>
+      <artifact path="frontend/lib/api-client.ts" kind="api-client" reason="Add refinePrompt method for API calls"/>
+    </code>
+    <dependencies>
+      <backend>
+        <package name="fastapi" version=">=0.115.0"/>
+        <package name="sqlalchemy" version=">=2.0.0"/>
+        <package name="pydantic" version=">=2.0.0"/>
+      </backend>
+      <frontend>
+        <package name="react" version=">=19.0.0"/>
+        <package name="next" version=">=15.0.0"/>
+        <package name="@radix-ui/react-alert-dialog"/>
+        <package name="react-hook-form"/>
+        <package name="sonner" note="toast notifications"/>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Use existing AIService provider fallback chain for refinement requests</constraint>
+    <constraint type="pattern">Follow established modal pattern from VideoStorageWarningModal and VideoPlayerModal</constraint>
+    <constraint type="pattern">Use react-hook-form integration pattern from existing settings page</constraint>
+    <constraint type="security">No sensitive data in meta-prompt - only use description text and correction text</constraint>
+    <constraint type="performance">Limit feedback samples to 50 to avoid token overflow</constraint>
+    <constraint type="performance">Target less than 15 seconds for AI response (includes network latency)</constraint>
+    <constraint type="ux">User must explicitly accept refined prompt - no automatic application</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/ai/refine-prompt" kind="REST endpoint" path="backend/app/api/v1/ai.py">
+      Request: { current_prompt: str, include_feedback: bool, max_feedback_samples: int }
+      Response: { suggested_prompt: str, changes_summary: str, feedback_analyzed: int, positive_examples: int, negative_examples: int }
+      Errors: 400 if no feedback data available
+    </interface>
+    <interface name="PromptRefinementRequest" kind="Pydantic schema" path="backend/app/schemas/ai.py">
+      current_prompt: str
+      include_feedback: bool = True
+      max_feedback_samples: int = 50
+    </interface>
+    <interface name="PromptRefinementResponse" kind="Pydantic schema" path="backend/app/schemas/ai.py">
+      suggested_prompt: str
+      changes_summary: str
+      feedback_analyzed: int
+      positive_examples: int
+      negative_examples: int
+    </interface>
+    <interface name="EventFeedback.rating" kind="enum" path="backend/app/models/event_feedback.py">
+      Values: 'helpful' | 'not_helpful'
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend: pytest with TestClient for API tests, fixtures for database setup.
+      Frontend: vitest + React Testing Library for component tests.
+      Use existing test patterns from test_ai.py and test_feedback.py.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_ai.py</location>
+      <location>backend/tests/test_services/test_feedback_analysis_service.py</location>
+      <location>frontend/__tests__/components/settings/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC3.1">Test that Refine Prompt button renders in AI settings section</idea>
+      <idea ac="AC3.2-3.3">Test modal opens with current prompt and shows loading state</idea>
+      <idea ac="AC3.4-3.5">Test endpoint returns suggested prompt and changes summary</idea>
+      <idea ac="AC3.6">Test suggested prompt text area is editable</idea>
+      <idea ac="AC3.7">Test Resubmit sends updated prompt for refinement</idea>
+      <idea ac="AC3.8">Test Accept saves prompt via settings API</idea>
+      <idea ac="AC3.9">Test Cancel closes modal without API calls</idea>
+      <idea ac="AC3.10">Test 400 error when no feedback data, shows friendly message</idea>
+    </ideas>
+  </tests>
+</story-context>

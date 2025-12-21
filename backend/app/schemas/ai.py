@@ -115,3 +115,60 @@ class AICapabilitiesResponse(BaseModel):
                 }
             }
         }
+
+
+# Story P8-3.3: AI-Assisted Prompt Refinement Schemas
+class PromptRefinementRequest(BaseModel):
+    """Request schema for POST /api/v1/ai/refine-prompt (Story P8-3.3)"""
+    current_prompt: str = Field(
+        description="The current AI description prompt to be refined"
+    )
+    include_feedback: bool = Field(
+        default=True,
+        description="Whether to include user feedback data in refinement"
+    )
+    max_feedback_samples: int = Field(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of feedback samples to analyze"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "current_prompt": "Describe what you see in this image in one concise sentence. Focus on objects, people, and actions.",
+                "include_feedback": True,
+                "max_feedback_samples": 50
+            }
+        }
+
+
+class PromptRefinementResponse(BaseModel):
+    """Response schema for POST /api/v1/ai/refine-prompt (Story P8-3.3)"""
+    suggested_prompt: str = Field(
+        description="AI-suggested improved prompt"
+    )
+    changes_summary: str = Field(
+        description="Summary of what was changed and why"
+    )
+    feedback_analyzed: int = Field(
+        description="Total number of feedback samples analyzed"
+    )
+    positive_examples: int = Field(
+        description="Number of positive (thumbs up) feedback samples"
+    )
+    negative_examples: int = Field(
+        description="Number of negative (thumbs down) feedback samples"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "suggested_prompt": "You are analyzing a home security camera image. Describe:\n1. People present (count, appearance, actions)\n2. Vehicles (type, color, location)\n3. Packages or deliveries\n4. Any unusual or concerning activity\n\nBe specific and concise.",
+                "changes_summary": "Added structured format with numbered sections. Incorporated feedback patterns: users prefer specific person counts and vehicle details. Emphasized package detection based on positive feedback.",
+                "feedback_analyzed": 47,
+                "positive_examples": 32,
+                "negative_examples": 15
+            }
+        }

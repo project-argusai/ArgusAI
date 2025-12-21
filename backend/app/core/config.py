@@ -1,5 +1,6 @@
 """Application configuration using Pydantic Settings"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import field_validator
 from typing import List
 import secrets
 
@@ -23,6 +24,14 @@ class Settings(BaseSettings):
     # API
     API_V1_PREFIX: str = "/api/v1"
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS_ORIGINS from comma-separated string or list"""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     # Camera Settings
     MAX_CAMERAS: int = 1  # MVP limitation

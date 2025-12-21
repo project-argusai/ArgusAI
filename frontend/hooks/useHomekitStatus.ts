@@ -173,9 +173,10 @@ export function useHomekitToggle() {
 
   return useMutation({
     mutationFn: updateHomekitEnabled,
-    onSuccess: (data) => {
-      // Update cache with new status
-      queryClient.setQueryData(HOMEKIT_QUERY_KEY, data);
+    onSuccess: () => {
+      // Refetch status to get complete data including 'available' field
+      // (enable/disable endpoints return partial response)
+      queryClient.invalidateQueries({ queryKey: HOMEKIT_QUERY_KEY });
     },
     onError: () => {
       // Refetch on error to get current state

@@ -4,7 +4,7 @@
  * HomekitSettings component (Story P4-6.1, P5-1.8, P7-1.1, P7-1.2, P7-3.3)
  *
  * Settings UI for HomeKit integration with enable toggle, pairing status,
- * QR code display, pairings list, and reset functionality.
+ * pairings list, and reset functionality.
  *
  * Story P5-1.8 additions:
  * - Display list of paired devices (AC3)
@@ -613,34 +613,14 @@ export function HomekitSettings() {
             {!status.paired && status.setup_code && (
               <div className="border rounded-lg p-4 bg-muted/50">
                 <h4 className="font-medium mb-2">Pair with Home App</h4>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Open the Home app on your iOS device, tap Add Accessory, and enter the code below
-                  or scan the QR code.
+                <p className="text-sm text-muted-foreground mb-3">
+                  Open the Home app on your iOS device, tap Add Accessory, and enter the code below.
                 </p>
-
-                <div className="flex flex-col items-center gap-4">
-                  {/* Setup Code */}
-                  <div className="text-center">
-                    <Label className="text-xs text-muted-foreground">Pairing Code</Label>
-                    <div className="text-3xl font-mono font-bold tracking-wider mt-1">
-                      {status.setup_code}
-                    </div>
+                <div className="text-center">
+                  <Label className="text-xs text-muted-foreground">Pairing Code</Label>
+                  <div className="text-3xl font-mono font-bold tracking-wider mt-1">
+                    {status.setup_code}
                   </div>
-
-                  {/* QR Code */}
-                  {status.qr_code_data && (
-                    <div className="text-center">
-                      <Label className="text-xs text-muted-foreground">Or Scan QR Code</Label>
-                      <div className="mt-2 bg-white p-2 rounded inline-block">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={status.qr_code_data}
-                          alt="HomeKit Pairing QR Code"
-                          className="w-32 h-32"
-                        />
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             )}

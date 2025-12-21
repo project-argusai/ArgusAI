@@ -39,9 +39,11 @@ logger = logging.getLogger(__name__)
 try:
     from wsdiscovery import WSDiscovery
     from wsdiscovery.discovery import ThreadedWSDiscovery
+    from wsdiscovery import QName  # For type-based filtering
     WSDISCOVERY_AVAILABLE = True
 except ImportError:
     WSDISCOVERY_AVAILABLE = False
+    QName = None
     logger.warning("WSDiscovery not installed. ONVIF camera discovery will be unavailable.")
 
 # Try to import onvif-zeep for device details (P5-2.2)
@@ -286,10 +288,24 @@ class ONVIFDiscoveryService:
             wsd.start()
 
             # Search for ONVIF Network Video Transmitters
-            # Pass types to filter for ONVIF cameras only
+            # Build QName types for proper filtering (Python 3.13 compatibility)
+            search_types = None
+            if QName is not None:
+                try:
+                    # ONVIF NetworkVideoTransmitter namespace and local name
+                    # Namespace: http://www.onvif.org/ver10/network/wsdl
+                    nvt_qname = QName(
+                        "http://www.onvif.org/ver10/network/wsdl",
+                        "NetworkVideoTransmitter"
+                    )
+                    search_types = [nvt_qname]
+                except Exception as qname_err:
+                    logger.debug(f"Could not create QName filter: {qname_err}")
+                    # Fall back to searching all devices
+
             services = wsd.searchServices(
                 timeout=timeout,
-                types=[ONVIF_NVT_TYPE]
+                types=search_types
             )
 
             logger.debug(f"WS-Discovery returned {len(services)} service(s)")

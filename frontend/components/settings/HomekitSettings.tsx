@@ -613,14 +613,34 @@ export function HomekitSettings() {
             {!status.paired && status.setup_code && (
               <div className="border rounded-lg p-4 bg-muted/50">
                 <h4 className="font-medium mb-2">Pair with Home App</h4>
-                <p className="text-sm text-muted-foreground mb-3">
-                  Open the Home app on your iOS device, tap Add Accessory, and enter the code below.
+                <p className="text-sm text-muted-foreground mb-4">
+                  Open the Home app on your iOS device, tap Add Accessory, and enter the code below
+                  or scan the QR code.
                 </p>
-                <div className="text-center">
-                  <Label className="text-xs text-muted-foreground">Pairing Code</Label>
-                  <div className="text-3xl font-mono font-bold tracking-wider mt-1">
-                    {status.setup_code}
+
+                <div className="flex flex-col items-center gap-4">
+                  {/* Setup Code */}
+                  <div className="text-center">
+                    <Label className="text-xs text-muted-foreground">Pairing Code</Label>
+                    <div className="text-3xl font-mono font-bold tracking-wider mt-1">
+                      {status.setup_code}
+                    </div>
                   </div>
+
+                  {/* QR Code */}
+                  {status.qr_code_data && (
+                    <div className="text-center">
+                      <Label className="text-xs text-muted-foreground">Or Scan QR Code</Label>
+                      <div className="mt-2 bg-white p-2 rounded inline-block">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={status.qr_code_data}
+                          alt="HomeKit Pairing QR Code"
+                          className="w-32 h-32"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

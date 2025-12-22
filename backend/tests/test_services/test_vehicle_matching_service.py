@@ -69,8 +69,11 @@ class TestVehicleMatchingService:
 
         result = vehicle_service._extract_vehicle_characteristics(description)
 
-        assert result["possible_make"] == "Toyota"
+        assert result["make"] == "Toyota"
         assert result["described_type"] == "sedan"
+        # Should have vehicle signature with color + make
+        assert "vehicle_signature" in result
+        assert result["vehicle_signature"] == "blue-toyota"
 
     def test_extract_vehicle_characteristics_motorcycle(self, vehicle_service):
         """Test extraction for motorcycle."""
@@ -375,7 +378,7 @@ class TestVehicleCharacteristicsExtraction:
         """Test that first make is extracted."""
         description = "A Honda or Toyota sedan is in the driveway."
         result = vehicle_service._extract_vehicle_characteristics(description)
-        assert result["possible_make"] == "Honda"
+        assert result["make"] == "Honda"
 
     def test_extract_case_insensitive(self, vehicle_service):
         """Test case insensitive extraction."""
@@ -383,3 +386,91 @@ class TestVehicleCharacteristicsExtraction:
         result = vehicle_service._extract_vehicle_characteristics(description)
         assert "blue" in result["colors"]
         assert result["described_type"] == "suv"
+
+
+class TestVehicleSignatureExtraction:
+    """Test vehicle signature extraction (Story P9-1.8)."""
+
+    @pytest.fixture
+    def vehicle_service(self):
+        """Provide a fresh VehicleMatchingService instance."""
+        from app.services.vehicle_matching_service import VehicleMatchingService
+        return VehicleMatchingService()
+
+    def test_extract_full_signature_color_make_model(self, vehicle_service):
+        """Test extraction with color, make, and model."""
+        description = "A white Toyota Camry pulled into the driveway."
+        result = vehicle_service._extract_vehicle_characteristics(description)
+
+        assert result["primary_color"] == "white"
+        assert result["make"] == "Toyota"
+        assert result["model"] == "Camry"
+        assert result["vehicle_signature"] == "white-toyota-camry"
+
+    def test_extract_signature_color_make_only(self, vehicle_service):
+        """Test extraction with just color and make."""
+        description = "A red Honda is parked on the street."
+        result = vehicle_service._extract_vehicle_characteristics(description)
+
+        assert result["primary_color"] == "red"
+        assert result["make"] == "Honda"
+        assert "vehicle_signature" in result
+        assert result["vehicle_signature"] == "red-honda"
+
+    def test_extract_signature_truck_model(self, vehicle_service):
+        """Test extraction for Ford F-150."""
+        description = "A black Ford F-150 arrived in the parking lot."
+        result = vehicle_service._extract_vehicle_characteristics(description)
+
+        assert result["primary_color"] == "black"
+        assert result["make"] == "Ford"
+        assert "model" in result
+        assert result["vehicle_signature"] == "black-ford-f150"
+
+    def test_extract_signature_tesla(self, vehicle_service):
+        """Test extraction for Tesla Model 3."""
+        description = "A white Tesla Model 3 is charging."
+        result = vehicle_service._extract_vehicle_characteristics(description)
+
+        assert result["primary_color"] == "white"
+        assert result["make"] == "Tesla"
+        assert result["vehicle_signature"] == "white-tesla-model3"
+
+    def test_extract_signature_gray_grey_normalized(self, vehicle_service):
+        """Test that grey is normalized to gray in signature."""
+        description = "A grey Honda Civic is at the stop sign."
+        result = vehicle_service._extract_vehicle_characteristics(description)
+
+        # Grey should be normalized to gray in the signature
+        assert result["vehicle_signature"] == "gray-honda-civic"
+
+    def test_no_signature_without_color(self, vehicle_service):
+        """Test no signature when only make is present (need 2+ parts)."""
+        description = "A Toyota is in the driveway."
+        result = vehicle_service._extract_vehicle_characteristics(description)
+
+        assert result["make"] == "Toyota"
+        # Should NOT have signature with only one part
+        assert "vehicle_signature" not in result
+
+    def test_different_vehicles_different_signatures(self, vehicle_service):
+        """Test that different vehicles produce different signatures."""
+        desc1 = "A white Toyota Camry arrived."
+        desc2 = "A black Ford F-150 arrived."
+
+        result1 = vehicle_service._extract_vehicle_characteristics(desc1)
+        result2 = vehicle_service._extract_vehicle_characteristics(desc2)
+
+        assert result1["vehicle_signature"] != result2["vehicle_signature"]
+        assert result1["vehicle_signature"] == "white-toyota-camry"
+        assert result2["vehicle_signature"] == "black-ford-f150"
+
+    def test_same_vehicle_same_signature(self, vehicle_service):
+        """Test that same vehicle produces consistent signature."""
+        desc1 = "A white Toyota Camry pulled into the driveway."
+        desc2 = "The white Toyota Camry is still parked there."
+
+        result1 = vehicle_service._extract_vehicle_characteristics(desc1)
+        result2 = vehicle_service._extract_vehicle_characteristics(desc2)
+
+        assert result1["vehicle_signature"] == result2["vehicle_signature"]

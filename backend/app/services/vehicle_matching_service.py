@@ -41,6 +41,24 @@ VEHICLE_COLORS = [
     "maroon", "navy", "dark", "light", "bright"
 ]
 
+# Comprehensive list of vehicle makes for extraction
+VEHICLE_MAKES = [
+    # American
+    "ford", "chevrolet", "chevy", "gmc", "dodge", "ram", "jeep", "chrysler",
+    "lincoln", "cadillac", "buick", "tesla", "rivian",
+    # Japanese
+    "toyota", "honda", "nissan", "mazda", "subaru", "mitsubishi", "lexus",
+    "acura", "infiniti", "suzuki",
+    # Korean
+    "hyundai", "kia", "genesis",
+    # German
+    "bmw", "mercedes", "mercedes-benz", "audi", "volkswagen", "vw", "porsche",
+    # European
+    "volvo", "jaguar", "land rover", "range rover", "mini", "fiat", "alfa romeo",
+    # Other
+    "honda", "mazda",
+]
+
 # Vehicle type keywords for extraction
 VEHICLE_TYPE_KEYWORDS = {
     "sedan": ["sedan", "saloon", "coupe", "sports car"],
@@ -52,6 +70,28 @@ VEHICLE_TYPE_KEYWORDS = {
     "hatchback": ["hatchback", "compact"],
     "convertible": ["convertible", "roadster", "cabriolet"],
 }
+
+# Common vehicle models for extraction (helps with pattern matching)
+COMMON_MODELS = [
+    # Toyota
+    "camry", "corolla", "rav4", "highlander", "tacoma", "tundra", "prius", "4runner",
+    # Honda
+    "civic", "accord", "cr-v", "pilot", "odyssey", "fit", "hr-v",
+    # Ford
+    "f-150", "f150", "f-250", "f250", "mustang", "explorer", "escape", "bronco", "ranger",
+    # Chevrolet
+    "silverado", "malibu", "equinox", "tahoe", "suburban", "colorado", "camaro", "corvette",
+    # Nissan
+    "altima", "sentra", "rogue", "pathfinder", "frontier", "maxima", "murano",
+    # BMW
+    "3 series", "5 series", "x3", "x5", "m3", "m5",
+    # Tesla
+    "model 3", "model s", "model x", "model y", "cybertruck",
+    # Jeep
+    "wrangler", "grand cherokee", "cherokee", "compass", "gladiator",
+    # Others
+    "outback", "forester", "cx-5", "cx-9", "elantra", "sonata", "tucson", "santa fe",
+]
 
 
 @dataclass
@@ -156,14 +196,14 @@ class VehicleMatchingService:
         Extract vehicle characteristics from AI description.
 
         Parses the AI-generated event description to extract color,
-        type, and other vehicle attributes.
+        make, model, type, and creates a vehicle signature for matching.
 
         Args:
             description: AI-generated event description
             detected_type: Vehicle type from detection (car, truck, etc.)
 
         Returns:
-            Dictionary with extracted characteristics
+            Dictionary with extracted characteristics including vehicle_signature
         """
         characteristics = {}
 
@@ -178,7 +218,8 @@ class VehicleMatchingService:
         # Extract colors
         found_colors = []
         for color in VEHICLE_COLORS:
-            if color in desc_lower:
+            # Use word boundary to avoid partial matches
+            if re.search(rf'\b{color}\b', desc_lower):
                 found_colors.append(color)
         if found_colors:
             characteristics["colors"] = found_colors
@@ -193,14 +234,158 @@ class VehicleMatchingService:
             if "described_type" in characteristics:
                 break
 
-        # Look for make/model patterns (e.g., "Honda Civic", "Ford F-150")
-        # Common patterns: capitalized word followed by another word/number
-        make_pattern = r'\b(Toyota|Honda|Ford|Chevrolet|Chevy|BMW|Mercedes|Audi|Tesla|Nissan|Volkswagen|VW|Jeep|Dodge|GMC|Kia|Hyundai|Subaru|Mazda|Lexus)\b'
-        make_match = re.search(make_pattern, description, re.IGNORECASE)
-        if make_match:
-            characteristics["possible_make"] = make_match.group(1).title()
+        # Extract make from known makes list - find FIRST occurrence in text
+        extracted_make = None
+        earliest_pos = len(desc_lower) + 1  # Start with position beyond end
+
+        for make in VEHICLE_MAKES:
+            # Use word boundary for accurate matching
+            match = re.search(rf'\b{re.escape(make)}\b', desc_lower)
+            if match and match.start() < earliest_pos:
+                earliest_pos = match.start()
+                # Normalize make names
+                if make in ["chevy"]:
+                    extracted_make = "chevrolet"
+                elif make in ["vw"]:
+                    extracted_make = "volkswagen"
+                elif make in ["mercedes-benz"]:
+                    extracted_make = "mercedes"
+                elif make in ["range rover"]:
+                    extracted_make = "land rover"
+                else:
+                    extracted_make = make
+
+        if extracted_make:
+            characteristics["make"] = extracted_make.title()
+
+        # Extract model from known models list
+        extracted_model = None
+        for model in COMMON_MODELS:
+            # Handle models with special chars like F-150
+            model_pattern = re.escape(model).replace(r'\-', r'[-\s]?')
+            if re.search(rf'\b{model_pattern}\b', desc_lower):
+                # Normalize model names (remove hyphens, standardize)
+                normalized_model = model.replace("-", "").replace(" ", "")
+                extracted_model = normalized_model
+                break
+
+        if extracted_model:
+            characteristics["model"] = extracted_model.title()
+
+        # Try pattern-based extraction for color + make + model
+        # Pattern: "color make model" e.g., "white Toyota Camry"
+        color_pattern = "|".join(VEHICLE_COLORS)
+        make_pattern = "|".join([re.escape(m) for m in VEHICLE_MAKES])
+
+        # Try to match "color make model" pattern
+        full_pattern = rf'\b({color_pattern})\s+({make_pattern})\s+(\w+[-\w]*)\b'
+        full_match = re.search(full_pattern, desc_lower)
+        if full_match:
+            color_from_pattern = full_match.group(1)
+            make_from_pattern = full_match.group(2)
+            model_from_pattern = full_match.group(3)
+
+            # Update characteristics with pattern-matched values
+            if not characteristics.get("primary_color"):
+                characteristics["primary_color"] = color_from_pattern
+                characteristics["colors"] = [color_from_pattern]
+
+            if not characteristics.get("make"):
+                # Normalize
+                if make_from_pattern in ["chevy"]:
+                    make_from_pattern = "chevrolet"
+                elif make_from_pattern in ["vw"]:
+                    make_from_pattern = "volkswagen"
+                characteristics["make"] = make_from_pattern.title()
+
+            if not characteristics.get("model"):
+                # Don't use common words as models - comprehensive list
+                skip_words = [
+                    # Vehicle types
+                    "car", "truck", "van", "suv", "vehicle", "auto", "sedan", "coupe",
+                    "hatchback", "convertible", "wagon", "crossover", "pickup", "minivan",
+                    # Verbs/actions
+                    "pulling", "parked", "driving", "arrived", "leaving", "stopped",
+                    "turning", "moving", "approaching", "backing", "entering", "exiting",
+                    # Common words
+                    "is", "was", "has", "had", "the", "at", "in", "on", "to", "from",
+                    "just", "still", "now", "then", "here", "there", "this", "that",
+                    # Adjectives
+                    "small", "large", "big", "old", "new", "used", "nice", "beautiful",
+                ]
+                if model_from_pattern not in skip_words:
+                    normalized_model = model_from_pattern.replace("-", "")
+                    characteristics["model"] = normalized_model.title()
+
+        # Create vehicle signature for matching (color-make-model)
+        signature_parts = []
+        if characteristics.get("primary_color"):
+            # Normalize gray/grey
+            color = characteristics["primary_color"]
+            if color == "grey":
+                color = "gray"
+            signature_parts.append(color.lower())
+
+        if characteristics.get("make"):
+            signature_parts.append(characteristics["make"].lower())
+
+        if characteristics.get("model"):
+            signature_parts.append(characteristics["model"].lower())
+
+        if len(signature_parts) >= 2:  # Need at least 2 parts for meaningful signature
+            characteristics["vehicle_signature"] = "-".join(signature_parts)
+
+        logger.debug(
+            f"Extracted vehicle characteristics: {characteristics}",
+            extra={
+                "event_type": "vehicle_characteristics_extracted",
+                "has_signature": "vehicle_signature" in characteristics,
+                "characteristics": characteristics,
+            }
+        )
 
         return characteristics
+
+    def _find_vehicle_by_signature(
+        self,
+        db: Session,
+        signature: str,
+    ) -> Optional[str]:
+        """
+        Find a vehicle entity by its signature (color-make-model).
+
+        Args:
+            db: SQLAlchemy database session
+            signature: Vehicle signature string (e.g., "white-toyota-camry")
+
+        Returns:
+            Vehicle entity ID if found, None otherwise
+        """
+        from app.models.recognized_entity import RecognizedEntity
+
+        # Search for vehicles with matching signature in metadata
+        vehicles = db.query(RecognizedEntity).filter(
+            RecognizedEntity.entity_type == "vehicle"
+        ).all()
+
+        for vehicle in vehicles:
+            if vehicle.metadata:
+                try:
+                    metadata = json.loads(vehicle.metadata)
+                    if metadata.get("vehicle_signature") == signature:
+                        logger.debug(
+                            f"Found vehicle by signature: {signature} -> {vehicle.id}",
+                            extra={
+                                "event_type": "vehicle_signature_match",
+                                "signature": signature,
+                                "vehicle_id": vehicle.id,
+                            }
+                        )
+                        return vehicle.id
+                except json.JSONDecodeError:
+                    pass
+
+        return None
 
     async def match_vehicles_to_entities(
         self,
@@ -316,6 +501,38 @@ class VehicleMatchingService:
         # Load cache if needed
         if not self._cache_loaded:
             self._load_vehicle_cache(db)
+
+        # SIGNATURE-BASED MATCHING (Story P9-1.8)
+        # Try to match by vehicle signature first (color-make-model)
+        # This ensures vehicles with same characteristics are grouped together
+        vehicle_signature = characteristics.get("vehicle_signature")
+        if vehicle_signature:
+            signature_match_id = self._find_vehicle_by_signature(db, vehicle_signature)
+            if signature_match_id:
+                # Found vehicle with matching signature - use it
+                match_time_ms = (time.time() - start_time) * 1000
+                result = await self._update_existing_vehicle(
+                    db,
+                    vehicle_embedding,
+                    signature_match_id,
+                    0.9,  # High confidence for signature match
+                    embedding_vector,
+                    bounding_box,
+                    vehicle_type,
+                    characteristics,
+                    update_appearance,
+                )
+                logger.info(
+                    f"Vehicle matched by signature: {vehicle_signature} -> {signature_match_id}",
+                    extra={
+                        "event_type": "vehicle_signature_matched",
+                        "vehicle_embedding_id": vehicle_embedding_id,
+                        "vehicle_id": signature_match_id,
+                        "vehicle_signature": vehicle_signature,
+                        "match_time_ms": round(match_time_ms, 2),
+                    }
+                )
+                return result
 
         # If no vehicles exist, create first one (if auto_create enabled)
         if not self._vehicle_cache:

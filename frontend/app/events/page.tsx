@@ -194,7 +194,7 @@ export default function EventsPage() {
 
     setIsDeleting(true);
     try {
-      const result = await apiClient.events.deleteMany(Array.from(selectedIds).map(Number));
+      const result = await apiClient.events.deleteMany(Array.from(selectedIds));
       toast.success(`Deleted ${result.deleted_count} events`);
       setSelectedIds(new Set());
       setSelectionMode(false);

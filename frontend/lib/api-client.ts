@@ -379,10 +379,10 @@ export const apiClient = {
     /**
      * Delete multiple events
      */
-    deleteMany: async (ids: number[]): Promise<{ deleted_count: number }> => {
-      return apiFetch('/events/bulk-delete', {
+    deleteMany: async (ids: string[]): Promise<{ deleted_count: number }> => {
+      const queryParams = ids.map(id => `event_ids=${encodeURIComponent(id)}`).join('&');
+      return apiFetch(`/events/bulk?${queryParams}`, {
         method: 'DELETE',
-        body: JSON.stringify({ event_ids: ids }),
       });
     },
 

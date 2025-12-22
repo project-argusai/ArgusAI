@@ -181,11 +181,19 @@ export default function SettingsPage() {
   };
 
   const loadAIProvidersStatus = async () => {
-    // TODO: Implement AI providers status API endpoint
-    // For now, start with default empty state - providers will be configured manually
     try {
-      // Stub - this endpoint doesn't exist in api-client yet
-      console.log('AI providers status loading not yet implemented');
+      const response = await apiClient.settings.getAIProvidersStatus();
+      // Convert provider status to Set of configured providers
+      const configured = new Set<AIProvider>(
+        response.providers
+          .filter(p => p.configured)
+          .map(p => p.provider as AIProvider)
+      );
+      setConfiguredProviders(configured);
+      // Update provider order if returned
+      if (response.order && response.order.length > 0) {
+        setProviderOrder(response.order as AIProvider[]);
+      }
     } catch (error) {
       console.error('Failed to load AI providers status:', error);
     }

@@ -190,6 +190,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 return True
 
+        # Event frames are public (used in img tags)
+        # Pattern: /api/v1/events/{uuid}/frames or /api/v1/events/{uuid}/frames/{number}
+        if path.startswith('/api/v1/events/') and '/frames' in path:
+            return True
+
         return False
 
     def _extract_token(self, request: Request) -> str | None:

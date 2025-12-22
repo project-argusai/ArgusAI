@@ -23,11 +23,13 @@ from app.models.event import Event
 from app.models.camera import Camera
 from app.models.prompt_history import PromptHistory
 from app.models.system_setting import SystemSetting
+from app.models.summary_feedback import SummaryFeedback  # Story P9-3.6
 from app.schemas.feedback import (
     FeedbackStatsResponse,
     CameraFeedbackStats,
     DailyFeedbackStats,
     CorrectionSummary,
+    SummaryFeedbackStats,  # Story P9-3.6
 )
 from app.schemas.prompt_insight import (
     PromptInsightsResponse,
@@ -263,9 +265,48 @@ async def get_feedback_stats(
                 count=row.count
             ))
 
+        # 5. Story P9-3.6: Calculate summary feedback statistics
+        summary_feedback_stats = None
+        try:
+            summary_filters = []
+
+            if start_date:
+                summary_filters.append(SummaryFeedback.created_at >= start_datetime)
+
+            if end_date:
+                summary_filters.append(SummaryFeedback.created_at <= end_datetime)
+
+            summary_query = db.query(
+                func.count(SummaryFeedback.id).label('total'),
+                func.sum(case((SummaryFeedback.rating == 'positive', 1), else_=0)).label('positive'),
+                func.sum(case((SummaryFeedback.rating == 'negative', 1), else_=0)).label('negative'),
+            )
+
+            if summary_filters:
+                summary_query = summary_query.filter(and_(*summary_filters))
+
+            summary_stats = summary_query.first()
+
+            summary_total = summary_stats.total or 0
+            summary_positive = summary_stats.positive or 0
+            summary_negative = summary_stats.negative or 0
+
+            if summary_total > 0:
+                summary_accuracy = (summary_positive / summary_total * 100)
+                summary_feedback_stats = SummaryFeedbackStats(
+                    total_count=summary_total,
+                    positive_count=summary_positive,
+                    negative_count=summary_negative,
+                    accuracy_rate=round(summary_accuracy, 1)
+                )
+        except Exception as e:
+            logger.warning(f"Failed to calculate summary feedback stats: {e}")
+            # Continue without summary stats if query fails
+
         logger.info(
             f"Feedback stats retrieved: total={total_count}, helpful={helpful_count}, "
             f"accuracy={accuracy_rate:.1f}%, cameras={len(feedback_by_camera)}, "
+            f"summary_feedback={'yes' if summary_feedback_stats else 'no'}, "
             f"filters={{camera_id={camera_id}, start_date={start_date}, end_date={end_date}}}"
         )
 
@@ -276,7 +317,8 @@ async def get_feedback_stats(
             accuracy_rate=round(accuracy_rate, 1),
             feedback_by_camera=feedback_by_camera,
             daily_trend=daily_trend,
-            top_corrections=top_corrections
+            top_corrections=top_corrections,
+            summary_feedback=summary_feedback_stats  # Story P9-3.6
         )
 
     except Exception as e:

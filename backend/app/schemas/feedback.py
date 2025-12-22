@@ -98,12 +98,29 @@ class CorrectionSummary(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# Story P9-3.6: Summary Feedback Statistics
+class SummaryFeedbackStats(BaseModel):
+    """Aggregate statistics for summary feedback."""
+    total_count: int = Field(..., description="Total number of summary feedback submissions")
+    positive_count: int = Field(..., description="Total positive ratings")
+    negative_count: int = Field(..., description="Total negative ratings")
+    accuracy_rate: float = Field(
+        ...,
+        ge=0,
+        le=100,
+        description="Accuracy rate as percentage (positive / total * 100)"
+    )
+
+    model_config = {"from_attributes": True}
+
+
 class FeedbackStatsResponse(BaseModel):
     """
     Aggregate feedback statistics response.
 
     Provides overall accuracy metrics, per-camera breakdown, daily trends,
     and common correction patterns for AI description quality monitoring.
+    Story P9-3.6: Includes summary feedback statistics.
     """
     total_count: int = Field(..., description="Total number of feedback submissions")
     helpful_count: int = Field(..., description="Total helpful ratings")
@@ -125,6 +142,11 @@ class FeedbackStatsResponse(BaseModel):
     top_corrections: List[CorrectionSummary] = Field(
         default_factory=list,
         description="Most common correction patterns (top 10)"
+    )
+    # Story P9-3.6: Summary feedback statistics
+    summary_feedback: Optional[SummaryFeedbackStats] = Field(
+        None,
+        description="Statistics for summary feedback (null if no summary feedback exists)"
     )
 
     model_config = {"from_attributes": True}

@@ -75,7 +75,18 @@ export interface ICorrectionSummary {
 }
 
 /**
+ * Story P9-3.6: Summary feedback statistics
+ */
+export interface ISummaryFeedbackStats {
+  total_count: number;
+  positive_count: number;
+  negative_count: number;
+  accuracy_rate: number;                         // Percentage 0-100
+}
+
+/**
  * Story P4-5.2: Aggregate feedback statistics response
+ * Story P9-3.6: Added summary_feedback field
  */
 export interface IFeedbackStats {
   total_count: number;
@@ -85,6 +96,7 @@ export interface IFeedbackStats {
   feedback_by_camera: Record<string, ICameraFeedbackStats>;
   daily_trend: IDailyFeedbackStats[];
   top_corrections: ICorrectionSummary[];
+  summary_feedback?: ISummaryFeedbackStats | null;  // Story P9-3.6
 }
 
 export interface IEvent {

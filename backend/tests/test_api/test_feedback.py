@@ -15,6 +15,8 @@ from app.core.database import Base, get_db
 from app.models.event import Event
 from app.models.event_feedback import EventFeedback
 from app.models.camera import Camera
+from app.models.summary_feedback import SummaryFeedback  # Story P9-3.6
+from app.models.activity_summary import ActivitySummary  # Story P9-3.6
 
 
 # Create module-level temp database (file-based for isolation)
@@ -432,3 +434,158 @@ class TestEventFeedbackEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert data["correction_type"] == "not_package"
+
+
+# ============================================================================
+# Story P9-3.6: Tests for Summary Feedback Stats in AI Accuracy Stats
+# ============================================================================
+
+
+class TestSummaryFeedbackStats:
+    """Test suite for summary feedback stats in /api/v1/feedback/stats endpoint (Story P9-3.6)"""
+
+    def test_stats_without_summary_feedback(self, client, db_session, test_camera: Camera, test_event: Event):
+        """Test that summary_feedback is null when no summary feedback exists (AC-3.6.4)"""
+        # Create some event feedback but no summary feedback
+        feedback = EventFeedback(
+            event_id=test_event.id,
+            camera_id=test_camera.id,
+            rating="helpful"
+        )
+        db_session.add(feedback)
+        db_session.commit()
+
+        response = client.get("/api/v1/feedback/stats")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Event feedback should be present
+        assert data["total_count"] == 1
+        assert data["helpful_count"] == 1
+
+        # Summary feedback should be null
+        assert data["summary_feedback"] is None
+
+    def test_stats_with_summary_feedback(self, client, db_session, test_camera: Camera):
+        """Test that summary_feedback stats are calculated correctly (AC-3.6.2, AC-3.6.3)"""
+        now = datetime.now(timezone.utc)
+
+        # Create 3 positive and 2 negative summary feedback
+        for i in range(3):
+            summary = ActivitySummary(
+                id=str(uuid.uuid4()),
+                summary_text=f"Test summary pos {i}",
+                period_start=now,
+                period_end=now,
+                event_count=10
+            )
+            db_session.add(summary)
+            db_session.commit()
+            db_session.refresh(summary)
+
+            sf = SummaryFeedback(
+                id=str(uuid.uuid4()),
+                summary_id=summary.id,
+                rating="positive"
+            )
+            db_session.add(sf)
+
+        for i in range(2):
+            summary = ActivitySummary(
+                id=str(uuid.uuid4()),
+                summary_text=f"Test summary neg {i}",
+                period_start=now,
+                period_end=now,
+                event_count=10
+            )
+            db_session.add(summary)
+            db_session.commit()
+            db_session.refresh(summary)
+
+            sf = SummaryFeedback(
+                id=str(uuid.uuid4()),
+                summary_id=summary.id,
+                rating="negative"
+            )
+            db_session.add(sf)
+
+        db_session.commit()
+
+        response = client.get("/api/v1/feedback/stats")
+        assert response.status_code == 200
+        data = response.json()
+
+        # Summary feedback should be present
+        assert data["summary_feedback"] is not None
+        summary_stats = data["summary_feedback"]
+
+        assert summary_stats["total_count"] == 5
+        assert summary_stats["positive_count"] == 3
+        assert summary_stats["negative_count"] == 2
+        assert summary_stats["accuracy_rate"] == 60.0  # 3/5 * 100
+
+    def test_stats_summary_feedback_100_percent_accuracy(self, client, db_session):
+        """Test summary_feedback accuracy when all positive (AC-3.6.3)"""
+        now = datetime.now(timezone.utc)
+
+        # Create a summary and positive feedback
+        summary = ActivitySummary(
+            id=str(uuid.uuid4()),
+            summary_text="Test summary",
+            period_start=now,
+            period_end=now,
+            event_count=5
+        )
+        db_session.add(summary)
+        db_session.commit()
+        db_session.refresh(summary)
+
+        sf = SummaryFeedback(
+            id=str(uuid.uuid4()),
+            summary_id=summary.id,
+            rating="positive"
+        )
+        db_session.add(sf)
+        db_session.commit()
+
+        response = client.get("/api/v1/feedback/stats")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["summary_feedback"] is not None
+        assert data["summary_feedback"]["accuracy_rate"] == 100.0
+        assert data["summary_feedback"]["positive_count"] == 1
+        assert data["summary_feedback"]["negative_count"] == 0
+
+    def test_stats_summary_feedback_0_percent_accuracy(self, client, db_session):
+        """Test summary_feedback accuracy when all negative (AC-3.6.3)"""
+        now = datetime.now(timezone.utc)
+
+        # Create a summary and negative feedback
+        summary = ActivitySummary(
+            id=str(uuid.uuid4()),
+            summary_text="Test summary",
+            period_start=now,
+            period_end=now,
+            event_count=5
+        )
+        db_session.add(summary)
+        db_session.commit()
+        db_session.refresh(summary)
+
+        sf = SummaryFeedback(
+            id=str(uuid.uuid4()),
+            summary_id=summary.id,
+            rating="negative"
+        )
+        db_session.add(sf)
+        db_session.commit()
+
+        response = client.get("/api/v1/feedback/stats")
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["summary_feedback"] is not None
+        assert data["summary_feedback"]["accuracy_rate"] == 0.0
+        assert data["summary_feedback"]["positive_count"] == 0
+        assert data["summary_feedback"]["negative_count"] == 1

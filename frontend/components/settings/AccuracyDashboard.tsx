@@ -23,11 +23,12 @@ import {
   Download,
   Calendar,
   Camera,
+  FileText,  // Story P9-3.6
 } from 'lucide-react';
 
 import { useFeedbackStats } from '@/hooks/useFeedbackStats';
 import { useCameras } from '@/hooks/useCameras';
-import type { IFeedbackStats, ICameraFeedbackStats, IDailyFeedbackStats, ICorrectionSummary } from '@/types/event';
+import type { IFeedbackStats } from '@/types/event';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -366,6 +367,71 @@ export function AccuracyDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Story P9-3.6: Summary Feedback Accuracy Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <FileText className="h-5 w-5" />
+            Summary Accuracy
+          </CardTitle>
+          <CardDescription>
+            User feedback on AI-generated activity summaries
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {stats.summary_feedback ? (
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {/* Summary Accuracy Rate */}
+              <div className={`p-4 rounded-lg border-2 ${getAccuracyColor(stats.summary_feedback.accuracy_rate)}`}>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <TrendingUp className="h-4 w-4" />
+                  Accuracy Rate
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold">{stats.summary_feedback.accuracy_rate.toFixed(1)}%</span>
+                  <div className={`h-2 w-2 rounded-full ${getAccuracyBgColor(stats.summary_feedback.accuracy_rate)}`} />
+                </div>
+              </div>
+
+              {/* Total Summary Feedback */}
+              <div className="p-4 rounded-lg bg-muted/50">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <BarChart3 className="h-4 w-4" />
+                  Total Feedback
+                </div>
+                <span className="text-2xl font-bold">{stats.summary_feedback.total_count.toLocaleString()}</span>
+              </div>
+
+              {/* Positive Summary Feedback */}
+              <div className="p-4 rounded-lg bg-green-50">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <ThumbsUp className="h-4 w-4 text-green-600" />
+                  Positive
+                </div>
+                <span className="text-2xl font-bold text-green-600">{stats.summary_feedback.positive_count.toLocaleString()}</span>
+              </div>
+
+              {/* Negative Summary Feedback */}
+              <div className="p-4 rounded-lg bg-red-50">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
+                  <ThumbsDown className="h-4 w-4 text-red-600" />
+                  Negative
+                </div>
+                <span className="text-2xl font-bold text-red-600">{stats.summary_feedback.negative_count.toLocaleString()}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-6 text-muted-foreground">
+              <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>No feedback collected</p>
+              <p className="text-sm mt-1">
+                Use the thumbs up/down buttons on daily summaries to provide feedback
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

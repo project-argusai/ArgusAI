@@ -508,10 +508,10 @@ development_status:
   p9-2-1-investigate-and-fix-frame-capture-timing: done
   p9-2-2-implement-similarity-based-frame-filtering: done
   p9-2-3-add-motion-scoring-to-frame-selection: done
-  p9-2-4-add-configurable-frame-count-setting: backlog
-  p9-2-5-store-all-analysis-frames-to-filesystem: backlog
-  p9-2-6-build-frame-gallery-modal-component: backlog
-  p9-2-7-add-frame-sampling-strategy-setting: backlog
+  p9-2-4-add-configurable-frame-count-setting: done
+  p9-2-5-store-all-analysis-frames-to-filesystem: done
+  p9-2-6-build-frame-gallery-modal-component: done
+  p9-2-7-add-frame-sampling-strategy-setting: done
   epic-p9-2-retrospective: optional
 
   # Epic P9-3: AI Context & Accuracy

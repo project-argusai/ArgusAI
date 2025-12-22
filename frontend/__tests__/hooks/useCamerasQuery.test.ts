@@ -201,8 +201,8 @@ describe('useCamerasQuery hooks', () => {
       });
 
       expect(result.current.data).toEqual(mockCamera);
-      // ID is converted to number in the hook
-      expect(apiClient.cameras.get).toHaveBeenCalledWith(1);
+      // ID is passed as string to the API client
+      expect(apiClient.cameras.get).toHaveBeenCalledWith('1');
     });
 
     it('does not fetch when ID is null', () => {
@@ -296,8 +296,8 @@ describe('useCamerasQuery hooks', () => {
         });
       });
 
-      // ID is converted to number in the hook
-      expect(apiClient.cameras.update).toHaveBeenCalledWith(1, { name: 'Updated Camera Name' });
+      // ID is passed as string to the API client
+      expect(apiClient.cameras.update).toHaveBeenCalledWith('1', { name: 'Updated Camera Name' });
     });
 
     it('handles update error', async () => {
@@ -325,8 +325,8 @@ describe('useCamerasQuery hooks', () => {
         await result.current.mutateAsync('1');
       });
 
-      // ID is converted to number in the hook
-      expect(apiClient.cameras.delete).toHaveBeenCalledWith(1);
+      // ID is passed as string to the API client
+      expect(apiClient.cameras.delete).toHaveBeenCalledWith('1');
     });
 
     it('invalidates camera list cache on success', async () => {

@@ -320,8 +320,8 @@ describe('EventDetailModal', () => {
       await user.click(confirmButton)
 
       await waitFor(() => {
-        // useDeleteEvent hook converts string ID to number
-        expect(mockApiClient.events.delete).toHaveBeenCalledWith(123)
+        // useDeleteEvent hook passes string ID to the API client
+        expect(mockApiClient.events.delete).toHaveBeenCalledWith('123')
       })
     })
 

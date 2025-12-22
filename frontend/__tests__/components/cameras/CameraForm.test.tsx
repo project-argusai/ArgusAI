@@ -357,8 +357,8 @@ describe('CameraForm', () => {
       await waitFor(() => {
         expect(screen.getByText('Connection successful')).toBeInTheDocument()
       })
-      // Component calls Number(initialData.id) which converts '123' to 123
-      expect(mockApiClient.cameras.test).toHaveBeenCalledWith(123)
+      // Component passes initialData.id as string to the API client
+      expect(mockApiClient.cameras.test).toHaveBeenCalledWith('123')
     })
 
     it('shows error message on connection failure', async () => {

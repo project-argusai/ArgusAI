@@ -287,8 +287,8 @@ describe('useEvents hooks', () => {
         await result.current.mutateAsync('1')
       })
 
-      // ID is converted to number in the hook
-      expect(mockApiClient.events.delete).toHaveBeenCalledWith(1)
+      // ID is passed as string to the API client
+      expect(mockApiClient.events.delete).toHaveBeenCalledWith('1')
     })
 
     it('shows success toast on delete', async () => {

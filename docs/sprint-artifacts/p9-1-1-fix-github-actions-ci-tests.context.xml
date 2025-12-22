@@ -1,0 +1,186 @@
+<story-context id="p9-1-1-fix-github-actions-ci-tests" v="1.0">
+  <metadata>
+    <epicId>P9-1</epicId>
+    <storyId>9.1.1</storyId>
+    <title>Fix GitHub Actions CI Tests</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-22</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p9-1-1-fix-github-actions-ci-tests.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer</asA>
+    <iWant>the CI pipeline to pass all tests consistently</iWant>
+    <soThat>I can merge PRs with confidence and catch regressions early</soThat>
+    <tasks>
+      <task id="1">Analyze current CI failures - Review GitHub Actions logs, identify failing tests</task>
+      <task id="2">Fix backend test failures - Run pytest locally, fix tests/mocks</task>
+      <task id="3">Fix frontend test failures - Run npm test locally, fix tests</task>
+      <task id="4">Fix ESLint issues - Run npm run lint, fix errors</task>
+      <task id="5">Fix TypeScript issues - Run npx tsc --noEmit, fix errors</task>
+      <task id="6">Optimize CI performance - Review ci.yml for optimization opportunities</task>
+      <task id="7">Validate fixes in CI - Push changes, verify all checks pass</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-1.1.1">Given a PR is created, when CI runs, then all backend pytest tests execute successfully</criterion>
+    <criterion id="AC-1.1.2">Given a PR is created, when CI runs, then all frontend tests execute successfully</criterion>
+    <criterion id="AC-1.1.3">Given a PR is created, when CI runs, then ESLint passes</criterion>
+    <criterion id="AC-1.1.4">Given a PR is created, when CI runs, then TypeScript check passes</criterion>
+    <criterion id="AC-1.1.5">Given CI completes, when viewing results, then total time is under 10 minutes</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P9-1.md</path>
+        <title>Epic P9-1 Technical Specification</title>
+        <section>P9-1.1: Fix GitHub Actions CI Tests</section>
+        <snippet>Acceptance criteria AC-1.1.1 through AC-1.1.5 define success: backend tests pass, frontend tests pass, ESLint passes, TypeScript passes, total CI time under 10 minutes.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase9.md</path>
+        <title>Phase 9 Epic Breakdown</title>
+        <section>Story P9-1.1</section>
+        <snippet>Review .github/workflows/ci.yml for configuration issues. Check for environment differences between local and CI (Node version, Python version). Identify flaky tests.</snippet>
+      </doc>
+      <doc>
+        <path>CLAUDE.md</path>
+        <title>Project Instructions</title>
+        <section>Build & Test Commands</section>
+        <snippet>Backend: pytest tests/ -v. Frontend: npm run dev, npm run build, npm run lint. CI workflow runs both in parallel.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>.github/workflows/ci.yml</path>
+        <kind>workflow</kind>
+        <symbol>CI workflow</symbol>
+        <lines>1-86</lines>
+        <reason>Primary target for investigation. Defines backend-tests and frontend-tests jobs, Python 3.11, Node 20, pip/npm caching, pytest and vitest execution.</reason>
+      </file>
+      <file>
+        <path>backend/tests/conftest.py</path>
+        <kind>test-config</kind>
+        <symbol>pytest fixtures</symbol>
+        <reason>Contains shared pytest fixtures used across all backend tests. May need updates if fixtures are out of sync.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/conftest.py</path>
+        <kind>test-config</kind>
+        <symbol>API test fixtures</symbol>
+        <reason>API-specific test fixtures for integration tests.</reason>
+      </file>
+      <file>
+        <path>frontend/__tests__/test-utils.tsx</path>
+        <kind>test-config</kind>
+        <symbol>test utilities</symbol>
+        <reason>Shared test utilities and render helpers for React component tests.</reason>
+      </file>
+      <file>
+        <path>frontend/vitest.config.ts</path>
+        <kind>test-config</kind>
+        <symbol>vitest configuration</symbol>
+        <reason>Vitest configuration - may need verification of test patterns and coverage settings.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <backend>
+        <package>pytest==7.4.3</package>
+        <package>pytest-asyncio==0.21.1</package>
+        <package>pytest-cov==4.1.0</package>
+        <package>httpx==0.25.2</package>
+        <package>fastapi==0.115.0</package>
+        <package>sqlalchemy>=2.0.36</package>
+      </backend>
+      <frontend>
+        <package>vitest@^4.0.15</package>
+        <package>@testing-library/react@^16.3.0</package>
+        <package>@testing-library/jest-dom@^6.9.1</package>
+        <package>@testing-library/user-event@^14.6.1</package>
+        <package>@vitest/coverage-v8@^4.0.15</package>
+        <package>jsdom@^27.2.0</package>
+        <package>next@^16.0.10</package>
+        <package>react@19.2.0</package>
+        <package>typescript@^5</package>
+        <package>eslint@^9</package>
+        <package>eslint-config-next@16.0.3</package>
+      </frontend>
+      <ci>
+        <package>actions/checkout@v4</package>
+        <package>actions/setup-python@v5</package>
+        <package>actions/setup-node@v4</package>
+        <package>codecov/codecov-action@v4</package>
+      </ci>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>CI must complete in under 10 minutes total</constraint>
+    <constraint>Python version: 3.11 (as specified in ci.yml)</constraint>
+    <constraint>Node version: 20 (as specified in ci.yml)</constraint>
+    <constraint>Tests must be reproducible locally before pushing</constraint>
+    <constraint>ENCRYPTION_KEY must be set in CI environment</constraint>
+    <constraint>DATABASE_URL uses sqlite:///./test.db in CI</constraint>
+    <constraint>No sensitive data should be exposed in CI logs</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>pytest CLI</name>
+      <kind>command</kind>
+      <signature>pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term</signature>
+      <path>backend/</path>
+    </interface>
+    <interface>
+      <name>npm test</name>
+      <kind>command</kind>
+      <signature>npm run test:coverage (vitest run --coverage)</signature>
+      <path>frontend/</path>
+    </interface>
+    <interface>
+      <name>npm lint</name>
+      <kind>command</kind>
+      <signature>npm run lint (eslint)</signature>
+      <path>frontend/</path>
+    </interface>
+    <interface>
+      <name>npm build</name>
+      <kind>command</kind>
+      <signature>npx next build (includes TypeScript check)</signature>
+      <path>frontend/</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend uses pytest with pytest-asyncio for async tests, pytest-cov for coverage, and httpx for API testing.
+      Frontend uses Vitest with React Testing Library, @testing-library/jest-dom for assertions, and coverage via @vitest/coverage-v8.
+      All tests must pass both locally and in CI. Tests should be isolated and not depend on external services.
+    </standards>
+    <locations>
+      <location>backend/tests/</location>
+      <location>backend/tests/test_api/</location>
+      <location>backend/tests/test_services/</location>
+      <location>backend/tests/test_integration/</location>
+      <location>backend/tests/test_models/</location>
+      <location>backend/tests/test_core/</location>
+      <location>backend/tests/test_performance/</location>
+      <location>frontend/__tests__/</location>
+      <location>frontend/__tests__/components/</location>
+      <location>frontend/__tests__/hooks/</location>
+      <location>frontend/__tests__/accessibility/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC-1.1.1">Run all backend tests locally with verbose output to identify failures</idea>
+      <idea ac="AC-1.1.2">Run all frontend tests locally to identify test failures</idea>
+      <idea ac="AC-1.1.3">Run ESLint with fix mode first, then verify no remaining errors</idea>
+      <idea ac="AC-1.1.4">Run TypeScript compiler to check for type errors</idea>
+      <idea ac="AC-1.1.5">Measure CI execution time before and after optimizations</idea>
+    </ideas>
+  </tests>
+</story-context>

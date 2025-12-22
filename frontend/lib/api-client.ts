@@ -2112,6 +2112,7 @@ export interface PromptRefinementResponse {
   feedback_analyzed: number;
   positive_examples: number;
   negative_examples: number;
+  provider_used: string; // Story P9-1.6: AI provider name for display
 }
 
 // ============================================================================

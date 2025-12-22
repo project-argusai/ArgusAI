@@ -496,8 +496,8 @@ development_status:
   p9-1-3-fix-protect-camera-filter-settings-persistence: done
   p9-1-4-fix-re-analyse-function: done  # Already fixed in P8-1.1
   p9-1-5-fix-prompt-refinement-api-submission: done  # Already implemented in P8-3.3
-  p9-1-6-show-ai-model-in-prompt-refinement-modal: backlog
-  p9-1-7-add-save-replace-button-to-prompt-refinement: backlog
+  p9-1-6-show-ai-model-in-prompt-refinement-modal: done
+  p9-1-7-add-save-replace-button-to-prompt-refinement: done
   p9-1-8-fix-vehicle-entity-make-model-separation: backlog
   epic-p9-1-retrospective: optional
 

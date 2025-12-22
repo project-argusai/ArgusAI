@@ -238,12 +238,25 @@ async def refine_prompt(
             }
         )
 
+        # Get friendly provider name for display (Story P9-1.6)
+        provider_display_names = {
+            "openai": "OpenAI GPT-4o",
+            "xai": "xAI Grok 2 Vision",
+            "anthropic": "Anthropic Claude 3 Haiku",
+            "google": "Google Gemini Flash"
+        }
+        provider_name = provider_display_names.get(
+            provider_enum.value,
+            provider_enum.value.title()
+        )
+
         return PromptRefinementResponse(
             suggested_prompt=result["suggested_prompt"],
             changes_summary=result["changes_summary"],
             feedback_analyzed=len(feedback_records),
             positive_examples=len(positive_examples),
-            negative_examples=len(negative_examples)
+            negative_examples=len(negative_examples),
+            provider_used=provider_name
         )
 
     except Exception as e:

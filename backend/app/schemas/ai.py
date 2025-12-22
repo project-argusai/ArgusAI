@@ -145,7 +145,7 @@ class PromptRefinementRequest(BaseModel):
 
 
 class PromptRefinementResponse(BaseModel):
-    """Response schema for POST /api/v1/ai/refine-prompt (Story P8-3.3)"""
+    """Response schema for POST /api/v1/ai/refine-prompt (Story P8-3.3, P9-1.6)"""
     suggested_prompt: str = Field(
         description="AI-suggested improved prompt"
     )
@@ -161,6 +161,9 @@ class PromptRefinementResponse(BaseModel):
     negative_examples: int = Field(
         description="Number of negative (thumbs down) feedback samples"
     )
+    provider_used: str = Field(
+        description="Name of the AI provider used for refinement (Story P9-1.6)"
+    )
 
     class Config:
         json_schema_extra = {
@@ -169,6 +172,7 @@ class PromptRefinementResponse(BaseModel):
                 "changes_summary": "Added structured format with numbered sections. Incorporated feedback patterns: users prefer specific person counts and vehicle details. Emphasized package detection based on positive feedback.",
                 "feedback_analyzed": 47,
                 "positive_examples": 32,
-                "negative_examples": 15
+                "negative_examples": 15,
+                "provider_used": "OpenAI GPT-4o"
             }
         }

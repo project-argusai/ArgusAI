@@ -125,7 +125,11 @@ export function PromptRefinementModal({
             AI-Assisted Prompt Refinement
           </DialogTitle>
           <DialogDescription>
-            Analyzing your feedback data to suggest an improved AI description prompt.
+            {refinementResult?.provider_used ? (
+              <>Using: <span className="font-medium text-foreground">{refinementResult.provider_used}</span> to analyze your feedback and suggest improvements.</>
+            ) : (
+              <>Analyzing your feedback data to suggest an improved AI description prompt.</>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -236,7 +240,7 @@ export function PromptRefinementModal({
                 onClick={handleAccept}
                 disabled={isLoading || !editedPrompt.trim()}
               >
-                Accept
+                Accept & Save
               </Button>
             </>
           )}

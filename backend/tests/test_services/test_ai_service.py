@@ -1432,7 +1432,9 @@ class TestMultiImagePromptBuilder:
             # All providers should include temporal context
             assert "chronological order" in prompt.lower()
             assert "3 frames" in prompt
-            assert "Camera 'Test Camera'" in prompt
+            # P9-3.1: Updated context format
+            assert '"Test Camera" camera' in prompt
+            assert "10:00 AM" in prompt  # Human-readable time format
 
 
 class TestOpenAIMultiImageProvider:

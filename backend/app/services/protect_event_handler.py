@@ -1555,10 +1555,12 @@ class ProtectEventHandler:
 
             # Story P8-2.3: Load analysis_frame_count from settings (default: 10)
             # Story P8-2.5: Load frame_sampling_strategy from settings (default: uniform)
+            # Story P9-2.1: Load frame_extraction_offset_ms from settings (default: 2000)
             from app.models.system_setting import SystemSetting
             from app.core.database import SessionLocal
             frame_count = 10  # Default
             sampling_strategy = "uniform"  # Default (Story P8-2.5 AC5.6)
+            extraction_offset_ms = 2000  # Default 2 seconds (Story P9-2.1)
             try:
                 db = SessionLocal()
                 frame_count_setting = db.query(SystemSetting).filter(
@@ -1580,29 +1582,51 @@ class ProtectEventHandler:
                         logger.warning(
                             f"Invalid sampling_strategy value '{sampling_strategy_setting.value}', using default 'uniform'"
                         )
+
+                # Story P9-2.1: Load frame extraction offset setting
+                offset_setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == 'settings_frame_extraction_offset_ms'
+                ).first()
+                if offset_setting and offset_setting.value:
+                    try:
+                        extraction_offset_ms = int(offset_setting.value)
+                        # Validate offset is within reasonable bounds (0-10 seconds)
+                        if extraction_offset_ms < 0:
+                            extraction_offset_ms = 0
+                        elif extraction_offset_ms > 10000:
+                            extraction_offset_ms = 10000
+                    except ValueError:
+                        logger.warning(
+                            f"Invalid offset value '{offset_setting.value}', using default 2000ms"
+                        )
+
                 db.close()
             except Exception as e:
                 logger.warning(f"Failed to load analysis settings, using defaults: {e}")
 
             # Story P8-2.5: Log the sampling strategy being used (AC5.7)
+            # Story P9-2.1: Log extraction offset
             logger.info(
                 f"Using frame sampling strategy '{sampling_strategy}' for camera '{camera.name}'",
                 extra={
                     "event_type": "frame_sampling_strategy_selected",
                     "camera_id": camera.id,
                     "sampling_strategy": sampling_strategy,
-                    "frame_count": frame_count
+                    "frame_count": frame_count,
+                    "extraction_offset_ms": extraction_offset_ms
                 }
             )
 
             # Story P3-7.5: Use extract_frames_with_timestamps to get both frames and timestamps
             # Story P8-2.5: Pass sampling_strategy parameter (AC5.5, AC5.7)
+            # Story P9-2.1: Pass offset_ms parameter for timing adjustment
             frames, timestamps = await frame_extractor.extract_frames_with_timestamps(
                 clip_path=clip_path,
                 frame_count=frame_count,  # Story P8-2.3: Use configured frame count
                 strategy="evenly_spaced",
                 filter_blur=True,
-                sampling_strategy=sampling_strategy  # Story P8-2.5: Use configured sampling strategy
+                sampling_strategy=sampling_strategy,  # Story P8-2.5: Use configured sampling strategy
+                offset_ms=extraction_offset_ms  # Story P9-2.1: Apply extraction offset
             )
 
             # Story P3-2.6 AC2: Check if frame extraction succeeded

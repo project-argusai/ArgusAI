@@ -33,6 +33,8 @@ export const aiModelsSettingsSchema = z.object({
     .nullable()
     .optional(),
   description_prompt: z.string().min(10, 'Prompt must be at least 10 characters'),
+  // Story P9-3.5: Summary Prompt Customization
+  summary_prompt: z.string().max(2000, 'Summary prompt must be less than 2000 characters').optional(),
 });
 
 // Motion Detection Settings Schema

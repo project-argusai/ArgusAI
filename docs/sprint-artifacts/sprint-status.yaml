@@ -522,7 +522,7 @@ development_status:
   p9-3-2-attempt-frame-overlay-text-extraction: done
   p9-3-3-implement-package-false-positive-feedback: done
   p9-3-4-add-summary-feedback-buttons: done
-  p9-3-5-add-summary-prompt-customization: backlog
+  p9-3-5-add-summary-prompt-customization: drafted
   p9-3-6-include-summary-feedback-in-ai-accuracy-stats: backlog
   epic-p9-3-retrospective: optional
 

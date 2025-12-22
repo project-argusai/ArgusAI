@@ -26,6 +26,9 @@ export interface SystemSettings {
   fallback_model: AIModel | null;
   description_prompt: string;
 
+  // Story P9-3.5: Summary Prompt Customization
+  summary_prompt?: string;  // Custom prompt for activity summaries
+
   // Motion Detection
   motion_sensitivity: number; // 0-100
   detection_method: DetectionMethod;

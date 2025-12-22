@@ -45,6 +45,12 @@ MAX_EVENTS_FOR_SUMMARY = 200
 MAX_EVENTS_FOR_FULL_DETAIL = 50
 SAMPLE_EVENTS_WHEN_LARGE = True
 
+# Story P9-3.5: Default summary prompt for reset functionality
+DEFAULT_SUMMARY_PROMPT = """Generate a daily activity summary for {date}.
+Summarize the {event_count} events detected across {camera_count} cameras.
+Highlight any notable patterns or unusual activity.
+Keep the summary concise (2-3 paragraphs)."""
+
 
 @dataclass
 class SummaryStats:
@@ -266,6 +272,32 @@ class SummaryService:
         result = important + sampled_regular
         return sorted(result, key=lambda e: e.timestamp)
 
+    def _get_summary_prompt_from_settings(self, db: Session) -> str:
+        """
+        Get custom summary prompt from settings (Story P9-3.5).
+
+        Returns the custom prompt if set, otherwise returns the default prompt.
+
+        Args:
+            db: Database session
+
+        Returns:
+            Summary prompt string
+        """
+        from app.models.system_setting import SystemSetting
+
+        try:
+            setting = db.query(SystemSetting).filter(
+                SystemSetting.key == 'summary_prompt'
+            ).first()
+
+            if setting and setting.value and setting.value.strip():
+                return setting.value.strip()
+        except Exception as e:
+            logger.warning(f"Failed to read summary_prompt from settings: {e}")
+
+        return DEFAULT_SUMMARY_PROMPT
+
     def _build_system_prompt(self) -> str:
         """
         Build the system prompt for summary generation.
@@ -285,7 +317,8 @@ class SummaryService:
         start_time: datetime,
         end_time: datetime,
         stats: SummaryStats,
-        camera_names: Dict[str, str]
+        camera_names: Dict[str, str],
+        custom_prompt: Optional[str] = None
     ) -> str:
         """
         Build the user prompt with event data for LLM.
@@ -297,11 +330,15 @@ class SummaryService:
         - Notable events
         - Time of day patterns
 
+        Story P9-3.5: Supports custom prompt with variable replacement.
+        Variables: {date}, {event_count}, {camera_count}
+
         Args:
             start_time: Period start
             end_time: Period end
             stats: Grouped event statistics
             camera_names: Camera name mapping
+            custom_prompt: Optional custom prompt template (Story P9-3.5)
 
         Returns:
             Formatted prompt string
@@ -310,12 +347,15 @@ class SummaryService:
         if start_time.date() == end_time.date():
             period = f"on {start_time.strftime('%B %d, %Y')}"
             time_range = f"from {start_time.strftime('%I:%M %p')} to {end_time.strftime('%I:%M %p')}"
+            date_str = start_time.strftime('%B %d, %Y')
         else:
             period = f"from {start_time.strftime('%B %d')} to {end_time.strftime('%B %d, %Y')}"
             time_range = ""
+            date_str = f"{start_time.strftime('%B %d')} to {end_time.strftime('%B %d, %Y')}"
 
         # Build camera list
         cameras = ", ".join(camera_names.values()) if camera_names else "All cameras"
+        camera_count = len(camera_names) if camera_names else 0
 
         # Build category breakdown
         categories = []
@@ -343,6 +383,16 @@ class SummaryService:
                 notable_items.append(f"- {event['type'].title()} at {event['time']} ({event['camera']})")
             notable_text = f"\n\nNotable Events:\n" + "\n".join(notable_items)
 
+        # Story P9-3.5: Build final instruction from custom prompt with variable replacement
+        if custom_prompt:
+            final_instruction = custom_prompt.format(
+                date=date_str,
+                event_count=stats.total_events,
+                camera_count=camera_count
+            )
+        else:
+            final_instruction = "Generate a 2-4 sentence narrative summary describing what happened."
+
         prompt = f"""Summarize activity {period} {time_range}:
 
 Cameras: {cameras}
@@ -354,7 +404,7 @@ By Category:
 Timeline:
 {timeline_text}{notable_text}
 
-Generate a 2-4 sentence narrative summary describing what happened."""
+{final_instruction}"""
 
         return prompt
 
@@ -768,9 +818,12 @@ Generate a 2-4 sentence narrative summary describing what happened."""
             # Group events (AC4)
             stats = self._group_events(events, camera_names)
 
+            # Story P9-3.5: Get custom summary prompt from settings
+            custom_prompt = self._get_summary_prompt_from_settings(db)
+
             # Build prompts (AC5)
             system_prompt = self._build_system_prompt()
-            user_prompt = self._build_user_prompt(start_time, end_time, stats, camera_names)
+            user_prompt = self._build_user_prompt(start_time, end_time, stats, camera_names, custom_prompt)
 
             # Call AI provider (AC2, AC11)
             summary_text, provider_used, input_tokens, output_tokens, ai_cost = await self._call_ai_provider(

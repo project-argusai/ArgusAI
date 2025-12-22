@@ -712,6 +712,55 @@ export default function SettingsPage() {
                 </CardContent>
               </Card>
 
+              {/* Story P9-3.5: Summary Prompt Customization */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Summary Prompt</CardTitle>
+                  <CardDescription>Customize the prompt used for generating activity summaries</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="summary-prompt">Summary Prompt Template</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const defaultPrompt = `Generate a daily activity summary for {date}.
+Summarize the {event_count} events detected across {camera_count} cameras.
+Highlight any notable patterns or unusual activity.
+Keep the summary concise (2-3 paragraphs).`;
+                          form.setValue('summary_prompt', defaultPrompt, { shouldDirty: true });
+                          toast.success('Summary prompt reset to default');
+                        }}
+                      >
+                        Reset to Default
+                      </Button>
+                    </div>
+                    <Textarea
+                      id="summary-prompt"
+                      {...form.register('summary_prompt')}
+                      rows={5}
+                      placeholder="Enter custom summary generation prompt"
+                      maxLength={2000}
+                      defaultValue={`Generate a daily activity summary for {date}.
+Summarize the {event_count} events detected across {camera_count} cameras.
+Highlight any notable patterns or unusual activity.
+Keep the summary concise (2-3 paragraphs).`}
+                    />
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-muted-foreground">
+                        Available variables: <code className="bg-muted px-1 rounded">{'{date}'}</code>, <code className="bg-muted px-1 rounded">{'{event_count}'}</code>, <code className="bg-muted px-1 rounded">{'{camera_count}'}</code>
+                      </p>
+                      <span className="text-xs text-muted-foreground">
+                        {(form.watch('summary_prompt') || '').length}/2000
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Story P8-3.3: Prompt Refinement Modal */}
               <PromptRefinementModal
                 open={promptRefinementOpen}

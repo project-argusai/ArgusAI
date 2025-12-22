@@ -163,6 +163,15 @@ class SystemSettings(BaseModel):
         description="Custom prompt appended to multi-frame analysis (Story P3-2.4). Leave empty to use system defaults."
     )
 
+    # Story P9-3.5: Summary Prompt Customization
+    summary_prompt: str = Field(
+        default="""Generate a daily activity summary for {date}.
+Summarize the {event_count} events detected across {camera_count} cameras.
+Highlight any notable patterns or unusual activity.
+Keep the summary concise (2-3 paragraphs).""",
+        description="Custom prompt for generating activity summaries. Variables: {date}, {event_count}, {camera_count}"
+    )
+
     # Motion Detection
     motion_sensitivity: int = Field(default=50, ge=0, le=100)
     detection_method: Literal["background_subtraction", "frame_difference"] = Field(default="background_subtraction")
@@ -249,6 +258,13 @@ class SystemSettingsUpdate(BaseModel):
     multi_frame_description_prompt: Optional[str] = Field(
         None,
         description="Custom prompt appended to multi-frame analysis (Story P3-2.4). Leave empty to use system defaults."
+    )
+
+    # Story P9-3.5: Summary Prompt Customization
+    summary_prompt: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Custom prompt for generating activity summaries. Variables: {date}, {event_count}, {camera_count}"
     )
 
     # AI Provider API Keys (Story P2-5.2, P2-5.3)

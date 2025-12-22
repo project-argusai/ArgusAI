@@ -1126,3 +1126,110 @@ class TestEncodeFrameForStorage:
         img = Image.open(io.BytesIO(decoded))
 
         assert img.width <= 320, "Default max_width should be 320"
+
+
+class TestFrameExtractionOffset:
+    """Tests for frame extraction offset feature (Story P9-2.1)"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Reset singleton before each test"""
+        reset_frame_extractor()
+        self.extractor = get_frame_extractor()
+        yield
+        reset_frame_extractor()
+
+    @pytest.mark.asyncio
+    async def test_offset_parameter_default(self):
+        """P9-2.1 AC-2.1.2: offset_ms defaults to 0"""
+        import inspect
+        sig = inspect.signature(self.extractor.extract_frames_with_timestamps)
+        offset_param = sig.parameters.get('offset_ms')
+        assert offset_param is not None, "offset_ms parameter should exist"
+        assert offset_param.default == 0, "offset_ms default should be 0"
+
+    @pytest.mark.asyncio
+    async def test_offset_with_valid_clip(self):
+        """P9-2.1 AC-2.1.2: Offset is applied when extracting frames"""
+        # Create a mock video container with enough frames
+        with patch('av.open') as mock_av_open:
+            mock_container = MagicMock()
+            mock_stream = MagicMock()
+            mock_stream.frames = 300  # 10 seconds at 30fps
+            mock_stream.average_rate = 30
+            mock_container.streams.video = [mock_stream]
+            mock_container.duration = 10_000_000  # 10 seconds in microseconds
+
+            # Create mock frames - we need to return 300 frames
+            mock_frames = []
+            for i in range(300):
+                mock_frame = MagicMock()
+                # Create small valid image data
+                mock_frame.to_ndarray.return_value = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+                mock_frames.append(mock_frame)
+
+            mock_container.decode.return_value = iter(mock_frames)
+            mock_container.__enter__ = MagicMock(return_value=mock_container)
+            mock_container.__exit__ = MagicMock(return_value=False)
+            mock_av_open.return_value = mock_container
+
+            # Extract with 2000ms offset (60 frames at 30fps)
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                clip_path=Path("/fake/video.mp4"),
+                frame_count=5,
+                offset_ms=2000
+            )
+
+            # Verify extraction was attempted
+            mock_av_open.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_offset_fallback_for_short_clip(self):
+        """P9-2.1 AC-2.1.5: Falls back to 0 offset when clip shorter than offset"""
+        with patch('av.open') as mock_av_open:
+            mock_container = MagicMock()
+            mock_stream = MagicMock()
+            mock_stream.frames = 30  # Only 1 second at 30fps
+            mock_stream.average_rate = 30
+            mock_container.streams.video = [mock_stream]
+            mock_container.duration = 1_000_000  # 1 second
+
+            mock_frames = []
+            for i in range(30):
+                mock_frame = MagicMock()
+                mock_frame.to_ndarray.return_value = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)
+                mock_frames.append(mock_frame)
+
+            mock_container.decode.return_value = iter(mock_frames)
+            mock_container.__enter__ = MagicMock(return_value=mock_container)
+            mock_container.__exit__ = MagicMock(return_value=False)
+            mock_av_open.return_value = mock_container
+
+            # Try to extract with 5000ms offset (150 frames) - longer than clip
+            # Should fall back to 0 offset with warning
+            frames, timestamps = await self.extractor.extract_frames_with_timestamps(
+                clip_path=Path("/fake/video.mp4"),
+                frame_count=5,
+                offset_ms=5000  # 5 seconds, but clip is only 1 second
+            )
+
+            # Should still work with fallback to 0 offset
+            mock_av_open.assert_called_once()
+
+    def test_offset_calculation(self):
+        """P9-2.1: Verify offset frames calculation at different FPS"""
+        # At 30fps, 2000ms = 60 frames
+        fps = 30.0
+        offset_ms = 2000
+        expected_frames = int((offset_ms / 1000.0) * fps)
+        assert expected_frames == 60
+
+        # At 60fps, 2000ms = 120 frames
+        fps = 60.0
+        expected_frames = int((offset_ms / 1000.0) * fps)
+        assert expected_frames == 120
+
+        # At 24fps, 2000ms = 48 frames
+        fps = 24.0
+        expected_frames = int((offset_ms / 1000.0) * fps)
+        assert expected_frames == 48

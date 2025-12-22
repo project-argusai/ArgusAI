@@ -563,10 +563,11 @@ class FrameExtractor:
         frame_count: int = 5,
         strategy: str = "evenly_spaced",
         filter_blur: bool = True,
-        sampling_strategy: str = "uniform"
+        sampling_strategy: str = "uniform",
+        offset_ms: int = 0
     ) -> Tuple[List[bytes], List[float]]:
         """
-        Extract frames from a video clip with their timestamps (Story P3-7.5, P8-2.4).
+        Extract frames from a video clip with their timestamps (Story P3-7.5, P8-2.4, P9-2.1).
 
         Similar to extract_frames but also returns frame timestamps in seconds
         for display in the key frames gallery.
@@ -580,6 +581,9 @@ class FrameExtractor:
                 - "uniform": Evenly-spaced selection (default, legacy behavior)
                 - "adaptive": Content-aware selection using histogram + SSIM
                 - "hybrid": Extract more candidates, then filter adaptively
+            offset_ms: Milliseconds to skip from clip start before extracting (Story P9-2.1)
+                - Default 0 (no offset)
+                - Helps capture subject when fully in frame instead of entering/exiting
 
         Returns:
             Tuple of (frames, timestamps):
@@ -592,7 +596,8 @@ class FrameExtractor:
                 "event_type": "frame_extraction_with_timestamps_start",
                 "clip_path": str(clip_path),
                 "frame_count": frame_count,
-                "sampling_strategy": sampling_strategy
+                "sampling_strategy": sampling_strategy,
+                "offset_ms": offset_ms
             }
         )
 
@@ -643,17 +648,74 @@ class FrameExtractor:
                 if total_frames <= 0:
                     return [], []
 
+                # Story P9-2.1: Apply extraction offset
+                # Skip initial frames to capture subject when fully in frame
+                offset_frames = 0
+                effective_offset_ms = offset_ms
+
+                if offset_ms > 0:
+                    offset_frames = int((offset_ms / 1000.0) * fps)
+
+                    # Handle edge case: clip shorter than offset
+                    if offset_frames >= total_frames:
+                        # Fall back to 0 offset with warning
+                        logger.warning(
+                            f"Clip too short for offset ({total_frames} frames < {offset_frames} offset frames), using offset=0",
+                            extra={
+                                "event_type": "frame_extraction_offset_fallback",
+                                "clip_path": str(clip_path),
+                                "total_frames": total_frames,
+                                "offset_frames": offset_frames,
+                                "offset_ms": offset_ms,
+                                "fps": fps
+                            }
+                        )
+                        offset_frames = 0
+                        effective_offset_ms = 0
+                    else:
+                        logger.debug(
+                            f"Applying extraction offset: skipping first {offset_frames} frames ({offset_ms}ms)",
+                            extra={
+                                "event_type": "frame_extraction_offset_applied",
+                                "clip_path": str(clip_path),
+                                "offset_frames": offset_frames,
+                                "offset_ms": offset_ms,
+                                "fps": fps,
+                                "total_frames": total_frames,
+                                "remaining_frames": total_frames - offset_frames
+                            }
+                        )
+
+                # Calculate available frames after offset
+                available_frames = total_frames - offset_frames
+
+                if available_frames <= 0:
+                    logger.warning(
+                        "No frames available after offset",
+                        extra={
+                            "event_type": "frame_extraction_no_frames_after_offset",
+                            "clip_path": str(clip_path),
+                            "total_frames": total_frames,
+                            "offset_frames": offset_frames
+                        }
+                    )
+                    return [], []
+
                 # Story P8-2.4: For adaptive/hybrid, extract more candidate frames
+                # Story P9-2.1: Use available_frames (after offset) for index calculation
                 if sampling_strategy in ["adaptive", "hybrid"]:
                     # Extract 3x the target count as candidates for adaptive selection
-                    candidate_count = min(total_frames, frame_count * 3)
-                    indices = self._calculate_frame_indices(total_frames, candidate_count)
+                    candidate_count = min(available_frames, frame_count * 3)
+                    relative_indices = self._calculate_frame_indices(available_frames, candidate_count)
                 else:
                     # Calculate which frames to extract (uniform strategy)
-                    indices = self._calculate_frame_indices(total_frames, frame_count)
+                    relative_indices = self._calculate_frame_indices(available_frames, frame_count)
 
-                if not indices:
+                if not relative_indices:
                     return [], []
+
+                # Story P9-2.1: Add offset to get actual frame indices in the video
+                indices = [idx + offset_frames for idx in relative_indices]
 
                 # Extract frames at calculated indices
                 # Store as tuples: (frame_index, quality_score, rgb_array, jpeg_bytes)

@@ -27,7 +27,7 @@ export function useSubmitFeedback() {
   return useMutation<IEvent, ApiError, SubmitFeedbackParams>({
     mutationFn: async ({ eventId, rating, correction }) => {
       const feedback = { rating, correction: correction ?? null };
-      return apiClient.events.submitFeedback(Number(eventId), feedback);
+      return apiClient.events.submitFeedback(eventId, feedback);
     },
     onSuccess: (_data, variables) => {
       // Invalidate event queries to refresh feedback data
@@ -51,7 +51,7 @@ export function useUpdateFeedback() {
   return useMutation<IEvent, ApiError, SubmitFeedbackParams>({
     mutationFn: async ({ eventId, rating, correction }) => {
       const feedback = { rating, correction: correction ?? null };
-      return apiClient.events.submitFeedback(Number(eventId), feedback);
+      return apiClient.events.submitFeedback(eventId, feedback);
     },
     onSuccess: (_data, variables) => {
       // Invalidate event queries to refresh feedback data
@@ -75,7 +75,7 @@ export function useDeleteFeedback() {
   return useMutation<IEvent, ApiError, string>({
     mutationFn: async (eventId) => {
       // Delete feedback by submitting empty feedback
-      return apiClient.events.submitFeedback(Number(eventId), { rating: 'helpful' });
+      return apiClient.events.submitFeedback(eventId, { rating: 'helpful' });
     },
     onSuccess: (_, eventId) => {
       // Invalidate event queries to refresh feedback data

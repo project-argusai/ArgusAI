@@ -459,7 +459,7 @@ export const apiClient = {
      * @param feedback Feedback data (rating, optional correction)
      * @returns Updated event with feedback
      */
-    submitFeedback: async (eventId: number, feedback: { rating: 'helpful' | 'not_helpful'; correction?: string | null }): Promise<IEvent> => {
+    submitFeedback: async (eventId: string, feedback: { rating: 'helpful' | 'not_helpful'; correction?: string | null }): Promise<IEvent> => {
       return apiFetch(`/events/${eventId}/feedback`, {
         method: 'POST',
         body: JSON.stringify(feedback),

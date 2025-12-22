@@ -16,7 +16,9 @@ from app.services.ai_service import (
     GeminiProvider,
     GrokProvider,
     AIResult,
-    AIProvider as AIProviderEnum
+    AIProvider as AIProviderEnum,
+    build_context_prompt,
+    get_time_of_day_category,
 )
 from app.models.system_setting import SystemSetting
 
@@ -1261,7 +1263,7 @@ class TestMultiImagePromptBuilder:
     """Test multi-image prompt building (Story P3-2.3, P3-2.4)"""
 
     def test_build_multi_image_prompt_basic(self):
-        """Test multi-image prompt includes frame count and context"""
+        """Test multi-image prompt includes frame count and context (P9-3.1 updated format)"""
         provider = OpenAIProvider("sk-test-key")
 
         prompt = provider._build_multi_image_prompt(
@@ -1272,8 +1274,9 @@ class TestMultiImagePromptBuilder:
         )
 
         assert "5 frames" in prompt
-        assert "Camera 'Front Door'" in prompt
-        assert "2025-12-06T10:00:00" in prompt
+        # P9-3.1: Updated context format
+        assert '"Front Door" camera' in prompt
+        assert "10:00 AM" in prompt  # Human-readable time format
         assert "person" in prompt
         assert "sequence" in prompt.lower()
 
@@ -1292,7 +1295,8 @@ class TestMultiImagePromptBuilder:
 
         # Custom prompt should be appended
         assert custom_prompt in prompt
-        assert "Camera 'Driveway'" in prompt
+        # P9-3.1: Updated context format
+        assert '"Driveway" camera' in prompt
         # System prompt should STILL be present (not replaced)
         assert "chronological order" in prompt
         assert "Additional instructions:" in prompt
@@ -3076,3 +3080,138 @@ class TestGeminiVideoFormatConversion:
         assert result.success is False
         assert "convert" in result.error.lower() or "unsupported" in result.error.lower()
         mock_convert.assert_called_once()
+
+
+class TestContextPromptBuilding:
+    """Test context prompt building for AI (Story P9-3.1)"""
+
+    def test_get_time_of_day_morning(self):
+        """Test morning category for 5:00 AM - 11:59 AM (AC-3.1.3)"""
+        assert get_time_of_day_category(5) == "morning"
+        assert get_time_of_day_category(7) == "morning"
+        assert get_time_of_day_category(11) == "morning"
+
+    def test_get_time_of_day_afternoon(self):
+        """Test afternoon category for 12:00 PM - 4:59 PM (AC-3.1.3)"""
+        assert get_time_of_day_category(12) == "afternoon"
+        assert get_time_of_day_category(14) == "afternoon"
+        assert get_time_of_day_category(16) == "afternoon"
+
+    def test_get_time_of_day_evening(self):
+        """Test evening category for 5:00 PM - 8:59 PM (AC-3.1.3)"""
+        assert get_time_of_day_category(17) == "evening"
+        assert get_time_of_day_category(19) == "evening"
+        assert get_time_of_day_category(20) == "evening"
+
+    def test_get_time_of_day_night(self):
+        """Test night category for 9:00 PM - 4:59 AM (AC-3.1.3)"""
+        assert get_time_of_day_category(21) == "night"
+        assert get_time_of_day_category(23) == "night"
+        assert get_time_of_day_category(0) == "night"
+        assert get_time_of_day_category(2) == "night"
+        assert get_time_of_day_category(4) == "night"
+
+    def test_build_context_prompt_morning(self):
+        """Test context prompt for morning time (AC-3.1.1, AC-3.1.3)"""
+        result = build_context_prompt("Front Door", "2025-12-22T07:15:00+00:00")
+        assert 'Context: This footage is from the "Front Door" camera' in result
+        assert "7:15 AM" in result
+        assert "December" in result
+        assert "(morning)" in result
+
+    def test_build_context_prompt_afternoon(self):
+        """Test context prompt for afternoon time (AC-3.1.1, AC-3.1.3)"""
+        result = build_context_prompt("Backyard", "2025-12-22T14:30:00+00:00")
+        assert 'Context: This footage is from the "Backyard" camera' in result
+        assert "2:30 PM" in result
+        assert "(afternoon)" in result
+
+    def test_build_context_prompt_evening(self):
+        """Test context prompt for evening time (AC-3.1.1, AC-3.1.3)"""
+        result = build_context_prompt("Driveway", "2025-12-22T18:45:00+00:00")
+        assert 'Context: This footage is from the "Driveway" camera' in result
+        assert "6:45 PM" in result
+        assert "(evening)" in result
+
+    def test_build_context_prompt_night(self):
+        """Test context prompt for night time (AC-3.1.1, AC-3.1.3)"""
+        result = build_context_prompt("Side Gate", "2025-12-22T22:00:00+00:00")
+        assert 'Context: This footage is from the "Side Gate" camera' in result
+        assert "10:00 PM" in result
+        assert "(night)" in result
+
+    def test_build_context_prompt_late_night(self):
+        """Test context prompt for late night (early morning hours) (AC-3.1.3)"""
+        result = build_context_prompt("Garage", "2025-12-22T02:30:00+00:00")
+        assert 'Context: This footage is from the "Garage" camera' in result
+        assert "2:30 AM" in result
+        assert "(night)" in result
+
+    def test_build_context_prompt_includes_day_of_week(self):
+        """Test context prompt includes day of week (AC-3.1.3)"""
+        # December 22, 2025 is a Monday
+        result = build_context_prompt("Front Door", "2025-12-22T10:00:00+00:00")
+        assert "Monday" in result
+
+    def test_build_context_prompt_with_z_suffix(self):
+        """Test context prompt handles Z suffix for UTC (AC-3.1.1)"""
+        result = build_context_prompt("Front Door", "2025-12-22T07:15:00Z")
+        assert 'Context: This footage is from the "Front Door" camera' in result
+        assert "7:15 AM" in result
+        assert "(morning)" in result
+
+    def test_build_context_prompt_fallback_on_invalid_timestamp(self):
+        """Test context prompt falls back gracefully on invalid timestamp"""
+        result = build_context_prompt("Camera", "invalid-timestamp")
+        assert 'Context: This footage is from the "Camera" camera' in result
+        assert "invalid-timestamp" in result
+
+    def test_build_context_prompt_special_camera_name(self):
+        """Test context prompt handles special characters in camera name"""
+        result = build_context_prompt("John's Camera", "2025-12-22T10:00:00Z")
+        assert 'Context: This footage is from the "John\'s Camera" camera' in result
+
+
+class TestPromptBuildingWithContext:
+    """Test _build_user_prompt and _build_multi_image_prompt with context (Story P9-3.1)"""
+
+    @pytest.fixture
+    def openai_provider(self):
+        """Create OpenAI provider instance for testing prompt building"""
+        return OpenAIProvider(api_key="test-openai-key")
+
+    def test_build_user_prompt_includes_context(self, openai_provider):
+        """Test _build_user_prompt includes human-readable context (AC-3.1.4)"""
+        prompt = openai_provider._build_user_prompt(
+            camera_name="Front Door",
+            timestamp="2025-12-22T07:15:00+00:00",
+            detected_objects=["person"]
+        )
+        assert 'This footage is from the "Front Door" camera' in prompt
+        assert "7:15 AM" in prompt
+        assert "(morning)" in prompt
+        assert "Motion detected: person" in prompt
+
+    def test_build_multi_image_prompt_includes_context(self, openai_provider):
+        """Test _build_multi_image_prompt includes human-readable context (AC-3.1.4)"""
+        prompt = openai_provider._build_multi_image_prompt(
+            camera_name="Backyard",
+            timestamp="2025-12-22T14:30:00+00:00",
+            detected_objects=["vehicle"],
+            num_images=5
+        )
+        assert 'This footage is from the "Backyard" camera' in prompt
+        assert "2:30 PM" in prompt
+        assert "(afternoon)" in prompt
+        assert "Motion detected: vehicle" in prompt
+        assert "5 frames" in prompt  # From MULTI_FRAME_SYSTEM_PROMPT
+
+    def test_build_user_prompt_evening_context(self, openai_provider):
+        """Test evening context in prompt (AC-3.1.2)"""
+        prompt = openai_provider._build_user_prompt(
+            camera_name="Front Door",
+            timestamp="2025-12-22T18:45:00+00:00",
+            detected_objects=[]
+        )
+        assert "(evening)" in prompt
+        assert "6:45 PM" in prompt

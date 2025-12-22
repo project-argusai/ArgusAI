@@ -518,7 +518,7 @@ development_status:
   # Priority: P2
   # Focus: Camera/time context, package false positives, summary feedback, prompt refinement
   epic-p9-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P9-3.md
-  p9-3-1-add-camera-and-time-context-to-ai-prompt: backlog
+  p9-3-1-add-camera-and-time-context-to-ai-prompt: done
   p9-3-2-attempt-frame-overlay-text-extraction: backlog
   p9-3-3-implement-package-false-positive-feedback: backlog
   p9-3-4-add-summary-feedback-buttons: backlog

@@ -1,30 +1,38 @@
 """
-Summaries API endpoints for Activity Summaries (Story P4-4.1)
+Summaries API endpoints for Activity Summaries (Story P4-4.1, P9-3.4)
 
 Provides endpoints for:
 - Generating activity summaries for time periods
 - Retrieving daily summaries
 - Caching generated summaries
+- Summary feedback (Story P9-3.4)
 
 AC Coverage:
 - AC13: POST /api/v1/summaries/generate endpoint
 - AC14: GET /api/v1/summaries/daily endpoint
 - AC15: Validation errors (400 for invalid date ranges)
 - AC16: Response schema with required fields
+- AC-3.4.1-6: Summary feedback endpoints (Story P9-3.4)
 """
 import json
 import logging
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Dict, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.activity_summary import ActivitySummary
+from app.models.summary_feedback import SummaryFeedback
 from app.models.event import Event
 from app.services.summary_service import get_summary_service, SummaryService
+from app.schemas.feedback import (
+    SummaryFeedbackCreate,
+    SummaryFeedbackUpdate,
+    SummaryFeedbackResponse
+)
 
 logger = logging.getLogger(__name__)
 
@@ -744,3 +752,244 @@ async def get_summary(
         ai_cost=summary.ai_cost,
         provider_used=summary.provider_used,
     )
+
+
+# ============================================================================
+# Story P9-3.4: Summary Feedback Endpoints
+# ============================================================================
+
+@router.post("/{summary_id}/feedback", response_model=SummaryFeedbackResponse, status_code=status.HTTP_201_CREATED)
+async def create_summary_feedback(
+    summary_id: str,
+    feedback_data: SummaryFeedbackCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create feedback for a summary (Story P9-3.4).
+
+    Allows users to rate summaries as positive/negative and optionally
+    provide correction text.
+
+    AC-3.4.2: Given I click thumbs up, when submitted, then positive feedback stored
+    AC-3.4.5: Given I submit thumbs down with text, when stored, then correction_text saved
+    AC-3.4.6: Given I submit feedback, when complete, then brief toast "Thanks for the feedback!"
+
+    Args:
+        summary_id: Summary UUID
+        feedback_data: Rating and optional correction text
+        db: Database session
+
+    Returns:
+        Created feedback with ID and timestamps
+
+    Raises:
+        404: Summary not found
+        409: Feedback already exists for this summary
+        500: Database error
+    """
+    try:
+        # Verify summary exists
+        summary = db.query(ActivitySummary).filter(ActivitySummary.id == summary_id).first()
+        if not summary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Summary {summary_id} not found"
+            )
+
+        # Check if feedback already exists
+        existing = db.query(SummaryFeedback).filter(SummaryFeedback.summary_id == summary_id).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Feedback already exists for this summary. Use PUT to update."
+            )
+
+        # Create feedback
+        feedback = SummaryFeedback(
+            summary_id=summary_id,
+            rating=feedback_data.rating,
+            correction_text=feedback_data.correction_text
+        )
+        db.add(feedback)
+        db.commit()
+        db.refresh(feedback)
+
+        logger.info(
+            f"Created feedback for summary {summary_id}: rating={feedback_data.rating}",
+            extra={"summary_id": summary_id, "rating": feedback_data.rating}
+        )
+
+        return SummaryFeedbackResponse.model_validate(feedback)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create feedback for summary {summary_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create feedback"
+        )
+
+
+@router.get("/{summary_id}/feedback", response_model=SummaryFeedbackResponse)
+async def get_summary_feedback(
+    summary_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get feedback for a summary (Story P9-3.4).
+
+    AC-3.4.3: Given I click thumbs up, when viewing, then button shows selected state
+
+    Args:
+        summary_id: Summary UUID
+        db: Database session
+
+    Returns:
+        Feedback data if exists
+
+    Raises:
+        404: Summary or feedback not found
+    """
+    try:
+        # Verify summary exists
+        summary = db.query(ActivitySummary).filter(ActivitySummary.id == summary_id).first()
+        if not summary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Summary {summary_id} not found"
+            )
+
+        feedback = db.query(SummaryFeedback).filter(SummaryFeedback.summary_id == summary_id).first()
+        if not feedback:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No feedback found for summary {summary_id}"
+            )
+
+        return SummaryFeedbackResponse.model_validate(feedback)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get feedback for summary {summary_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get feedback"
+        )
+
+
+@router.put("/{summary_id}/feedback", response_model=SummaryFeedbackResponse)
+async def update_summary_feedback(
+    summary_id: str,
+    feedback_data: SummaryFeedbackUpdate,
+    db: Session = Depends(get_db)
+):
+    """
+    Update existing feedback for a summary (Story P9-3.4).
+
+    Args:
+        summary_id: Summary UUID
+        feedback_data: Updated rating and/or correction text
+        db: Database session
+
+    Returns:
+        Updated feedback
+
+    Raises:
+        404: Summary or feedback not found
+        500: Database error
+    """
+    try:
+        # Verify summary exists
+        summary = db.query(ActivitySummary).filter(ActivitySummary.id == summary_id).first()
+        if not summary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Summary {summary_id} not found"
+            )
+
+        feedback = db.query(SummaryFeedback).filter(SummaryFeedback.summary_id == summary_id).first()
+        if not feedback:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No feedback found for summary {summary_id}"
+            )
+
+        # Update fields if provided
+        if feedback_data.rating is not None:
+            feedback.rating = feedback_data.rating
+        if feedback_data.correction_text is not None:
+            feedback.correction_text = feedback_data.correction_text
+
+        db.commit()
+        db.refresh(feedback)
+
+        logger.info(
+            f"Updated feedback for summary {summary_id}",
+            extra={"summary_id": summary_id}
+        )
+
+        return SummaryFeedbackResponse.model_validate(feedback)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update feedback for summary {summary_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update feedback"
+        )
+
+
+@router.delete("/{summary_id}/feedback", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_summary_feedback(
+    summary_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete feedback for a summary (Story P9-3.4).
+
+    Args:
+        summary_id: Summary UUID
+        db: Database session
+
+    Raises:
+        404: Summary or feedback not found
+        500: Database error
+    """
+    try:
+        # Verify summary exists
+        summary = db.query(ActivitySummary).filter(ActivitySummary.id == summary_id).first()
+        if not summary:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Summary {summary_id} not found"
+            )
+
+        feedback = db.query(SummaryFeedback).filter(SummaryFeedback.summary_id == summary_id).first()
+        if not feedback:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No feedback found for summary {summary_id}"
+            )
+
+        db.delete(feedback)
+        db.commit()
+
+        logger.info(
+            f"Deleted feedback for summary {summary_id}",
+            extra={"summary_id": summary_id}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete feedback for summary {summary_id}: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete feedback"
+        )

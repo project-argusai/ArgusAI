@@ -3,6 +3,7 @@
 Story P4-5.1: Feedback Collection UI
 Story P4-5.2: Feedback Storage & API - Added statistics schemas
 Story P9-3.3: Package False Positive Feedback - Added correction_type
+Story P9-3.4: Add Summary Feedback Buttons - Added summary feedback schemas
 """
 from pydantic import BaseModel, Field
 from typing import Literal, Optional, Dict, List
@@ -125,5 +126,47 @@ class FeedbackStatsResponse(BaseModel):
         default_factory=list,
         description="Most common correction patterns (top 10)"
     )
+
+    model_config = {"from_attributes": True}
+
+
+# ============================================================================
+# Story P9-3.4: Summary Feedback Schemas
+# ============================================================================
+
+class SummaryFeedbackCreate(BaseModel):
+    """Schema for creating new feedback on a summary."""
+    rating: Literal['positive', 'negative'] = Field(
+        ...,
+        description="User's rating of the summary"
+    )
+    correction_text: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Optional correction text (max 500 characters)"
+    )
+
+
+class SummaryFeedbackUpdate(BaseModel):
+    """Schema for updating existing summary feedback."""
+    rating: Optional[Literal['positive', 'negative']] = Field(
+        None,
+        description="Updated rating (optional)"
+    )
+    correction_text: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Updated correction text (max 500 characters)"
+    )
+
+
+class SummaryFeedbackResponse(BaseModel):
+    """Schema for summary feedback response."""
+    id: str
+    summary_id: str
+    rating: str
+    correction_text: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

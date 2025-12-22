@@ -410,3 +410,19 @@ export interface IEventFramesResponse {
   total_count: number;            // Total number of frames
   total_size_bytes: number;       // Total size of all frames in bytes
 }
+
+// ==============================================================================
+// Story P9-3.4: Summary Feedback Types
+// ==============================================================================
+
+/**
+ * Summary Feedback interface for user ratings on activity summaries
+ */
+export interface ISummaryFeedback {
+  id: string;                     // Feedback UUID
+  summary_id: string;             // Summary UUID
+  rating: 'positive' | 'negative';  // User rating
+  correction_text: string | null; // Optional correction text
+  created_at: string;             // ISO 8601 datetime
+  updated_at?: string | null;     // ISO 8601 datetime
+}

@@ -1,13 +1,14 @@
 'use client';
 
 /**
- * Summaries Page (Story P4-4.5)
+ * Summaries Page (Story P4-4.5, P9-3.4)
  *
  * Main page for viewing activity summaries and generating on-demand summaries.
  *
  * AC Coverage:
  * - AC6: Summaries page with "Generate Summary" button
  * - AC12: View saved summaries in history
+ * - AC-3.4.1-6: Summary feedback buttons (Story P9-3.4)
  */
 
 import { useState } from 'react';
@@ -28,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { GenerateSummaryDialog } from '@/components/summaries/GenerateSummaryDialog';
+import { SummaryFeedbackButtons } from '@/components/summaries/SummaryFeedbackButtons';
 import { useRecentSummaries, useSummaryList, RecentSummaryItem } from '@/hooks/useSummaries';
 import type { SummaryGenerateResponse } from '@/hooks/useSummaries';
 
@@ -97,6 +99,11 @@ function SummaryListItem({ summary }: { summary: RecentSummaryItem | SummaryGene
           <StatBadge icon={Bell} value={summary.doorbell_count} label="doorbells" />
           <StatBadge icon={Users} value={summary.person_count} label="people" />
           <StatBadge icon={Car} value={summary.vehicle_count} label="vehicles" />
+        </div>
+
+        {/* Story P9-3.4: Feedback Buttons (AC-3.4.1) */}
+        <div className="flex justify-end pt-2 border-t mt-3">
+          <SummaryFeedbackButtons summaryId={summary.id} />
         </div>
       </CardContent>
     </Card>

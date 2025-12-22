@@ -1,15 +1,17 @@
 """
-ActivitySummary Model (Story P4-4.1, P4-4.2)
+ActivitySummary Model (Story P4-4.1, P4-4.2, P9-3.4)
 
 Stores generated activity summaries for caching and historical access.
 Summaries can be generated on-demand or scheduled via DigestScheduler.
 
 Story P4-4.2: Added digest_type column to distinguish scheduled digests.
+Story P9-3.4: Added feedback relationship for summary feedback.
 """
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, String, Text, DateTime, Integer, Float
+from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
@@ -123,6 +125,14 @@ class ActivitySummary(Base):
         Text,
         nullable=True,
         doc="JSON object with delivery status per channel: {channels_succeeded: [], errors: {}, delivery_time_ms: int}"
+    )
+
+    # Story P9-3.4: Relationship to SummaryFeedback
+    feedback = relationship(
+        "SummaryFeedback",
+        back_populates="summary",
+        uselist=False,
+        cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

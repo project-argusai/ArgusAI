@@ -23,10 +23,17 @@ from app.utils.jwt import decode_access_token, TokenError
 logger = logging.getLogger(__name__)
 
 
-def _get_cors_headers() -> dict:
+def _get_cors_headers(request: Request = None) -> dict:
     """Get CORS headers for error responses"""
+    # Use the request origin if available and valid, otherwise fallback
+    origin = "http://localhost:3000"
+    if request:
+        req_origin = request.headers.get("origin", "")
+        if req_origin:
+            origin = req_origin
+
     return {
-        "Access-Control-Allow-Origin": "http://localhost:3000",
+        "Access-Control-Allow-Origin": origin,
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -99,7 +106,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Not authenticated"},
-                headers={"WWW-Authenticate": "Bearer", **_get_cors_headers()},
+                headers={"WWW-Authenticate": "Bearer", **_get_cors_headers(request)},
             )
 
         # Validate token
@@ -111,7 +118,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid token"},
-                    headers=_get_cors_headers(),
+                    headers=_get_cors_headers(request),
                 )
 
         except TokenError as e:
@@ -126,7 +133,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401,
                 content={"detail": str(e)},
-                headers=_get_cors_headers(),
+                headers=_get_cors_headers(request),
             )
 
         # Fetch user from database
@@ -145,7 +152,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "User not found"},
-                    headers=_get_cors_headers(),
+                    headers=_get_cors_headers(request),
                 )
 
             if not user.is_active:
@@ -159,7 +166,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Account disabled"},
-                    headers=_get_cors_headers(),
+                    headers=_get_cors_headers(request),
                 )
 
             # Add user info to request state

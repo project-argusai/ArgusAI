@@ -160,6 +160,73 @@ PROVIDER_CAPABILITIES = {
 }
 
 
+def get_time_of_day_category(hour: int) -> str:
+    """Get time of day category from hour (Story P9-3.1 AC-3.1.3)
+
+    Categories:
+    - morning: 5:00 AM - 11:59 AM
+    - afternoon: 12:00 PM - 4:59 PM
+    - evening: 5:00 PM - 8:59 PM
+    - night: 9:00 PM - 4:59 AM
+
+    Args:
+        hour: Hour in 24-hour format (0-23)
+
+    Returns:
+        Time category string
+    """
+    if 5 <= hour < 12:
+        return "morning"
+    elif 12 <= hour < 17:
+        return "afternoon"
+    elif 17 <= hour < 21:
+        return "evening"
+    else:
+        return "night"
+
+
+def build_context_prompt(camera_name: str, timestamp: str) -> str:
+    """Build human-readable context prompt for AI (Story P9-3.1)
+
+    Formats camera name and timestamp into a natural context string that
+    the AI can reference in its descriptions.
+
+    Args:
+        camera_name: Name of the camera (e.g., "Front Door")
+        timestamp: ISO 8601 timestamp string (e.g., "2025-12-22T07:15:00+00:00")
+
+    Returns:
+        Context string like:
+        'Context: This footage is from the "Front Door" camera at 7:15 AM on Sunday, December 22, 2025 (morning).'
+
+    Examples:
+        >>> build_context_prompt("Front Door", "2025-12-22T07:15:00+00:00")
+        'Context: This footage is from the "Front Door" camera at 7:15 AM on Sunday, December 22, 2025 (morning).'
+
+        >>> build_context_prompt("Backyard", "2025-12-22T22:30:00+00:00")
+        'Context: This footage is from the "Backyard" camera at 10:30 PM on Sunday, December 22, 2025 (night).'
+    """
+    try:
+        # Parse ISO 8601 timestamp
+        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+
+        # Format time as "7:15 AM" / "2:30 PM"
+        time_str = dt.strftime("%-I:%M %p")  # %-I removes leading zero on hour
+
+        # Format day of week and date
+        date_str = dt.strftime("%A, %B %-d, %Y")  # "Sunday, December 22, 2025"
+
+        # Get time of day category
+        time_category = get_time_of_day_category(dt.hour)
+
+        return f'Context: This footage is from the "{camera_name}" camera at {time_str} on {date_str} ({time_category}).'
+
+    except (ValueError, AttributeError) as e:
+        # Fallback to simple format if parsing fails
+        logger.warning(f"Failed to parse timestamp '{timestamp}': {e}")
+        return f'Context: This footage is from the "{camera_name}" camera at {timestamp}.'
+
+
 class AIProvider(Enum):
     """Supported AI vision providers"""
     OPENAI = "openai"
@@ -280,8 +347,8 @@ class AIProviderBase(ABC):
                            or from Story P2-4.1 doorbell ring events)
             audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
         """
-        # Build camera context
-        context = f"\nContext: Camera '{camera_name}' at {timestamp}."
+        # Story P9-3.1: Build human-readable context with camera name and time
+        context = "\n" + build_context_prompt(camera_name, timestamp)
         if detected_objects:
             context += f" Motion detected: {', '.join(detected_objects)}."
 
@@ -310,7 +377,7 @@ class AIProviderBase(ABC):
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None
     ) -> str:
-        """Build user prompt for multi-image analysis (Story P3-2.3, P3-2.4, P3-5.3)
+        """Build user prompt for multi-image analysis (Story P3-2.3, P3-2.4, P3-5.3, P9-3.1)
 
         Uses MULTI_FRAME_SYSTEM_PROMPT optimized for temporal narrative descriptions.
         Custom prompts are APPENDED after system instructions, not replacing them,
@@ -325,8 +392,8 @@ class AIProviderBase(ABC):
                           (from Settings → multi_frame_description_prompt or per-camera config)
             audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
         """
-        # Build camera context suffix
-        context = f"\n\nContext: Camera '{camera_name}' at {timestamp}."
+        # Story P9-3.1: Build human-readable context with camera name and time
+        context = "\n\n" + build_context_prompt(camera_name, timestamp)
         if detected_objects:
             context += f" Motion detected: {', '.join(detected_objects)}."
 

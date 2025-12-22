@@ -2,17 +2,10 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
-      {
-        protocol: 'http',
-        hostname: 'localhost',
-        port: '8000',
-        pathname: '/api/v1/thumbnails/**',
-      },
-    ],
-    // Allow localhost for development
+    // Disable image optimization for self-hosted deployments
+    // This allows images from any hostname (localhost, IP, custom domain)
+    unoptimized: true,
     dangerouslyAllowSVG: true,
-    unoptimized: process.env.NODE_ENV === 'development',
   },
   // Proxy API requests to backend to avoid CORS issues
   async rewrites() {

@@ -554,7 +554,7 @@ development_status:
   # Priority: P3
   # Focus: README, GitHub Pages, UI fixes, accessibility
   epic-p9-6: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P9-6.md
-  p9-6-1-refactor-readme: backlog
+  p9-6-1-refactor-readme: done
   p9-6-2-set-up-github-pages-infrastructure: backlog
   p9-6-3-build-github-pages-landing-page: backlog
   p9-6-4-create-github-pages-documentation-section: backlog

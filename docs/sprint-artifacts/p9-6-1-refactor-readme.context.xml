@@ -1,0 +1,92 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P9-6</epicId>
+    <storyId>6.1</storyId>
+    <title>Refactor README.md</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p9-6-1-refactor-readme.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>new user or contributor</asA>
+    <iWant>the README to accurately reflect current features through Phase 8</iWant>
+    <soThat>I understand what ArgusAI can do and how to get started</soThat>
+    <tasks>
+      <task id="1" ac="1">Review and update "What's New" section with Phase 8 features</task>
+      <task id="2" ac="1">Update Features section with frame gallery, adaptive sampling, prompt refinement, SSL</task>
+      <task id="3" ac="1">Update Roadmap section with Phase 8 completion</task>
+      <task id="4" ac="2,3">Verify installation instructions are accurate</task>
+      <task id="5" ac="4">Add/update troubleshooting section</task>
+      <task id="6" ac="5">Verify all documentation links work</task>
+      <task id="7">Final review and polish</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">README feature list includes all features through Phase 8 (UniFi Protect, multi-frame analysis, entities, summaries, push notifications, MQTT/Home Assistant, HomeKit, Phase 8: frame gallery, adaptive sampling, AI prompt refinement, video storage)</criterion>
+    <criterion id="2">Installation instructions match current install script</criterion>
+    <criterion id="3">Prerequisites list Python 3.11+ and Node 18+</criterion>
+    <criterion id="4">Troubleshooting section documents common issues</criterion>
+    <criterion id="5">All documentation links work correctly</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="README.md" title="Project README" section="All" snippet="Main project documentation file. Currently documents through Phase 7, needs Phase 8 features added." />
+      <doc path="docs/epics-phase8.md" title="Phase 8 Epics" section="All Stories" snippet="Complete epic breakdown for Phase 8: Bug fixes, video analysis enhancements, AI/settings improvements, Apple apps foundation." />
+      <doc path="docs/epics-phase9.md" title="Phase 9 Epics" section="All Stories" snippet="Complete epic breakdown for Phase 9: Bug fixes, frame capture, AI accuracy, entity management, infrastructure, documentation." />
+      <doc path="docs/sprint-artifacts/sprint-status.yaml" title="Sprint Status" section="development_status" snippet="Tracks story completion status. All P8 stories are done. P9 stories partially complete." />
+      <doc path="docs/backlog.md" title="Project Backlog" section="IMP-017" snippet="Backlog item requesting README refactor to reflect current project state." />
+      <doc path="docs/architecture.md" title="Architecture" section="Overview" snippet="System architecture documentation including all phases." />
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P9-6.md" title="P9-6 Tech Spec" section="P9-6.1 Requirements" snippet="Technical specification for story P9-6.1 with acceptance criteria and implementation details." />
+    </docs>
+    <code>
+      <file path="README.md" kind="documentation" reason="Target file for this story - needs refactoring" />
+      <file path="install.sh" kind="script" reason="Installation script referenced in README - verify commands match" />
+      <file path="docs/user-guide.md" kind="documentation" reason="Links from README - verify links work" />
+      <file path="docs/api-reference.md" kind="documentation" reason="Links from README - verify links work" />
+      <file path="docs/troubleshooting-protect.md" kind="documentation" reason="Links from README - verify links work" />
+    </code>
+    <dependencies>
+      <frontend>
+        <package name="next" version="15.x" />
+        <package name="react" version="19.x" />
+        <package name="tailwindcss" version="4.x" />
+      </frontend>
+      <backend>
+        <package name="fastapi" version="0.115+" />
+        <package name="sqlalchemy" version="2.0+" />
+        <package name="python" version="3.11+" />
+      </backend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="documentation">Follow existing README structure and markdown formatting conventions</constraint>
+    <constraint type="accuracy">Only document features that are actually implemented and working</constraint>
+    <constraint type="verification">All code examples and commands must be tested/verified</constraint>
+    <constraint type="links">All internal and external links must be verified working</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="install.sh" kind="CLI script" signature="./install.sh [--check|--backend|--frontend|--services]" path="install.sh" />
+  </interfaces>
+
+  <tests>
+    <standards>For documentation stories, manual verification is the primary testing approach. Verify all links work, code examples execute correctly, and feature descriptions match actual behavior.</standards>
+    <locations>
+      <location>Manual review of README.md</location>
+      <location>Link verification in browser</location>
+      <location>Command verification in terminal</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Verify each Phase 8 feature mentioned exists in the codebase</idea>
+      <idea ac="2">Run install.sh --check and compare output to documentation</idea>
+      <idea ac="3">Verify Python and Node version checks in install script</idea>
+      <idea ac="4">Test troubleshooting steps for each documented issue</idea>
+      <idea ac="5">Click every link in README and verify 200 response</idea>
+    </ideas>
+  </tests>
+</story-context>

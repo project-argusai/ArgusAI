@@ -2,15 +2,30 @@
 
 AI-powered event detection and monitoring for home security. Analyzes video feeds from multiple camera sources, detects motion and smart events, and uses AI to generate natural language descriptions of what's happening.
 
-## What's New (Phase 7 Complete)
+## What's New (Phase 9 In Progress)
 
-- **Package Delivery Alerts** - Carrier detection (USPS, FedEx, UPS, Amazon) with dedicated alert rules and dashboard widget
-- **Entities Page** - Browse and manage recognized people and vehicles with search, filtering, and alert configuration stub
-- **HomeKit Camera Streaming** - RTSP-to-SRTP streaming with snapshot support and diagnostics
-- **HomeKit Fixes** - Resolved bridge discovery issues, improved event delivery reliability
-- **ONVIF Camera Discovery** - Auto-discover ONVIF-compatible cameras on your network
-- **Audio Analysis** - Glass break, alarm, and doorbell sound detection from camera audio streams
-- **Motion Events Export** - Download motion detection data as CSV for analysis
+### Phase 9 (Current)
+- **SSL/HTTPS Support** - Secure connections with certificate generation in install script
+- **Frame Gallery Modal** - View all frames analyzed by AI for each event
+- **Adaptive Frame Sampling** - Motion-based and similarity filtering for better frame selection
+- **AI Context Enhancement** - Camera name and time of day included in AI prompts
+- **Summary Feedback** - Thumbs up/down on daily summaries with custom prompt support
+- **Entity Management** - Unlink, assign, move, and merge entities with full event history
+- **Vehicle Entity Separation** - Distinct entities for each vehicle by make/model/color
+
+### Phase 8 (Complete)
+- **Frame Storage & Gallery** - All analysis frames stored and viewable in modal gallery
+- **Configurable Frame Count** - Choose 5, 10, 15, or 20 frames for AI analysis
+- **Frame Sampling Strategies** - Uniform, adaptive, or hybrid sampling modes
+- **AI-Assisted Prompt Refinement** - AI helps improve your event description prompts
+- **Full Motion Video Download** - Optional storage of complete motion clips
+- **Bug Fixes** - Re-analyse function, installation script, push notification reliability
+
+### Phase 7
+- **Package Delivery Alerts** - Carrier detection (USPS, FedEx, UPS, Amazon)
+- **Entities Page** - Browse and manage recognized people and vehicles
+- **HomeKit Camera Streaming** - RTSP-to-SRTP with snapshot support
+- **HomeKit Fixes** - Improved bridge discovery and event delivery
 
 ## Features
 
@@ -29,6 +44,11 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **Multi-Provider Support**: OpenAI GPT-4o → xAI Grok → Claude Haiku → Gemini Flash (automatic fallback)
 - **xAI Grok Integration** (Phase 2) - Vision-capable AI with fast response times
 - **Video Analysis** (Phase 3) - Multi-frame and native video analysis modes
+- **Frame Gallery** (Phase 8) - View all frames analyzed by AI in modal gallery
+- **Adaptive Frame Sampling** (Phase 8/9) - Motion-based and similarity filtering for optimal frame selection
+- **Configurable Frame Count** (Phase 8) - Choose 5, 10, 15, or 20 frames per analysis
+- **AI-Assisted Prompt Refinement** (Phase 8) - AI helps optimize your description prompts
+- **Context-Aware Prompts** (Phase 9) - Camera name and time of day in AI context
 - **Audio Analysis** (Phase 6) - Glass break, alarm, and doorbell sound detection
 - **Natural Language Descriptions**: Rich, contextual descriptions of events
 - **Confidence Scoring** (Phase 3) - Quality indicators with re-analyze option
@@ -42,6 +62,7 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **In-App Notifications**: Real-time notification center
 - **Push Notifications** (Phase 4) - Web Push with thumbnails, PWA support
 - **Activity Summaries** (Phase 4) - Daily digests and on-demand reports
+- **Summary Feedback** (Phase 9) - Rate summaries with custom prompt support
 - **Cost Monitoring** (Phase 3) - Track AI usage with daily/monthly caps
 
 ### Smart Home Integration
@@ -55,13 +76,18 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
   - QR code pairing and diagnostics
 - **Voice Query API** (Phase 4): Natural language queries ("What happened at the front door today?")
 
-### Intelligent Context (Phase 4)
+### Intelligent Context (Phase 4+)
 - **Temporal Context Engine**: Find similar past events, recurring visitor detection
 - **Pattern Detection**: Identify activity patterns and anomalies
 - **Behavioral Anomaly Detection**: Baseline learning with anomaly scoring and alerts
 - **Entity Management**: Track recognized people and vehicles
 - **Entities Page** (Phase 7) - Browse, search, and manage recognized entities
+- **Entity Event List** (Phase 9) - View all events linked to each entity
+- **Entity Assignment** (Phase 9) - Unlink, assign, move events between entities
+- **Entity Merge** (Phase 9) - Combine duplicate entities
+- **Vehicle Separation** (Phase 9) - Distinct entities by make/model/color
 - **User Feedback Loop**: Thumbs up/down to improve AI accuracy
+- **Package False Positive Feedback** (Phase 9) - Mark incorrect package detections
 - **Named Entity Alerts**: Personalized notifications like "John is at the door"
 
 ### Event Management
@@ -69,16 +95,24 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **Search & Filter**: Find events by description, camera, date, object type, or source type
 - **Event Source Display**: Visual badges showing RTSP/USB/Protect source for each event
 - **Multi-Camera Correlation**: View related events captured across multiple cameras simultaneously
-- **Key Frames Gallery** (Phase 3) - View extracted frames from video analysis
+- **Frame Gallery Modal** (Phase 8/9) - Click thumbnails to view all analyzed frames
+- **Stored Analysis Frames** (Phase 8) - All frames used for AI analysis are preserved
 - **Data Retention**: Configurable automatic cleanup policies
 - **Export**: Download events as CSV or JSON
 - **Motion Events Export** (Phase 6) - Export motion detection data for analysis
+- **Full Video Storage** (Phase 8) - Optional download and storage of motion clips
 
 ### Performance & Accessibility (Phase 6)
 - **Virtual Scrolling**: Efficient camera list rendering for large deployments
 - **React Query Caching**: Optimized data fetching with automatic revalidation
 - **Skip-to-Content Links**: Keyboard navigation improvements
 - **ARIA Labels**: Full accessibility audit and fixes
+
+### Security & Infrastructure (Phase 9)
+- **SSL/HTTPS Support** - Secure connections with TLS 1.2+
+- **Certificate Generation** - Self-signed or Let's Encrypt integration in install script
+- **HTTP to HTTPS Redirect** - Automatic secure redirect when SSL enabled
+- **Encrypted API Keys** - Fernet encryption for all sensitive credentials
 
 ## Architecture
 
@@ -382,7 +416,7 @@ argusai/
 │   │       ├── homekit_service.py     # HomeKit bridge
 │   │       └── alert_engine.py        # Rule evaluation
 │   ├── alembic/             # Database migrations
-│   └── tests/               # 2,250+ tests
+│   └── tests/               # 3,100+ tests
 ├── frontend/                 # Next.js frontend
 │   ├── app/                 # App Router pages
 │   ├── components/          # React components
@@ -418,7 +452,7 @@ pytest tests/ --cov=app --cov-report=html
 pytest tests/test_api/test_protect.py -v
 ```
 
-**Current Coverage:** 2,250+ tests including integration and performance tests
+**Current Coverage:** 3,100+ tests including integration and performance tests
 
 ### Frontend
 
@@ -457,6 +491,13 @@ GOOGLE_API_KEY=AIza...
 DEBUG=True
 LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:3000
+
+# SSL/HTTPS (Phase 9)
+SSL_ENABLED=false               # Enable HTTPS
+SSL_CERT_FILE=data/certs/cert.pem
+SSL_KEY_FILE=data/certs/key.pem
+SSL_REDIRECT_HTTP=true          # Redirect HTTP to HTTPS
+SSL_MIN_VERSION=TLSv1_2         # TLSv1_2 or TLSv1_3
 
 # HomeKit (auto-generated if not set)
 HOMEKIT_PIN=123-45-678
@@ -497,9 +538,12 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 | [PRD Phase 3](docs/PRD-phase3.md) | Video analysis requirements |
 | [PRD Phase 4](docs/PRD-phase4.md) | Context & smart home requirements |
 | [PRD Phase 5](docs/PRD-phase5.md) | HomeKit & quality requirements |
+| [PRD Phase 9](docs/PRD-phase9.md) | AI accuracy & entity management |
 | [Epics Phase 5](docs/epics-phase5.md) | Phase 5 story breakdown |
 | [Epics Phase 6](docs/epics-phase6.md) | Phase 6 story breakdown |
 | [Epics Phase 7](docs/epics-phase7.md) | Phase 7 story breakdown |
+| [Epics Phase 8](docs/epics-phase8.md) | Phase 8 story breakdown |
+| [Epics Phase 9](docs/epics-phase9.md) | Phase 9 story breakdown |
 
 ## Roadmap
 
@@ -570,11 +614,69 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - ✅ Entities page with search and filtering
 - ✅ Entity alert configuration stub UI
 
+**Phase 8: Video Analysis & AI Enhancements**
+- ✅ Store all analysis frames during event processing
+- ✅ Frame gallery modal for viewing analyzed frames
+- ✅ Configurable frame count (5, 10, 15, 20 frames)
+- ✅ Adaptive frame sampling (motion-based, similarity filtering)
+- ✅ Frame sampling strategy selection in settings
+- ✅ AI-assisted prompt refinement
+- ✅ Full motion video download toggle
+- ✅ Hide MQTT form when integration disabled
+
+**Phase 9: AI Accuracy & Entity Management** (In Progress)
+- ✅ SSL/HTTPS support with certificate generation
+- ✅ Frame capture timing optimization
+- ✅ Camera and time context in AI prompts
+- ✅ Package false positive feedback
+- ✅ Summary feedback and custom prompts
+- ✅ Vehicle entity separation by make/model
+- ✅ Entity event list with unlink/assign/move
+- ✅ Entity merge functionality
+- 🔄 Documentation updates (README refactor)
+- 📋 GitHub Pages project site
+
 ### Future
 - 📋 Local LLM support (Ollama)
+- 📋 Native Apple device apps (iPhone, iPad, Watch, TV)
+- 📋 Cloud relay for remote access
+- 📋 n8n automated development pipeline
 - 📋 Alexa voice assistant integration
 - 📋 Multi-user authentication and permissions
-- 📋 Cloud backup and sync
+
+## Troubleshooting
+
+### Common Issues
+
+**SSL/HTTPS Not Working:**
+1. Verify certificates exist at configured paths (`SSL_CERT_FILE`, `SSL_KEY_FILE`)
+2. Check certificate permissions are readable by the backend process
+3. For self-signed certs, add them to your browser's trusted certificates
+4. Check SSL status: `GET /api/v1/system/ssl-status`
+
+**Push Notifications Not Working:**
+- Push notifications require HTTPS - ensure SSL is enabled and working
+- Check browser permissions for notifications
+- Verify VAPID keys are generated (happens automatically on first enable)
+
+**Camera Connection Issues:**
+- For RTSP: Verify URL format `rtsp://user:pass@ip:port/stream`
+- For UniFi Protect: Use local account credentials, not Ubiquiti cloud account
+- Test connection before saving in the UI
+
+**AI Provider Errors:**
+- Verify API key is valid and has credits/quota
+- Check rate limits for your provider tier
+- System will automatically fallback to next configured provider
+
+**Events Not Appearing:**
+- Check camera is enabled for AI analysis
+- Verify event type filters allow the detection type
+- Check backend logs for processing errors: `Settings > Logs`
+
+For detailed troubleshooting, see:
+- [UniFi Protect Issues](docs/troubleshooting-protect.md)
+- [User Guide](docs/user-guide.md)
 
 ## License
 

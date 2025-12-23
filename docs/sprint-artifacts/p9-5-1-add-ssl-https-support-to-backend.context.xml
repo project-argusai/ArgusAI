@@ -1,0 +1,218 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P9-5</epicId>
+    <storyId>5.1</storyId>
+    <title>Add SSL/HTTPS Support to Backend</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p9-5-1-add-ssl-https-support-to-backend.md</sourceStoryPath>
+    <githubIssue>https://github.com/bbengt1/ArgusAI/issues/152</githubIssue>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to access ArgusAI over HTTPS</iWant>
+    <soThat>my connection is secure and push notifications work (which require secure context)</soThat>
+    <tasks>
+      <task id="1">Add SSL settings to backend configuration (AC: #1, #3)
+        <subtask>Add SSLSettings class to backend/app/core/config.py</subtask>
+        <subtask>Add validators to check certificate files exist when SSL enabled</subtask>
+        <subtask>Document environment variables: SSL_ENABLED, SSL_CERT_FILE, SSL_KEY_FILE</subtask>
+      </task>
+      <task id="2">Implement SSL configuration in uvicorn startup (AC: #1, #3)
+        <subtask>Modify backend/main.py to conditionally start with SSL</subtask>
+        <subtask>Add logging for SSL enabled/disabled state</subtask>
+        <subtask>Log warning when SSL disabled in production mode</subtask>
+      </task>
+      <task id="3">Implement HTTP to HTTPS redirect middleware (AC: #2)
+        <subtask>Create redirect middleware for HTTP requests</subtask>
+        <subtask>Only activate when ssl_redirect_http is True and SSL enabled</subtask>
+        <subtask>Handle proper redirect headers (301 Moved Permanently)</subtask>
+      </task>
+      <task id="4">Add SSL status endpoint (AC: #5)
+        <subtask>Create GET /api/v1/system/ssl-status endpoint</subtask>
+        <subtask>Return ssl_enabled, certificate_valid, certificate_expires, certificate_issuer, tls_version</subtask>
+        <subtask>Parse certificate metadata using cryptography library</subtask>
+      </task>
+      <task id="5">Add push notification HTTPS warning (AC: #4)
+        <subtask>Modify push notification setup endpoint/response</subtask>
+        <subtask>Add requires_https field and warning message</subtask>
+      </task>
+      <task id="6">Update CORS settings for HTTPS (AC: #1)
+        <subtask>Ensure CORS_ORIGINS handles both HTTP and HTTPS variants</subtask>
+      </task>
+      <task id="7">Write tests for SSL configuration (All ACs)</task>
+      <task id="8">Update documentation (All ACs)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Given SSL certificates are configured, When I access ArgusAI, Then the connection is over HTTPS (TLS 1.2+) and the browser shows a secure connection indicator.</criterion>
+    <criterion id="2">Given I access via HTTP, When HTTPS is enabled, Then I am automatically redirected to HTTPS.</criterion>
+    <criterion id="3">Given certificates are not configured, When I start ArgusAI, Then it runs on HTTP with a warning in logs.</criterion>
+    <criterion id="4">Given certificates are not configured, When push notifications are enabled, Then a warning appears about HTTPS requirement.</criterion>
+    <criterion id="5">Given SSL is enabled with valid certificates, When I check the connection, Then the certificate information is accessible via a status endpoint.</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P9-5.md</path>
+        <title>Epic P9-5 Technical Specification</title>
+        <section>SSL Configuration Code</section>
+        <snippet>Contains SSLSettings class implementation pattern, uvicorn SSL startup example, and SSL status endpoint contract.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase9.md</path>
+        <title>Phase 9 PRD</title>
+        <section>Infrastructure &amp; DevOps (Epic P9-5)</section>
+        <snippet>FR33-FR35: SSL/HTTPS support, Let's Encrypt integration, self-signed certificate option.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase9.md</path>
+        <title>Phase 9 Epic Breakdown</title>
+        <section>Story P9-5.1: Add SSL/HTTPS Support to Backend</section>
+        <snippet>Detailed acceptance criteria and technical notes for SSL implementation.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture-phase8.md</path>
+        <title>Phase 8 Architecture</title>
+        <section>Existing Patterns</section>
+        <snippet>Backend: FastAPI 0.115 + uvicorn. Follow existing config pattern with pydantic-settings.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/core/config.py</path>
+        <kind>settings</kind>
+        <symbol>Settings</symbol>
+        <lines>1-62</lines>
+        <reason>Main settings class to extend with SSL configuration. Uses pydantic-settings BaseSettings pattern.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entrypoint</kind>
+        <symbol>main, lifespan, app</symbol>
+        <lines>787-796</lines>
+        <reason>uvicorn.run entry point that needs SSL parameters. Already has lifespan context manager.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-50</lines>
+        <reason>System router where SSL status endpoint should be added. Already has debug and health endpoints.</reason>
+      </file>
+      <file>
+        <path>backend/app/middleware/logging_middleware.py</path>
+        <kind>middleware</kind>
+        <symbol>RequestLoggingMiddleware</symbol>
+        <reason>Example of existing middleware pattern to follow for HTTP redirect middleware.</reason>
+      </file>
+      <file>
+        <path>backend/app/middleware/auth_middleware.py</path>
+        <kind>middleware</kind>
+        <symbol>AuthMiddleware</symbol>
+        <reason>Example of existing middleware pattern in the project.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/push.py</path>
+        <kind>router</kind>
+        <symbol>push_router</symbol>
+        <reason>Push notification router that needs HTTPS warning added.</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_api/test_system.py</path>
+        <kind>test</kind>
+        <symbol>test_system</symbol>
+        <reason>Existing system API tests to extend with SSL endpoint tests.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="uvicorn" version="0.24.0">Has native SSL support via ssl_certfile and ssl_keyfile parameters</package>
+        <package name="cryptography" version="44.0.1">Already installed for Fernet encryption, use for certificate parsing</package>
+        <package name="pydantic-settings" version="2.6.0">BaseSettings for configuration with env prefix</package>
+        <package name="fastapi" version="0.115.0">ASGI framework</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>SSL/TLS 1.2 minimum, TLS 1.3 preferred</constraint>
+    <constraint>Private keys should have 600 permissions - never log or expose</constraint>
+    <constraint>Follow existing Settings class pattern with env_prefix</constraint>
+    <constraint>API routes prefixed with /api/v1/</constraint>
+    <constraint>Use structured JSON logging via python-json-logger</constraint>
+    <constraint>No new pip dependencies required (uvicorn and cryptography already present)</constraint>
+    <constraint>Certificate files default location: data/certs/</constraint>
+    <constraint>Cookie settings already exist: COOKIE_SECURE, COOKIE_SAMESITE - document relationship</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>SSLSettings</name>
+      <kind>pydantic settings class</kind>
+      <signature>
+class SSLSettings(BaseSettings):
+    ssl_enabled: bool = False
+    ssl_cert_file: Optional[str] = None
+    ssl_key_file: Optional[str] = None
+    ssl_redirect_http: bool = True
+    ssl_min_version: str = "TLSv1_2"
+    class Config:
+        env_prefix = "SSL_"
+      </signature>
+      <path>backend/app/core/config.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/system/ssl-status</name>
+      <kind>REST endpoint</kind>
+      <signature>
+Response:
+{
+  "ssl_enabled": bool,
+  "certificate_valid": bool,
+  "certificate_expires": "ISO datetime string",
+  "certificate_issuer": "string",
+  "tls_version": "string"
+}
+      </signature>
+      <path>backend/app/api/v1/system.py</path>
+    </interface>
+    <interface>
+      <name>HTTPSRedirectMiddleware</name>
+      <kind>ASGI middleware</kind>
+      <signature>
+class HTTPSRedirectMiddleware:
+    def __init__(self, app: ASGIApp)
+    async def __call__(self, scope, receive, send)
+      </signature>
+      <path>backend/app/middleware/https_redirect.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+Use pytest for all backend tests. Follow existing patterns in backend/tests/. Mock filesystem access for certificate file checks. Test both enabled and disabled SSL states. Use pytest-asyncio for async tests. Use httpx for API testing via TestClient.
+    </standards>
+    <locations>
+      <location>backend/tests/test_api/test_system.py</location>
+      <location>backend/tests/test_core/</location>
+      <location>backend/tests/test_middleware/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">Test uvicorn starts with SSL when certificates are provided</idea>
+      <idea ac="1">Test TLS version negotiation (reject TLS 1.0/1.1)</idea>
+      <idea ac="2">Test HTTP request redirects to HTTPS with 301 status</idea>
+      <idea ac="2">Test redirect preserves path and query parameters</idea>
+      <idea ac="3">Test graceful fallback to HTTP when no certificates</idea>
+      <idea ac="3">Test warning is logged when SSL disabled</idea>
+      <idea ac="4">Test push notification response includes HTTPS warning when not enabled</idea>
+      <idea ac="5">Test SSL status endpoint returns correct certificate metadata</idea>
+      <idea ac="5">Test SSL status endpoint handles missing certificates</idea>
+      <idea ac="5">Test SSL status endpoint with expired certificate</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -17,6 +17,7 @@ from app.core.logging_config import setup_logging, get_logger
 from app.core.metrics import init_metrics, get_metrics, get_content_type, update_system_metrics
 from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
+from app.middleware.https_redirect import HTTPSRedirectMiddleware
 from app.api.v1.cameras import router as cameras_router, camera_service
 from app.api.v1.motion_events import router as motion_events_router
 from app.api.v1.ai import router as ai_router
@@ -682,6 +683,19 @@ app.add_middleware(RequestLoggingMiddleware)
 # Note: Auth middleware runs after logging middleware (LIFO order)
 app.add_middleware(AuthMiddleware)
 
+# Add HTTPS redirect middleware (Story P9-5.1)
+# Only active when SSL is enabled and redirect is configured
+if settings.SSL_ENABLED and settings.SSL_REDIRECT_HTTP:
+    app.add_middleware(
+        HTTPSRedirectMiddleware,
+        ssl_enabled=settings.SSL_ENABLED,
+        ssl_port=settings.SSL_PORT
+    )
+    logger.info(
+        "HTTPS redirect middleware enabled",
+        extra={"event_type": "https_redirect_enabled", "ssl_port": settings.SSL_PORT}
+    )
+
 # Register API routers
 # Note: Register discovery_router before cameras_router to prevent {camera_id} from matching "discover"
 # Note: Register motion_events before cameras to ensure proper route precedence
@@ -786,11 +800,55 @@ async def prometheus_metrics():
 
 if __name__ == "__main__":
     import uvicorn
+    import ssl
 
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-        log_level=settings.LOG_LEVEL.lower()
-    )
+    # Build uvicorn configuration
+    uvicorn_config = {
+        "app": "main:app",
+        "host": "0.0.0.0",
+        "reload": settings.DEBUG,
+        "log_level": settings.LOG_LEVEL.lower()
+    }
+
+    # Configure SSL if enabled and ready (Story P9-5.1)
+    if settings.ssl_ready:
+        uvicorn_config["port"] = settings.SSL_PORT
+        uvicorn_config["ssl_certfile"] = settings.SSL_CERT_FILE
+        uvicorn_config["ssl_keyfile"] = settings.SSL_KEY_FILE
+
+        # Set minimum TLS version
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        if settings.SSL_MIN_VERSION == "TLSv1_3":
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_3
+        else:
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+        logger.info(
+            "Starting server with SSL/HTTPS enabled",
+            extra={
+                "event_type": "ssl_startup",
+                "port": settings.SSL_PORT,
+                "cert_file": settings.SSL_CERT_FILE,
+                "min_tls_version": settings.SSL_MIN_VERSION
+            }
+        )
+    else:
+        uvicorn_config["port"] = 8000
+        if settings.SSL_ENABLED:
+            # SSL is enabled but not properly configured
+            logger.warning(
+                "SSL is enabled but not properly configured. Running on HTTP.",
+                extra={
+                    "event_type": "ssl_config_warning",
+                    "ssl_enabled": settings.SSL_ENABLED,
+                    "cert_file_exists": settings.SSL_CERT_FILE is not None,
+                    "key_file_exists": settings.SSL_KEY_FILE is not None
+                }
+            )
+        else:
+            logger.info(
+                "SSL is not enabled. Running on HTTP.",
+                extra={"event_type": "http_startup", "port": 8000}
+            )
+
+    uvicorn.run(**uvicorn_config)

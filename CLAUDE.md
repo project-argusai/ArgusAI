@@ -109,12 +109,49 @@ DEBUG=True
 LOG_LEVEL=INFO
 CORS_ORIGINS=http://localhost:3000,http://localhost:8000
 MAX_CAMERAS=1  # MVP limitation
+
+# SSL Configuration (Story P9-5.1)
+SSL_ENABLED=false  # Enable HTTPS
+SSL_CERT_FILE=data/certs/cert.pem  # Path to certificate
+SSL_KEY_FILE=data/certs/key.pem  # Path to private key
+SSL_REDIRECT_HTTP=true  # Redirect HTTP to HTTPS
+SSL_MIN_VERSION=TLSv1_2  # TLSv1_2 or TLSv1_3
+SSL_PORT=443  # HTTPS port
 ```
 
 ### Frontend (.env.local)
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8000  # Use https:// when SSL is enabled
 ```
+
+## SSL/HTTPS Configuration (Story P9-5.1)
+
+ArgusAI supports SSL/HTTPS for secure connections. SSL is required for push notifications.
+
+### Quick Setup
+1. Place certificates in `data/certs/` directory
+2. Set environment variables:
+   ```
+   SSL_ENABLED=true
+   SSL_CERT_FILE=data/certs/cert.pem
+   SSL_KEY_FILE=data/certs/key.pem
+   ```
+3. Restart the backend
+
+### SSL Status Endpoint
+- `GET /api/v1/system/ssl-status` - Returns SSL configuration and certificate info
+
+### Generating Self-Signed Certificates (Development)
+```bash
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout data/certs/key.pem \
+  -out data/certs/cert.pem \
+  -subj "/CN=localhost"
+```
+
+### Push Notifications and HTTPS
+Push notifications require HTTPS to work. Check requirements:
+- `GET /api/v1/push/requirements` - Returns HTTPS status and warnings
 
 ## BMAD Workflows
 

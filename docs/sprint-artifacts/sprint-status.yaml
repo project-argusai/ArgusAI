@@ -542,7 +542,7 @@ development_status:
   # Priority: P2
   # Focus: SSL/HTTPS, n8n automation pipeline
   epic-p9-5: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P9-5.md
-  p9-5-1-add-ssl-https-support-to-backend: backlog
+  p9-5-1-add-ssl-https-support-to-backend: review
   p9-5-2-add-certificate-generation-to-install-script: backlog
   p9-5-3-deploy-n8n-instance: backlog
   p9-5-4-create-n8n-claude-code-integration: backlog

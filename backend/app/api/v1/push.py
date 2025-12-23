@@ -87,6 +87,36 @@ class VapidPublicKeyResponse(BaseModel):
     public_key: str = Field(..., description="VAPID public key in URL-safe base64")
 
 
+class PushRequirementsResponse(BaseModel):
+    """Response containing push notification requirements and warnings (Story P9-5.1)."""
+    https_required: bool = Field(
+        default=True,
+        description="Whether HTTPS is required for push notifications"
+    )
+    https_configured: bool = Field(
+        default=False,
+        description="Whether HTTPS is currently configured"
+    )
+    warning: Optional[str] = Field(
+        None,
+        description="Warning message if HTTPS is not configured"
+    )
+    ready: bool = Field(
+        default=False,
+        description="Whether push notifications are ready to use"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "https_required": True,
+                "https_configured": False,
+                "warning": "Push notifications require HTTPS for full functionality. Configure SSL to enable push notifications.",
+                "ready": False
+            }
+        }
+
+
 class SubscriptionListItem(BaseModel):
     """Single subscription in list response."""
     id: str
@@ -146,6 +176,49 @@ async def get_vapid_key(db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve VAPID public key"
         )
+
+
+@router.get("/requirements", response_model=PushRequirementsResponse)
+async def get_push_requirements():
+    """
+    Get push notification requirements and HTTPS status (Story P9-5.1).
+
+    Checks if HTTPS is configured and returns a warning if push notifications
+    may not work properly without HTTPS. Web Push requires a secure context.
+
+    **Response:**
+    ```json
+    {
+        "https_required": true,
+        "https_configured": false,
+        "warning": "Push notifications require HTTPS for full functionality...",
+        "ready": false
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    """
+    from app.core.config import settings as app_settings
+
+    # Check if HTTPS is configured
+    https_configured = app_settings.ssl_ready
+
+    # Build warning message if HTTPS is not configured
+    warning = None
+    if not https_configured:
+        warning = (
+            "Push notifications require HTTPS for full functionality. "
+            "Without SSL configured, push notifications will only work on localhost. "
+            "Configure SSL_ENABLED, SSL_CERT_FILE, and SSL_KEY_FILE to enable push notifications."
+        )
+
+    return PushRequirementsResponse(
+        https_required=True,
+        https_configured=https_configured,
+        warning=warning,
+        ready=https_configured
+    )
 
 
 @router.post("/subscribe", response_model=SubscriptionResponse, status_code=status.HTTP_201_CREATED)

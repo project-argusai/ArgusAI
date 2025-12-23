@@ -1,7 +1,10 @@
 """Application configuration using Pydantic Settings"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List
+from pydantic import field_validator
+from typing import List, Optional
+from pathlib import Path
 import secrets
+import os
 
 
 class Settings(BaseSettings):
@@ -49,6 +52,47 @@ class Settings(BaseSettings):
     HOMEKIT_PINCODE: str | None = None  # Auto-generated if not set
     HOMEKIT_MOTION_RESET_SECONDS: int = 30  # Story P4-6.2: Motion sensor reset timeout
     HOMEKIT_MAX_MOTION_DURATION: int = 300  # Story P4-6.2: Max motion duration (5 min)
+
+    # SSL/HTTPS Configuration (Story P9-5.1)
+    SSL_ENABLED: bool = False
+    SSL_CERT_FILE: Optional[str] = None  # Path to SSL certificate file (PEM format)
+    SSL_KEY_FILE: Optional[str] = None  # Path to SSL private key file (PEM format)
+    SSL_REDIRECT_HTTP: bool = True  # Redirect HTTP to HTTPS when SSL is enabled
+    SSL_MIN_VERSION: str = "TLSv1_2"  # Minimum TLS version (TLSv1_2 or TLSv1_3)
+    SSL_PORT: int = 443  # HTTPS port when SSL is enabled
+
+    @field_validator('SSL_CERT_FILE', 'SSL_KEY_FILE', mode='after')
+    @classmethod
+    def validate_ssl_file_paths(cls, v: Optional[str]) -> Optional[str]:
+        """Validate SSL certificate file paths exist when provided."""
+        if v is not None and v.strip():
+            path = Path(v)
+            if not path.is_absolute():
+                # Relative to working directory
+                path = Path.cwd() / path
+            if not path.exists():
+                raise ValueError(f"SSL file not found: {v}")
+        return v
+
+    @field_validator('SSL_MIN_VERSION', mode='after')
+    @classmethod
+    def validate_ssl_min_version(cls, v: str) -> str:
+        """Validate SSL minimum version."""
+        valid_versions = ['TLSv1_2', 'TLSv1_3']
+        if v not in valid_versions:
+            raise ValueError(f"SSL_MIN_VERSION must be one of {valid_versions}")
+        return v
+
+    @property
+    def ssl_ready(self) -> bool:
+        """Check if SSL is properly configured and ready to use."""
+        return (
+            self.SSL_ENABLED
+            and self.SSL_CERT_FILE is not None
+            and self.SSL_KEY_FILE is not None
+            and os.path.exists(self.SSL_CERT_FILE)
+            and os.path.exists(self.SSL_KEY_FILE)
+        )
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -1891,3 +1891,148 @@ async def delete_all_data(db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete data: {str(e)}"
         )
+
+
+# ============================================================================
+# SSL Status Endpoint (Story P9-5.1)
+# ============================================================================
+
+
+class SSLStatusResponse(BaseModel):
+    """Response containing SSL/HTTPS configuration status"""
+    ssl_enabled: bool = Field(..., description="Whether SSL is configured and enabled")
+    ssl_ready: bool = Field(..., description="Whether SSL is fully operational (enabled + valid certs)")
+    certificate_valid: bool = Field(default=False, description="Whether the certificate is valid")
+    certificate_expires: Optional[str] = Field(None, description="Certificate expiration date (ISO 8601)")
+    certificate_issuer: Optional[str] = Field(None, description="Certificate issuer name")
+    certificate_subject: Optional[str] = Field(None, description="Certificate subject (CN)")
+    tls_version: str = Field(default="N/A", description="Minimum TLS version configured")
+    ssl_port: int = Field(default=443, description="HTTPS port")
+    http_redirect: bool = Field(default=False, description="Whether HTTP to HTTPS redirect is enabled")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "ssl_enabled": True,
+                "ssl_ready": True,
+                "certificate_valid": True,
+                "certificate_expires": "2026-12-23T00:00:00Z",
+                "certificate_issuer": "Let's Encrypt Authority X3",
+                "certificate_subject": "argusai.example.com",
+                "tls_version": "TLSv1_2",
+                "ssl_port": 443,
+                "http_redirect": True
+            }
+        }
+
+
+@router.get("/ssl-status", response_model=SSLStatusResponse)
+async def get_ssl_status():
+    """
+    Get SSL/HTTPS configuration status (Story P9-5.1)
+
+    Returns the current SSL configuration including certificate information
+    if certificates are configured. This endpoint helps users verify their
+    SSL setup and monitor certificate expiration.
+
+    **Response:**
+    ```json
+    {
+        "ssl_enabled": true,
+        "ssl_ready": true,
+        "certificate_valid": true,
+        "certificate_expires": "2026-12-23T00:00:00Z",
+        "certificate_issuer": "Let's Encrypt Authority X3",
+        "certificate_subject": "argusai.example.com",
+        "tls_version": "TLSv1_2",
+        "ssl_port": 443,
+        "http_redirect": true
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Success
+    - 500: Internal server error
+    """
+    from app.core.config import settings as app_settings
+
+    try:
+        response = SSLStatusResponse(
+            ssl_enabled=app_settings.SSL_ENABLED,
+            ssl_ready=app_settings.ssl_ready,
+            tls_version=app_settings.SSL_MIN_VERSION,
+            ssl_port=app_settings.SSL_PORT,
+            http_redirect=app_settings.SSL_REDIRECT_HTTP and app_settings.SSL_ENABLED
+        )
+
+        # If SSL is ready, parse certificate information
+        if app_settings.ssl_ready and app_settings.SSL_CERT_FILE:
+            try:
+                cert_info = _parse_certificate(app_settings.SSL_CERT_FILE)
+                response.certificate_valid = cert_info.get("valid", False)
+                response.certificate_expires = cert_info.get("expires")
+                response.certificate_issuer = cert_info.get("issuer")
+                response.certificate_subject = cert_info.get("subject")
+            except Exception as e:
+                logger.warning(f"Failed to parse certificate: {e}")
+                response.certificate_valid = False
+
+        return response
+
+    except Exception as e:
+        logger.error(f"Error getting SSL status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve SSL status"
+        )
+
+
+def _parse_certificate(cert_path: str) -> dict:
+    """
+    Parse certificate file and extract metadata.
+
+    Args:
+        cert_path: Path to the PEM certificate file
+
+    Returns:
+        Dictionary with certificate info: valid, expires, issuer, subject
+    """
+    from cryptography import x509
+    from cryptography.hazmat.backends import default_backend
+
+    try:
+        with open(cert_path, "rb") as f:
+            cert_data = f.read()
+
+        cert = x509.load_pem_x509_certificate(cert_data, default_backend())
+
+        # Check validity
+        now = datetime.now(timezone.utc)
+        is_valid = cert.not_valid_before_utc <= now <= cert.not_valid_after_utc
+
+        # Extract issuer (CN or O)
+        issuer_parts = []
+        for attr in cert.issuer:
+            if attr.oid == x509.oid.NameOID.COMMON_NAME:
+                issuer_parts.insert(0, attr.value)
+            elif attr.oid == x509.oid.NameOID.ORGANIZATION_NAME:
+                issuer_parts.append(attr.value)
+        issuer = ", ".join(issuer_parts) if issuer_parts else "Unknown"
+
+        # Extract subject (CN)
+        subject = None
+        for attr in cert.subject:
+            if attr.oid == x509.oid.NameOID.COMMON_NAME:
+                subject = attr.value
+                break
+
+        return {
+            "valid": is_valid,
+            "expires": cert.not_valid_after_utc.isoformat(),
+            "issuer": issuer,
+            "subject": subject
+        }
+
+    except Exception as e:
+        logger.error(f"Error parsing certificate {cert_path}: {e}")
+        return {"valid": False, "error": str(e)}

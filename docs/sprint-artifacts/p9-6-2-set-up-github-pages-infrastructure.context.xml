@@ -1,0 +1,193 @@
+<story-context id="bmad/bmm/workflows/4-implementation/story-context/template" v="1.0">
+  <metadata>
+    <epicId>P9-6</epicId>
+    <storyId>6.2</storyId>
+    <title>Set Up GitHub Pages Infrastructure</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-23</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p9-6-2-set-up-github-pages-infrastructure.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>project maintainer</asA>
+    <iWant>GitHub Pages configured with Docusaurus for the project</iWant>
+    <soThat>we can host public documentation and a landing page</soThat>
+    <tasks>
+      <task id="1" ac="3">
+        <name>Create docs-site directory structure</name>
+        <subtasks>
+          <subtask>Initialize Docusaurus project with npx create-docusaurus@latest docs-site classic</subtask>
+          <subtask>Configure docusaurus.config.js with project settings</subtask>
+          <subtask>Set up proper baseUrl and organizationName for GitHub Pages</subtask>
+        </subtasks>
+      </task>
+      <task id="2" ac="3">
+        <name>Configure Docusaurus for ArgusAI</name>
+        <subtasks>
+          <subtask>Update site title, tagline, and favicon</subtask>
+          <subtask>Configure navbar with Documentation, API, GitHub links</subtask>
+          <subtask>Set up footer with appropriate links and copyright</subtask>
+          <subtask>Configure theme colors to match ArgusAI branding</subtask>
+        </subtasks>
+      </task>
+      <task id="3" ac="1,2">
+        <name>Create GitHub Actions workflow for deployment</name>
+        <subtasks>
+          <subtask>Create .github/workflows/deploy-docs.yml</subtask>
+          <subtask>Configure workflow to trigger on push to main for docs-site/** paths</subtask>
+          <subtask>Set up Node.js environment and build steps</subtask>
+          <subtask>Configure peaceiris/actions-gh-pages for deployment</subtask>
+        </subtasks>
+      </task>
+      <task id="4" ac="4">
+        <name>Create initial landing page</name>
+        <subtasks>
+          <subtask>Create hero section with project name and tagline</subtask>
+          <subtask>Add feature highlights section</subtask>
+          <subtask>Add Get Started call-to-action button</subtask>
+          <subtask>Ensure responsive design for mobile</subtask>
+        </subtasks>
+      </task>
+      <task id="5" ac="4">
+        <name>Set up documentation structure</name>
+        <subtasks>
+          <subtask>Create docs/intro.md as getting started page</subtask>
+          <subtask>Set up sidebar configuration for documentation navigation</subtask>
+          <subtask>Add placeholder for future documentation sections</subtask>
+        </subtasks>
+      </task>
+      <task id="6" ac="3">
+        <name>Test local development and build</name>
+        <subtasks>
+          <subtask>Run npm run start to test development server</subtask>
+          <subtask>Run npm run build to verify production build</subtask>
+          <subtask>Check for any build errors or warnings</subtask>
+        </subtasks>
+      </task>
+      <task id="7" ac="1,2">
+        <name>Enable GitHub Pages in repository settings</name>
+        <subtasks>
+          <subtask>Configure GitHub Pages source to gh-pages branch</subtask>
+          <subtask>Verify initial deployment after pushing changes</subtask>
+        </subtasks>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-6.2.1">Given GitHub Pages is enabled, when content is pushed to main, then the site builds automatically</criterion>
+    <criterion id="AC-6.2.2">Given the build completes, when I check gh-pages branch, then static files are deployed</criterion>
+    <criterion id="AC-6.2.3">Given Docusaurus is configured, when I run npm run build, then site builds without errors</criterion>
+    <criterion id="AC-6.2.4">Given the site is deployed, when I access the URL, then the site loads correctly</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P9-6.md</path>
+        <title>Epic Technical Specification: Documentation and UX Polish</title>
+        <section>P9-6.2: Set Up GitHub Pages Infrastructure</section>
+        <snippet>Defines Docusaurus configuration structure, GitHub Actions workflow template, and architecture diagram for documentation site deployment.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase9.md</path>
+        <title>Phase 9 Epic Breakdown</title>
+        <section>Story P9-6.2: Set Up GitHub Pages Infrastructure</section>
+        <snippet>Acceptance criteria and technical notes for GitHub Pages setup with static site generator choice.</snippet>
+      </doc>
+      <doc>
+        <path>README.md</path>
+        <title>ArgusAI README</title>
+        <section>Documentation</section>
+        <snippet>Project overview, feature list, and installation instructions that should be referenced when creating the landing page content.</snippet>
+      </doc>
+      <doc>
+        <path>docs/backlog.md</path>
+        <title>Project Backlog</title>
+        <section>FF-026</section>
+        <snippet>Original backlog item requesting GitHub Pages documentation site setup.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>.github/workflows/ci.yml</path>
+        <kind>workflow</kind>
+        <symbol>CI workflow</symbol>
+        <lines>1-86</lines>
+        <reason>Existing CI workflow to use as reference for GitHub Actions patterns. Shows Node.js setup, caching, and job structure.</reason>
+      </file>
+      <file>
+        <path>frontend/package.json</path>
+        <kind>config</kind>
+        <symbol>package.json</symbol>
+        <lines>1-76</lines>
+        <reason>Reference for Node.js version (20) and existing project structure patterns.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <ecosystem name="docusaurus">
+        <package name="@docusaurus/core" version="^3.0.0" />
+        <package name="@docusaurus/preset-classic" version="^3.0.0" />
+      </ecosystem>
+      <ecosystem name="github-actions">
+        <action name="actions/checkout" version="v4" />
+        <action name="actions/setup-node" version="v4" />
+        <action name="peaceiris/actions-gh-pages" version="v3" />
+      </ecosystem>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="deployment">GitHub Pages will be deployed to https://bbengt1.github.io/argusai/</constraint>
+    <constraint type="configuration">baseUrl must be /argusai/ for GitHub Pages project site</constraint>
+    <constraint type="workflow">Deploy workflow should only trigger on changes to docs-site/** or docs/** paths</constraint>
+    <constraint type="nodejs">Use Node.js 20 for consistency with existing CI workflow</constraint>
+    <constraint type="performance">GitHub Pages load time should be under 2 seconds per tech spec NFR</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GitHub Pages Deployment Workflow</name>
+      <kind>GitHub Actions workflow</kind>
+      <signature>
+        name: Deploy Documentation
+        on: push (main, docs-site/**)
+        jobs: deploy (checkout, setup-node, build, deploy to gh-pages)
+      </signature>
+      <path>.github/workflows/deploy-docs.yml</path>
+    </interface>
+    <interface>
+      <name>Docusaurus Configuration</name>
+      <kind>JavaScript config</kind>
+      <signature>
+        module.exports = {
+          title: 'ArgusAI',
+          url: 'https://bbengt1.github.io',
+          baseUrl: '/argusai/',
+          organizationName: 'bbengt1',
+          projectName: 'argusai'
+        }
+      </signature>
+      <path>docs-site/docusaurus.config.js</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      No specific test framework required for this story as it creates infrastructure.
+      Verification is done through successful build completion and site accessibility.
+      GitHub Actions workflow will serve as automated verification on each push.
+    </standards>
+    <locations>
+      <location>docs-site/ (Docusaurus project with build verification)</location>
+      <location>.github/workflows/deploy-docs.yml (workflow execution)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC-6.2.1">Manual: Push change to docs-site/, verify GitHub Actions workflow triggers and completes</idea>
+      <idea ac="AC-6.2.2">Manual: Check gh-pages branch exists and contains built static files after deployment</idea>
+      <idea ac="AC-6.2.3">Command: Run npm run build in docs-site/ and verify exit code 0 with no errors</idea>
+      <idea ac="AC-6.2.4">Manual: Access https://bbengt1.github.io/argusai/ and verify page loads with content</idea>
+    </ideas>
+  </tests>
+</story-context>

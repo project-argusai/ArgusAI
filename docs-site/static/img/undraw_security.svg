@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Shield shape -->
+  <path d="M 100 20 L 160 50 L 160 110 Q 160 160 100 180 Q 40 160 40 110 L 40 50 Z" fill="#1e3a5f"/>
+  <!-- Camera lens in shield -->
+  <circle cx="100" cy="90" r="35" fill="none" stroke="#60a5fa" stroke-width="3"/>
+  <circle cx="100" cy="90" r="20" fill="none" stroke="#60a5fa" stroke-width="2"/>
+  <circle cx="100" cy="90" r="8" fill="#60a5fa"/>
+  <!-- Check mark -->
+  <path d="M 80 130 L 95 145 L 125 115" stroke="#93c5fd" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>

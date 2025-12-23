@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- House shape -->
+  <path d="M 100 30 L 170 80 L 170 170 L 30 170 L 30 80 Z" fill="#1e3a5f"/>
+  <!-- Roof -->
+  <path d="M 100 20 L 180 75 L 170 85 L 100 40 L 30 85 L 20 75 Z" fill="#0f172a"/>
+  <!-- Door -->
+  <rect x="85" y="110" width="30" height="60" fill="#60a5fa"/>
+  <!-- Window -->
+  <rect x="50" y="90" width="25" height="25" fill="#93c5fd"/>
+  <rect x="125" y="90" width="25" height="25" fill="#93c5fd"/>
+  <!-- Smart home icon (wifi-like) -->
+  <path d="M 100 60 Q 120 60 120 75" stroke="#60a5fa" stroke-width="2" fill="none"/>
+  <path d="M 100 55 Q 130 55 130 80" stroke="#60a5fa" stroke-width="2" fill="none"/>
+  <circle cx="100" cy="70" r="5" fill="#60a5fa"/>
+</svg>

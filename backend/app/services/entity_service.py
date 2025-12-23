@@ -1270,6 +1270,103 @@ class EntityService:
 
         return entity.thumbnail_path
 
+    async def unlink_event(
+        self,
+        db: Session,
+        entity_id: str,
+        event_id: str,
+    ) -> bool:
+        """
+        Unlink an event from an entity (Story P9-4.3).
+
+        Removes the EntityEvent junction record and creates an EntityAdjustment
+        record for ML training. Also decrements the entity's occurrence_count.
+
+        Args:
+            db: SQLAlchemy database session
+            entity_id: UUID of the entity
+            event_id: UUID of the event to unlink
+
+        Returns:
+            True if successfully unlinked, False if link not found
+
+        Note:
+            - Does NOT delete the event itself, only removes the association
+            - Creates EntityAdjustment record with action="unlink"
+            - Decrements entity occurrence_count
+        """
+        from app.models.recognized_entity import RecognizedEntity, EntityEvent
+        from app.models.entity_adjustment import EntityAdjustment
+        from app.models.event import Event
+
+        # Find the EntityEvent link
+        entity_event = db.query(EntityEvent).filter(
+            EntityEvent.entity_id == entity_id,
+            EntityEvent.event_id == event_id,
+        ).first()
+
+        if not entity_event:
+            logger.warning(
+                f"EntityEvent link not found for entity={entity_id}, event={event_id}",
+                extra={
+                    "event_type": "unlink_event_not_found",
+                    "entity_id": entity_id,
+                    "event_id": event_id,
+                }
+            )
+            return False
+
+        # Get event description for ML training snapshot
+        event = db.query(Event.description).filter(Event.id == event_id).first()
+        event_description = event.description if event else None
+
+        # Get entity for occurrence count update
+        entity = db.query(RecognizedEntity).filter(
+            RecognizedEntity.id == entity_id
+        ).first()
+
+        if not entity:
+            logger.warning(
+                f"Entity not found for unlink: {entity_id}",
+                extra={
+                    "event_type": "unlink_entity_not_found",
+                    "entity_id": entity_id,
+                }
+            )
+            return False
+
+        # Create EntityAdjustment record for ML training
+        adjustment = EntityAdjustment(
+            event_id=event_id,
+            old_entity_id=entity_id,
+            new_entity_id=None,
+            action="unlink",
+            event_description=event_description,
+        )
+        db.add(adjustment)
+
+        # Delete the EntityEvent link
+        db.delete(entity_event)
+
+        # Decrement occurrence count (but not below 0)
+        if entity.occurrence_count > 0:
+            entity.occurrence_count -= 1
+            entity.updated_at = datetime.now(timezone.utc)
+
+        db.commit()
+
+        logger.info(
+            f"Event unlinked from entity: event={event_id}, entity={entity_id}",
+            extra={
+                "event_type": "event_unlinked",
+                "entity_id": entity_id,
+                "event_id": event_id,
+                "new_occurrence_count": entity.occurrence_count,
+            }
+        )
+
+        return True
+
     async def get_entity_for_event(
         self,
         db: Session,

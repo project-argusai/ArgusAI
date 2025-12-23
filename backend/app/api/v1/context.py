@@ -920,6 +920,69 @@ async def get_entity_events(
     )
 
 
+class UnlinkEventResponse(BaseModel):
+    """Response for event unlink operation (Story P9-4.3)."""
+    success: bool
+    message: str
+
+
+@router.delete("/entities/{entity_id}/events/{event_id}", response_model=UnlinkEventResponse)
+async def unlink_event_from_entity(
+    entity_id: str,
+    event_id: str,
+    db: Session = Depends(get_db),
+    entity_service: EntityService = Depends(get_entity_service),
+):
+    """
+    Unlink an event from an entity.
+
+    Story P9-4.3: Implement Event-Entity Unlinking
+
+    Removes the association between an event and an entity. This does NOT
+    delete the event itself, only the EntityEvent junction record. Also
+    creates an EntityAdjustment record for ML training.
+
+    Args:
+        entity_id: UUID of the entity
+        event_id: UUID of the event to unlink
+        db: Database session
+        entity_service: Entity service instance
+
+    Returns:
+        UnlinkEventResponse with success status and message
+
+    Raises:
+        404: If entity or event link not found
+    """
+    # Verify entity exists
+    entity = await entity_service.get_entity(
+        db=db,
+        entity_id=entity_id,
+        include_events=False,
+    )
+
+    if not entity:
+        raise HTTPException(status_code=404, detail="Entity not found")
+
+    # Attempt to unlink the event
+    success = await entity_service.unlink_event(
+        db=db,
+        entity_id=entity_id,
+        event_id=event_id,
+    )
+
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail="Event not linked to this entity"
+        )
+
+    return UnlinkEventResponse(
+        success=True,
+        message="Event removed from entity"
+    )
+
+
 @router.get("/entities/{entity_id}/thumbnail")
 async def get_entity_thumbnail(
     entity_id: str,

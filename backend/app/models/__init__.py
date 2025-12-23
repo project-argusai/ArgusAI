@@ -14,6 +14,7 @@ from app.models.notification_preference import NotificationPreference
 from app.models.mqtt_config import MQTTConfig
 from app.models.event_embedding import EventEmbedding
 from app.models.recognized_entity import RecognizedEntity, EntityEvent
+from app.models.entity_adjustment import EntityAdjustment
 from app.models.camera_activity_pattern import CameraActivityPattern
 from app.models.activity_summary import ActivitySummary
 from app.models.event_feedback import EventFeedback
@@ -41,6 +42,7 @@ __all__ = [
     "EventEmbedding",
     "RecognizedEntity",
     "EntityEvent",
+    "EntityAdjustment",
     "CameraActivityPattern",
     "ActivitySummary",
     "EventFeedback",

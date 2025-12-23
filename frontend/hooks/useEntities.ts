@@ -147,6 +147,52 @@ export function useEntityEvents(
 }
 
 /**
+ * Response type for unlink event operation (Story P9-4.3)
+ */
+export interface UnlinkEventResponse {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * Hook to unlink an event from an entity (Story P9-4.3)
+ * @returns Mutation for unlinking event
+ */
+export function useUnlinkEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      entityId,
+      eventId,
+    }: {
+      entityId: string;
+      eventId: string;
+    }): Promise<UnlinkEventResponse> => {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/context/entities/${entityId}/events/${eventId}`,
+        {
+          method: 'DELETE',
+        }
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to unlink event');
+      }
+      return response.json();
+    },
+    onSuccess: (_data, { entityId }) => {
+      // Invalidate entity events queries to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['entities', entityId, 'events'] });
+      // Invalidate entity detail to update occurrence count
+      queryClient.invalidateQueries({ queryKey: ['entities', entityId] });
+      // Invalidate entity list for occurrence count updates
+      queryClient.invalidateQueries({ queryKey: ['entities'] });
+    },
+  });
+}
+
+/**
  * Error type guard for API errors
  */
 export function isApiError(error: unknown): error is ApiError {

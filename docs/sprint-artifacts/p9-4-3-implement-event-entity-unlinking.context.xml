@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context story-id="P9-4.3" generated="2025-12-22">
+  <story-summary>
+    <title>Implement Event-Entity Unlinking</title>
+    <objective>Enable users to remove incorrectly assigned events from entities</objective>
+    <prerequisites>P9-4.2 (Entity Event List View)</prerequisites>
+  </story-summary>
+
+  <acceptance-criteria>
+    <criterion id="AC-4.3.1">Given event in entity event list, when viewing, then "Remove" button visible</criterion>
+    <criterion id="AC-4.3.2">Given I click Remove, when dialog appears, then shows confirmation message</criterion>
+    <criterion id="AC-4.3.3">Given I confirm removal, when complete, then event removed from list</criterion>
+    <criterion id="AC-4.3.4">Given I confirm removal, when complete, then event.entity_id set to NULL</criterion>
+    <criterion id="AC-4.3.5">Given I confirm removal, when complete, then EntityAdjustment record created</criterion>
+    <criterion id="AC-4.3.6">Given I confirm removal, when complete, then toast "Event removed from entity"</criterion>
+  </acceptance-criteria>
+
+  <technical-context>
+    <architecture>
+      <component name="EntityAdjustment Model" path="backend/app/models/entity_adjustment.py" status="new">
+        New model to track manual entity-event corrections for future ML training.
+        Fields: id, event_id, old_entity_id, new_entity_id, action, event_description, created_at
+      </component>
+      <component name="Context API" path="backend/app/api/v1/context.py" status="modify">
+        Add DELETE /api/v1/context/entities/{entity_id}/events/{event_id} endpoint.
+        Must unlink event and create EntityAdjustment record.
+      </component>
+      <component name="Entity Service" path="backend/app/services/entity_service.py" status="modify">
+        Add unlink_event() method to remove entity-event association.
+      </component>
+      <component name="EntityEventList" path="frontend/components/entities/EntityEventList.tsx" status="modify">
+        Add Remove button to each event row with confirmation dialog.
+      </component>
+      <component name="useEntities Hook" path="frontend/hooks/useEntities.ts" status="modify">
+        Add useUnlinkEvent mutation hook.
+      </component>
+    </architecture>
+
+    <data-models>
+      <model name="EntityAdjustment" status="new">
+        <![CDATA[
+class EntityAdjustment(Base):
+    __tablename__ = "entity_adjustments"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    event_id = Column(String, ForeignKey("events.id"), nullable=False)
+    old_entity_id = Column(String, ForeignKey("recognized_entities.id"), nullable=True)
+    new_entity_id = Column(String, ForeignKey("recognized_entities.id"), nullable=True)
+    action = Column(String(20), nullable=False)  # "unlink", "assign", "move", "merge"
+    event_description = Column(Text, nullable=True)  # Snapshot for ML training
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+        ]]>
+      </model>
+      <model name="RecognizedEntity" path="backend/app/models/recognized_entity.py">
+        Existing model with entity_events relationship. EntityEvent junction table links to events.
+      </model>
+    </data-models>
+
+    <api-endpoints>
+      <endpoint method="DELETE" path="/api/v1/context/entities/{entity_id}/events/{event_id}" status="new">
+        <description>Unlink an event from an entity</description>
+        <response>{"success": true, "message": "Event removed from entity"}</response>
+        <behavior>
+          1. Verify entity and event exist
+          2. Delete EntityEvent junction record
+          3. Create EntityAdjustment record (action="unlink")
+          4. Update entity occurrence_count
+          5. Return success response
+        </behavior>
+      </endpoint>
+      <endpoint method="GET" path="/api/v1/context/entities/{entity_id}/events" status="existing">
+        Paginated events endpoint created in P9-4.2
+      </endpoint>
+    </api-endpoints>
+  </technical-context>
+
+  <existing-code-context>
+    <file path="frontend/components/entities/EntityEventList.tsx">
+      <summary>
+        Component displaying paginated events for an entity.
+        Uses useEntityEvents hook, shows thumbnail/description/date.
+        Has pagination controls. Need to add Remove button to each row.
+      </summary>
+    </file>
+    <file path="frontend/hooks/useEntities.ts">
+      <summary>
+        Contains useEntities, useEntity, useUpdateEntity, useDeleteEntity, useEntityEvents hooks.
+        Need to add useUnlinkEvent mutation hook for DELETE request.
+      </summary>
+    </file>
+    <file path="backend/app/api/v1/context.py">
+      <summary>
+        Context API with entity endpoints. Has EntityEventsResponse model.
+        Need to add DELETE endpoint for unlinking events.
+      </summary>
+    </file>
+    <file path="backend/app/services/entity_service.py">
+      <summary>
+        Entity service with get_entity_events_paginated method.
+        Need to add unlink_event method.
+      </summary>
+    </file>
+    <file path="backend/app/models/recognized_entity.py">
+      <summary>
+        RecognizedEntity and EntityEvent models.
+        EntityEvent is junction table with entity_id, event_id, similarity_score.
+      </summary>
+    </file>
+  </existing-code-context>
+
+  <implementation-notes>
+    <note priority="high">
+      EntityAdjustment model tracks ALL manual corrections for future ML training.
+      This is foundation for Story P9-4.6 and IMP-016 (MCP server context).
+    </note>
+    <note priority="high">
+      The unlink operation should delete the EntityEvent junction record, NOT the event itself.
+      Events are never deleted by unlinking - only the association is removed.
+    </note>
+    <note priority="medium">
+      Frontend should use AlertDialog from shadcn/ui for confirmation.
+      Toast notification on success using existing toast system.
+    </note>
+    <note priority="medium">
+      After successful unlink, invalidate query cache to refresh EntityEventList.
+      Use queryClient.invalidateQueries for ['entities', entityId, 'events'].
+    </note>
+  </implementation-notes>
+
+  <testing-approach>
+    <test-category name="API">
+      <test>Test DELETE endpoint successfully unlinks event</test>
+      <test>Test EntityAdjustment record created with correct fields</test>
+      <test>Test occurrence_count decremented after unlink</test>
+      <test>Test 404 returned for non-existent entity or event</test>
+    </test-category>
+    <test-category name="Component">
+      <test>Test Remove button appears on each event row</test>
+      <test>Test confirmation dialog shows correct message</test>
+      <test>Test event removed from list after confirmation</test>
+      <test>Test cancel button closes dialog without action</test>
+    </test-category>
+  </testing-approach>
+
+  <references>
+    <reference source="docs/sprint-artifacts/tech-spec-epic-P9-4.md" section="P9-4.3"/>
+    <reference source="docs/epics-phase9.md" section="Story P9-4.3"/>
+    <reference source="frontend/components/entities/EntityEventList.tsx"/>
+    <reference source="backend/app/api/v1/context.py"/>
+    <reference source="backend/app/models/recognized_entity.py"/>
+  </references>
+</story-context>

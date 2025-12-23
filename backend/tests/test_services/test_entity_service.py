@@ -1442,3 +1442,300 @@ class TestEntityServiceMerge:
         # Verify primary timestamps were updated
         assert primary.first_seen_at == secondary.first_seen_at
         assert primary.last_seen_at == secondary.last_seen_at
+
+
+class TestEntityServiceGetAdjustments:
+    """Tests for EntityService.get_adjustments method (Story P9-4.6)."""
+
+    @pytest.fixture
+    def entity_service(self):
+        """Create EntityService instance for testing."""
+        reset_entity_service()
+        return EntityService()
+
+    @pytest.fixture
+    def mock_db(self):
+        """Create mock database session."""
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_get_adjustments_returns_list_and_total(
+        self, entity_service, mock_db
+    ):
+        """Test that get_adjustments returns adjustments and total count."""
+        from app.models.entity_adjustment import EntityAdjustment
+
+        now = datetime.now(timezone.utc)
+        mock_adjustment = MagicMock(spec=EntityAdjustment)
+        mock_adjustment.id = "adj-123"
+        mock_adjustment.event_id = "event-456"
+        mock_adjustment.old_entity_id = "old-entity"
+        mock_adjustment.new_entity_id = None
+        mock_adjustment.action = "unlink"
+        mock_adjustment.event_description = "Test event"
+        mock_adjustment.created_at = now
+
+        mock_query = MagicMock()
+        mock_query.count.return_value = 1
+        mock_query.order_by.return_value = mock_query
+        mock_query.offset.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = [mock_adjustment]
+        mock_db.query.return_value = mock_query
+
+        adjustments, total = await entity_service.get_adjustments(
+            db=mock_db,
+            limit=50,
+            offset=0,
+        )
+
+        assert total == 1
+        assert len(adjustments) == 1
+        assert adjustments[0]["id"] == "adj-123"
+        assert adjustments[0]["action"] == "unlink"
+
+    @pytest.mark.asyncio
+    async def test_get_adjustments_filter_by_action(
+        self, entity_service, mock_db
+    ):
+        """Test filtering adjustments by action type."""
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 0
+        mock_query.order_by.return_value = mock_query
+        mock_query.offset.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        await entity_service.get_adjustments(
+            db=mock_db,
+            limit=50,
+            offset=0,
+            action="unlink",
+        )
+
+        # Verify filter was called
+        mock_query.filter.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_get_adjustments_move_action_alias(
+        self, entity_service, mock_db
+    ):
+        """Test that 'move' action aliases to move_from/move_to."""
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 0
+        mock_query.order_by.return_value = mock_query
+        mock_query.offset.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        await entity_service.get_adjustments(
+            db=mock_db,
+            limit=50,
+            offset=0,
+            action="move",
+        )
+
+        # Verify filter was called for move alias
+        mock_query.filter.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_get_adjustments_filter_by_entity_id(
+        self, entity_service, mock_db
+    ):
+        """Test filtering adjustments by entity ID (matches old or new)."""
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 0
+        mock_query.order_by.return_value = mock_query
+        mock_query.offset.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        await entity_service.get_adjustments(
+            db=mock_db,
+            limit=50,
+            offset=0,
+            entity_id="test-entity-id",
+        )
+
+        # Verify filter was called for entity_id
+        mock_query.filter.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_get_adjustments_filter_by_date_range(
+        self, entity_service, mock_db
+    ):
+        """Test filtering adjustments by date range."""
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.count.return_value = 0
+        mock_query.order_by.return_value = mock_query
+        mock_query.offset.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        start = datetime.now(timezone.utc) - timedelta(days=7)
+        end = datetime.now(timezone.utc)
+
+        await entity_service.get_adjustments(
+            db=mock_db,
+            limit=50,
+            offset=0,
+            start_date=start,
+            end_date=end,
+        )
+
+        # Verify filter was called twice (for start and end dates)
+        assert mock_query.filter.call_count >= 2
+
+
+class TestEntityServiceExportAdjustments:
+    """Tests for EntityService.export_adjustments method (Story P9-4.6)."""
+
+    @pytest.fixture
+    def entity_service(self):
+        """Create EntityService instance for testing."""
+        reset_entity_service()
+        return EntityService()
+
+    @pytest.fixture
+    def mock_db(self):
+        """Create mock database session."""
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_export_adjustments_returns_list(
+        self, entity_service, mock_db
+    ):
+        """Test that export_adjustments returns list of dicts."""
+        from app.models.entity_adjustment import EntityAdjustment
+
+        now = datetime.now(timezone.utc)
+        mock_adjustment = MagicMock(spec=EntityAdjustment)
+        mock_adjustment.id = "adj-123"
+        mock_adjustment.event_id = "event-456"
+        mock_adjustment.old_entity_id = "old-entity"
+        mock_adjustment.new_entity_id = None
+        mock_adjustment.action = "unlink"
+        mock_adjustment.event_description = "Test event"
+        mock_adjustment.created_at = now
+
+        # Mock query for adjustments
+        mock_adj_query = MagicMock()
+        mock_adj_query.filter.return_value = mock_adj_query
+        mock_adj_query.order_by.return_value = mock_adj_query
+        mock_adj_query.all.return_value = [mock_adjustment]
+
+        # Mock query for entity types (returns empty for entities)
+        call_count = [0]
+
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_adj_query
+            else:
+                mock_entity_query = MagicMock()
+                mock_entity_query.filter.return_value = mock_entity_query
+                mock_entity_query.all.return_value = []
+                return mock_entity_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        adjustments = await entity_service.export_adjustments(db=mock_db)
+
+        assert len(adjustments) == 1
+        assert adjustments[0]["event_id"] == "event-456"
+        assert adjustments[0]["action"] == "unlink"
+        assert "created_at" in adjustments[0]
+
+    @pytest.mark.asyncio
+    async def test_export_adjustments_includes_entity_types(
+        self, entity_service, mock_db
+    ):
+        """Test that export includes entity types for ML training."""
+        from app.models.entity_adjustment import EntityAdjustment
+        from app.models.recognized_entity import RecognizedEntity
+
+        now = datetime.now(timezone.utc)
+        mock_adjustment = MagicMock(spec=EntityAdjustment)
+        mock_adjustment.event_id = "event-456"
+        mock_adjustment.old_entity_id = "old-entity"
+        mock_adjustment.new_entity_id = "new-entity"
+        mock_adjustment.action = "merge"
+        mock_adjustment.event_description = "Test event"
+        mock_adjustment.created_at = now
+
+        mock_entity_old = MagicMock()
+        mock_entity_old.id = "old-entity"
+        mock_entity_old.entity_type = "person"
+
+        mock_entity_new = MagicMock()
+        mock_entity_new.id = "new-entity"
+        mock_entity_new.entity_type = "person"
+
+        call_count = [0]
+
+        def query_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_query = MagicMock()
+            mock_query.filter.return_value = mock_query
+            mock_query.order_by.return_value = mock_query
+
+            if call_count[0] == 1:
+                # Adjustments query
+                mock_query.all.return_value = [mock_adjustment]
+            else:
+                # Entities query
+                mock_query.all.return_value = [mock_entity_old, mock_entity_new]
+
+            return mock_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        adjustments = await entity_service.export_adjustments(db=mock_db)
+
+        assert len(adjustments) == 1
+        assert adjustments[0]["old_entity_type"] == "person"
+        assert adjustments[0]["new_entity_type"] == "person"
+
+    @pytest.mark.asyncio
+    async def test_export_adjustments_filter_by_date(
+        self, entity_service, mock_db
+    ):
+        """Test that export filters by date range."""
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.all.return_value = []
+
+        call_count = [0]
+
+        def query_side_effect(model):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_query
+            else:
+                mock_entity_query = MagicMock()
+                mock_entity_query.filter.return_value = mock_entity_query
+                mock_entity_query.all.return_value = []
+                return mock_entity_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        start = datetime.now(timezone.utc) - timedelta(days=7)
+        end = datetime.now(timezone.utc)
+
+        await entity_service.export_adjustments(
+            db=mock_db,
+            start_date=start,
+            end_date=end,
+        )
+
+        # Verify filter was called for both dates
+        assert mock_query.filter.call_count >= 2

@@ -1,5 +1,5 @@
 """
-Context API endpoints for Temporal Context Engine (Stories P4-3.1, P4-3.2, P4-3.3, P4-3.5, P4-7.2, P4-8.2)
+Context API endpoints for Temporal Context Engine (Stories P4-3.1, P4-3.2, P4-3.3, P4-3.5, P4-7.2, P4-8.2, P9-4.6)
 
 Provides endpoints for:
 - Batch processing of embeddings for existing events
@@ -9,6 +9,7 @@ Provides endpoints for:
 - Activity pattern retrieval for cameras (P4-3.5)
 - Anomaly scoring for events (P4-7.2)
 - Person matching for face recognition (P4-8.2)
+- Entity adjustment history for ML training (P9-4.6)
 """
 import base64
 import logging
@@ -1189,6 +1190,34 @@ class MergeEntitiesResponse(BaseModel):
         default=None, description="Name of the deleted entity"
     )
     message: str = Field(description="Human-readable result message")
+
+
+# Story P9-4.6: Entity Adjustment Response Models
+class AdjustmentResponse(BaseModel):
+    """Response model for a single entity adjustment record."""
+    id: str = Field(description="UUID of the adjustment record")
+    event_id: str = Field(description="UUID of the event that was adjusted")
+    old_entity_id: Optional[str] = Field(
+        default=None, description="UUID of the entity before adjustment (null for new assignments)"
+    )
+    new_entity_id: Optional[str] = Field(
+        default=None, description="UUID of the entity after adjustment (null for unlinks)"
+    )
+    action: str = Field(description="Type of adjustment: unlink, assign, move_from, move_to, merge")
+    event_description: Optional[str] = Field(
+        default=None, description="Snapshot of event description at time of adjustment"
+    )
+    created_at: datetime = Field(description="When the adjustment was made")
+
+
+class AdjustmentListResponse(BaseModel):
+    """Response model for paginated list of entity adjustments (Story P9-4.6)."""
+    adjustments: list[AdjustmentResponse] = Field(
+        description="List of adjustment records"
+    )
+    total: int = Field(description="Total number of adjustments matching filters")
+    page: int = Field(description="Current page number (1-indexed)")
+    limit: int = Field(description="Number of items per page")
 
 
 @router.post("/entities/merge", response_model=MergeEntitiesResponse)
@@ -2528,4 +2557,127 @@ async def delete_all_vehicles(
     return DeleteVehiclesResponse(
         deleted_count=count,
         message=f"Deleted all {count} vehicle embedding(s) from database"
+    )
+
+
+# Story P9-4.6: Entity Adjustment Endpoints
+@router.get("/adjustments", response_model=AdjustmentListResponse)
+async def get_adjustments(
+    page: int = Query(default=1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(default=50, ge=1, le=100, description="Items per page"),
+    action: Optional[str] = Query(
+        default=None,
+        description="Filter by action type: unlink, assign, move, merge"
+    ),
+    entity_id: Optional[str] = Query(
+        default=None,
+        description="Filter by entity ID (matches old or new entity)"
+    ),
+    start_date: Optional[datetime] = Query(
+        default=None,
+        description="Filter adjustments from this date (ISO format)"
+    ),
+    end_date: Optional[datetime] = Query(
+        default=None,
+        description="Filter adjustments until this date (ISO format)"
+    ),
+    db: Session = Depends(get_db),
+    entity_service: EntityService = Depends(get_entity_service),
+):
+    """
+    Get paginated list of entity adjustments (Story P9-4.6).
+
+    Returns manual entity corrections (unlink, assign, move, merge) for
+    auditing and future ML training. Supports filtering by action type,
+    entity, and date range.
+
+    Args:
+        page: Page number (1-indexed, default 1)
+        limit: Items per page (1-100, default 50)
+        action: Filter by action type (unlink, assign, move, merge)
+        entity_id: Filter by entity ID (matches old or new)
+        start_date: Filter from this date
+        end_date: Filter until this date
+        db: Database session
+        entity_service: Entity service instance
+
+    Returns:
+        AdjustmentListResponse with paginated adjustments
+    """
+    # Validate action if provided
+    valid_actions = ["unlink", "assign", "move", "move_from", "move_to", "merge"]
+    if action and action not in valid_actions:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid action. Must be one of: {', '.join(valid_actions)}"
+        )
+
+    offset = (page - 1) * limit
+
+    adjustments, total = await entity_service.get_adjustments(
+        db=db,
+        limit=limit,
+        offset=offset,
+        action=action,
+        entity_id=entity_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return AdjustmentListResponse(
+        adjustments=[AdjustmentResponse(**a) for a in adjustments],
+        total=total,
+        page=page,
+        limit=limit,
+    )
+
+
+@router.get("/adjustments/export")
+async def export_adjustments(
+    start_date: Optional[datetime] = Query(
+        default=None,
+        description="Filter adjustments from this date (ISO format)"
+    ),
+    end_date: Optional[datetime] = Query(
+        default=None,
+        description="Filter adjustments until this date (ISO format)"
+    ),
+    db: Session = Depends(get_db),
+    entity_service: EntityService = Depends(get_entity_service),
+):
+    """
+    Export adjustments for ML training (Story P9-4.6).
+
+    Returns all adjustment records in JSON Lines format suitable for
+    ML training pipelines. Each line is a complete JSON object with
+    event descriptions, entity types, and correction details.
+
+    Args:
+        start_date: Filter from this date
+        end_date: Filter until this date
+        db: Database session
+        entity_service: Entity service instance
+
+    Returns:
+        StreamingResponse with JSON Lines (application/x-ndjson)
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+
+    adjustments = await entity_service.export_adjustments(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    def generate_jsonl():
+        for adjustment in adjustments:
+            yield json.dumps(adjustment) + "\n"
+
+    return StreamingResponse(
+        generate_jsonl(),
+        media_type="application/x-ndjson",
+        headers={
+            "Content-Disposition": "attachment; filename=adjustments.jsonl"
+        }
     )

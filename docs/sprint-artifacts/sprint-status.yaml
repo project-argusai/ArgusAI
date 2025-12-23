@@ -535,7 +535,7 @@ development_status:
   p9-4-3-implement-event-entity-unlinking: done
   p9-4-4-implement-event-entity-assignment: done
   p9-4-5-implement-entity-merge: done
-  p9-4-6-store-manual-adjustments-for-future-matching: backlog
+  p9-4-6-store-manual-adjustments-for-future-matching: review
   epic-p9-4-retrospective: optional
 
   # Epic P9-5: Infrastructure & DevOps

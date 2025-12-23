@@ -1,0 +1,144 @@
+<story-context id="p9-4-6-store-manual-adjustments-for-future-matching" v="1.0">
+  <metadata>
+    <epicId>P9-4</epicId>
+    <storyId>P9-4.6</storyId>
+    <title>Store Manual Adjustments for Future Matching</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-22</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p9-4-6-store-manual-adjustments-for-future-matching.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system administrator</asA>
+    <iWant>manual entity adjustments to be recorded and queryable</iWant>
+    <soThat>future AI/ML can learn from user corrections and improve entity matching accuracy</soThat>
+    <tasks>
+      <task id="1">Verify existing adjustment record creation (AC: #1, #2, #3)</task>
+      <task id="2">Create GET /api/v1/context/adjustments endpoint (AC: #4)</task>
+      <task id="3">Create GET /api/v1/context/adjustments/export endpoint (AC: #5)</task>
+      <task id="4">Add useAdjustments hook for frontend (optional) (AC: #4)</task>
+      <task id="5">Write tests (AC: all)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="4.6.1">Given any manual operation (unlink/assign/move/merge), when complete, then EntityAdjustment record is created</criterion>
+    <criterion id="4.6.2">Given adjustment record, when stored, then includes event_id, old_entity_id, new_entity_id, action</criterion>
+    <criterion id="4.6.3">Given adjustment record, when stored, then includes event description snapshot</criterion>
+    <criterion id="4.6.4">Given adjustments exist, when querying API, then can retrieve adjustment history</criterion>
+    <criterion id="4.6.5">Given adjustment data, when exported, then suitable for ML training input</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P9-4.md</path>
+        <title>Epic P9-4 Technical Specification</title>
+        <section>P9-4.6: Store Manual Adjustments</section>
+        <snippet>Documents the API design for adjustment retrieval and export, including JSON Lines format for ML training.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase9.md</path>
+        <title>Phase 9 Epics</title>
+        <section>Story P9-4.6</section>
+        <snippet>Store correction history (unlink/assign/merge) for future ML training to improve matching accuracy.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/models/entity_adjustment.py</path>
+        <kind>model</kind>
+        <symbol>EntityAdjustment</symbol>
+        <lines>16-95</lines>
+        <reason>Core model that stores manual adjustments. Already exists with id, event_id, old_entity_id, new_entity_id, action, event_description, created_at fields.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/services/entity_service.py</path>
+        <kind>service</kind>
+        <symbol>EntityService</symbol>
+        <lines>1273-1687</lines>
+        <reason>Contains unlink_event(), assign_event(), and merge_entities() methods that already create EntityAdjustment records. Need to add get_adjustments() method.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/context.py</path>
+        <kind>router</kind>
+        <symbol>router</symbol>
+        <lines>1-2532</lines>
+        <reason>Context API endpoints. Need to add GET /adjustments and GET /adjustments/export endpoints.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/tests/test_services/test_entity_service.py</path>
+        <kind>test</kind>
+        <symbol>TestEntityServiceMerge</symbol>
+        <lines>1165-1445</lines>
+        <reason>Existing tests for entity service including merge_entities tests. Use as pattern for adjustment tests.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/models/__init__.py</path>
+        <kind>module</kind>
+        <symbol>EntityAdjustment</symbol>
+        <lines>all</lines>
+        <reason>Model exports - EntityAdjustment already exported.</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <python>
+        <package>fastapi>=0.115</package>
+        <package>sqlalchemy>=2.0</package>
+        <package>pydantic>=2.0</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>All API endpoints must follow existing FastAPI patterns in context.py</constraint>
+    <constraint>Use Pydantic models for request/response validation</constraint>
+    <constraint>Maintain backward compatibility with existing EntityAdjustment records</constraint>
+    <constraint>Export endpoint must return JSON Lines format for ML training compatibility</constraint>
+    <constraint>Pagination must use page/limit/offset pattern consistent with other endpoints</constraint>
+    <constraint>Do not modify existing unlink/assign/merge methods - they already create adjustment records correctly</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>GET /api/v1/context/adjustments</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/context/adjustments?page=1&amp;limit=50&amp;action=unlink&amp;entity_id=uuid&amp;start_date=datetime&amp;end_date=datetime</signature>
+      <path>backend/app/api/v1/context.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/context/adjustments/export</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/context/adjustments/export?start_date=datetime&amp;end_date=datetime (returns JSON Lines)</signature>
+      <path>backend/app/api/v1/context.py</path>
+    </interface>
+    <interface>
+      <name>EntityService.get_adjustments</name>
+      <kind>method</kind>
+      <signature>async def get_adjustments(db, limit, offset, action, entity_id, start_date, end_date) -> tuple[list[dict], int]</signature>
+      <path>backend/app/services/entity_service.py</path>
+    </interface>
+    <interface>
+      <name>EntityService.export_adjustments</name>
+      <kind>method</kind>
+      <signature>async def export_adjustments(db, start_date, end_date) -> list[dict]</signature>
+      <path>backend/app/services/entity_service.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Use pytest with async support. Follow existing test patterns in test_entity_service.py. Use MagicMock for database sessions. Tests should verify both success and error cases.</standards>
+    <locations>
+      <location>backend/tests/test_services/test_entity_service.py</location>
+      <location>backend/tests/test_api/test_context.py</location>
+    </locations>
+    <ideas>
+      <idea ac="4.6.1">Verify EntityAdjustment records are created for all manual operations (already tested in existing tests)</idea>
+      <idea ac="4.6.2">Test that adjustment records contain event_id, old_entity_id, new_entity_id, action fields</idea>
+      <idea ac="4.6.3">Test that event_description snapshot is captured in adjustment records</idea>
+      <idea ac="4.6.4">Test GET /adjustments endpoint with pagination, filtering by action type, entity_id, date range</idea>
+      <idea ac="4.6.5">Test export endpoint returns valid JSON Lines format with all required fields</idea>
+    </ideas>
+  </tests>
+</story-context>

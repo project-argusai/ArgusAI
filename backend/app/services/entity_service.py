@@ -1686,6 +1686,165 @@ class EntityService:
             "message": f"Merged {events_moved} event(s) into {primary.name or 'entity'}",
         }
 
+    async def get_adjustments(
+        self,
+        db: Session,
+        limit: int = 50,
+        offset: int = 0,
+        action: Optional[str] = None,
+        entity_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> tuple[list[dict], int]:
+        """
+        Get entity adjustments with pagination and filtering (Story P9-4.6).
+
+        Args:
+            db: SQLAlchemy database session
+            limit: Maximum number of adjustments to return (default 50)
+            offset: Pagination offset
+            action: Filter by action type (unlink, assign, move_from, move_to, merge)
+            entity_id: Filter by entity ID (matches old or new entity)
+            start_date: Filter adjustments from this date
+            end_date: Filter adjustments until this date
+
+        Returns:
+            Tuple of (list of adjustment dicts, total count)
+        """
+        from app.models.entity_adjustment import EntityAdjustment
+        from sqlalchemy import or_
+
+        query = db.query(EntityAdjustment)
+
+        # Apply filters
+        if action:
+            # Handle "move" as alias for move_from/move_to
+            if action == "move":
+                query = query.filter(
+                    or_(
+                        EntityAdjustment.action == "move_from",
+                        EntityAdjustment.action == "move_to"
+                    )
+                )
+            else:
+                query = query.filter(EntityAdjustment.action == action)
+
+        if entity_id:
+            query = query.filter(
+                or_(
+                    EntityAdjustment.old_entity_id == entity_id,
+                    EntityAdjustment.new_entity_id == entity_id
+                )
+            )
+
+        if start_date:
+            query = query.filter(EntityAdjustment.created_at >= start_date)
+
+        if end_date:
+            query = query.filter(EntityAdjustment.created_at <= end_date)
+
+        # Get total count
+        total = query.count()
+
+        # Get paginated results
+        adjustments = query.order_by(
+            desc(EntityAdjustment.created_at)
+        ).offset(offset).limit(limit).all()
+
+        logger.debug(
+            f"Retrieved {len(adjustments)} adjustments (total: {total})",
+            extra={
+                "event_type": "adjustments_retrieved",
+                "count": len(adjustments),
+                "total": total,
+                "action_filter": action,
+                "entity_filter": entity_id,
+            }
+        )
+
+        return [
+            {
+                "id": a.id,
+                "event_id": a.event_id,
+                "old_entity_id": a.old_entity_id,
+                "new_entity_id": a.new_entity_id,
+                "action": a.action,
+                "event_description": a.event_description,
+                "created_at": a.created_at,
+            }
+            for a in adjustments
+        ], total
+
+    async def export_adjustments(
+        self,
+        db: Session,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> list[dict]:
+        """
+        Export all adjustments for ML training (Story P9-4.6).
+
+        Returns adjustment records in a format suitable for JSON Lines export,
+        including event descriptions for training context.
+
+        Args:
+            db: SQLAlchemy database session
+            start_date: Filter adjustments from this date
+            end_date: Filter adjustments until this date
+
+        Returns:
+            List of adjustment dicts suitable for ML training
+        """
+        from app.models.entity_adjustment import EntityAdjustment
+        from app.models.recognized_entity import RecognizedEntity
+
+        query = db.query(EntityAdjustment)
+
+        if start_date:
+            query = query.filter(EntityAdjustment.created_at >= start_date)
+
+        if end_date:
+            query = query.filter(EntityAdjustment.created_at <= end_date)
+
+        adjustments = query.order_by(EntityAdjustment.created_at).all()
+
+        # Get entity types for enrichment
+        entity_ids = set()
+        for a in adjustments:
+            if a.old_entity_id:
+                entity_ids.add(a.old_entity_id)
+            if a.new_entity_id:
+                entity_ids.add(a.new_entity_id)
+
+        entity_types = {}
+        if entity_ids:
+            entities = db.query(
+                RecognizedEntity.id, RecognizedEntity.entity_type
+            ).filter(RecognizedEntity.id.in_(entity_ids)).all()
+            entity_types = {e.id: e.entity_type for e in entities}
+
+        logger.info(
+            f"Exporting {len(adjustments)} adjustments for ML training",
+            extra={
+                "event_type": "adjustments_exported",
+                "count": len(adjustments),
+            }
+        )
+
+        return [
+            {
+                "event_id": a.event_id,
+                "action": a.action,
+                "old_entity_id": a.old_entity_id,
+                "new_entity_id": a.new_entity_id,
+                "old_entity_type": entity_types.get(a.old_entity_id) if a.old_entity_id else None,
+                "new_entity_type": entity_types.get(a.new_entity_id) if a.new_entity_id else None,
+                "event_description": a.event_description,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+            }
+            for a in adjustments
+        ]
+
 
 # Global singleton instance
 _entity_service: Optional[EntityService] = None

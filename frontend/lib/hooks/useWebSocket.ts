@@ -15,11 +15,31 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { WebSocketMessage, IWebSocketNotification } from '@/types/notification';
 
-// WebSocket URL - defaults to ws://localhost:8000/ws
-const WS_BASE_URL = process.env.NEXT_PUBLIC_WS_URL ||
-  (typeof window !== 'undefined'
-    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.hostname}:8000`
-    : 'ws://localhost:8000');
+// Derive WebSocket URL from API URL or use explicit WS URL
+const getWebSocketBaseUrl = (): string => {
+  // Use explicit WS URL if set
+  if (process.env.NEXT_PUBLIC_WS_URL) {
+    return process.env.NEXT_PUBLIC_WS_URL;
+  }
+
+  // Derive from API URL if set
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (apiUrl) {
+    // Convert http(s):// to ws(s)://
+    return apiUrl.replace(/^http/, 'ws');
+  }
+
+  // Fall back to window location (for relative API URLs)
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    // Use same port as the page is served from (frontend handles proxying)
+    return `${protocol}//${window.location.host}`;
+  }
+
+  return 'ws://localhost:8000';
+};
+
+const WS_BASE_URL = getWebSocketBaseUrl();
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
 

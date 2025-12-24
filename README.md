@@ -19,6 +19,7 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **Frame Sampling Strategies** - Uniform, adaptive, or hybrid sampling modes
 - **AI-Assisted Prompt Refinement** - AI helps improve your event description prompts
 - **Full Motion Video Download** - Optional storage of complete motion clips
+- **Native Apple Apps Foundation** - SwiftUI architecture, cloud relay design (Cloudflare Tunnel)
 - **Bug Fixes** - Re-analyse function, installation script, push notification reliability
 
 ### Phase 7
@@ -107,6 +108,17 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 - **React Query Caching**: Optimized data fetching with automatic revalidation
 - **Skip-to-Content Links**: Keyboard navigation improvements
 - **ARIA Labels**: Full accessibility audit and fixes
+
+### Native Apple Apps (Phase 8+)
+- **SwiftUI Architecture**: Native iOS, iPadOS, watchOS, tvOS, and macOS apps planned
+- **Cloud Relay**: Cloudflare Tunnel for secure remote access without port forwarding
+- **Device Pairing**: 6-digit code pairing with JWT authentication
+- **Local Network Fallback**: Automatic Bonjour/mDNS discovery for LAN access
+- **Platform-Specific Features**:
+  - iPhone/iPad: Push notifications, widgets, Siri shortcuts
+  - Apple Watch: Complications for event status, haptic alerts
+  - Apple TV: Dashboard view, video playback, Top Shelf integration
+  - macOS: Menu bar app, keyboard navigation
 
 ### Security & Infrastructure (Phase 9)
 - **SSL/HTTPS Support** - Secure connections with TLS 1.2+
@@ -539,6 +551,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 | [PRD Phase 4](docs/PRD-phase4.md) | Context & smart home requirements |
 | [PRD Phase 5](docs/PRD-phase5.md) | HomeKit & quality requirements |
 | [PRD Phase 9](docs/PRD-phase9.md) | AI accuracy & entity management |
+| [Apple Apps Research](docs/research/apple-apps-technology.md) | SwiftUI vs React Native vs Flutter analysis |
+| [Cloud Relay Design](docs/architecture/cloud-relay-design.md) | Remote access architecture (Cloudflare Tunnel) |
 | [Epics Phase 5](docs/epics-phase5.md) | Phase 5 story breakdown |
 | [Epics Phase 6](docs/epics-phase6.md) | Phase 6 story breakdown |
 | [Epics Phase 7](docs/epics-phase7.md) | Phase 7 story breakdown |
@@ -623,6 +637,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - ✅ AI-assisted prompt refinement
 - ✅ Full motion video download toggle
 - ✅ Hide MQTT form when integration disabled
+- ✅ Native Apple apps technology research (SwiftUI selected)
+- ✅ Cloud relay architecture design (Cloudflare Tunnel)
 
 **Phase 9: AI Accuracy & Entity Management** (In Progress)
 - ✅ SSL/HTTPS support with certificate generation
@@ -633,16 +649,25 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - ✅ Vehicle entity separation by make/model
 - ✅ Entity event list with unlink/assign/move
 - ✅ Entity merge functionality
-- 🔄 Documentation updates (README refactor)
-- 📋 GitHub Pages project site
+- ✅ Documentation updates (README refactor, GitHub Pages)
+- ✅ GitHub Pages project site with landing page and docs
+
+**Phase 10: Native Apple Apps** (Planned)
+- ✅ SwiftUI technology decision (research complete)
+- ✅ Cloud relay architecture design (Cloudflare Tunnel)
+- ✅ Mobile API specification
+- 📋 iPhone app prototype with pairing flow
+- 📋 iPad adaptive layouts
+- 📋 Apple Watch complications
+- 📋 Apple TV dashboard
+- 📋 macOS menu bar app
 
 ### Future
 - 📋 Local LLM support (Ollama)
-- 📋 Native Apple device apps (iPhone, iPad, Watch, TV)
-- 📋 Cloud relay for remote access
 - 📋 n8n automated development pipeline
 - 📋 Alexa voice assistant integration
 - 📋 Multi-user authentication and permissions
+- 📋 Android app (React Native)
 
 ## Troubleshooting
 

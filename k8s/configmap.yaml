@@ -1,0 +1,31 @@
+# ArgusAI ConfigMap
+# Non-sensitive configuration values for the application
+# Referenced by Deployments via envFrom configMapRef
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argusai-config
+  labels:
+    app: argusai
+    app.kubernetes.io/name: argusai
+data:
+  # Application settings
+  DEBUG: "false"
+  LOG_LEVEL: "INFO"
+
+  # CORS configuration (adjust for your domain)
+  CORS_ORIGINS: "http://localhost:3000"
+
+  # Database configuration
+  # For SQLite (default): sqlite:///data/app.db
+  # For PostgreSQL: postgresql://user:pass@host:5432/argusai
+  DATABASE_URL: "sqlite:///data/app.db"
+
+  # SSL configuration
+  SSL_ENABLED: "false"
+
+  # Camera limits
+  MAX_CAMERAS: "10"
+
+  # Event retention (days)
+  EVENT_RETENTION_DAYS: "30"

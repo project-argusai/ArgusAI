@@ -1,0 +1,91 @@
+# ArgusAI Ingress
+# Optional: Routes external traffic to backend and frontend services
+# Requires an Ingress Controller (nginx-ingress, traefik, etc.)
+#
+# Usage:
+# 1. Install an ingress controller in your cluster
+# 2. Update the host to your domain
+# 3. Optionally configure TLS
+# 4. Apply: kubectl apply -f k8s/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: argusai-ingress
+  labels:
+    app: argusai
+    app.kubernetes.io/name: argusai
+  annotations:
+    # nginx-ingress specific annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket support
+    nginx.ingress.kubernetes.io/websocket-services: "argusai-backend"
+    # Optional: Enable CORS
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: argusai.local  # Change to your domain
+      http:
+        paths:
+          # API endpoints -> backend
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: argusai-backend
+                port:
+                  number: 8000
+          # WebSocket endpoint -> backend
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: argusai-backend
+                port:
+                  number: 8000
+          # OpenAPI documentation -> backend
+          - path: /docs
+            pathType: Prefix
+            backend:
+              service:
+                name: argusai-backend
+                port:
+                  number: 8000
+          - path: /openapi.json
+            pathType: Exact
+            backend:
+              service:
+                name: argusai-backend
+                port:
+                  number: 8000
+          # Health check endpoint -> backend
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: argusai-backend
+                port:
+                  number: 8000
+          # Metrics endpoint -> backend
+          - path: /metrics
+            pathType: Exact
+            backend:
+              service:
+                name: argusai-backend
+                port:
+                  number: 8000
+          # Everything else -> frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: argusai-frontend
+                port:
+                  number: 3000
+  # Uncomment for TLS termination
+  # tls:
+  #   - hosts:
+  #       - argusai.local
+  #     secretName: argusai-tls  # Create this secret with your TLS certificate

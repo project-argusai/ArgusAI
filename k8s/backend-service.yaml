@@ -1,0 +1,21 @@
+# ArgusAI Backend Service
+# Exposes the FastAPI backend for internal cluster communication
+apiVersion: v1
+kind: Service
+metadata:
+  name: argusai-backend
+  labels:
+    app: argusai
+    component: backend
+    app.kubernetes.io/name: argusai
+    app.kubernetes.io/component: backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app: argusai
+    component: backend

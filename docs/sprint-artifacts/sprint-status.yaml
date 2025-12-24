@@ -476,7 +476,7 @@ development_status:
   epic-p8-4: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P8-4.md
   p8-4-1-research-native-apple-app-technologies: done
   p8-4-2-design-cloud-relay-architecture: done
-  p8-4-3-create-argusai-api-specification-for-mobile: backlog
+  p8-4-3-create-argusai-api-specification-for-mobile: done
   p8-4-4-prototype-iphone-app-structure: backlog
   epic-p8-4-retrospective: optional
 

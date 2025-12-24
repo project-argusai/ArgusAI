@@ -1,0 +1,909 @@
+openapi: "3.1.0"
+info:
+  title: ArgusAI Mobile API
+  version: "1.0.0"
+  description: |
+    REST API for the ArgusAI iOS mobile application.
+
+    ## Overview
+    This API provides mobile-optimized endpoints for the ArgusAI home security system.
+    All endpoints require authentication via Bearer token (except auth endpoints).
+
+    ## Authentication Flow
+    1. Generate a pairing code via `POST /auth/pair`
+    2. Display code on mobile device, user confirms on web dashboard
+    3. Exchange code for tokens via `POST /auth/verify`
+    4. Use access token for all subsequent requests
+    5. Refresh tokens before expiry via `POST /auth/refresh`
+
+    ## Security
+    - TLS 1.3 required for all connections
+    - Certificate pinning recommended for production
+    - Device ID binding prevents token theft
+    - Rate limiting per endpoint
+
+    ## Bandwidth Estimates
+    | Endpoint | Size | Notes |
+    |----------|------|-------|
+    | GET /events (page) | 3-5 KB | 20 events |
+    | GET /events/{id} | ~1 KB | Single event |
+    | GET /events/{id}/thumbnail | 30-50 KB | JPEG quality 60 |
+    | GET /cameras/{id}/snapshot | 50-100 KB | JPEG quality 75 |
+  contact:
+    name: ArgusAI
+    url: https://github.com/bbengtson/argusai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://{host}/api/v1/mobile
+    description: Production (via cloud relay)
+    variables:
+      host:
+        default: argusai.example.com
+        description: Cloud relay hostname
+  - url: http://{localHost}:8000/api/v1/mobile
+    description: Local network (direct connection)
+    variables:
+      localHost:
+        default: argusai.local
+        description: Local ArgusAI server hostname
+
+tags:
+  - name: Authentication
+    description: Device pairing and token management
+  - name: Events
+    description: Event listing and details
+  - name: Cameras
+    description: Camera list and snapshots
+  - name: Push
+    description: Push notification registration
+
+paths:
+  # ============================================================================
+  # Authentication Endpoints
+  # ============================================================================
+  /auth/pair:
+    post:
+      tags:
+        - Authentication
+      summary: Generate pairing code
+      description: |
+        Generate a 6-digit pairing code for device registration.
+        The code expires after 5 minutes.
+
+        **Rate limit:** 5 requests per minute
+      operationId: generatePairingCode
+      x-ratelimit-limit: 5
+      x-ratelimit-window: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PairRequest'
+            example:
+              device_id: "550e8400-e29b-41d4-a716-446655440000"
+              device_name: "iPhone 15 Pro"
+              device_model: "iPhone16,1"
+      responses:
+        '201':
+          description: Pairing code generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PairResponse'
+              example:
+                pairing_code: "123456"
+                expires_at: "2025-12-24T12:35:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/verify:
+    post:
+      tags:
+        - Authentication
+      summary: Verify pairing code
+      description: |
+        Verify a pairing code and receive JWT tokens.
+        The pairing code must have been confirmed by the user on the web dashboard.
+
+        **Rate limit:** 10 requests per minute
+      operationId: verifyPairingCode
+      x-ratelimit-limit: 10
+      x-ratelimit-window: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+            example:
+              pairing_code: "123456"
+              device_id: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Pairing verified, tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                refresh_token: "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4..."
+                token_type: "Bearer"
+                expires_in: 3600
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid or expired pairing code
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: "Invalid or expired pairing code"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh access token
+      description: |
+        Refresh an expired access token using a valid refresh token.
+        The refresh token is rotated on each use for security.
+
+        **Rate limit:** 20 requests per minute
+      operationId: refreshToken
+      x-ratelimit-limit: 20
+      x-ratelimit-window: 60
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refresh_token: "dGhpcyBpcyBhIHJlZnJlc2ggdG9rZW4..."
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: "Invalid or expired refresh token"
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================================
+  # Events Endpoints
+  # ============================================================================
+  /events:
+    get:
+      tags:
+        - Events
+      summary: List events
+      description: |
+        List events with pagination and filtering.
+        Returns events sorted by timestamp (newest first).
+
+        **Bandwidth:** ~5 KB for 20 events
+        **Rate limit:** 100 requests per minute
+      operationId: listEvents
+      security:
+        - BearerAuth: []
+      x-ratelimit-limit: 100
+      x-ratelimit-window: 60
+      parameters:
+        - name: camera_id
+          in: query
+          description: Filter by camera UUID
+          schema:
+            type: string
+            format: uuid
+        - name: start_time
+          in: query
+          description: Filter events after this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          description: Filter events before this timestamp (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: smart_detection_type
+          in: query
+          description: Filter by detection type (person, vehicle, package, animal)
+          schema:
+            type: string
+            enum: [person, vehicle, package, animal]
+        - name: limit
+          in: query
+          description: Number of results per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          description: Pagination offset
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Event list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/recent:
+    get:
+      tags:
+        - Events
+      summary: Get recent events
+      description: |
+        Get the most recent events for widgets and quick views.
+        Returns minimal data for efficiency.
+
+        **Bandwidth:** ~2 KB for 5 events
+        **Rate limit:** 100 requests per minute
+      operationId: getRecentEvents
+      security:
+        - BearerAuth: []
+      x-ratelimit-limit: 100
+      x-ratelimit-window: 60
+      parameters:
+        - name: limit
+          in: query
+          description: Number of recent events to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 10
+            default: 5
+      responses:
+        '200':
+          description: Recent events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentEventsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{event_id}:
+    get:
+      tags:
+        - Events
+      summary: Get event details
+      description: |
+        Get full details for a single event.
+
+        **Bandwidth:** ~1 KB
+        **Rate limit:** 100 requests per minute
+      operationId: getEvent
+      security:
+        - BearerAuth: []
+      x-ratelimit-limit: 100
+      x-ratelimit-window: 60
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Event UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: "Event not found"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /events/{event_id}/thumbnail:
+    get:
+      tags:
+        - Events
+      summary: Get event thumbnail
+      description: |
+        Get the compressed thumbnail image for an event.
+
+        **Bandwidth:** 30-50 KB (JPEG quality 60)
+        **Rate limit:** 100 requests per minute
+        **Cache:** 24 hours
+      operationId: getEventThumbnail
+      security:
+        - BearerAuth: []
+      x-ratelimit-limit: 100
+      x-ratelimit-window: 60
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          description: Event UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thumbnail image
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: "public, max-age=86400"
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Thumbnail not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================================
+  # Cameras Endpoints
+  # ============================================================================
+  /cameras:
+    get:
+      tags:
+        - Cameras
+      summary: List cameras
+      description: |
+        Get list of all cameras with their current status.
+
+        **Bandwidth:** ~2 KB
+        **Rate limit:** 100 requests per minute
+      operationId: listCameras
+      security:
+        - BearerAuth: []
+      x-ratelimit-limit: 100
+      x-ratelimit-window: 60
+      responses:
+        '200':
+          description: Camera list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /cameras/{camera_id}/snapshot:
+    get:
+      tags:
+        - Cameras
+      summary: Get camera snapshot
+      description: |
+        Get the current snapshot from a camera.
+
+        **Bandwidth:** 50-100 KB (JPEG quality 75)
+        **Rate limit:** 30 requests per minute
+        **Cache:** No cache (live image)
+      operationId: getCameraSnapshot
+      security:
+        - BearerAuth: []
+      x-ratelimit-limit: 30
+      x-ratelimit-window: 60
+      parameters:
+        - name: camera_id
+          in: path
+          required: true
+          description: Camera UUID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Snapshot image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Camera not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Camera offline
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                detail: "Camera is offline"
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  # ============================================================================
+  # Push Notification Endpoints
+  # ============================================================================
+  /push/register:
+    post:
+      tags:
+        - Push
+      summary: Register for push notifications
+      description: |
+        Register an APNS device token for push notifications.
+        If the device is already registered, the token is updated.
+      operationId: registerPush
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PushRegisterRequest'
+            example:
+              device_token: "a1b2c3d4e5f6..."
+              device_id: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '201':
+          description: Push registration created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushRegisterResponse'
+        '200':
+          description: Push registration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushRegisterResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /push/unregister:
+    delete:
+      tags:
+        - Push
+      summary: Unregister from push notifications
+      description: |
+        Unregister the device from push notifications.
+        The device will no longer receive notifications.
+      operationId: unregisterPush
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Successfully unregistered
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Registration not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  # ============================================================================
+  # Security Schemes
+  # ============================================================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token obtained from `/auth/verify` or `/auth/refresh`.
+        Include in Authorization header: `Bearer {token}`
+
+  # ============================================================================
+  # Common Responses
+  # ============================================================================
+  responses:
+    BadRequest:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            detail: "Invalid request data"
+
+    Unauthorized:
+      description: Authentication required or token expired
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            detail: "Not authenticated"
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            detail: "Rate limit exceeded. Retry after 60 seconds."
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            detail: "Internal server error"
+
+  # ============================================================================
+  # Schemas
+  # ============================================================================
+  schemas:
+    # Error Response
+    ErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+
+    # Authentication Schemas
+    PairRequest:
+      type: object
+      required:
+        - device_id
+        - device_name
+      properties:
+        device_id:
+          type: string
+          format: uuid
+          description: Unique device identifier (UUID)
+        device_name:
+          type: string
+          maxLength: 100
+          description: Human-readable device name
+          example: "iPhone 15 Pro"
+        device_model:
+          type: string
+          maxLength: 50
+          description: Device model identifier
+          example: "iPhone16,1"
+
+    PairResponse:
+      type: object
+      required:
+        - pairing_code
+        - expires_at
+      properties:
+        pairing_code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: 6-digit pairing code
+          example: "123456"
+        expires_at:
+          type: string
+          format: date-time
+          description: Code expiration time (ISO 8601)
+          example: "2025-12-24T12:35:00Z"
+
+    VerifyRequest:
+      type: object
+      required:
+        - pairing_code
+        - device_id
+      properties:
+        pairing_code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: 6-digit pairing code from pair response
+        device_id:
+          type: string
+          format: uuid
+          description: Device ID that initiated pairing
+
+    RefreshRequest:
+      type: object
+      required:
+        - refresh_token
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token from previous token response
+
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - refresh_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: JWT access token for API requests
+        refresh_token:
+          type: string
+          description: Refresh token for obtaining new access tokens
+        token_type:
+          type: string
+          enum: [Bearer]
+          description: Token type (always "Bearer")
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds
+          example: 3600
+
+    # Event Schemas
+    EventSummary:
+      type: object
+      description: Minimal event data for lists
+      required:
+        - id
+        - camera_id
+        - camera_name
+        - timestamp
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Event UUID
+        camera_id:
+          type: string
+          format: uuid
+          description: Camera UUID
+        camera_name:
+          type: string
+          description: Camera display name
+        timestamp:
+          type: string
+          format: date-time
+          description: Event timestamp (ISO 8601)
+        description:
+          type: string
+          description: AI-generated event description
+        smart_detection_type:
+          type: string
+          enum: [person, vehicle, package, animal, motion]
+          description: Type of detection
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Detection confidence score
+        has_thumbnail:
+          type: boolean
+          description: Whether thumbnail is available
+
+    EventResponse:
+      type: object
+      description: Full event details
+      required:
+        - id
+        - camera_id
+        - camera_name
+        - timestamp
+        - description
+      properties:
+        id:
+          type: string
+          format: uuid
+        camera_id:
+          type: string
+          format: uuid
+        camera_name:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        description:
+          type: string
+        smart_detection_type:
+          type: string
+          enum: [person, vehicle, package, animal, motion]
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+        objects_detected:
+          type: array
+          items:
+            type: string
+          description: List of detected objects
+        is_doorbell_ring:
+          type: boolean
+          description: Whether this is a doorbell ring event
+        source_type:
+          type: string
+          enum: [protect, rtsp, usb]
+          description: Camera source type
+        provider_used:
+          type: string
+          description: AI provider that generated description
+        analysis_mode:
+          type: string
+          enum: [single_frame, multi_frame, video_native]
+          description: Analysis mode used
+        delivery_carrier:
+          type: string
+          description: Detected delivery carrier (if package)
+        thumbnail_url:
+          type: string
+          description: URL to fetch thumbnail
+        created_at:
+          type: string
+          format: date-time
+
+    EventListResponse:
+      type: object
+      required:
+        - events
+        - total_count
+        - has_more
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventSummary'
+        total_count:
+          type: integer
+          description: Total number of matching events
+        has_more:
+          type: boolean
+          description: Whether more pages are available
+        next_offset:
+          type: integer
+          description: Offset for next page (if has_more is true)
+
+    RecentEventsResponse:
+      type: object
+      required:
+        - events
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventSummary'
+          maxItems: 10
+
+    # Camera Schemas
+    CameraSummary:
+      type: object
+      required:
+        - id
+        - name
+        - is_enabled
+        - is_online
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          description: Camera display name
+        is_enabled:
+          type: boolean
+          description: Whether camera is enabled for monitoring
+        is_online:
+          type: boolean
+          description: Whether camera is currently online
+        source_type:
+          type: string
+          enum: [protect, rtsp, usb]
+        last_event_at:
+          type: string
+          format: date-time
+          description: Timestamp of most recent event
+
+    CameraListResponse:
+      type: object
+      required:
+        - cameras
+      properties:
+        cameras:
+          type: array
+          items:
+            $ref: '#/components/schemas/CameraSummary'
+
+    # Push Notification Schemas
+    PushRegisterRequest:
+      type: object
+      required:
+        - device_token
+        - device_id
+      properties:
+        device_token:
+          type: string
+          description: APNS device token (hex-encoded)
+          minLength: 64
+          maxLength: 200
+        device_id:
+          type: string
+          format: uuid
+          description: Device ID (must match authenticated device)
+
+    PushRegisterResponse:
+      type: object
+      required:
+        - id
+        - registered_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Push registration UUID
+        registered_at:
+          type: string
+          format: date-time
+          description: Registration timestamp

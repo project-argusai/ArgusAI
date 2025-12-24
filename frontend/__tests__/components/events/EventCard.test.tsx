@@ -203,9 +203,10 @@ describe('EventCard', () => {
       renderWithProvider(<EventCard event={event} onClick={onClick} />)
 
       const img = screen.getByRole('img', { name: 'Event thumbnail' })
+      // Thumbnail path is now relative (no API base URL prefix)
       expect(img).toHaveAttribute(
         'src',
-        'http://localhost:8000/api/v1/thumbnails/2024-01/test.jpg'
+        '/api/v1/thumbnails/2024-01/test.jpg'
       )
     })
 

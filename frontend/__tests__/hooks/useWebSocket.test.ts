@@ -91,7 +91,8 @@ describe('useWebSocket', () => {
       })
 
       expect(mockWebSocketInstances.length).toBe(1)
-      expect(mockWebSocketInstances[0].url).toBe('ws://localhost:8000/ws')
+      // WebSocket URL is derived from window.location.host when NEXT_PUBLIC_API_URL is not set
+      expect(mockWebSocketInstances[0].url).toMatch(/^ws:\/\/localhost:\d+\/ws$/)
     })
 
     it('does not auto-connect when autoConnect is false', async () => {

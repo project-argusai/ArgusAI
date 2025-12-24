@@ -601,7 +601,7 @@ development_status:
   p10-3-1-create-kubernetes-deployment-manifests: done
   p10-3-2-create-kubernetes-service-and-config-resources: done
   p10-3-3-create-helm-chart: done
-  p10-3-4-add-container-cicd-pipeline: backlog
+  p10-3-4-add-container-cicd-pipeline: done
   epic-p10-3-retrospective: optional
 
   # Epic P10-4: Entity Management UX

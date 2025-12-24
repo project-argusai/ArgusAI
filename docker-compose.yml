@@ -1,0 +1,123 @@
+# ArgusAI Docker Compose Configuration
+# Story P10-2.4: Create docker-compose.yml
+#
+# Usage:
+#   docker-compose up -d              # Start backend and frontend
+#   docker-compose down               # Stop containers (preserves volumes)
+#   docker-compose logs -f            # Follow logs
+#   docker-compose ps                 # Show running containers
+#
+# Prerequisites:
+#   - Copy .env.example to .env and configure required variables
+#   - ENCRYPTION_KEY and JWT_SECRET_KEY are required
+#
+# For PostgreSQL or SSL profiles, see stories P10-2.5 and P10-2.6
+
+services:
+  # ==============================================================================
+  # Backend Service - FastAPI Application
+  # ==============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ghcr.io/bbengt1/argusai-backend:latest
+    container_name: argusai-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Database configuration
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///data/app.db}
+      # Required secrets
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # Application settings
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://frontend:3000}
+      # AI provider keys (optional)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - XAI_API_KEY=${XAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+      # Push notifications (optional)
+      - VAPID_PRIVATE_KEY=${VAPID_PRIVATE_KEY:-}
+      - VAPID_PUBLIC_KEY=${VAPID_PUBLIC_KEY:-}
+      # SSL configuration (optional)
+      - SSL_ENABLED=${SSL_ENABLED:-false}
+      - SSL_CERT_FILE=${SSL_CERT_FILE:-data/certs/cert.pem}
+      - SSL_KEY_FILE=${SSL_KEY_FILE:-data/certs/key.pem}
+      # HomeKit (optional)
+      - HOMEKIT_ENABLED=${HOMEKIT_ENABLED:-false}
+      - HOMEKIT_PORT=${HOMEKIT_PORT:-51826}
+      - HOMEKIT_BRIDGE_NAME=${HOMEKIT_BRIDGE_NAME:-ArgusAI}
+      # MQTT (optional)
+      - MQTT_ENABLED=${MQTT_ENABLED:-false}
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+    volumes:
+      # Named volume for persistent data (database, thumbnails, frames, certs, homekit)
+      - argusai-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - argusai-net
+
+  # ==============================================================================
+  # Frontend Service - Next.js Application
+  # ==============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Build-time API URL for Next.js (baked into build)
+        NEXT_PUBLIC_API_URL: http://backend:8000
+    image: ghcr.io/bbengt1/argusai-frontend:latest
+    container_name: argusai-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # Runtime environment (for server-side rendering)
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - argusai-net
+
+# ==============================================================================
+# Named Volumes - Persistent Storage
+# ==============================================================================
+volumes:
+  # Backend data volume containing:
+  # - app.db (SQLite database)
+  # - thumbnails/ (event thumbnails)
+  # - frames/ (video analysis frames)
+  # - certs/ (SSL certificates)
+  # - homekit/ (HomeKit pairing data)
+  argusai-data:
+    driver: local
+
+# ==============================================================================
+# Networks - Internal Communication
+# ==============================================================================
+networks:
+  # Bridge network for service-to-service communication
+  # Frontend accesses backend via http://backend:8000
+  argusai-net:
+    driver: bridge

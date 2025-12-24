@@ -589,7 +589,7 @@ development_status:
   p10-2-1-create-backend-dockerfile: done
   p10-2-2-create-frontend-dockerfile: done
   p10-2-3-configure-docker-volumes-and-environment: done
-  p10-2-4-create-docker-compose-yml: backlog
+  p10-2-4-create-docker-compose-yml: done
   p10-2-5-add-postgresql-service-to-docker-compose: backlog
   p10-2-6-add-nginx-reverse-proxy-with-ssl: backlog
   epic-p10-2-retrospective: optional

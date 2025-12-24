@@ -1,6 +1,6 @@
 # Story P10-1.2: Fix Events Page Infinite Scroll
 
-Status: review
+Status: done
 
 ## Story
 

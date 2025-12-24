@@ -576,7 +576,7 @@ development_status:
   # Focus: Admin password, infinite scroll, Today's Activity, UI fixes
   epic-p10-1: backlog
   p10-1-1-implement-admin-password-change: done
-  p10-1-2-fix-events-page-infinite-scroll: review
+  p10-1-2-fix-events-page-infinite-scroll: done
   p10-1-3-fix-todays-activity-date-filtering: backlog
   p10-1-4-fix-events-page-button-positioning: backlog
   p10-1-5-fix-entity-card-scrolling: backlog

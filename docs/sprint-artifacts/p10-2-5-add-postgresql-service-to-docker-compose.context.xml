@@ -1,0 +1,167 @@
+<story-context id="story-context-p10-2-5" v="1.0">
+  <metadata>
+    <epicId>P10-2</epicId>
+    <storyId>2.5</storyId>
+    <title>Add PostgreSQL Service to docker-compose</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-24</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p10-2-5-add-postgresql-service-to-docker-compose.md</sourceStoryPath>
+    <githubIssue>https://github.com/bbengt1/ArgusAI/issues/195</githubIssue>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>optional PostgreSQL for production deployments</iWant>
+    <soThat>I can use a robust database for larger installations</soThat>
+    <tasks>
+      <task id="1">Add PostgreSQL service to docker-compose.yml with profile: ["postgres"]</task>
+      <task id="2">Configure PostgreSQL volume for persistence (pgdata)</task>
+      <task id="3">Update backend service documentation for PostgreSQL DATABASE_URL</task>
+      <task id="4">Add PostgreSQL environment variables to .env.example (already present)</task>
+      <task id="5">Test and validate PostgreSQL integration</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-1">Given I want to use PostgreSQL, when I run `docker-compose --profile postgres up`, then PostgreSQL container starts alongside the app and backend connects to PostgreSQL with migrations applied automatically</criterion>
+    <criterion id="AC-2">Given PostgreSQL is running, when I check the database, then all tables are created correctly and data is persisted in a named volume</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P10-2.md</path>
+        <title>Epic P10-2 Technical Specification</title>
+        <section>Story P10-2.5: PostgreSQL Service</section>
+        <snippet>Add postgres service with profile: ["postgres"], use postgres:16-alpine image, configure POSTGRES_USER/PASSWORD/DB, add pgdata volume, backend DATABASE_URL points to postgres service.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase10.md</path>
+        <title>Phase 10 Epics</title>
+        <section>Story P10-2.5: Add PostgreSQL Service</section>
+        <snippet>Optional PostgreSQL for production deployments. Use compose profiles for activation. Migrations applied automatically on backend startup.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase10.md</path>
+        <title>Phase 10 PRD</title>
+        <section>FR20: PostgreSQL</section>
+        <snippet>docker-compose includes optional PostgreSQL service. FR22: Compose profiles allow selective service startup.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/deployment-architecture.md</path>
+        <title>Deployment Architecture</title>
+        <section>Production Deployment (Docker)</section>
+        <snippet>Documents Docker-based deployment with backend, frontend, and database configuration.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/p10-2-4-create-docker-compose-yml.md</path>
+        <title>Story P10-2.4 (Predecessor)</title>
+        <section>Completion Notes</section>
+        <snippet>docker-compose.yml created with backend, frontend, argusai-data volume, argusai-net network. Health checks and restart policies configured.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>docker-compose.yml</path>
+        <kind>config</kind>
+        <symbol>services</symbol>
+        <lines>1-124</lines>
+        <reason>Main file to modify - add postgres service with profile</reason>
+      </file>
+      <file>
+        <path>.env.example</path>
+        <kind>config</kind>
+        <symbol>POSTGRES_*</symbol>
+        <lines>24-30</lines>
+        <reason>PostgreSQL environment variables already defined - document usage</reason>
+      </file>
+      <file>
+        <path>backend/app/core/database.py</path>
+        <kind>service</kind>
+        <symbol>create_engine</symbol>
+        <lines>1-28</lines>
+        <reason>Database engine creation - uses settings.DATABASE_URL, has SQLite-specific check_same_thread</reason>
+      </file>
+      <file>
+        <path>backend/app/core/config.py</path>
+        <kind>config</kind>
+        <symbol>DATABASE_URL</symbol>
+        <lines>14</lines>
+        <reason>DATABASE_URL setting with SQLite default</reason>
+      </file>
+      <file>
+        <path>backend/Dockerfile</path>
+        <kind>dockerfile</kind>
+        <symbol>backend image</symbol>
+        <lines>1-80</lines>
+        <reason>Backend container with PostgreSQL client libraries already installed</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="sqlalchemy" version=">=2.0"/>
+        <package name="psycopg2-binary" version=">=2.9"/>
+        <package name="alembic" version=">=1.13"/>
+      </python>
+      <docker>
+        <image name="postgres" version="16-alpine"/>
+      </docker>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="profile">PostgreSQL service MUST use compose profiles: ["postgres"] to remain optional</constraint>
+    <constraint type="network">PostgreSQL MUST be on argusai-net network only, NOT exposed on host ports</constraint>
+    <constraint type="volume">Database data MUST persist in named volume pgdata</constraint>
+    <constraint type="health">PostgreSQL MUST have health check using pg_isready before backend depends_on</constraint>
+    <constraint type="sqlite-compat">Backend database.py has SQLite-specific check_same_thread that may need conditional handling for PostgreSQL</constraint>
+    <constraint type="migrations">Alembic migrations run automatically on backend startup</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>Docker Compose Profile</name>
+      <kind>CLI</kind>
+      <signature>docker-compose --profile postgres up -d</signature>
+      <path>docker-compose.yml</path>
+    </interface>
+    <interface>
+      <name>PostgreSQL Connection</name>
+      <kind>Connection String</kind>
+      <signature>postgresql://argusai:password@postgres:5432/argusai</signature>
+      <path>.env.example</path>
+    </interface>
+    <interface>
+      <name>PostgreSQL Health Check</name>
+      <kind>Shell Command</kind>
+      <signature>pg_isready -U ${POSTGRES_USER:-argusai}</signature>
+      <path>docker-compose.yml</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Docker Compose validation using `docker-compose config`. Integration testing by starting services with profiles and verifying connectivity. Backend tests use SQLite in-memory by default.</standards>
+    <locations>
+      <location>N/A - Docker infrastructure, manual testing</location>
+    </locations>
+    <ideas>
+      <idea acRef="AC-1">Validate docker-compose.yml syntax with --profile postgres</idea>
+      <idea acRef="AC-1">Start postgres profile and verify container is healthy</idea>
+      <idea acRef="AC-1">Verify backend can connect to PostgreSQL when DATABASE_URL is set</idea>
+      <idea acRef="AC-2">Check that pgdata volume is created with docker volume ls</idea>
+      <idea acRef="AC-2">Stop and restart containers, verify data persists</idea>
+      <idea acRef="AC-2">Connect to PostgreSQL and verify tables exist</idea>
+    </ideas>
+  </tests>
+
+  <implementation-notes>
+    <note>The .env.example already has POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB variables defined</note>
+    <note>The backend database.py uses SQLite-specific check_same_thread=False which should be conditionally applied only for SQLite URLs</note>
+    <note>PostgreSQL service should NOT be exposed on host ports - internal network only for security</note>
+    <note>Backend already has psycopg2-binary in requirements.txt for PostgreSQL support</note>
+    <note>Alembic handles migrations automatically - no special script needed</note>
+  </implementation-notes>
+</story-context>

@@ -1,17 +1,24 @@
 # ArgusAI Docker Compose Configuration
 # Story P10-2.4: Create docker-compose.yml
+# Story P10-2.5: Add PostgreSQL Service
 #
 # Usage:
-#   docker-compose up -d              # Start backend and frontend
-#   docker-compose down               # Stop containers (preserves volumes)
-#   docker-compose logs -f            # Follow logs
-#   docker-compose ps                 # Show running containers
+#   docker-compose up -d                          # Start backend and frontend (SQLite)
+#   docker-compose --profile postgres up -d       # Start with PostgreSQL
+#   docker-compose down                           # Stop containers (preserves volumes)
+#   docker-compose logs -f                        # Follow logs
+#   docker-compose ps                             # Show running containers
+#
+# PostgreSQL Usage:
+#   1. Set DATABASE_URL=postgresql://argusai:your-password@postgres:5432/argusai in .env
+#   2. Set POSTGRES_PASSWORD=your-password in .env
+#   3. Run: docker-compose --profile postgres up -d
 #
 # Prerequisites:
 #   - Copy .env.example to .env and configure required variables
 #   - ENCRYPTION_KEY and JWT_SECRET_KEY are required
 #
-# For PostgreSQL or SSL profiles, see stories P10-2.5 and P10-2.6
+# For SSL profile, see story P10-2.6
 
 services:
   # ==============================================================================
@@ -100,6 +107,38 @@ services:
     networks:
       - argusai-net
 
+  # ==============================================================================
+  # PostgreSQL Database Service (Optional - use with --profile postgres)
+  # ==============================================================================
+  # Story P10-2.5: Add PostgreSQL Service
+  #
+  # To use PostgreSQL instead of SQLite:
+  #   1. Set DATABASE_URL=postgresql://argusai:your-password@postgres:5432/argusai
+  #   2. Set POSTGRES_PASSWORD=your-password
+  #   3. Run: docker-compose --profile postgres up -d
+  #
+  postgres:
+    image: postgres:16-alpine
+    container_name: argusai-postgres
+    profiles:
+      - postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-argusai}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required when using postgres profile}
+      - POSTGRES_DB=${POSTGRES_DB:-argusai}
+    volumes:
+      # Named volume for PostgreSQL data persistence
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argusai} -d ${POSTGRES_DB:-argusai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - argusai-net
+
 # ==============================================================================
 # Named Volumes - Persistent Storage
 # ==============================================================================
@@ -111,6 +150,11 @@ volumes:
   # - certs/ (SSL certificates)
   # - homekit/ (HomeKit pairing data)
   argusai-data:
+    driver: local
+
+  # PostgreSQL data volume (used with --profile postgres)
+  # Story P10-2.5: Add PostgreSQL Service
+  pgdata:
     driver: local
 
 # ==============================================================================

@@ -4,12 +4,19 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
+# Configure engine based on database type
+# Story P10-2.5: Add PostgreSQL support
+engine_kwargs = {
+    "echo": settings.DEBUG,  # Log SQL queries in debug mode
+}
+
+# SQLite requires check_same_thread=False for multi-threaded access
+# PostgreSQL doesn't need this and doesn't support it
+if settings.DATABASE_URL.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
 # Create SQLAlchemy engine
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args={"check_same_thread": False},  # Needed for SQLite
-    echo=settings.DEBUG,  # Log SQL queries in debug mode
-)
+engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

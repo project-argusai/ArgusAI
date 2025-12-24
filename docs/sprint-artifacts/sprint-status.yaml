@@ -597,8 +597,8 @@ development_status:
   # Epic P10-3: Kubernetes & Helm
   # Priority: P2
   # Focus: K8s manifests, Helm chart, CI/CD for containers
-  epic-p10-3: backlog
-  p10-3-1-create-kubernetes-deployment-manifests: backlog
+  epic-p10-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P10-3.md
+  p10-3-1-create-kubernetes-deployment-manifests: done
   p10-3-2-create-kubernetes-service-and-config-resources: backlog
   p10-3-3-create-helm-chart: backlog
   p10-3-4-add-container-cicd-pipeline: backlog

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context story-id="P10-3.1" generated="2025-12-24">
+  <metadata>
+    <title>Create Kubernetes Deployment Manifests</title>
+    <epic>P10-3: Kubernetes and Helm</epic>
+    <status>ready-for-dev</status>
+  </metadata>
+
+  <story-summary>
+    Create Kubernetes Deployment manifests for backend and frontend services with proper
+    resource management, health probes, and security contexts.
+  </story-summary>
+
+  <acceptance-criteria>
+    <criterion id="1">Backend and frontend Deployments created with pods in Running state</criterion>
+    <criterion id="2">All pods show Ready status and readiness probes succeed</criterion>
+    <criterion id="3">Backend health check returns 200 OK within 100ms</criterion>
+    <criterion id="4">Pods respect resource requests (512Mi/256Mi) and limits (1Gi/512Mi)</criterion>
+  </acceptance-criteria>
+
+  <architecture-context>
+    <container-images>
+      <image service="backend">ghcr.io/bbengt1/argusai-backend:latest</image>
+      <image service="frontend">ghcr.io/bbengt1/argusai-frontend:latest</image>
+    </container-images>
+    <health-endpoints>
+      <endpoint service="backend" path="/api/v1/system/health" port="8000"/>
+      <endpoint service="frontend" path="/" port="3000"/>
+    </health-endpoints>
+    <resource-requirements>
+      <backend memory-request="512Mi" memory-limit="1Gi" cpu-request="250m" cpu-limit="1000m"/>
+      <frontend memory-request="256Mi" memory-limit="512Mi" cpu-request="100m" cpu-limit="500m"/>
+    </resource-requirements>
+  </architecture-context>
+
+  <technical-requirements>
+    <requirement>Non-root security context (runAsNonRoot: true)</requirement>
+    <requirement>Liveness and readiness probes for health monitoring</requirement>
+    <requirement>envFrom for ConfigMap and Secret injection</requirement>
+    <requirement>PVC volume mount at /app/data for backend</requirement>
+    <requirement>Named container ports for service discovery</requirement>
+  </technical-requirements>
+
+  <file-structure>
+    <new-files>
+      <file>k8s/backend-deployment.yaml</file>
+      <file>k8s/frontend-deployment.yaml</file>
+    </new-files>
+  </file-structure>
+
+  <references>
+    <reference>docs/sprint-artifacts/tech-spec-epic-P10-3.md</reference>
+    <reference>docs/epics-phase10.md</reference>
+    <reference>docs/PRD-phase10.md</reference>
+    <reference>backend/Dockerfile</reference>
+    <reference>frontend/Dockerfile</reference>
+  </references>
+</story-context>

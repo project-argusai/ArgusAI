@@ -283,10 +283,10 @@ export default function EventsPage() {
   return (
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Page Header */}
+        {/* Page Header - Story P9-6.5: Fixed button positioning */}
         <div className="mb-6">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="min-w-0 flex-1">
               <h1 className="text-3xl font-bold tracking-tight">Events Timeline</h1>
               <p className="mt-2 text-sm text-muted-foreground">
                 {totalEvents > 0
@@ -294,13 +294,15 @@ export default function EventsPage() {
                   : 'No events found'}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            {/* Action buttons - responsive layout with proper touch targets */}
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
               {/* FF-010: Selection mode toggle */}
               {!selectionMode && allEvents.length > 0 && (
                 <Button
                   variant="outline"
-                  size="sm"
+                  size="default"
                   onClick={() => setSelectionMode(true)}
+                  className="h-11 min-w-[44px] sm:h-9"
                 >
                   <CheckSquare className="w-4 h-4 mr-2" />
                   Select
@@ -309,9 +311,9 @@ export default function EventsPage() {
               {/* FF-002: Refresh button with new events indicator */}
               <Button
                 variant={newEventsCount > 0 ? 'default' : 'outline'}
-                size="sm"
+                size="default"
                 onClick={handleRefresh}
-                className="relative"
+                className="relative h-11 min-w-[44px] sm:h-9"
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
                 {newEventsCount > 0 ? `${newEventsCount} new` : 'Refresh'}
@@ -319,9 +321,9 @@ export default function EventsPage() {
               {/* Mobile Filter Toggle */}
               <Button
                 variant="outline"
-                size="sm"
+                size="default"
                 onClick={() => setShowFilters(!showFilters)}
-                className="lg:hidden"
+                className="lg:hidden h-11 min-w-[44px] sm:h-9"
               >
                 <Filter className="w-4 h-4 mr-2" />
                 Filters

@@ -558,7 +558,7 @@ development_status:
   p9-6-2-set-up-github-pages-infrastructure: done
   p9-6-3-build-github-pages-landing-page: done
   p9-6-4-create-github-pages-documentation-section: done
-  p9-6-5-fix-events-page-button-positioning: backlog
+  p9-6-5-fix-events-page-button-positioning: done
   p9-6-6-hide-mqtt-form-when-disabled: backlog
   p9-6-7-add-skip-to-content-link: backlog
   p9-6-8-add-camera-list-optimizations-and-test-connection: backlog

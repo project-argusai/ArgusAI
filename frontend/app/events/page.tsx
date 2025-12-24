@@ -283,8 +283,8 @@ export default function EventsPage() {
   return (
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Page Header - Story P9-6.5: Fixed button positioning */}
-        <div className="mb-6">
+        {/* Page Header - Story P9-6.5: Fixed button positioning, P10-1.4: Clear DesktopToolbar zone */}
+        <div className="mb-6 lg:pr-64">
           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
             <div className="min-w-0 flex-1">
               <h1 className="text-3xl font-bold tracking-tight">Events Timeline</h1>

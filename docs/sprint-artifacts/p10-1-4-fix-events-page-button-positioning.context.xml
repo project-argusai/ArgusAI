@@ -1,0 +1,82 @@
+<story-context id="p10-1-4-fix-events-page-button-positioning" v="1.0">
+  <metadata>
+    <epicId>P10-1</epicId>
+    <storyId>1.4</storyId>
+    <title>Fix Events Page Button Positioning</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-24</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p10-1-4-fix-events-page-button-positioning.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>action buttons that don't overlap with navigation</iWant>
+    <soThat>I can use both without visual interference</soThat>
+    <tasks>
+      <task id="1">Analyze current layout and identify overlap (AC: 1)</task>
+      <task id="2">Add right-side spacing to prevent overlap (AC: 1)</task>
+      <task id="3">Verify mobile layout (AC: 2)</task>
+      <task id="4">Build and verify (AC: 1-2)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-1.4.1">Given I view the Events page on desktop (1024px+), when I look at the action buttons (Select All, Refresh, Delete), then they don't overlap with top-right navigation/user buttons and there's clear visual separation (at least 16px gap)</criterion>
+    <criterion id="AC-1.4.2">Given I view the Events page on mobile, when I look at the action buttons, then they're positioned appropriately with 44x44px touch targets and no overlap with other controls</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/epics-phase10.md" title="Epic P10-1" section="Story P10-1.4" snippet="Fix Events Page Button Positioning - buttons shouldn't overlap navigation, add margin-top of mt-4/mt-6, test at multiple viewports" />
+      <doc path="docs/backlog.md" title="Backlog" section="IMP-010" snippet="Move Select All, Refresh, Delete buttons down slightly to prevent overlap with top-right navigation. Adjust margin/padding." />
+      <doc path="docs/sprint-artifacts/p9-6-5-fix-events-page-button-positioning.md" title="Previous Story" section="Dev Agent Record" snippet="Previous fix added flex-col layout, gap-4 spacing, h-11 touch targets. DesktopToolbar overlap still may occur." />
+    </docs>
+    <code>
+      <file path="frontend/app/events/page.tsx" kind="page" symbol="EventsPage" lines="286-333" reason="Main Events page with header and action buttons - fix target" />
+      <file path="frontend/components/layout/DesktopToolbar.tsx" kind="component" symbol="DesktopToolbar" lines="46" reason="Fixed positioned toolbar at top-4 right-4 z-50 - causes overlap" />
+      <file path="frontend/components/layout/AppShell.tsx" kind="layout" symbol="AppShell" lines="43-66" reason="App layout structure with DesktopToolbar rendering" />
+    </code>
+    <dependencies>
+      <node>
+        <package name="next" version="^15.0.0" />
+        <package name="react" version="^19.0.0" />
+        <package name="tailwindcss" version="^4.0.0" />
+        <package name="lucide-react" version="^0.460.0" />
+      </node>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>DesktopToolbar is fixed at top-4 right-4 z-50 and takes approximately 200-250px from right edge</constraint>
+    <constraint>Events page uses max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 container</constraint>
+    <constraint>On desktop (lg+) header shows at top and DesktopToolbar is visible</constraint>
+    <constraint>Mobile layout uses header instead of sidebar, no DesktopToolbar shown</constraint>
+    <constraint>Touch targets must be at least 44x44px per WCAG guidelines</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="EventsPage Header" kind="JSX structure" path="frontend/app/events/page.tsx">
+      <signature>
+        div.mb-6 > div.flex.flex-col.sm:flex-row.sm:items-start.sm:justify-between.gap-4
+          > div.min-w-0.flex-1 (title area)
+          > div.flex.items-center.gap-2.flex-wrap.sm:flex-nowrap (buttons)
+      </signature>
+    </interface>
+    <interface name="DesktopToolbar" kind="Component" path="frontend/components/layout/DesktopToolbar.tsx">
+      <signature>div.fixed.top-4.right-4.z-50.hidden.lg:flex.items-center.gap-2</signature>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Frontend uses Vitest + React Testing Library. Component tests verify visual layout behavior at different breakpoints using ResizeObserver mocks or responsive testing utilities.</standards>
+    <locations>
+      <location>frontend/__tests__/</location>
+      <location>frontend/**/*.test.tsx</location>
+    </locations>
+    <ideas>
+      <idea acRef="AC-1.4.1">Visual regression test at 1024px, 1280px, 1920px showing no overlap between action buttons and DesktopToolbar zone</idea>
+      <idea acRef="AC-1.4.2">Mobile viewport test at 320px, 768px verifying touch targets and proper button positioning</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -578,7 +578,7 @@ development_status:
   p10-1-1-implement-admin-password-change: done
   p10-1-2-fix-events-page-infinite-scroll: done
   p10-1-3-fix-todays-activity-date-filtering: done
-  p10-1-4-fix-events-page-button-positioning: backlog
+  p10-1-4-fix-events-page-button-positioning: done
   p10-1-5-fix-entity-card-scrolling: backlog
   epic-p10-1-retrospective: optional
 

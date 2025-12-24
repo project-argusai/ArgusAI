@@ -545,7 +545,7 @@ development_status:
   p9-5-1-add-ssl-https-support-to-backend: done
   p9-5-2-add-certificate-generation-to-install-script: done
   p9-5-3-deploy-n8n-instance: done  # n8n instance deployed and running
-  p9-5-4-create-n8n-claude-code-integration: backlog
+  p9-5-4-create-n8n-claude-code-integration: done
   p9-5-5-create-n8n-bmad-workflow-integration: backlog
   p9-5-6-build-n8n-monitoring-dashboard-and-approval-gates: backlog
   epic-p9-5-retrospective: optional

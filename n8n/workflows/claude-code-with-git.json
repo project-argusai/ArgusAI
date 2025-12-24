@@ -1,0 +1,228 @@
+{
+  "name": "Claude Code - With Git Status",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "claude-code-git",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "claude-code-git-webhook"
+    },
+    {
+      "parameters": {
+        "command": "={{ 'cd ' + ($env.ARGUSAI_PROJECT_PATH || '/path/to/argusai') + ' && git status --porcelain 2>&1' }}"
+      },
+      "id": "git-status-before",
+      "name": "Git Status Before",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store initial git status\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const stdout = item.json.stdout || '';\n  const filesBefore = stdout.split('\\n').filter(line => line.trim().length > 0);\n  \n  results.push({\n    json: {\n      ...item.json,\n      gitStatusBefore: filesBefore,\n      prompt: $('Webhook').first().json.body.prompt\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "store-before-status",
+      "name": "Store Before Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "command": "={{ 'cd ' + ($env.ARGUSAI_PROJECT_PATH || '/path/to/argusai') + ' && claude \"' + $json.prompt.replace(/\"/g, '\\\"') + '\" --no-input 2>&1' }}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "execute-claude",
+      "name": "Execute Claude Code",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 30000
+    },
+    {
+      "parameters": {
+        "command": "={{ 'cd ' + ($env.ARGUSAI_PROJECT_PATH || '/path/to/argusai') + ' && git status --porcelain 2>&1' }}"
+      },
+      "id": "git-status-after",
+      "name": "Git Status After",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Claude output and compare git status\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const claudeOutput = $('Execute Claude Code').first().json;\n  const gitStatusBefore = $('Store Before Status').first().json.gitStatusBefore || [];\n  const gitStatusAfter = (item.json.stdout || '').split('\\n').filter(line => line.trim().length > 0);\n  \n  // Determine success/failure from Claude execution\n  const exitCode = claudeOutput.exitCode || 0;\n  const stderr = claudeOutput.stderr || '';\n  const stdout = claudeOutput.stdout || '';\n  const isError = exitCode !== 0 || stderr.includes('Error:');\n  \n  // Find new/modified files (in after but not in before, or modified)\n  const changedFiles = gitStatusAfter.filter(file => {\n    return !gitStatusBefore.includes(file);\n  }).map(line => {\n    // Parse git status format: XY filename\n    const parts = line.trim().split(/\\s+/);\n    return {\n      status: parts[0],\n      file: parts.slice(1).join(' ')\n    };\n  });\n  \n  results.push({\n    json: {\n      success: !isError,\n      exitCode: exitCode,\n      output: stdout,\n      error: isError ? (stderr || stdout) : null,\n      hasChanges: changedFiles.length > 0,\n      changedFiles: changedFiles,\n      gitStatusBefore: gitStatusBefore.length,\n      gitStatusAfter: gitStatusAfter.length,\n      executedAt: new Date().toISOString()\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "compare-git-status",
+      "name": "Compare Git Status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-success",
+      "name": "Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, output: $json.output, hasChanges: $json.hasChanges, changedFiles: $json.changedFiles, executedAt: $json.executedAt }) }}"
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: $json.error, exitCode: $json.exitCode, executedAt: $json.executedAt }) }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 400]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Git Status Before",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Git Status Before": {
+      "main": [
+        [
+          {
+            "node": "Store Before Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Before Status": {
+      "main": [
+        [
+          {
+            "node": "Execute Claude Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Claude Code": {
+      "main": [
+        [
+          {
+            "node": "Git Status After",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Git Status After": {
+      "main": [
+        [
+          {
+            "node": "Compare Git Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare Git Status": {
+      "main": [
+        [
+          {
+            "node": "Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Success": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "claude-code",
+      "id": "1"
+    },
+    {
+      "name": "automation",
+      "id": "2"
+    },
+    {
+      "name": "git",
+      "id": "3"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-12-24T12:00:00.000Z",
+  "versionId": "1"
+}

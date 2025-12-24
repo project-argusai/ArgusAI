@@ -1,0 +1,107 @@
+<story-context id="p9-5-4-create-n8n-claude-code-integration" v="1.0">
+  <metadata>
+    <epicId>P9-5</epicId>
+    <storyId>5.4</storyId>
+    <title>Create n8n Claude Code Integration</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-24</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p9-5-4-create-n8n-claude-code-integration.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer</asA>
+    <iWant>n8n workflows to execute Claude Code CLI commands</iWant>
+    <soThat>AI can generate and modify code automatically</soThat>
+    <tasks>
+      <task id="1">Create n8n workflow template for Claude Code execution</task>
+      <task id="2">Implement output capture and parsing</task>
+      <task id="3">Implement git status detection</task>
+      <task id="4">Add error handling and retry logic</task>
+      <task id="5">Create documentation and example workflows</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC5.4.1">Claude Code node executes claude CLI with prompt</criterion>
+    <criterion id="AC5.4.2">Output is captured in workflow</criterion>
+    <criterion id="AC5.4.3">Git status shows modifications after file changes</criterion>
+    <criterion id="AC5.4.4">Workflow handles errors gracefully with retry</criterion>
+    <criterion id="AC5.4.5">Subsequent nodes can access results</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P9-5.md" title="Epic P9-5 Tech Spec" section="P9-5.4">
+        Implementation details including Execute Command node configuration,
+        workflow JSON structure, and error handling patterns.
+      </doc>
+      <doc path="docs/epics-phase9.md" title="Phase 9 Epics" section="Story P9-5.4">
+        Story definition with acceptance criteria and technical notes.
+      </doc>
+    </docs>
+    <code>
+      <!-- n8n workflows are JSON files, no existing code to reference -->
+      <!-- The n8n instance is already deployed per P9-5.3 -->
+    </code>
+    <dependencies>
+      <system>
+        <dependency>n8n (deployed via Docker or npm)</dependency>
+        <dependency>Claude Code CLI (@anthropic-ai/claude-code)</dependency>
+        <dependency>Git (for status detection)</dependency>
+      </system>
+      <env>
+        <variable>ANTHROPIC_API_KEY</variable>
+        <variable>N8N_WEBHOOK_URL</variable>
+        <variable>ARGUSAI_PROJECT_PATH</variable>
+      </env>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Use n8n Execute Command node (built-in) for CLI invocation</constraint>
+    <constraint>Claude Code CLI invoked with --no-input flag for non-interactive mode</constraint>
+    <constraint>ANTHROPIC_API_KEY must be available to n8n process</constraint>
+    <constraint>Working directory must be ArgusAI project root</constraint>
+    <constraint>Timeout: 600000ms (10 minutes) for complex tasks</constraint>
+    <constraint>Retry: 3 attempts with exponential backoff (30s, 60s, 120s)</constraint>
+    <constraint>Parse stdout for success, stderr for errors</constraint>
+    <constraint>Store workflow templates as JSON in n8n/workflows/</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="Webhook Trigger" kind="HTTP">
+      <signature>POST /webhook/claude-code { prompt: string, options?: object }</signature>
+      <notes>External trigger for Claude Code execution</notes>
+    </interface>
+    <interface name="Execute Command Output" kind="n8n">
+      <signature>{ stdout: string, stderr: string, exitCode: number }</signature>
+      <notes>Raw output from Claude Code CLI execution</notes>
+    </interface>
+    <interface name="Git Status Output" kind="n8n">
+      <signature>{ changedFiles: string[], hasChanges: boolean }</signature>
+      <notes>Parsed git status after Claude Code execution</notes>
+    </interface>
+    <interface name="Workflow Result" kind="n8n">
+      <signature>{ success: boolean, output: string, filesChanged: string[], error?: string }</signature>
+      <notes>Final workflow output for downstream consumption</notes>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Manual testing via n8n UI. Import workflow, trigger webhook, verify outputs.
+      No automated tests for n8n workflows in this story.
+    </standards>
+    <locations>
+      <location>n8n/workflows/ (workflow JSON files)</location>
+    </locations>
+    <ideas>
+      <idea ac="AC5.4.1">Trigger webhook with simple prompt, verify Claude executes</idea>
+      <idea ac="AC5.4.2">Check workflow execution data contains stdout</idea>
+      <idea ac="AC5.4.3">Run prompt that creates file, verify git status node output</idea>
+      <idea ac="AC5.4.4">Send invalid prompt, verify retry and error handling</idea>
+      <idea ac="AC5.4.5">Chain workflow nodes, verify data passes correctly</idea>
+    </ideas>
+  </tests>
+</story-context>

@@ -53,6 +53,16 @@ const FeatureList = [
       </>
     ),
   },
+  {
+    title: 'Native Apple Apps',
+    Svg: require('@site/static/img/undraw_mobile_apps.svg').default,
+    description: (
+      <>
+        Native iOS, iPad, Watch, and TV apps built with SwiftUI.
+        Secure remote access via Cloudflare Tunnel with local network fallback.
+      </>
+    ),
+  },
 ];
 
 function Feature({Svg, title, description}) {

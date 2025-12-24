@@ -43,7 +43,7 @@ function StatsSection() {
     { value: '4', label: 'AI Providers', description: 'OpenAI, Grok, Claude, Gemini' },
     { value: '<5s', label: 'Event Latency', description: 'Real-time processing' },
     { value: '3', label: 'Camera Types', description: 'Protect, RTSP, USB' },
-    { value: '2', label: 'Smart Home', description: 'HomeKit & Home Assistant' },
+    { value: '5', label: 'Apple Platforms', description: 'iOS, iPad, Watch, TV, Mac' },
   ];
 
   return (
@@ -99,6 +99,13 @@ export default function Home() {
                 <ul>
                   <li><strong>Home Assistant:</strong> MQTT with auto-discovery</li>
                   <li><strong>Apple HomeKit:</strong> Motion sensors and camera streaming</li>
+                </ul>
+                <Heading as="h3" style={{marginTop: '1.5rem'}}>Native Apple Apps</Heading>
+                <ul>
+                  <li><strong>iPhone & iPad:</strong> Push notifications, widgets, Siri</li>
+                  <li><strong>Apple Watch:</strong> Complications, haptic alerts</li>
+                  <li><strong>Apple TV:</strong> Dashboard, video playback</li>
+                  <li><strong>Cloud Relay:</strong> Secure remote access via Cloudflare</li>
                 </ul>
               </div>
             </div>

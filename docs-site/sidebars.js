@@ -36,6 +36,7 @@ const sidebars = {
       items: [
         'integrations/home-assistant',
         'integrations/homekit',
+        'integrations/native-apple-apps',
       ],
     },
     {

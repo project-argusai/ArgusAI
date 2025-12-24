@@ -1,0 +1,132 @@
+# ArgusAI Helm Chart Values
+# Override these values via --set or -f custom-values.yaml
+
+# Global settings
+nameOverride: ""
+fullnameOverride: ""
+
+# Backend configuration
+backend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/bbengt1/argusai-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  service:
+    type: ClusterIP
+    port: 8000
+
+# Frontend configuration
+frontend:
+  replicaCount: 1
+  image:
+    repository: ghcr.io/bbengt1/argusai-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  service:
+    type: ClusterIP
+    port: 3000
+
+# Application configuration (non-sensitive)
+config:
+  debug: false
+  logLevel: "INFO"
+  corsOrigins: "http://localhost:3000"
+  databaseUrl: "sqlite:///data/app.db"
+  sslEnabled: false
+  maxCameras: "10"
+  eventRetentionDays: "30"
+
+# Secrets (use --set or external secret management)
+# IMPORTANT: These values are required for the application to start
+secrets:
+  # Required: Fernet encryption key
+  # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  encryptionKey: ""
+  # Required: JWT secret key
+  # Generate: openssl rand -hex 32
+  jwtSecretKey: ""
+  # Optional: AI provider API keys
+  openaiApiKey: ""
+  xaiApiKey: ""
+  anthropicApiKey: ""
+  googleAiApiKey: ""
+  # Optional: VAPID keys for push notifications
+  vapidPrivateKey: ""
+  vapidPublicKey: ""
+  # Optional: MQTT password
+  mqttPassword: ""
+
+# Persistence configuration
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+  # Annotations to add to the PVC
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: nginx
+  annotations: {}
+    # nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    # nginx.ingress.kubernetes.io/websocket-services: "argusai-backend"
+  hosts:
+    - host: argusai.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: argusai-tls
+  #    hosts:
+  #      - argusai.local
+
+# Pod security context (applies to all pods)
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Image pull secrets (for private registries)
+imagePullSecrets: []
+
+# Node selector for pod scheduling
+nodeSelector: {}
+
+# Tolerations for pod scheduling
+tolerations: []
+
+# Affinity rules for pod scheduling
+affinity: {}
+
+# Service account configuration
+serviceAccount:
+  # Create a service account
+  create: true
+  # Annotations to add to the service account
+  annotations: {}
+  # The name of the service account (auto-generated if empty)
+  name: ""

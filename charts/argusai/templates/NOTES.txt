@@ -1,0 +1,41 @@
+ArgusAI has been deployed!
+
+1. Get the application URL:
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}
+{{- end }}
+{{- else if contains "NodePort" .Values.frontend.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "argusai.frontendFullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.frontend.service.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  Watch status: kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "argusai.frontendFullname" . }}
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "argusai.frontendFullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.frontend.service.port }}
+{{- else if contains "ClusterIP" .Values.frontend.service.type }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "argusai.frontendFullname" . }} 3000:{{ .Values.frontend.service.port }}
+  Then open http://localhost:3000
+{{- end }}
+
+2. Get backend API URL (for debugging):
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "argusai.backendFullname" . }} 8000:{{ .Values.backend.service.port }}
+  Then open http://localhost:8000/docs
+
+3. Check deployment status:
+  kubectl --namespace {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+4. View logs:
+  kubectl --namespace {{ .Release.Namespace }} logs -l app.kubernetes.io/component=backend -f
+  kubectl --namespace {{ .Release.Namespace }} logs -l app.kubernetes.io/component=frontend -f
+
+5. Important notes:
+{{- if not .Values.secrets.encryptionKey }}
+   WARNING: ENCRYPTION_KEY is not set. The application may not start correctly.
+   Set it with: --set secrets.encryptionKey="your-fernet-key"
+{{- end }}
+{{- if not .Values.secrets.jwtSecretKey }}
+   WARNING: JWT_SECRET_KEY is not set. The application may not start correctly.
+   Set it with: --set secrets.jwtSecretKey="your-jwt-secret"
+{{- end }}

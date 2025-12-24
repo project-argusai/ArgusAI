@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "argusai.configMapName" . }}
+  labels:
+    {{- include "argusai.labels" . | nindent 4 }}
+data:
+  DEBUG: {{ .Values.config.debug | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+  DATABASE_URL: {{ .Values.config.databaseUrl | quote }}
+  SSL_ENABLED: {{ .Values.config.sslEnabled | quote }}
+  MAX_CAMERAS: {{ .Values.config.maxCameras | quote }}
+  EVENT_RETENTION_DAYS: {{ .Values.config.eventRetentionDays | quote }}

@@ -37,12 +37,24 @@ export function DashboardStats() {
   });
 
   // Fetch today's events count
+  // Story P10-1.3: Fix timezone handling for Today's Activity filter
+  // Include date string in query key so it invalidates at midnight
+  const todayDateString = new Date().toLocaleDateString();
   const { data: todayData } = useQuery({
-    queryKey: ['events', 'today'],
+    queryKey: ['events', 'today', todayDateString],
     queryFn: () => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return apiClient.events.list({ start_date: today.toISOString(), skip: 0, limit: 1 });
+      // Get start of today in user's local timezone
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      // Get end of today (start of tomorrow minus 1ms)
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      return apiClient.events.list({
+        start_time: startOfToday.toISOString(),
+        end_time: endOfToday.toISOString(),
+        skip: 0,
+        limit: 1
+      });
     },
     staleTime: 30 * 1000,
   });

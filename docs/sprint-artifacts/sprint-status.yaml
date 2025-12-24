@@ -575,7 +575,7 @@ development_status:
   # Priority: P1 (Critical)
   # Focus: Admin password, infinite scroll, Today's Activity, UI fixes
   epic-p10-1: backlog
-  p10-1-1-implement-admin-password-change: review
+  p10-1-1-implement-admin-password-change: done
   p10-1-2-fix-events-page-infinite-scroll: backlog
   p10-1-3-fix-todays-activity-date-filtering: backlog
   p10-1-4-fix-events-page-button-positioning: backlog

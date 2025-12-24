@@ -264,14 +264,22 @@ async def change_password(
     - At least 1 number
     - At least 1 special character
     """
+    # Re-fetch user with this session to ensure proper tracking
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
     # Verify current password
-    if not verify_password(password_data.current_password, current_user.password_hash):
+    if not verify_password(password_data.current_password, user.password_hash):
         logger.warning(
             "Password change failed - incorrect current password",
             extra={
                 "event_type": "password_change_failed",
                 "reason": "incorrect_password",
-                "user_id": current_user.id,
+                "user_id": user.id,
             }
         )
         raise HTTPException(
@@ -287,16 +295,15 @@ async def change_password(
             detail=error_message,
         )
 
-    # Update password - must add to session to ensure changes are tracked
-    current_user.password_hash = hash_password(password_data.new_password)
-    db.add(current_user)
+    # Update password
+    user.password_hash = hash_password(password_data.new_password)
     db.commit()
 
     logger.info(
         "Password changed successfully",
         extra={
             "event_type": "password_changed",
-            "user_id": current_user.id,
+            "user_id": user.id,
         }
     )
 

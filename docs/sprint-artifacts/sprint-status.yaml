@@ -611,7 +611,7 @@ development_status:
   p10-4-1-add-entity-assignment-from-event-cards: done
   p10-4-2-implement-manual-entity-creation: done
   p10-4-3-allow-feedback-modification: done
-  p10-4-4-show-feedback-history-indicator: backlog
+  p10-4-4-show-feedback-history-indicator: done  # Implemented as part of P10-4.3 (edited badge with tooltip)
   epic-p10-4-retrospective: optional
 
   # Epic P10-5: Apple Platform Foundation

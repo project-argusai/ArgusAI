@@ -31,6 +31,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # Remove Android SDK (~10GB)
+          android: true
+          # Remove .NET SDK (~3GB)
+          dotnet: true
+          # Remove Haskell (~5GB)
+          haskell: true
+          # Remove large packages (Chrome, Firefox, etc.)
+          large-packages: true
+          # Keep Docker - we need it for building
+          docker-images: false
+          # Remove swap (~4GB)
+          swap-storage: true
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -79,6 +95,22 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # Remove Android SDK (~10GB)
+          android: true
+          # Remove .NET SDK (~3GB)
+          dotnet: true
+          # Remove Haskell (~5GB)
+          haskell: true
+          # Remove large packages (Chrome, Firefox, etc.)
+          large-packages: true
+          # Keep Docker - we need it for building
+          docker-images: false
+          # Remove swap (~4GB)
+          swap-storage: true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

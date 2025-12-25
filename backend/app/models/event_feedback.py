@@ -3,12 +3,14 @@
 Story P4-5.1: Feedback Collection UI
 Story P4-5.2: Feedback Storage & API - Added camera_id for aggregate statistics
 Story P9-3.3: Package False Positive Feedback - Added correction_type for specific corrections
+Story P10-4.3: Allow Feedback Modification - Added was_edited property
 """
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.ext.hybrid import hybrid_property
 from app.core.database import Base
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 
 class EventFeedback(Base):
@@ -71,6 +73,20 @@ class EventFeedback(Base):
     __table_args__ = (
         UniqueConstraint('event_id', name='uq_event_feedback_event_id'),
     )
+
+    # Story P10-4.3: Property to detect if feedback was edited
+    @hybrid_property
+    def was_edited(self) -> bool:
+        """
+        Check if feedback was modified after initial creation.
+
+        Returns True if updated_at is more than 1 second after created_at,
+        allowing for minor timestamp differences during creation.
+        """
+        if not self.updated_at or not self.created_at:
+            return False
+        # Allow 1 second tolerance for initial creation
+        return self.updated_at > self.created_at + timedelta(seconds=1)
 
     def __repr__(self):
         return f"<EventFeedback(id={self.id}, event_id={self.event_id}, camera_id={self.camera_id}, rating={self.rating}, correction_type={self.correction_type})>"

@@ -4,16 +4,19 @@
  * AC13: Empty state with helpful guidance
  * AC15: Responsive design (grid on desktop, stack on mobile)
  * Story P9-4.5: Multi-select for entity merge functionality
+ * Story P10-4.2: Manual entity creation (AC-4.2.1)
  */
 
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Users } from 'lucide-react';
+import { Users, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { EntityList } from '@/components/entities/EntityList';
 import { EntityDetail } from '@/components/entities/EntityDetail';
 import { DeleteEntityDialog } from '@/components/entities/DeleteEntityDialog';
 import { EntityMergeDialog } from '@/components/entities/EntityMergeDialog';
+import { EntityCreateModal } from '@/components/entities/EntityCreateModal';
 import type { IEntity } from '@/types/entity';
 
 /**
@@ -32,6 +35,9 @@ export default function EntitiesPage() {
   const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set());
   const [entitiesToMerge, setEntitiesToMerge] = useState<[IEntity, IEntity] | null>(null);
   const [isMergeOpen, setIsMergeOpen] = useState(false);
+
+  // Story P10-4.2: Create entity modal state
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   /**
    * Handle entity card click - open detail modal
@@ -128,16 +134,23 @@ export default function EntitiesPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
       {/* Page header */}
-      <div className="flex items-center gap-3 mb-8">
-        <div className="p-2 bg-primary/10 rounded-lg">
-          <Users className="h-6 w-6 text-primary" />
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-primary/10 rounded-lg">
+            <Users className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Recognized Entities</h1>
+            <p className="text-muted-foreground mt-1">
+              Manage recurring visitors and vehicles detected by your cameras
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Recognized Entities</h1>
-          <p className="text-muted-foreground mt-1">
-            Manage recurring visitors and vehicles detected by your cameras
-          </p>
-        </div>
+        {/* Story P10-4.2: Create Entity button (AC-4.2.1) */}
+        <Button onClick={() => setIsCreateOpen(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create Entity
+        </Button>
       </div>
 
       {/* Entity list with filtering and pagination */}
@@ -171,6 +184,12 @@ export default function EntitiesPage() {
         open={isMergeOpen}
         onClose={handleCloseMerge}
         onMerged={handleMerged}
+      />
+
+      {/* Story P10-4.2: Create entity modal (AC-4.2.2, AC-4.2.3) */}
+      <EntityCreateModal
+        open={isCreateOpen}
+        onOpenChange={setIsCreateOpen}
       />
     </div>
   );

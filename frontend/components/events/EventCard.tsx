@@ -24,6 +24,7 @@ import { AnomalyBadge } from './AnomalyBadge';
 import { FrameGalleryModal } from './FrameGalleryModal';
 import { VideoPlayerModal } from '@/components/video/VideoPlayerModal';
 import { EntitySelectModal } from '@/components/entities/EntitySelectModal';
+import { EntityCreateModal } from '@/components/entities/EntityCreateModal';
 import { useAssignEventToEntity } from '@/hooks/useEntities';
 import { cn } from '@/lib/utils';
 
@@ -70,6 +71,8 @@ export const EventCard = memo(function EventCard({
   const [videoPlayerOpen, setVideoPlayerOpen] = useState(false);
   // Story P9-4.4: Entity select modal state
   const [entityModalOpen, setEntityModalOpen] = useState(false);
+  // Story P10-4.2: Entity create modal state (from EntitySelectModal)
+  const [entityCreateOpen, setEntityCreateOpen] = useState(false);
 
   // Story P9-4.4: Mutation hook for assigning events to entities
   const assignEventMutation = useAssignEventToEntity();
@@ -91,6 +94,22 @@ export const EventCard = memo(function EventCard({
       }
     },
     [event.id, assignEventMutation]
+  );
+
+  // Story P10-4.2: Handle "Create New" from EntitySelectModal
+  const handleCreateNewFromSelect = useCallback(() => {
+    setEntityModalOpen(false);
+    setEntityCreateOpen(true);
+  }, []);
+
+  // Story P10-4.2: Handle entity created - auto-assign to this event
+  const handleEntityCreated = useCallback(
+    async (entityId: string, entityName: string | null) => {
+      setEntityCreateOpen(false);
+      // Auto-assign the newly created entity to this event
+      await handleEntitySelect(entityId, entityName);
+    },
+    [handleEntitySelect]
   );
 
   // Story P2-4.4: Check if event has correlations
@@ -334,10 +353,12 @@ export const EventCard = memo(function EventCard({
       </div>
 
       {/* Story P9-4.4: Entity Select Modal (AC-4.4.3, AC-4.4.4, AC-4.4.5) */}
+      {/* Story P10-4.2: Added onCreateNew callback (AC-4.1.7) */}
       <EntitySelectModal
         open={entityModalOpen}
         onOpenChange={setEntityModalOpen}
         onSelect={handleEntitySelect}
+        onCreateNew={handleCreateNewFromSelect}
         title={hasEntity ? 'Move to Entity' : 'Add to Entity'}
         description={
           hasEntity
@@ -345,6 +366,13 @@ export const EventCard = memo(function EventCard({
             : 'Select an entity to associate this event with'
         }
         isLoading={assignEventMutation.isPending}
+      />
+
+      {/* Story P10-4.2: Entity Create Modal (triggered from EntitySelectModal) */}
+      <EntityCreateModal
+        open={entityCreateOpen}
+        onOpenChange={setEntityCreateOpen}
+        onCreated={handleEntityCreated}
       />
 
       {/* Story P8-2.2: Frame Gallery Modal (AC2.1 - AC2.8) */}

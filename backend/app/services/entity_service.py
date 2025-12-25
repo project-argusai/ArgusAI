@@ -993,9 +993,13 @@ class EntityService:
         thumbnail_path: Optional[str] = None,
         is_vip: bool = False,
         is_blocked: bool = False,
+        vehicle_color: Optional[str] = None,
+        vehicle_make: Optional[str] = None,
+        vehicle_model: Optional[str] = None,
+        reference_image: Optional[str] = None,
     ) -> dict:
         """
-        Create a new entity manually (Story P7-4.1).
+        Create a new entity manually (Story P7-4.1, P10-4.2).
 
         Args:
             db: SQLAlchemy database session
@@ -1005,6 +1009,10 @@ class EntityService:
             thumbnail_path: Path to thumbnail image (optional)
             is_vip: Whether entity is VIP (default False)
             is_blocked: Whether entity is blocked (default False)
+            vehicle_color: Vehicle color for vehicle entities (optional)
+            vehicle_make: Vehicle make for vehicle entities (optional)
+            vehicle_model: Vehicle model for vehicle entities (optional)
+            reference_image: Base64 encoded reference image (optional)
 
         Returns:
             Created entity dict
@@ -1014,19 +1022,43 @@ class EntityService:
         now = datetime.now(timezone.utc)
         entity_id = str(uuid.uuid4())
 
+        # Story P10-4.2: Generate vehicle signature from color, make, model
+        vehicle_signature = None
+        if entity_type == "vehicle":
+            signature_parts = []
+            if vehicle_color:
+                signature_parts.append(vehicle_color.lower().strip())
+            if vehicle_make:
+                signature_parts.append(vehicle_make.lower().strip())
+            if vehicle_model:
+                # Remove special characters from model
+                model_clean = vehicle_model.lower().strip().replace("-", "").replace(" ", "")
+                signature_parts.append(model_clean)
+            if signature_parts:
+                vehicle_signature = "-".join(signature_parts)
+
+        # Story P10-4.2: Handle reference image upload
+        saved_thumbnail_path = thumbnail_path
+        if reference_image:
+            saved_thumbnail_path = await self._save_reference_image(entity_id, reference_image)
+
         # Create entity with placeholder embedding (empty JSON array)
         new_entity = RecognizedEntity(
             id=entity_id,
             entity_type=entity_type,
             name=name,
             notes=notes,
-            thumbnail_path=thumbnail_path,
+            thumbnail_path=saved_thumbnail_path,
             reference_embedding="[]",  # Placeholder until recognition assigns real embedding
             first_seen_at=now,
             last_seen_at=now,
             occurrence_count=0,  # 0 until matched via recognition
             is_vip=is_vip,
             is_blocked=is_blocked,
+            vehicle_color=vehicle_color.lower().strip() if vehicle_color else None,
+            vehicle_make=vehicle_make.lower().strip() if vehicle_make else None,
+            vehicle_model=vehicle_model.lower().strip() if vehicle_model else None,
+            vehicle_signature=vehicle_signature,
             created_at=now,
             updated_at=now,
         )
@@ -1041,6 +1073,7 @@ class EntityService:
                 "entity_id": entity_id,
                 "entity_type": entity_type,
                 "name": name,
+                "vehicle_signature": vehicle_signature,
             }
         )
 
@@ -1055,9 +1088,61 @@ class EntityService:
             "occurrence_count": new_entity.occurrence_count,
             "is_vip": new_entity.is_vip,
             "is_blocked": new_entity.is_blocked,
+            "vehicle_color": new_entity.vehicle_color,
+            "vehicle_make": new_entity.vehicle_make,
+            "vehicle_model": new_entity.vehicle_model,
+            "vehicle_signature": new_entity.vehicle_signature,
             "created_at": new_entity.created_at,
             "updated_at": new_entity.updated_at,
         }
+
+    async def _save_reference_image(
+        self,
+        entity_id: str,
+        base64_image: str,
+    ) -> Optional[str]:
+        """
+        Save a base64 encoded reference image for an entity (Story P10-4.2).
+
+        Args:
+            entity_id: Entity UUID
+            base64_image: Base64 encoded image data
+
+        Returns:
+            Path to saved image or None if failed
+        """
+        import base64
+        import os
+        from pathlib import Path
+
+        try:
+            # Decode base64 image
+            # Handle data URL format: "data:image/jpeg;base64,..."
+            if "," in base64_image:
+                base64_image = base64_image.split(",", 1)[1]
+
+            image_data = base64.b64decode(base64_image)
+
+            # Check size limit (2MB)
+            if len(image_data) > 2 * 1024 * 1024:
+                logger.warning(f"Reference image too large for entity {entity_id}")
+                return None
+
+            # Create entity images directory
+            images_dir = Path("data/entity-images")
+            images_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save image
+            image_path = images_dir / f"{entity_id}.jpg"
+            with open(image_path, "wb") as f:
+                f.write(image_data)
+
+            logger.info(f"Saved reference image for entity {entity_id}")
+            return str(image_path)
+
+        except Exception as e:
+            logger.error(f"Failed to save reference image for entity {entity_id}: {e}")
+            return None
 
     async def update_entity(
         self,

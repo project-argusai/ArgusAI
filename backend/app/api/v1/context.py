@@ -490,7 +490,7 @@ class EntityEventsResponse(BaseModel):
 
 
 class EntityCreateRequest(BaseModel):
-    """Request model for creating an entity (Story P7-4.1)."""
+    """Request model for creating an entity (Story P7-4.1, P10-4.2)."""
     entity_type: str = Field(
         description="Entity type: person, vehicle, or unknown"
     )
@@ -510,6 +510,26 @@ class EntityCreateRequest(BaseModel):
     is_blocked: bool = Field(
         default=False,
         description="Blocked status to suppress notifications"
+    )
+    # Story P10-4.2: Vehicle-specific fields for manual entity creation
+    vehicle_color: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Vehicle color (e.g., 'white', 'black', 'silver')"
+    )
+    vehicle_make: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Vehicle make (e.g., 'toyota', 'ford', 'honda')"
+    )
+    vehicle_model: Optional[str] = Field(
+        default=None,
+        max_length=50,
+        description="Vehicle model (e.g., 'camry', 'f150', 'civic')"
+    )
+    reference_image: Optional[str] = Field(
+        default=None,
+        description="Base64 encoded reference image (max 2MB, jpeg/png/webp)"
     )
 
 
@@ -608,10 +628,15 @@ async def create_entity(
     Create a new entity manually.
 
     Story P7-4.1: Design Entities Data Model (AC4)
+    Story P10-4.2: Implement Manual Entity Creation
 
     Allows manual creation of entities (person, vehicle) before automatic
     recognition assigns them. Useful for pre-registering known individuals
     or vehicles.
+
+    For vehicle entities, vehicle_color, vehicle_make, and vehicle_model
+    can be specified. At least color+make or make+model is recommended.
+    A vehicle_signature is auto-generated from these fields.
 
     Args:
         request: Entity creation parameters
@@ -620,7 +645,20 @@ async def create_entity(
 
     Returns:
         EntityDetailResponse with created entity details
+
+    Raises:
+        HTTPException 400: If vehicle entity missing required fields
     """
+    # Story P10-4.2: Validate vehicle entities have at least some vehicle data
+    if request.entity_type == "vehicle":
+        has_color_make = request.vehicle_color and request.vehicle_make
+        has_make_model = request.vehicle_make and request.vehicle_model
+        if not (has_color_make or has_make_model):
+            raise HTTPException(
+                status_code=400,
+                detail="Vehicle entities require at least color+make or make+model"
+            )
+
     entity = await entity_service.create_entity(
         db=db,
         entity_type=request.entity_type,
@@ -628,6 +666,10 @@ async def create_entity(
         notes=request.notes,
         is_vip=request.is_vip,
         is_blocked=request.is_blocked,
+        vehicle_color=request.vehicle_color,
+        vehicle_make=request.vehicle_make,
+        vehicle_model=request.vehicle_model,
+        reference_image=request.reference_image,
     )
 
     return EntityDetailResponse(

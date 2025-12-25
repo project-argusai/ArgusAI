@@ -1,0 +1,103 @@
+<story-context id="P10-4.2" v="1.0">
+  <metadata>
+    <epicId>P10-4</epicId>
+    <storyId>4.2</storyId>
+    <title>Implement Manual Entity Creation</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-25</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p10-4-2-implement-manual-entity-creation.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to create entities manually without triggering an event</iWant>
+    <soThat>I can pre-register known people, vehicles, and animals before they appear on camera</soThat>
+    <tasks>
+      <task id="1">Create EntityCreateModal component</task>
+      <task id="2">Add "Create Entity" button to Entities page</task>
+      <task id="3">Enhance POST /api/v1/context/entities endpoint with vehicle fields</task>
+      <task id="4">Add useCreateEntity mutation hook</task>
+      <task id="5">Integrate EntityCreateModal with EntitySelectModal</task>
+      <task id="6">Add validation and error handling</task>
+      <task id="7">Test entity creation flow</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="4.2.1">Given I'm on the Entities page, when I view the header, then I see a "Create Entity" button</ac>
+    <ac id="4.2.2">Given I click Create Entity, when the modal opens, then I see a form with type, name, description fields</ac>
+    <ac id="4.2.3">Given I select type "Vehicle", when I view the form, then color, make, model fields appear</ac>
+    <ac id="4.2.4">Given I fill the form with valid data, when I submit, then the entity is created</ac>
+    <ac id="4.2.5">Given the entity is created, when I view the list, then it appears with 0 events</ac>
+    <ac id="4.2.6">Given I create a vehicle entity, when I view it, then vehicle_signature is auto-generated</ac>
+    <ac id="4.2.7">Given I upload a reference image, when creation succeeds, then image is stored and displayed</ac>
+    <ac id="4.2.8">Given I submit invalid data (vehicle without make), when submitted, then validation error shown</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P10-4.md" title="Epic P10-4 Tech Spec" section="P10-4.2: Implement Manual Entity Creation" snippet="Create EntityCreateModal component with form for type, name, description, and vehicle-specific fields. POST /api/v1/context/entities endpoint. Support reference image upload."/>
+      <doc path="docs/epics-phase10.md" title="Phase 10 Epics" section="Story P10-4.2" snippet="Manual entity creation with type, name, description, vehicle fields (color, make, model), and optional reference image upload."/>
+      <doc path="docs/PRD-phase10.md" title="Phase 10 PRD" section="FR36-FR39" snippet="Users can create entities manually, support person/vehicle types, vehicle-specific fields, and reference image upload."/>
+    </docs>
+    <code>
+      <file path="frontend/app/entities/page.tsx" kind="page" symbol="EntitiesPage" reason="Add 'Create Entity' button to header"/>
+      <file path="frontend/components/entities/EntitySelectModal.tsx" kind="component" symbol="EntitySelectModal" lines="119-129" reason="Already has onCreateNew callback - wire to EntityCreateModal"/>
+      <file path="frontend/hooks/useEntities.ts" kind="hook" symbol="useEntities" reason="Add useCreateEntity mutation hook"/>
+      <file path="frontend/lib/api-client.ts" kind="client" symbol="apiClient.entities" reason="Add create method to entities namespace"/>
+      <file path="frontend/types/entity.ts" kind="types" symbol="EntityType, IEntity" reason="Add IEntityCreateRequest interface"/>
+      <file path="backend/app/api/v1/context.py" kind="router" symbol="create_entity" lines="601-647" reason="Enhance with vehicle fields (color, make, model)"/>
+      <file path="backend/app/services/entity_service.py" kind="service" symbol="create_entity" lines="987-1047" reason="Add vehicle_color, vehicle_make, vehicle_model, vehicle_signature params"/>
+      <file path="backend/app/models/recognized_entity.py" kind="model" symbol="RecognizedEntity" lines="121-140" reason="Already has vehicle_color, vehicle_make, vehicle_model, vehicle_signature fields"/>
+    </code>
+    <dependencies>
+      <npm>
+        <package name="@tanstack/react-query" version="^5.62.x" reason="Mutation hooks"/>
+        <package name="sonner" version="^2.0.x" reason="Toast notifications"/>
+        <package name="zod" version="^3.x" reason="Form validation"/>
+        <package name="react-hook-form" version="^7.x" reason="Form handling"/>
+        <package name="lucide-react" version="^0.x" reason="Icons"/>
+      </npm>
+      <pip>
+        <package name="fastapi" version=">=0.115.0" reason="API endpoints"/>
+        <package name="pydantic" version=">=2.0.0" reason="Request validation"/>
+        <package name="pillow" version=">=10.0.0" reason="Image processing for reference images"/>
+      </pip>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="tech-spec">Vehicle entities require at least color+make OR make+model</constraint>
+    <constraint source="tech-spec">Reference image limited to 2MB, resize to 512x512 max</constraint>
+    <constraint source="tech-spec">Vehicle signature auto-generated as lowercase color-make-model with hyphens</constraint>
+    <constraint source="architecture">Use existing shadcn/ui Dialog and Form components</constraint>
+    <constraint source="architecture">Follow TanStack Query patterns for mutations</constraint>
+    <constraint source="P10-4.1">EntitySelectModal already has onCreateNew callback to integrate with</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="POST /api/v1/context/entities" kind="REST endpoint" signature="POST /api/v1/context/entities - Create new entity with type, name, description, vehicle fields, reference image" path="backend/app/api/v1/context.py:601"/>
+    <interface name="EntityCreateRequest" kind="Pydantic model" signature="entity_type: str, name: str|None, notes: str|None, is_vip: bool, is_blocked: bool + NEW: vehicle_color, vehicle_make, vehicle_model, reference_image" path="backend/app/api/v1/context.py:492"/>
+    <interface name="EntityService.create_entity" kind="method" signature="create_entity(db, entity_type, name, notes, thumbnail_path, is_vip, is_blocked) + NEW: vehicle_color, vehicle_make, vehicle_model" path="backend/app/services/entity_service.py:987"/>
+    <interface name="apiClient.entities" kind="frontend client" signature="list, get, update, delete, merge + NEW: create" path="frontend/lib/api-client.ts:1783"/>
+  </interfaces>
+
+  <tests>
+    <standards>Backend: pytest with async fixtures. Frontend: vitest with React Testing Library. Use existing test patterns in tests/ directories.</standards>
+    <locations>
+      <location>backend/tests/test_api/test_context.py</location>
+      <location>frontend/components/entities/__tests__/</location>
+    </locations>
+    <ideas>
+      <idea ac="4.2.1">Component test: "Create Entity" button renders in entities page header</idea>
+      <idea ac="4.2.2">Component test: Modal opens with correct form fields on button click</idea>
+      <idea ac="4.2.3">Component test: Vehicle fields appear when type is "vehicle"</idea>
+      <idea ac="4.2.4">Integration test: Entity created via POST endpoint</idea>
+      <idea ac="4.2.5">Integration test: Created entity has occurrence_count=0</idea>
+      <idea ac="4.2.6">Unit test: Vehicle signature generated correctly from color-make-model</idea>
+      <idea ac="4.2.7">Integration test: Reference image stored at correct path</idea>
+      <idea ac="4.2.8">Component test: Validation error shown for vehicle without make</idea>
+    </ideas>
+  </tests>
+</story-context>

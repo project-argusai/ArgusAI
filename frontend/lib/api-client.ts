@@ -1876,6 +1876,45 @@ export const apiClient = {
     },
 
     /**
+     * Create a new entity manually (Story P10-4.2)
+     * @param data Entity creation data
+     * @returns Created entity
+     */
+    create: async (data: {
+      entity_type: 'person' | 'vehicle' | 'unknown';
+      name?: string | null;
+      notes?: string | null;
+      is_vip?: boolean;
+      is_blocked?: boolean;
+      vehicle_color?: string | null;
+      vehicle_make?: string | null;
+      vehicle_model?: string | null;
+      reference_image?: string | null;
+    }): Promise<{
+      id: string;
+      entity_type: string;
+      name: string | null;
+      notes: string | null;
+      thumbnail_path: string | null;
+      first_seen_at: string;
+      last_seen_at: string;
+      occurrence_count: number;
+      is_vip: boolean;
+      is_blocked: boolean;
+      vehicle_color: string | null;
+      vehicle_make: string | null;
+      vehicle_model: string | null;
+      vehicle_signature: string | null;
+      created_at: string;
+      updated_at: string;
+    }> => {
+      return apiFetch('/context/entities', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+
+    /**
      * Merge two entities (Story P4-3.6)
      * @param sourceId Source entity ID (will be merged into target)
      * @param targetId Target entity ID (will remain)

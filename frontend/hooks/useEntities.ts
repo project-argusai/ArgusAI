@@ -314,6 +314,60 @@ export function useMergeEntities() {
 }
 
 /**
+ * Request type for creating an entity (Story P10-4.2)
+ */
+export interface CreateEntityRequest {
+  entity_type: 'person' | 'vehicle' | 'unknown';
+  name?: string | null;
+  notes?: string | null;
+  is_vip?: boolean;
+  is_blocked?: boolean;
+  vehicle_color?: string | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  reference_image?: string | null;
+}
+
+/**
+ * Response type for created entity (Story P10-4.2)
+ */
+export interface CreatedEntityResponse {
+  id: string;
+  entity_type: string;
+  name: string | null;
+  notes: string | null;
+  thumbnail_path: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  occurrence_count: number;
+  is_vip: boolean;
+  is_blocked: boolean;
+  vehicle_color: string | null;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  vehicle_signature: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Hook to create a new entity manually (Story P10-4.2)
+ * @returns Mutation for creating entity
+ */
+export function useCreateEntity() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: CreateEntityRequest): Promise<CreatedEntityResponse> =>
+      apiClient.entities.create(data),
+    onSuccess: () => {
+      // Invalidate entity list to refresh with new entity
+      queryClient.invalidateQueries({ queryKey: ['entities'] });
+    },
+  });
+}
+
+/**
  * Error type guard for API errors
  */
 export function isApiError(error: unknown): error is ApiError {

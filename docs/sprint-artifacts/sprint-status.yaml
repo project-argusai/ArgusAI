@@ -627,7 +627,7 @@ development_status:
   # Epic P10-6: AI & Quality Improvements
   # Priority: P3
   # Focus: Research for MCP server and query-adaptive frames
-  epic-p10-6: backlog
+  epic-p10-6: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P10-6.md
   p10-6-1-research-local-mcp-server: backlog
   p10-6-2-research-query-adaptive-frame-selection: backlog
   epic-p10-6-retrospective: optional

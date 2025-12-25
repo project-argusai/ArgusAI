@@ -473,6 +473,33 @@ export const apiClient = {
     },
 
     /**
+     * Update existing feedback on an event (Story P10-4.3)
+     * @param eventId Event ID
+     * @param feedback Updated feedback data
+     * @returns Updated feedback response
+     */
+    updateFeedback: async (eventId: string, feedback: {
+      rating?: 'helpful' | 'not_helpful';
+      correction?: string | null;
+      correction_type?: 'not_package' | null;
+    }): Promise<IEventFeedback> => {
+      return apiFetch(`/events/${eventId}/feedback`, {
+        method: 'PUT',
+        body: JSON.stringify(feedback),
+      });
+    },
+
+    /**
+     * Delete feedback from an event (Story P10-4.3)
+     * @param eventId Event ID
+     */
+    deleteFeedback: async (eventId: string): Promise<void> => {
+      await apiFetch(`/events/${eventId}/feedback`, {
+        method: 'DELETE',
+      });
+    },
+
+    /**
      * Get feedback statistics for analytics (Story P4-5.2)
      * @param params Optional filter parameters
      * @returns Aggregated feedback statistics

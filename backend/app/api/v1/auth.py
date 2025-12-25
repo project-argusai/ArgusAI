@@ -125,7 +125,17 @@ def ensure_admin_exists(db: Session) -> tuple[bool, str]:
     return True, password
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    summary="Authenticate user",
+    description="Login with username and password. Returns JWT token in response body and sets HTTP-only cookie. Rate limited to 5 attempts per 15 minutes per IP.",
+    response_description="JWT access token and user information",
+    responses={
+        401: {"description": "Invalid credentials or account disabled"},
+        429: {"description": "Rate limit exceeded - try again later"},
+    },
+)
 @limiter.limit("5/15minutes")
 async def login(
     request: Request,
@@ -226,7 +236,13 @@ async def login(
     )
 
 
-@router.post("/logout", response_model=MessageResponse)
+@router.post(
+    "/logout",
+    response_model=MessageResponse,
+    summary="End user session",
+    description="Logout by clearing the JWT cookie. Does not invalidate the token server-side.",
+    response_description="Logout confirmation message",
+)
 async def logout(response: Response):
     """
     Logout by clearing JWT cookie
@@ -247,7 +263,17 @@ async def logout(response: Response):
     return MessageResponse(message="Logged out successfully")
 
 
-@router.post("/change-password", response_model=MessageResponse)
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    summary="Change user password",
+    description="Change password for current authenticated user. Requires current password verification. New password must be at least 8 characters with 1 uppercase, 1 number, and 1 special character.",
+    response_description="Password change confirmation",
+    responses={
+        400: {"description": "New password doesn't meet requirements"},
+        401: {"description": "Current password is incorrect or not authenticated"},
+    },
+)
 async def change_password(
     request: Request,
     password_data: ChangePasswordRequest,
@@ -310,7 +336,16 @@ async def change_password(
     return MessageResponse(message="Password changed successfully")
 
 
-@router.get("/me", response_model=UserResponse)
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Get current user",
+    description="Returns information about the currently authenticated user based on the JWT token.",
+    response_description="Current user profile information",
+    responses={
+        401: {"description": "Not authenticated or token expired"},
+    },
+)
 async def get_current_user_info(
     current_user: User = Depends(get_current_user),
 ):

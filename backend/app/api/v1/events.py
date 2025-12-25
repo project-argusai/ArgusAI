@@ -168,7 +168,18 @@ async def _process_event_alerts_background(event_id: str):
         db.close()
 
 
-@router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=EventResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create AI-generated event",
+    description="Create a new event with AI-generated natural language description. Triggers alert rule evaluation and broadcasts via WebSocket.",
+    response_description="Created event with assigned UUID and thumbnail path",
+    responses={
+        400: {"description": "Invalid input data or camera not found"},
+        500: {"description": "Database error or thumbnail processing failure"},
+    },
+)
 async def create_event(
     event_data: EventCreate,
     background_tasks: BackgroundTasks,
@@ -271,7 +282,13 @@ async def create_event(
         )
 
 
-@router.get("", response_model=EventListResponse)
+@router.get(
+    "",
+    response_model=EventListResponse,
+    summary="List events with filtering",
+    description="Retrieve paginated list of AI-generated events with optional filtering by camera, time range, confidence, object types, source type, and full-text search.",
+    response_description="Paginated list of events with total count",
+)
 def list_events(
     camera_id: Optional[str] = Query(None, description="Filter by camera UUID"),
     start_time: Optional[datetime] = Query(None, description="Filter events after this timestamp"),

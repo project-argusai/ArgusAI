@@ -624,15 +624,135 @@ async def lifespan(app: FastAPI):
     )
 
 
-# Create FastAPI app
+# Story P10-5.1: OpenAPI Specification Enhancement
+# API documentation and security scheme configuration
+OPENAPI_DESCRIPTION = """
+## Overview
+
+ArgusAI is an AI-powered event detection system for home security. It analyzes video feeds
+from UniFi Protect cameras, RTSP IP cameras, and USB webcams, detects motion and smart events,
+and generates natural language descriptions using multi-provider AI.
+
+## Authentication
+
+Most endpoints require authentication via JWT bearer token. Obtain a token by calling
+`POST /api/v1/auth/login` with valid credentials.
+
+Include the token in the `Authorization` header:
+```
+Authorization: Bearer <your_token>
+```
+
+## Key Features
+
+- **Camera Management**: Configure RTSP, USB, and UniFi Protect cameras
+- **Event Detection**: AI-powered motion and object detection with natural language descriptions
+- **Smart Detection**: Person, vehicle, package, and animal classification
+- **Entity Recognition**: Identify recurring visitors and vehicles
+- **Push Notifications**: Web push notifications for important events
+- **Home Automation**: MQTT/Home Assistant and HomeKit integration
+
+## Rate Limits
+
+- Authentication endpoints: 5 requests per 15 minutes per IP
+- General API: No rate limiting (intended for single-user deployment)
+
+## Versioning
+
+All API endpoints are prefixed with `/api/v1`. Future breaking changes will use `/api/v2`.
+"""
+
+# OpenAPI tags with descriptions for endpoint grouping
+OPENAPI_TAGS = [
+    {"name": "Authentication", "description": "User authentication and session management"},
+    {"name": "cameras", "description": "Camera configuration and control"},
+    {"name": "events", "description": "AI-generated event management and search"},
+    {"name": "Protect Controllers", "description": "UniFi Protect controller management"},
+    {"name": "Alert Rules", "description": "Alert rule configuration"},
+    {"name": "Webhooks", "description": "Webhook delivery management"},
+    {"name": "Notifications", "description": "In-app notification management"},
+    {"name": "Push Notifications", "description": "Web push subscription management"},
+    {"name": "Integrations", "description": "MQTT and Home Assistant integration"},
+    {"name": "HomeKit", "description": "Apple HomeKit integration"},
+    {"name": "Context", "description": "Entity and similarity search"},
+    {"name": "Summaries", "description": "Activity summaries and digests"},
+    {"name": "Feedback", "description": "User feedback on AI descriptions"},
+    {"name": "Voice", "description": "Voice query processing"},
+    {"name": "System", "description": "System configuration and health"},
+    {"name": "AI", "description": "AI provider configuration and usage"},
+    {"name": "Metrics", "description": "Prometheus metrics"},
+    {"name": "Logs", "description": "Application log access"},
+    {"name": "Discovery", "description": "ONVIF camera discovery"},
+    {"name": "Audio", "description": "Audio event detection"},
+    {"name": "Digests", "description": "Daily digest scheduling"},
+    {"name": "Motion Events", "description": "Raw motion event tracking"},
+    {"name": "System Notifications", "description": "System alerts and cost notifications"},
+]
+
+# Create FastAPI app with enhanced OpenAPI configuration
 app = FastAPI(
     title="ArgusAI API",
-    description="API for camera-based motion detection and AI-powered object description",
+    description=OPENAPI_DESCRIPTION,
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    openapi_tags=OPENAPI_TAGS,
+    contact={
+        "name": "ArgusAI",
+        "url": "https://github.com/bbengt1/ArgusAI",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
     lifespan=lifespan
 )
+
+# Story P10-5.1: Custom OpenAPI schema with security schemes
+def custom_openapi():
+    """Generate custom OpenAPI schema with security schemes for JWT authentication."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    from fastapi.openapi.utils import get_openapi
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+        tags=app.openapi_tags,
+        contact=app.contact,
+        license_info=app.license_info,
+    )
+
+    # Add security schemes (AC-5.1.3)
+    openapi_schema["components"]["securitySchemes"] = {
+        "bearerAuth": {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "JWT",
+            "description": "JWT access token obtained from POST /api/v1/auth/login"
+        },
+        "cookieAuth": {
+            "type": "apiKey",
+            "in": "cookie",
+            "name": "access_token",
+            "description": "JWT token stored in HTTP-only cookie (set by login endpoint)"
+        }
+    }
+
+    # Apply security globally (endpoints can override with security=[])
+    openapi_schema["security"] = [
+        {"bearerAuth": []},
+        {"cookieAuth": []}
+    ]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+app.openapi = custom_openapi
 
 # Add rate limiter state (Story 6.3)
 from slowapi import _rate_limit_exceeded_handler

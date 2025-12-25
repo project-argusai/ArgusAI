@@ -1,0 +1,144 @@
+<story-context id="P10-5-1" v="1.0">
+  <metadata>
+    <epicId>P10-5</epicId>
+    <storyId>5.1</storyId>
+    <title>Generate OpenAPI 3.0 Specification</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-25</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P10-5-1-generate-openapi-specification.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer building mobile clients</asA>
+    <iWant>a complete OpenAPI 3.0 specification for the ArgusAI API</iWant>
+    <soThat>I can generate client SDKs and understand all available endpoints</soThat>
+    <tasks>
+      <task id="1">Audit existing OpenAPI generation quality</task>
+      <task id="2">Enhance API route metadata with tags, summaries, descriptions</task>
+      <task id="3">Document authentication schemes (JWT, API key)</task>
+      <task id="4">Export and version the specification to docs/api/</task>
+      <task id="5">Validate with openapi-generator for Swift compatibility</task>
+      <task id="6">Testing - verify /docs, /redoc, and exported YAML</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="5.1.1">Given FastAPI auto-generates OpenAPI, when I access /openapi.json, then the specification includes all API endpoints</ac>
+    <ac id="5.1.2">Given the OpenAPI spec, when I view endpoint definitions, then they include descriptions, examples, and proper tags</ac>
+    <ac id="5.1.3">Given the OpenAPI spec, when I view authentication, then JWT and API key auth schemes are documented</ac>
+    <ac id="5.1.4">Given I use openapi-generator, when I generate Swift client code, then the generated code is functional</ac>
+    <ac id="5.1.5">Given the API changes, when I regenerate the spec, then versioning tracks breaking changes</ac>
+    <ac id="5.1.6">Given the spec is exported, when saved to docs/api/, then it is versioned as openapi-v1.yaml</ac>
+    <ac id="5.1.7">Given I want to browse the API, when I visit /docs or /redoc, then I see interactive documentation</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/PRD-phase10.md" title="Phase 10 PRD" section="Apple Platform Foundation Requirements">
+        FR44-FR47 define requirements for OpenAPI specification including authentication flows,
+        push notification endpoints, and versioning.
+      </doc>
+      <doc path="docs/epics-phase10.md" title="Phase 10 Epics" section="Story P10-5.1">
+        Technical notes specify using FastAPI auto-generation, enhancing with descriptions,
+        adding auth schemas, exporting to docs/api/openapi-v1.yaml.
+      </doc>
+      <doc path="CLAUDE.md" title="Claude Instructions" section="API Routes">
+        Documents all API routes under /api/v1 prefix with main routers listed.
+      </doc>
+    </docs>
+    <code>
+      <file path="backend/main.py" kind="entrypoint" symbol="FastAPI app" lines="627-635" reason="FastAPI app initialization with title, description, version, docs_url, redoc_url already configured">
+        Current app configuration already enables /docs and /redoc.
+      </file>
+      <file path="backend/app/api/v1/events.py" kind="router" symbol="router" lines="46" reason="Example router with tags already set">
+        Shows pattern: APIRouter(prefix="/events", tags=["events"])
+      </file>
+      <file path="backend/app/api/v1/cameras.py" kind="router" symbol="router" reason="Camera management endpoints"/>
+      <file path="backend/app/api/v1/auth.py" kind="router" symbol="router" reason="Authentication endpoints - JWT flow"/>
+      <file path="backend/app/api/v1/protect.py" kind="router" symbol="router" reason="UniFi Protect controller endpoints"/>
+      <file path="backend/app/api/v1/context.py" kind="router" symbol="router" reason="Entity/embedding endpoints"/>
+      <file path="backend/app/api/v1/push.py" kind="router" symbol="router" reason="Web Push notification endpoints"/>
+      <file path="backend/app/schemas/event.py" kind="schema" symbol="EventCreate, EventResponse" reason="Pydantic schemas with Field descriptions and examples">
+        Shows pattern for json_schema_extra with examples.
+      </file>
+      <file path="backend/app/schemas/auth.py" kind="schema" symbol="LoginRequest, TokenResponse" reason="Auth request/response schemas"/>
+      <file path="backend/app/schemas/feedback.py" kind="schema" symbol="FeedbackCreate, FeedbackResponse" reason="Feedback schemas"/>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version=">=0.115.0">Auto-generates OpenAPI 3.0 from routes and Pydantic models</package>
+        <package name="pydantic" version=">=2.0.0">Schema definitions with Field metadata for OpenAPI</package>
+        <package name="pyyaml" version="*">For exporting OpenAPI spec as YAML</package>
+      </python>
+      <tools>
+        <tool name="openapi-generator" purpose="Validate spec by generating Swift client"/>
+      </tools>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">FastAPI routers should use tags parameter for grouping endpoints</constraint>
+    <constraint type="pattern">All endpoints should have summary and description parameters</constraint>
+    <constraint type="pattern">Pydantic schemas should use Field with description and example</constraint>
+    <constraint type="pattern">Use json_schema_extra for complex examples in Pydantic models</constraint>
+    <constraint type="security">Authentication schemes must be documented in OpenAPI securitySchemes</constraint>
+    <constraint type="versioning">Export specification with version in filename (openapi-v1.yaml)</constraint>
+    <constraint type="compatibility">Generated Swift code must compile without manual fixes</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="FastAPI OpenAPI Config" kind="app-config">
+      app = FastAPI(
+          title="ArgusAI API",
+          description="...",
+          version="1.0.0",
+          docs_url="/docs",
+          redoc_url="/redoc",
+          openapi_url="/openapi.json"
+      )
+    </interface>
+    <interface name="APIRouter Tags" kind="router-config">
+      router = APIRouter(
+          prefix="/events",
+          tags=["events"],
+          responses={404: {"description": "Not found"}}
+      )
+    </interface>
+    <interface name="Endpoint Metadata" kind="decorator">
+      @router.get(
+          "/{id}",
+          summary="Get event by ID",
+          description="Retrieve event details including AI description",
+          response_description="Event with full details"
+      )
+    </interface>
+    <interface name="Pydantic Field" kind="schema-field">
+      field: str = Field(..., description="Description", example="value")
+    </interface>
+    <interface name="Security Scheme" kind="openapi-security">
+      app.openapi_schema["components"]["securitySchemes"] = {
+          "bearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+      }
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with test files in backend/tests/.
+      API endpoint tests use TestClient from FastAPI.
+      Test coverage should verify OpenAPI endpoints respond correctly.
+    </standards>
+    <locations>
+      <location>backend/tests/</location>
+      <location>backend/tests/test_api/</location>
+    </locations>
+    <ideas>
+      <idea ac="5.1.1">Test GET /openapi.json returns valid JSON with paths object</idea>
+      <idea ac="5.1.2">Test sample endpoints have summary, description in OpenAPI schema</idea>
+      <idea ac="5.1.3">Test securitySchemes contains bearerAuth in OpenAPI schema</idea>
+      <idea ac="5.1.6">Test export script creates valid YAML file</idea>
+      <idea ac="5.1.7">Test GET /docs returns 200 OK, test GET /redoc returns 200 OK</idea>
+    </ideas>
+  </tests>
+</story-context>

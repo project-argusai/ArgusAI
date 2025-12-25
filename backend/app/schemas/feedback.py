@@ -4,6 +4,7 @@ Story P4-5.1: Feedback Collection UI
 Story P4-5.2: Feedback Storage & API - Added statistics schemas
 Story P9-3.3: Package False Positive Feedback - Added correction_type
 Story P9-3.4: Add Summary Feedback Buttons - Added summary feedback schemas
+Story P10-4.3: Allow Feedback Modification - Added was_edited to response
 """
 from pydantic import BaseModel, Field
 from typing import Literal, Optional, Dict, List
@@ -57,6 +58,7 @@ class FeedbackResponse(BaseModel):
     correction_type: Optional[str] = None  # Story P9-3.3: Correction type
     created_at: datetime
     updated_at: Optional[datetime] = None
+    was_edited: bool = False  # Story P10-4.3: Indicates if feedback was modified
 
     model_config = {"from_attributes": True}
 

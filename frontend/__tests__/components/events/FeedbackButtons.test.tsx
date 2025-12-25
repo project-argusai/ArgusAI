@@ -15,13 +15,14 @@
 import { describe, it, expect, vi, beforeEach, Mock } from 'vitest'
 import { render, screen } from '../../test-utils'
 import { FeedbackButtons } from '@/components/events/FeedbackButtons'
-import { useSubmitFeedback, useUpdateFeedback } from '@/hooks/useFeedback'
+import { useSubmitFeedback, useUpdateFeedback, useDeleteFeedback } from '@/hooks/useFeedback'
 import type { IEventFeedback } from '@/types/event'
 
 // Mock the useFeedback hooks
 vi.mock('@/hooks/useFeedback', () => ({
   useSubmitFeedback: vi.fn(),
   useUpdateFeedback: vi.fn(),
+  useDeleteFeedback: vi.fn(),  // Story P10-4.3: Added for feedback deletion
 }))
 
 // Mock sonner toast
@@ -34,6 +35,7 @@ vi.mock('sonner', () => ({
 
 const mockSubmitMutate = vi.fn()
 const mockUpdateMutate = vi.fn()
+const mockDeleteMutate = vi.fn()  // Story P10-4.3: Added for feedback deletion
 
 const mockFeedback: IEventFeedback = {
   id: 'feedback-1',
@@ -56,6 +58,11 @@ describe('FeedbackButtons', () => {
     })
     ;(useUpdateFeedback as Mock).mockReturnValue({
       mutate: mockUpdateMutate,
+      isPending: false,
+    })
+    // Story P10-4.3: Mock useDeleteFeedback
+    ;(useDeleteFeedback as Mock).mockReturnValue({
+      mutate: mockDeleteMutate,
       isPending: false,
     })
   })
@@ -407,7 +414,8 @@ describe('FeedbackButtons', () => {
       )
 
       const button = screen.getByRole('button', { name: /marked as helpful/i })
-      expect(button).toHaveAttribute('aria-label', 'Marked as helpful')
+      // Story P10-4.3: Updated aria-label to indicate click-to-modify
+      expect(button).toHaveAttribute('aria-label', 'Marked as helpful - click to modify')
     })
 
     it('thumbs down button has aria-label "Mark as not helpful" when unselected', () => {
@@ -426,7 +434,8 @@ describe('FeedbackButtons', () => {
       )
 
       const button = screen.getByRole('button', { name: /marked as not helpful/i })
-      expect(button).toHaveAttribute('aria-label', 'Marked as not helpful')
+      // Story P10-4.3: Updated aria-label to indicate click-to-modify
+      expect(button).toHaveAttribute('aria-label', 'Marked as not helpful - click to modify')
     })
 
     it('aria-pressed reflects current state for thumbs up', () => {

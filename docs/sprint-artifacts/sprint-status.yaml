@@ -610,7 +610,7 @@ development_status:
   epic-p10-4: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P10-4.md
   p10-4-1-add-entity-assignment-from-event-cards: done
   p10-4-2-implement-manual-entity-creation: done
-  p10-4-3-allow-feedback-modification: drafted
+  p10-4-3-allow-feedback-modification: done
   p10-4-4-show-feedback-history-indicator: backlog
   epic-p10-4-retrospective: optional
 

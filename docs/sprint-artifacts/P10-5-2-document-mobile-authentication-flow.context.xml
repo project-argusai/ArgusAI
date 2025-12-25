@@ -1,0 +1,183 @@
+<story-context id="P10-5.2" v="1.0">
+  <metadata>
+    <epicId>P10-5</epicId>
+    <storyId>5.2</storyId>
+    <title>Document Mobile Authentication Flow</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-25</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P10-5-2-document-mobile-authentication-flow.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer building mobile apps for ArgusAI</asA>
+    <iWant>authentication flows documented for mobile clients</iWant>
+    <soThat>I can implement secure login, token management, and device registration following established patterns</soThat>
+    <tasks>
+      <task id="1">Analyze Current Authentication Implementation (AC: 1, 2)</task>
+      <task id="2">Create JWT Token Flow Documentation (AC: 1, 2, 7)</task>
+      <task id="3">Document Device Registration Flow (AC: 3)</task>
+      <task id="4">Document Push Notification Token Management (AC: 4)</task>
+      <task id="5">Document Biometric Authentication Integration (AC: 5)</task>
+      <task id="6">Create Sequence Diagrams (AC: 6)</task>
+      <task id="7">Compile and Review Documentation</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-5.2.1">Given I'm developing a mobile app, when I read the authentication documentation, then I understand how to authenticate users via JWT tokens</criterion>
+    <criterion id="AC-5.2.2">Given a mobile app user session, when the JWT token expires, then documentation describes the token refresh mechanism</criterion>
+    <criterion id="AC-5.2.3">Given a new mobile device, when the user logs in, then documentation covers device registration and pairing flow</criterion>
+    <criterion id="AC-5.2.4">Given push notification requirements, when I implement mobile push, then documentation describes push notification token management</criterion>
+    <criterion id="AC-5.2.5">Given security requirements, when I implement authentication, then documentation addresses biometric authentication integration</criterion>
+    <criterion id="AC-5.2.6">Given the documentation is complete, when I review it, then it includes sequence diagrams for all authentication flows</criterion>
+    <criterion id="AC-5.2.7">Given mobile-specific concerns, when I implement auth, then documentation addresses token storage best practices (Keychain/Keystore)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/PRD-phase10.md</path>
+        <title>ArgusAI Phase 10 PRD</title>
+        <section>Apple Platform Foundation Requirements (FR44-FR50)</section>
+        <snippet>FR45: API spec includes authentication flows for mobile clients. FR50: Architecture defines device pairing and authentication flow.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase10.md</path>
+        <title>ArgusAI Phase 10 Epic Breakdown</title>
+        <section>Story P10-5.2: Document Mobile Authentication Flow</section>
+        <snippet>Document JWT token flow for mobile, device pairing/registration, push notification token management, biometric authentication integration.</snippet>
+      </doc>
+      <doc>
+        <path>docs/api/openapi-v1.yaml</path>
+        <title>OpenAPI 3.0 Specification</title>
+        <section>Authentication endpoints</section>
+        <snippet>Complete API specification with JWT bearer and cookie auth security schemes documented. Created in P10-5.1.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/P10-5-1-generate-openapi-specification.md</path>
+        <title>Previous Story - OpenAPI Specification</title>
+        <section>Dev Agent Record</section>
+        <snippet>Enhanced main.py with security schemes (JWT bearer, cookie auth). Export script at backend/scripts/export_openapi.py.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <artifact>
+        <path>backend/app/api/v1/auth.py</path>
+        <kind>router</kind>
+        <symbol>login, logout, change_password, get_current_user, get_current_user_info</symbol>
+        <lines>1-370</lines>
+        <reason>Core authentication endpoints - login returns JWT token, supports both cookie and Bearer header auth. Rate limited to 5/15min.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/utils/jwt.py</path>
+        <kind>utility</kind>
+        <symbol>create_access_token, decode_access_token, get_token_expiration</symbol>
+        <lines>1-104</lines>
+        <reason>JWT token creation and validation. Uses HS256 algorithm, configurable expiration via JWT_EXPIRATION_HOURS.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/schemas/auth.py</path>
+        <kind>schema</kind>
+        <symbol>LoginRequest, LoginResponse, UserResponse, ChangePasswordRequest</symbol>
+        <lines>1-45</lines>
+        <reason>Pydantic schemas for authentication request/response. Mobile clients use these same schemas.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/api/v1/push.py</path>
+        <kind>router</kind>
+        <symbol>subscribe, unsubscribe, get_vapid_key, get_preferences</symbol>
+        <lines>1-931</lines>
+        <reason>Push notification subscription management. Documents VAPID key flow for mobile push tokens.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/core/config.py</path>
+        <kind>config</kind>
+        <symbol>Settings</symbol>
+        <lines>1-106</lines>
+        <reason>JWT configuration: JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRATION_HOURS. Cookie settings for HTTP vs HTTPS.</reason>
+      </artifact>
+      <artifact>
+        <path>backend/app/utils/auth.py</path>
+        <kind>utility</kind>
+        <symbol>hash_password, verify_password, validate_password_strength</symbol>
+        <reason>Password hashing with bcrypt, password strength validation (8+ chars, uppercase, number, special).</reason>
+      </artifact>
+    </code>
+    <dependencies>
+      <python>
+        <package name="python-jose" version="3.3.0" reason="JWT token creation and validation"/>
+        <package name="passlib" version="1.7.4" reason="Password hashing with bcrypt"/>
+        <package name="bcrypt" version="4.0.1" reason="Bcrypt hashing backend"/>
+        <package name="slowapi" version="0.1.9" reason="Rate limiting for login endpoint"/>
+        <package name="pydantic-settings" version="2.0.3" reason="Settings management"/>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <interfaces>
+    <interface>
+      <name>POST /api/v1/auth/login</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/auth/login { username: string, password: string } -> { access_token: string, token_type: "bearer", user: UserResponse }</signature>
+      <path>backend/app/api/v1/auth.py:128-237</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/auth/logout</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/auth/logout -> { message: string }</signature>
+      <path>backend/app/api/v1/auth.py:239-264</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/auth/change-password</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/auth/change-password { current_password: string, new_password: string } -> { message: string }</signature>
+      <path>backend/app/api/v1/auth.py:266-337</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/auth/me</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/auth/me [Authorization: Bearer token] -> UserResponse</signature>
+      <path>backend/app/api/v1/auth.py:339-356</path>
+    </interface>
+    <interface>
+      <name>POST /api/v1/push/subscribe</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/push/subscribe { endpoint: string, keys: { p256dh: string, auth: string } } -> SubscriptionResponse</signature>
+      <path>backend/app/api/v1/push.py:224-345</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/push/vapid-public-key</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/push/vapid-public-key -> { public_key: string }</signature>
+      <path>backend/app/api/v1/push.py:141-179</path>
+    </interface>
+  </interfaces>
+
+  <constraints>
+    <constraint>Mobile clients MUST use Authorization header (Bearer token), NOT cookies</constraint>
+    <constraint>JWT tokens expire after 24 hours (configurable via JWT_EXPIRATION_HOURS)</constraint>
+    <constraint>Login endpoint is rate limited to 5 attempts per 15 minutes per IP</constraint>
+    <constraint>Password requirements: 8+ characters, 1 uppercase, 1 number, 1 special character</constraint>
+    <constraint>Push notifications require HTTPS for production (except localhost)</constraint>
+    <constraint>Token storage on mobile: Use iOS Keychain or Android Keystore, never plain storage</constraint>
+    <constraint>Documentation uses Mermaid syntax for sequence diagrams (GitHub-compatible rendering)</constraint>
+    <constraint>All documentation files go in docs/api/ directory</constraint>
+  </constraints>
+
+  <tests>
+    <standards>This is a documentation story - no code tests required. Documentation should be reviewed for completeness against all acceptance criteria. Verify Mermaid diagrams render correctly on GitHub.</standards>
+    <locations>
+      <location>docs/api/mobile-auth-flow.md (primary output)</location>
+    </locations>
+    <ideas>
+      <idea acRef="AC-5.2.1">Verify JWT login flow documentation covers request format, response parsing, and error handling</idea>
+      <idea acRef="AC-5.2.2">Verify token refresh mechanism is clearly documented with timing recommendations</idea>
+      <idea acRef="AC-5.2.3">Verify device registration flow includes device ID generation, platform identification, and pairing steps</idea>
+      <idea acRef="AC-5.2.4">Verify APNS and FCM token management documented with registration and refresh flows</idea>
+      <idea acRef="AC-5.2.5">Verify biometric auth integration pattern documented with Keychain/Keystore credential storage</idea>
+      <idea acRef="AC-5.2.6">Verify all sequence diagrams render correctly in GitHub Markdown preview</idea>
+      <idea acRef="AC-5.2.7">Verify secure storage recommendations include platform-specific guidance (iOS Keychain, Android Keystore)</idea>
+    </ideas>
+  </tests>
+</story-context>

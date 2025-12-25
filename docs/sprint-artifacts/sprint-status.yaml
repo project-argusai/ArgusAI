@@ -620,7 +620,7 @@ development_status:
   epic-p10-5: contexted
   p10-5-1-generate-openapi-3-0-specification: done
   p10-5-2-document-mobile-authentication-flow: done
-  p10-5-3-design-cloud-relay-architecture: backlog
+  p10-5-3-design-cloud-relay-architecture: done
   p10-5-4-define-mobile-push-architecture: backlog
   epic-p10-5-retrospective: optional
 

@@ -1,0 +1,177 @@
+<story-context id="p10-5-3" v="1.0">
+  <metadata>
+    <epicId>P10-5</epicId>
+    <storyId>5.3</storyId>
+    <title>Design Cloud Relay Architecture</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-25</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/p10-5-3-design-cloud-relay-architecture.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>architect or developer building mobile apps for ArgusAI</asA>
+    <iWant>a documented cloud relay architecture for secure remote access</iWant>
+    <soThat>mobile clients can access their ArgusAI instance without requiring port forwarding or exposing the local network</soThat>
+    <tasks>
+      <task id="1">Research Cloud Relay Technologies (Cloudflare Tunnel, AWS IoT, self-hosted)</task>
+      <task id="2">Design Security Model (E2E encryption, device pairing)</task>
+      <task id="3">Design NAT Traversal Approach</task>
+      <task id="4">Design Bandwidth Optimization</task>
+      <task id="5">Design Local Network Fallback</task>
+      <task id="6">Create Architecture Document at docs/architecture/cloud-relay-architecture.md</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-5.3.1">Architecture document explains NAT traversal without requiring port forwarding</criterion>
+    <criterion id="AC-5.3.2">Security model with end-to-end encryption is documented</criterion>
+    <criterion id="AC-5.3.3">Device pairing flow for mobile clients is defined</criterion>
+    <criterion id="AC-5.3.4">Bandwidth optimization strategies for thumbnails/video are addressed</criterion>
+    <criterion id="AC-5.3.5">Comparison of relay options included with pros/cons/costs</criterion>
+    <criterion id="AC-5.3.6">Local network fallback for better performance is documented</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/api/mobile-auth-flow.md</path>
+        <title>Mobile Authentication Flow</title>
+        <section>Complete Document</section>
+        <snippet>JWT token authentication, device registration, biometric auth patterns for iOS. Cross-reference for device pairing and auth flows.</snippet>
+      </doc>
+      <doc>
+        <path>docs/api/openapi-v1.yaml</path>
+        <title>OpenAPI 3.0 Specification</title>
+        <section>Authentication and Push Endpoints</section>
+        <snippet>API contract for authentication (/auth/*), push notifications (/push/*). Reference for relay API design.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase10.md</path>
+        <title>Phase 10 PRD</title>
+        <section>FR48-FR51</section>
+        <snippet>Requirements: Cloud relay architecture defines secure tunnel approach, NAT traversal, device pairing flow, bandwidth optimization.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase10.md</path>
+        <title>Phase 10 Epics</title>
+        <section>Story P10-5.3</section>
+        <snippet>Acceptance criteria and technical notes for cloud relay architecture story.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-5-additions.md</path>
+        <title>Phase 5 Architecture Additions</title>
+        <section>HomeKit Bridge Design</section>
+        <snippet>Reference for bridge architecture patterns. HomeKit uses outbound connections to Apple servers - similar pattern for relay.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/push_notification_service.py</path>
+        <kind>service</kind>
+        <symbol>PushNotificationService</symbol>
+        <reason>Existing push notification infrastructure - relay may extend this for mobile push</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/push.py</path>
+        <kind>router</kind>
+        <symbol>push_router</symbol>
+        <reason>VAPID/Web Push endpoints - reference for push token management patterns</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/auth.py</path>
+        <kind>router</kind>
+        <symbol>auth_router</symbol>
+        <reason>JWT authentication endpoints - relay auth will build on this</reason>
+      </file>
+      <file>
+        <path>backend/app/services/homekit_service.py</path>
+        <kind>service</kind>
+        <symbol>HomeKitService</symbol>
+        <reason>HAP bridge implementation - example of outbound connection pattern for Apple ecosystem</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="fastapi" version="0.115+">Web framework for API endpoints</package>
+        <package name="python-jose" version="3.3+">JWT token handling</package>
+        <package name="pywebpush" version="1.14+">Web push notification library</package>
+      </python>
+      <potential>
+        <package name="cloudflared" note="Cloudflare Tunnel daemon - if Option A selected"/>
+        <package name="boto3" note="AWS SDK - if Option B (AWS IoT) selected"/>
+        <package name="websockets" note="WebSocket library - for custom relay"/>
+      </potential>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="PRD-phase10">This is documentation/design work only - no implementation required this phase</constraint>
+    <constraint source="PRD-phase10">Architecture must support zero-configuration for end users (no port forwarding)</constraint>
+    <constraint source="security">End-to-end encryption required - relay servers must not have access to unencrypted data</constraint>
+    <constraint source="architecture">Must integrate with existing JWT authentication flow</constraint>
+    <constraint source="architecture">Device pairing must work with identifierForVendor pattern from P10-5.2</constraint>
+    <constraint source="performance">Local network access should be preferred when device is on same network</constraint>
+    <constraint source="cost">Solution should be free or very low cost for personal/home use</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>JWT Authentication</name>
+      <kind>REST API</kind>
+      <signature>POST /api/v1/auth/login → {access_token, token_type, user}</signature>
+      <path>backend/app/api/v1/auth.py</path>
+    </interface>
+    <interface>
+      <name>Push Subscribe</name>
+      <kind>REST API</kind>
+      <signature>POST /api/v1/push/subscribe → {id, endpoint, created_at}</signature>
+      <path>backend/app/api/v1/push.py</path>
+    </interface>
+    <interface>
+      <name>Device Registration Pattern</name>
+      <kind>HTTP Headers</kind>
+      <signature>X-Device-Id, X-Device-Platform, X-Device-Model, X-App-Version</signature>
+      <path>docs/api/mobile-auth-flow.md#device-registration</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>This is a documentation story - no automated tests required. Validation is through document review and completeness check against acceptance criteria.</standards>
+    <locations>
+      <location>N/A - Architecture documentation</location>
+    </locations>
+    <ideas>
+      <idea ac="AC-5.3.1">Verify NAT traversal section explains how outbound connections bypass need for port forwarding</idea>
+      <idea ac="AC-5.3.2">Verify E2E encryption section covers TLS 1.3 and certificate pinning recommendations</idea>
+      <idea ac="AC-5.3.3">Verify device pairing section includes sequence diagram and references mobile-auth-flow.md</idea>
+      <idea ac="AC-5.3.4">Verify bandwidth section addresses thumbnail compression, adaptive quality, and payload optimization</idea>
+      <idea ac="AC-5.3.5">Verify comparison table includes Cloudflare Tunnel, AWS IoT, and self-hosted with pros/cons/cost estimates</idea>
+      <idea ac="AC-5.3.6">Verify local fallback section describes mDNS discovery and automatic mode switching</idea>
+    </ideas>
+  </tests>
+
+  <relayOptions>
+    <option id="A" name="Cloudflare Tunnel">
+      <description>Cloudflare Zero Trust tunnel for secure remote access</description>
+      <pros>Free tier available, no server to manage, excellent security, automatic TLS, global edge network</pros>
+      <cons>Depends on Cloudflare infrastructure, requires cloudflared daemon on ArgusAI server</cons>
+      <cost>Free (50 users) or $7/user/month for advanced features</cost>
+      <implementation>Install cloudflared, configure tunnel, access via *.cfargotunnel.com subdomain</implementation>
+    </option>
+    <option id="B" name="AWS IoT + API Gateway">
+      <description>AWS managed IoT Core with API Gateway for WebSocket relay</description>
+      <pros>Enterprise-grade, scalable, pay-per-use, fully managed</pros>
+      <cons>Complex setup, requires AWS account, ongoing costs, latency varies by region</cons>
+      <cost>~$1-5/month for light usage (IoT Core + API Gateway + Lambda)</cost>
+      <implementation>MQTT over WebSocket, device shadows for state, API Gateway for REST/WS</implementation>
+    </option>
+    <option id="C" name="Self-Hosted Relay">
+      <description>Deploy relay server (frp, rathole, bore) on VPS</description>
+      <pros>Full control, no third-party dependency, open source, one-time setup</pros>
+      <cons>Requires VPS with public IP ($5-10/month), user must manage infrastructure</cons>
+      <cost>$5-10/month for small VPS</cost>
+      <implementation>frp server on VPS, frpc client on ArgusAI, TCP/UDP proxy</implementation>
+    </option>
+  </relayOptions>
+</story-context>

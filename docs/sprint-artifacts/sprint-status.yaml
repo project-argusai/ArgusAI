@@ -631,3 +631,13 @@ development_status:
   p10-6-1-research-local-mcp-server: backlog
   p10-6-2-research-query-adaptive-frame-selection: backlog
   epic-p10-6-retrospective: optional
+
+  # ============================================================================
+  # BUGS
+  # ============================================================================
+  # Status: backlog, in-progress, done
+  # Priority: P1 (critical), P2 (high), P3 (medium), P4 (low)
+
+  # CI/Infrastructure Bugs
+  bug-ci-docker-disk-space: backlog  # P3: Docker Build fails with "No space left on device" in GitHub Actions
+  bug-ci-scheduler-logging-error: backlog  # P3: Logging error during APScheduler shutdown in tests (ValueError: I/O operation on closed file)

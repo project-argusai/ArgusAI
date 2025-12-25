@@ -629,7 +629,7 @@ development_status:
   # Focus: Research for MCP server and query-adaptive frames
   epic-p10-6: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P10-6.md
   p10-6-1-research-local-mcp-server: done
-  p10-6-2-research-query-adaptive-frame-selection: backlog
+  p10-6-2-research-query-adaptive-frame-selection: done
   epic-p10-6-retrospective: optional
 
   # ============================================================================

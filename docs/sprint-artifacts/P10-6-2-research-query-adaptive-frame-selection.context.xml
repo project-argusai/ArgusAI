@@ -1,0 +1,187 @@
+<story-context id="P10-6-2" v="1.0">
+  <metadata>
+    <epicId>P10-6</epicId>
+    <storyId>6.2</storyId>
+    <title>Research Query-Adaptive Frame Selection</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-25</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P10-6-2-research-query-adaptive-frame-selection.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>developer planning AI enhancements for ArgusAI</asA>
+    <iWant>comprehensive research on query-adaptive frame selection techniques</iWant>
+    <soThat>future re-analysis can select the most relevant frames based on user queries, improving AI accuracy for targeted questions</soThat>
+    <tasks>
+      <task id="1">Research VL Model Embeddings (AC: 1, 2)
+        <subtask>Review CLIP architecture and embedding generation</subtask>
+        <subtask>Evaluate SigLIP as an alternative to CLIP</subtask>
+        <subtask>Compare other VL models (BLIP-2, OpenCLIP, etc.)</subtask>
+        <subtask>Document embedding dimensions and quality trade-offs</subtask>
+        <subtask>Recommend model for ArgusAI with rationale</subtask>
+      </task>
+      <task id="2">Design Query-to-Frame Matching Algorithm (AC: 1)
+        <subtask>Document text query encoding process</subtask>
+        <subtask>Define cosine similarity scoring approach</subtask>
+        <subtask>Design top-K frame selection algorithm</subtask>
+        <subtask>Consider query ambiguity handling strategies</subtask>
+        <subtask>Document integration with existing re-analysis flow</subtask>
+      </task>
+      <task id="3">Define Embedding Storage Schema (AC: 3)
+        <subtask>Design frame embedding database schema</subtask>
+        <subtask>Estimate storage size per event and at scale</subtask>
+        <subtask>Evaluate vector indexing options (faiss, pgvector, etc.)</subtask>
+        <subtask>Define embedding lifecycle (generation, TTL, pruning)</subtask>
+        <subtask>Document when to generate embeddings (event-time vs on-demand)</subtask>
+      </task>
+      <task id="4">Assess Compute and Performance (AC: 4)
+        <subtask>Estimate embedding generation latency per frame</subtask>
+        <subtask>Evaluate CPU vs GPU requirements</subtask>
+        <subtask>Document memory footprint for model loading</subtask>
+        <subtask>Assess query-adaptive selection overhead (less than 200ms target)</subtask>
+        <subtask>Consider batch processing optimizations</subtask>
+      </task>
+      <task id="5">Document Implementation Roadmap (AC: 5)
+        <subtask>Outline phased implementation approach</subtask>
+        <subtask>Identify dependencies on existing services</subtask>
+        <subtask>Define MVP vs full implementation scope</subtask>
+        <subtask>List open questions for future resolution</subtask>
+      </task>
+      <task id="6">Compile Research Document
+        <subtask>Create docs/research/query-adaptive-frames-research.md</subtask>
+        <subtask>Include architecture diagrams (Mermaid)</subtask>
+        <subtask>Add code examples where applicable</subtask>
+        <subtask>Review against all acceptance criteria</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-6.2.1">Given I read the research document, when I understand query-adaptive selection, then I know how to score frames by query relevance using VL model embeddings</criterion>
+    <criterion id="AC-6.2.2">Given the research evaluates VL model embeddings, when I compare CLIP vs SigLIP vs alternatives, then recommendations are documented with rationale</criterion>
+    <criterion id="AC-6.2.3">Given the research defines embedding storage, when I review storage requirements, then I understand schema, size estimates, and indexing needs</criterion>
+    <criterion id="AC-6.2.4">Given the research considers compute requirements, when I review embedding generation costs, then I know runtime and resource implications</criterion>
+    <criterion id="AC-6.2.5">Given future development begins, when implementation starts, then this research document guides technical approach and design decisions</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P10-6.md</path>
+        <title>Epic P10-6 Technical Specification</title>
+        <section>Story P10-6.2 Acceptance Criteria</section>
+        <snippet>Research VL model embeddings, query-to-frame matching, storage schema, compute requirements. Deliverable is docs/research/query-adaptive-frames-research.md</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase10.md</path>
+        <title>Phase 10 PRD</title>
+        <section>AI Enhancements</section>
+        <snippet>Query-adaptive frame selection - research techniques for selecting most relevant frames when re-analyzing events with specific queries</snippet>
+      </doc>
+      <doc>
+        <path>docs/research/mcp-server-research.md</path>
+        <title>MCP Server Research (Companion Story)</title>
+        <section>Full document</section>
+        <snippet>Previous research story from same epic - use as template for document structure, trade-off tables, and implementation roadmap format</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/services/embedding_service.py</path>
+        <kind>service</kind>
+        <symbol>EmbeddingService, generate_embedding</symbol>
+        <lines>1-378</lines>
+        <reason>Current CLIP ViT-B/32 embedding implementation. Query-adaptive selection would build on this. Key: 512-dim embeddings, lazy model loading, async generation.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/similarity_service.py</path>
+        <kind>service</kind>
+        <symbol>SimilarityService, cosine_similarity, SimilarEvent</symbol>
+        <lines>1-80</lines>
+        <reason>Cosine similarity implementation for event matching. Query-adaptive frame scoring would use similar approach for frame-to-query comparison.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/event_embedding.py</path>
+        <kind>model</kind>
+        <symbol>EventEmbedding</symbol>
+        <reason>Current event-level embedding storage. Frame-level embeddings would need similar or extended schema.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>AIService, describe_frames</symbol>
+        <reason>Multi-frame AI analysis. Query-adaptive selection provides frames to this service.</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>api</kind>
+        <symbol>reanalyze_event</symbol>
+        <reason>Current re-analysis endpoint. Would be enhanced with query parameter for adaptive frame selection.</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package version=">=2.2.0">sentence-transformers</package>
+        <package>numpy</package>
+        <package>Pillow</package>
+      </python>
+      <potentialFuture>
+        <package purpose="Alternative VL model">open-clip-torch (OpenCLIP)</package>
+        <package purpose="SigLIP embeddings">transformers (with SigLIP checkpoint)</package>
+        <package purpose="Efficient vector search">faiss-cpu</package>
+        <package purpose="PostgreSQL vector search">pgvector</package>
+      </potentialFuture>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="tech-spec">Research-only epic - no implementation required. Deliverable is documentation.</constraint>
+    <constraint source="tech-spec">Query-adaptive selection must add less than 200ms to re-analysis workflow</constraint>
+    <constraint source="tech-spec">Should leverage existing CLIP infrastructure where possible</constraint>
+    <constraint source="architecture">Must consider storage implications for per-frame embeddings</constraint>
+    <constraint source="architecture">Fail gracefully if embeddings unavailable - fall back to uniform sampling</constraint>
+    <constraint source="style">Use Mermaid diagrams for architecture visualization</constraint>
+    <constraint source="style">Include Python code examples for integration patterns</constraint>
+    <constraint source="previous-story">Follow structure of docs/research/mcp-server-research.md</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>EmbeddingService.generate_embedding</name>
+      <kind>async function</kind>
+      <signature>async def generate_embedding(self, image_bytes: bytes) -> list[float]</signature>
+      <path>backend/app/services/embedding_service.py</path>
+    </interface>
+    <interface>
+      <name>cosine_similarity</name>
+      <kind>function</kind>
+      <signature>def cosine_similarity(vec1: list[float], vec2: list[float]) -> float</signature>
+      <path>backend/app/services/similarity_service.py</path>
+    </interface>
+    <interface>
+      <name>Potential: encode_text_query</name>
+      <kind>async function (future)</kind>
+      <signature>async def encode_text_query(self, query: str) -> list[float]</signature>
+      <path>N/A - research target</path>
+    </interface>
+    <interface>
+      <name>Potential: select_relevant_frames</name>
+      <kind>async function (future)</kind>
+      <signature>async def select_relevant_frames(self, event_id: str, query: str, top_k: int = 5) -> list[Frame]</signature>
+      <path>N/A - research target</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>This is a research-only story - no code tests required. Validation focuses on document quality against acceptance criteria.</standards>
+    <locations>N/A - documentation deliverable</locations>
+    <ideas>
+      <idea acRef="AC-6.2.1">Verify document explains query-to-frame scoring with VL embeddings</idea>
+      <idea acRef="AC-6.2.2">Verify VL model comparison table exists (CLIP, SigLIP, OpenCLIP, BLIP-2) with recommendation</idea>
+      <idea acRef="AC-6.2.3">Verify storage schema defined with size estimates and indexing options</idea>
+      <idea acRef="AC-6.2.4">Verify compute analysis includes latency estimates and meets less than 200ms target</idea>
+      <idea acRef="AC-6.2.5">Verify implementation roadmap outlines phased approach and dependencies</idea>
+    </ideas>
+  </tests>
+</story-context>

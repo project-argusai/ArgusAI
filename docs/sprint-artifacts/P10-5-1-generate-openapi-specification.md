@@ -1,6 +1,6 @@
 # Story P10-5.1: Generate OpenAPI 3.0 Specification
 
-Status: review
+Status: done
 
 ## Story
 

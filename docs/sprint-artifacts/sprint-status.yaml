@@ -618,7 +618,7 @@ development_status:
   # Priority: P3
   # Focus: API spec, mobile auth docs, cloud relay architecture
   epic-p10-5: contexted
-  p10-5-1-generate-openapi-3-0-specification: review
+  p10-5-1-generate-openapi-3-0-specification: done
   p10-5-2-document-mobile-authentication-flow: backlog
   p10-5-3-design-cloud-relay-architecture: backlog
   p10-5-4-define-mobile-push-architecture: backlog

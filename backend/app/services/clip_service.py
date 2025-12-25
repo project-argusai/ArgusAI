@@ -234,23 +234,36 @@ class ClipService:
     def _stop_scheduler(self) -> None:
         """
         Stop the background cleanup scheduler gracefully.
+
+        Handles the case where logging streams may be closed during
+        pytest teardown (when atexit handlers run after stream closure).
         """
         if self._scheduler is not None:
             try:
-                self._scheduler.shutdown(wait=False)
-                logger.info(
-                    "Clip cleanup scheduler stopped",
-                    extra={"event_type": "clip_scheduler_stopped"}
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Error stopping scheduler: {type(e).__name__}",
-                    extra={
-                        "event_type": "clip_scheduler_stop_error",
-                        "error_type": type(e).__name__,
-                        "error_message": str(e)
-                    }
-                )
+                # Suppress APScheduler's internal logging during shutdown
+                # to avoid "I/O operation on closed file" errors when
+                # pytest closes streams before atexit handlers run
+                apscheduler_logger = logging.getLogger('apscheduler')
+                original_level = apscheduler_logger.level
+                apscheduler_logger.setLevel(logging.CRITICAL + 1)
+
+                # Also suppress our own logger to avoid logging errors
+                original_self_level = logger.level
+                logger.setLevel(logging.CRITICAL + 1)
+
+                try:
+                    self._scheduler.shutdown(wait=False)
+                finally:
+                    # Restore original levels (suppress any errors from this)
+                    try:
+                        apscheduler_logger.setLevel(original_level)
+                        logger.setLevel(original_self_level)
+                    except Exception:
+                        pass
+
+            except Exception:
+                # Silently handle any shutdown errors - logging may not work
+                pass
             finally:
                 self._scheduler = None
 

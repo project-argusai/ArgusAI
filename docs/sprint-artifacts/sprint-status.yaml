@@ -640,4 +640,4 @@ development_status:
 
   # CI/Infrastructure Bugs
   bug-ci-docker-disk-space: done  # P3: Docker Build fails with "No space left on device" in GitHub Actions
-  bug-ci-scheduler-logging-error: backlog  # P3: Logging error during APScheduler shutdown in tests (ValueError: I/O operation on closed file)
+  bug-ci-scheduler-logging-error: done  # P3: Logging error during APScheduler shutdown in tests (ValueError: I/O operation on closed file)

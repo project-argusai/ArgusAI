@@ -95,7 +95,8 @@ export function EntitySelectModal({
   }, []);
 
   // Handle confirm button
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     if (selectedEntity) {
       onSelect(selectedEntity.id, selectedEntity.name);
     }
@@ -117,7 +118,8 @@ export function EntitySelectModal({
   };
 
   // Story P10-4.1: Handle "Create New Entity" button click (AC-4.1.7)
-  const handleCreateNew = useCallback(() => {
+  const handleCreateNew = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
     if (onCreateNew) {
       onCreateNew();
     } else {
@@ -235,7 +237,10 @@ export function EntitySelectModal({
         <DialogFooter>
           <Button
             variant="outline"
-            onClick={() => handleOpenChange(false)}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenChange(false);
+            }}
             disabled={isLoading}
           >
             Cancel

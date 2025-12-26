@@ -61,6 +61,7 @@ const sidebars = {
         'integrations/home-assistant',
         'integrations/homekit',
         'integrations/native-apple-apps',
+        'integrations/cloudflare-tunnel',
       ],
     },
     {

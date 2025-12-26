@@ -94,6 +94,37 @@ class Settings(BaseSettings):
             and os.path.exists(self.SSL_KEY_FILE)
         )
 
+    # APNS Configuration (Story P11-2.1)
+    APNS_KEY_FILE: Optional[str] = None  # Path to .p8 auth key file
+    APNS_KEY_ID: Optional[str] = None  # 10-character key identifier
+    APNS_TEAM_ID: Optional[str] = None  # 10-character team identifier
+    APNS_BUNDLE_ID: Optional[str] = None  # App bundle ID (e.g., com.argusai.app)
+    APNS_USE_SANDBOX: bool = False  # Use sandbox for development
+
+    @property
+    def apns_ready(self) -> bool:
+        """Check if APNS is properly configured and ready to use."""
+        return (
+            self.APNS_KEY_FILE is not None
+            and self.APNS_KEY_ID is not None
+            and self.APNS_TEAM_ID is not None
+            and self.APNS_BUNDLE_ID is not None
+            and os.path.exists(self.APNS_KEY_FILE)
+        )
+
+    # FCM Configuration (Story P11-2.2)
+    FCM_PROJECT_ID: Optional[str] = None  # Firebase project ID
+    FCM_CREDENTIALS_FILE: Optional[str] = None  # Path to service account JSON
+
+    @property
+    def fcm_ready(self) -> bool:
+        """Check if FCM is properly configured and ready to use."""
+        return (
+            self.FCM_PROJECT_ID is not None
+            and self.FCM_CREDENTIALS_FILE is not None
+            and os.path.exists(self.FCM_CREDENTIALS_FILE)
+        )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

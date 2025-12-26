@@ -1,0 +1,248 @@
+<story-context id="P11-2-2-implement-fcm-provider-for-android-push" v="1.0">
+  <metadata>
+    <epicId>P11-2</epicId>
+    <storyId>P11-2.2</storyId>
+    <title>Implement FCM Provider for Android Push</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-26</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P11-2-2.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>Android user</asA>
+    <iWant>to receive push notifications on my phone</iWant>
+    <soThat>I'm alerted to security events when away from home</soThat>
+    <tasks>
+      <task id="1" ac="2.2.1,2.2.2,2.2.3">Create FCMProvider class
+        <subtask>Create fcm_provider.py in backend/app/services/push/</subtask>
+        <subtask>Implement FCMProvider class using firebase-admin SDK</subtask>
+        <subtask>Initialize Firebase Admin SDK with service account credentials</subtask>
+        <subtask>Add FCMConfig pydantic model for configuration</subtask>
+        <subtask>Implement async wrapper for blocking firebase-admin calls using asyncio.to_thread</subtask>
+      </task>
+      <task id="2" ac="2.2.3">Add FCM configuration to system settings
+        <subtask>Add FCM environment variables (FCM_PROJECT_ID, FCM_CREDENTIALS_FILE)</subtask>
+        <subtask>Update app config.py to load FCM configuration</subtask>
+        <subtask>Validate credentials file exists on startup</subtask>
+      </task>
+      <task id="3" ac="2.2.4,2.2.5">Create Android notification payload builder
+        <subtask>Implement FCMPayload pydantic model with notification and data fields</subtask>
+        <subtask>Add AndroidConfig with priority, channel_id, icon settings</subtask>
+        <subtask>Support BigPicture style for image attachments</subtask>
+        <subtask>Create format_event_for_fcm helper function</subtask>
+      </task>
+      <task id="4" ac="2.2.5">Implement data message support
+        <subtask>Support data-only messages for background processing</subtask>
+        <subtask>Include event_id, camera_id, camera_name in data payload</subtask>
+        <subtask>Support both notification+data and data-only modes</subtask>
+      </task>
+      <task id="5" ac="2.2.6">Implement error handling for FCM responses
+        <subtask>Handle UnregisteredError (token invalid - delete from DB)</subtask>
+        <subtask>Handle QuotaExceededError (log, backoff)</subtask>
+        <subtask>Handle InvalidArgumentError (malformed request)</subtask>
+        <subtask>Handle ThirdPartyAuthError (credentials issue)</subtask>
+        <subtask>Implement retry logic with exponential backoff for transient errors</subtask>
+        <subtask>Add token invalidation callback similar to APNSProvider</subtask>
+      </task>
+      <task id="6" ac="2.2.1-6">Write unit tests with mocked FCM
+        <subtask>Test Firebase Admin SDK initialization</subtask>
+        <subtask>Test message building (notification, data, combined)</subtask>
+        <subtask>Test error handling for each exception type</subtask>
+        <subtask>Test token invalidation flow</subtask>
+        <subtask>Test retry with backoff logic</subtask>
+        <subtask>Test batch sending</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-2.2.1">FCMProvider class connects to FCM HTTP v1 API</criterion>
+    <criterion id="AC-2.2.2">Authentication uses service account JSON file</criterion>
+    <criterion id="AC-2.2.3">Configuration stores project_id and credentials_path securely</criterion>
+    <criterion id="AC-2.2.4">Payloads formatted per FCM notification format</criterion>
+    <criterion id="AC-2.2.5">Data messages supported for background processing</criterion>
+    <criterion id="AC-2.2.6">Error responses handled (invalid token, quota exceeded, etc.)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/api/mobile-push-architecture.md</path>
+        <title>Mobile Push Architecture</title>
+        <section>FCM Integration</section>
+        <snippet>FCM provider uses Firebase Admin SDK for Android push notifications via HTTP v1 API with service account authentication.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-11-additions.md</path>
+        <title>Phase 11 Architecture</title>
+        <section>FCM Provider</section>
+        <snippet>FCMProvider class connects to Firebase Cloud Messaging using firebase-admin SDK with service account JSON credentials.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P11-2.md</path>
+        <title>Epic P11-2 Tech Spec</title>
+        <section>Detailed Design</section>
+        <snippet>FCM authentication uses service account JSON, supports notification and data message types, handles errors including UnregisteredError and QuotaExceeded.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase11.md</path>
+        <title>Phase 11 Epics</title>
+        <section>P11-2.2</section>
+        <snippet>Story P11-2.2 implements FCMProvider for Android push using FCM HTTP v1 API with service account authentication.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/P11-2-1.md</path>
+        <title>Previous Story: APNS Provider</title>
+        <section>Dev Agent Record</section>
+        <snippet>APNS provider pattern with HTTP/2 client, JWT auth, error handling, retry logic, and token invalidation callback - use as reference pattern for FCM.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/push/__init__.py</path>
+        <kind>package</kind>
+        <symbol>push</symbol>
+        <reason>Package init - add FCMProvider export after implementation</reason>
+      </file>
+      <file>
+        <path>backend/app/services/push/apns_provider.py</path>
+        <kind>service</kind>
+        <symbol>APNSProvider</symbol>
+        <lines>1-518</lines>
+        <reason>Reference pattern for FCMProvider - same structure, error handling, retry logic, token invalidation callback</reason>
+      </file>
+      <file>
+        <path>backend/app/services/push/models.py</path>
+        <kind>model</kind>
+        <symbol>DeliveryResult, DeliveryStatus</symbol>
+        <reason>Reuse existing delivery result models - add FCMConfig and FCMPayload models</reason>
+      </file>
+      <file>
+        <path>backend/app/services/push/constants.py</path>
+        <kind>constants</kind>
+        <symbol>MAX_RETRIES, RETRY_BASE_DELAY_SECONDS</symbol>
+        <reason>Reuse retry constants - add FCM-specific constants if needed</reason>
+      </file>
+      <file>
+        <path>backend/app/core/config.py</path>
+        <kind>config</kind>
+        <symbol>Settings</symbol>
+        <lines>97-113</lines>
+        <reason>Add FCM configuration settings (FCM_PROJECT_ID, FCM_CREDENTIALS_FILE) following APNS pattern</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_push/test_apns_provider.py</path>
+        <kind>test</kind>
+        <symbol>TestAPNSProvider, TestAPNSPayload</symbol>
+        <reason>Reference pattern for FCM tests - 29 tests covering config, payload, send, error handling, batch</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package version=">=6.4.0">firebase-admin</package>
+        <package version=">=0.26.0">httpx[http2]</package>
+        <package version=">=2.8.0">PyJWT</package>
+        <package version=">=2.10.0">pydantic</package>
+        <package version=">=2.6.0">pydantic-settings</package>
+        <package version="==7.4.3">pytest</package>
+        <package version="==0.21.1">pytest-asyncio</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Follow push service pattern from APNSProvider - same class structure, async methods, error handling</constraint>
+    <constraint source="architecture">Firebase Admin SDK is synchronous - wrap with asyncio.to_thread for async compatibility</constraint>
+    <constraint source="architecture">Reuse DeliveryResult and DeliveryStatus from existing models.py</constraint>
+    <constraint source="architecture">Use same on_token_invalid callback pattern for token cleanup</constraint>
+    <constraint source="architecture">Use same retry constants: MAX_RETRIES=3, RETRY_BASE_DELAY_SECONDS=2</constraint>
+    <constraint source="security">Service account JSON path stored as config, file never logged or exposed</constraint>
+    <constraint source="testing">Unit tests must mock firebase_admin.messaging module completely</constraint>
+    <constraint source="performance">FCM send latency target: &lt;100ms for dispatch</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>FCMProvider</name>
+      <kind>class</kind>
+      <signature>
+class FCMProvider:
+    def __init__(self, config: FCMConfig, on_token_invalid: Optional[Callable[[str], None]] = None)
+    async def send(self, device_token: str, payload: FCMPayload) -> DeliveryResult
+    async def send_batch(self, device_tokens: List[str], payload: FCMPayload, concurrency: int = 10) -> List[DeliveryResult]
+    async def close(self) -> None
+      </signature>
+      <path>backend/app/services/push/fcm_provider.py</path>
+    </interface>
+    <interface>
+      <name>FCMConfig</name>
+      <kind>pydantic model</kind>
+      <signature>
+class FCMConfig(BaseModel):
+    project_id: str
+    credentials_path: str
+      </signature>
+      <path>backend/app/services/push/models.py</path>
+    </interface>
+    <interface>
+      <name>FCMPayload</name>
+      <kind>pydantic model</kind>
+      <signature>
+class FCMPayload(BaseModel):
+    title: str
+    body: str
+    image_url: Optional[str] = None
+    data: Dict[str, str] = {}
+    channel_id: str = "argusai_events"
+    priority: str = "high"
+      </signature>
+      <path>backend/app/services/push/models.py</path>
+    </interface>
+    <interface>
+      <name>format_event_for_fcm</name>
+      <kind>function</kind>
+      <signature>
+def format_event_for_fcm(
+    event_id: str,
+    camera_id: str,
+    camera_name: str,
+    description: str,
+    smart_detection_type: Optional[str] = None,
+    thumbnail_url: Optional[str] = None,
+    entity_names: Optional[List[str]] = None,
+    is_vip: bool = False,
+    anomaly_score: Optional[float] = None,
+) -> FCMPayload
+      </signature>
+      <path>backend/app/services/push/models.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Use pytest with pytest-asyncio for async tests. Mock firebase_admin.messaging module completely.
+      Follow test patterns from test_apns_provider.py. Test classes: TestFCMConfig, TestFCMPayload,
+      TestFCMProvider, TestFormatEventForFcm. Coverage target: 85%+ for fcm_provider.py.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_push/test_fcm_provider.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC-2.2.1">Test FCMProvider initialization with valid/invalid config</idea>
+      <idea ac="AC-2.2.2">Test Firebase Admin SDK initialization with service account</idea>
+      <idea ac="AC-2.2.3">Test FCMConfig validation (project_id required, credentials_path exists)</idea>
+      <idea ac="AC-2.2.4">Test FCMPayload to_fcm_message() conversion with all fields</idea>
+      <idea ac="AC-2.2.5">Test data-only messages vs notification+data messages</idea>
+      <idea ac="AC-2.2.6">Test error handling: UnregisteredError returns invalid_token status</idea>
+      <idea ac="AC-2.2.6">Test error handling: QuotaExceededError triggers backoff</idea>
+      <idea ac="AC-2.2.6">Test error handling: InvalidArgumentError returns failed status</idea>
+      <idea ac="AC-2.2.6">Test token invalidation callback is called on UnregisteredError</idea>
+      <idea ac="AC-2.2.6">Test retry logic with exponential backoff</idea>
+      <idea ac="AC-2.2.1">Test send_batch with mixed success/failure results</idea>
+      <idea ac="AC-2.2.4">Test format_event_for_fcm with various inputs (entity names, anomaly, VIP)</idea>
+    </ideas>
+  </tests>
+</story-context>

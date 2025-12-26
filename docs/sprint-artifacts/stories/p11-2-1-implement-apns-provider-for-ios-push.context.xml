@@ -1,0 +1,192 @@
+<story-context id="P11-2.1" v="1.0">
+  <metadata>
+    <epicId>P11-2</epicId>
+    <storyId>P11-2.1</storyId>
+    <title>Implement APNS Provider for iOS Push</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-26</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P11-2-1.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>iOS user</asA>
+    <iWant>to receive push notifications on my iPhone/iPad</iWant>
+    <soThat>I'm alerted to security events when away from home</soThat>
+    <tasks>
+      <task id="1">Create APNSProvider class (AC: 2.1.1, 2.1.2, 2.1.3)
+        <subtask id="1.1">Create backend/app/services/push/ directory structure with __init__.py</subtask>
+        <subtask id="1.2">Implement APNSProvider class with HTTP/2 client (httpx)</subtask>
+        <subtask id="1.3">Implement JWT generation for APNS authentication (ES256 with p8 key)</subtask>
+        <subtask id="1.4">Add APNSConfig pydantic model for configuration</subtask>
+        <subtask id="1.5">Implement connection pooling with persistent HTTP/2 connections</subtask>
+      </task>
+      <task id="2">Add APNS configuration to system settings (AC: 2.1.3)
+        <subtask id="2.1">Add APNS environment variables (APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID, APNS_USE_SANDBOX)</subtask>
+        <subtask id="2.2">Update system settings model to store APNS configuration</subtask>
+        <subtask id="2.3">Add APNS configuration to settings service</subtask>
+      </task>
+      <task id="3">Create iOS notification payload builder (AC: 2.1.4)
+        <subtask id="3.1">Implement APNSPayload pydantic model with aps dictionary structure</subtask>
+        <subtask id="3.2">Add support for alert, badge, sound, mutable-content, category, thread-id</subtask>
+        <subtask id="3.3">Create payload builder method that formats EventNotification for iOS</subtask>
+      </task>
+      <task id="4">Implement error handling for APNS responses (AC: 2.1.5, 2.1.6)
+        <subtask id="4.1">Handle 200 success responses and update last_used_at</subtask>
+        <subtask id="4.2">Handle 400 Bad Request (log error)</subtask>
+        <subtask id="4.3">Handle 403 Certificate/token issue (check auth configuration)</subtask>
+        <subtask id="4.4">Handle 410 Token unregistered (delete token from database)</subtask>
+        <subtask id="4.5">Handle 429 Too many requests (implement backoff)</subtask>
+        <subtask id="4.6">Handle 500+ APNS server error (retry with backoff)</subtask>
+      </task>
+      <task id="5">Add token cleanup for invalidated tokens (AC: 2.1.6)
+        <subtask id="5.1">Create method to mark tokens as inactive when 410 received</subtask>
+        <subtask id="5.2">Implement token cleanup that cascades to database</subtask>
+      </task>
+      <task id="6">Write unit tests with mocked APNS
+        <subtask id="6.1">Test JWT generation (valid signature, correct headers)</subtask>
+        <subtask id="6.2">Test payload formatting (all aps fields)</subtask>
+        <subtask id="6.3">Test error handling for each APNS response code</subtask>
+        <subtask id="6.4">Test token invalidation flow</subtask>
+        <subtask id="6.5">Test connection retry with backoff</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-2.1.1">APNSProvider class connects via HTTP/2 to Apple's servers</criterion>
+    <criterion id="AC-2.1.2">Authentication uses p8 auth key file</criterion>
+    <criterion id="AC-2.1.3">Configuration stores key_id, team_id, key_file path</criterion>
+    <criterion id="AC-2.1.4">Payloads formatted per Apple's notification format</criterion>
+    <criterion id="AC-2.1.5">Error responses handled (invalid token, etc.)</criterion>
+    <criterion id="AC-2.1.6">Token invalidation removes stale device tokens</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/api/mobile-push-architecture.md" title="Mobile Push Notification Architecture" section="APNS Integration">
+        Complete APNS integration guide including token-based authentication, HTTP/2 protocol, payload structure, and error handling. Key reference for implementing the provider.
+      </doc>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P11-2.md" title="Tech Spec Epic P11-2" section="APNS Provider">
+        Technical specification for mobile push notifications including AC-2.1.1-6 detailed requirements.
+      </doc>
+      <doc path="docs/architecture/phase-11-additions.md" title="Phase 11 Architecture" section="Mobile Push">
+        Architecture decisions for mobile push including APNS/FCM provider design.
+      </doc>
+      <doc path="docs/PRD-phase11.md" title="Phase 11 PRD" section="FR11-FR17">
+        Functional requirements FR11-FR17 covering APNS provider functionality.
+      </doc>
+    </docs>
+    <code>
+      <file path="backend/app/services/push_notification_service.py" kind="service" symbol="PushNotificationService">
+        Existing Web Push notification service with retry logic, exponential backoff, and preference filtering. Reference pattern for APNS provider implementation.
+      </file>
+      <file path="backend/app/api/v1/push.py" kind="router" symbol="router">
+        Push notification API endpoints for Web Push. APNS will eventually share similar patterns for token registration.
+      </file>
+      <file path="backend/app/core/config.py" kind="config" symbol="Settings">
+        Application settings model. Add APNS configuration fields here (APNS_KEY_FILE, APNS_KEY_ID, etc.).
+      </file>
+      <file path="backend/app/models/push_subscription.py" kind="model" symbol="PushSubscription">
+        Existing push subscription model. APNS will use MobilePushToken model (created in P11-2.4) but pattern is similar.
+      </file>
+      <file path="backend/tests/test_services/test_push_notification_service.py" kind="test" symbol="TestPushNotificationService">
+        Existing Web Push tests with mocking patterns. Use as reference for APNS tests.
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="httpx" version="0.25.2">HTTP client - need to enable HTTP/2 support with httpx[http2]</package>
+        <package name="cryptography" version="44.0.1">ES256 signing for JWT generation</package>
+        <package name="python-jose" version="3.5.0">JWT handling (may use PyJWT instead)</package>
+        <package name="PyJWT" version="2.8.0" required="true">JWT library for APNS token generation</package>
+      </python>
+      <note>Need to add httpx[http2] to requirements.txt for HTTP/2 support</note>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="pattern">Follow existing service pattern from push_notification_service.py</constraint>
+    <constraint type="layer">Service layer only - no API endpoints in this story (handled in P11-2.4)</constraint>
+    <constraint type="dependency">Use httpx with HTTP/2 enabled for APNS connections</constraint>
+    <constraint type="security">Never log APNS auth keys or device tokens in full</constraint>
+    <constraint type="testing">All code must have unit tests with mocked APNS responses</constraint>
+    <constraint type="config">Store APNS configuration in environment variables and app settings</constraint>
+    <constraint type="architecture">Provider should be async and support connection pooling</constraint>
+    <constraint type="isolation">This story creates provider only - dispatch integration is P11-2.3</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="APNSProvider" kind="class">
+      <signature>
+class APNSProvider:
+    def __init__(self, key_file: str, key_id: str, team_id: str, bundle_id: str, sandbox: bool = False)
+    async def send(self, device_token: str, payload: APNSPayload) -> DeliveryResult
+    async def send_batch(self, tokens: List[str], payload: APNSPayload) -> List[DeliveryResult]
+      </signature>
+      <path>backend/app/services/push/apns_provider.py</path>
+    </interface>
+    <interface name="APNSPayload" kind="pydantic model">
+      <signature>
+class APNSPayload(BaseModel):
+    alert: APNSAlert
+    badge: Optional[int] = None
+    sound: str = "default"
+    mutable_content: bool = True
+    category: Optional[str] = None
+    thread_id: Optional[str] = None
+    custom_data: Dict[str, Any] = {}
+      </signature>
+      <path>backend/app/services/push/models.py</path>
+    </interface>
+    <interface name="DeliveryResult" kind="dataclass">
+      <signature>
+@dataclass
+class DeliveryResult:
+    device_token: str
+    success: bool
+    status_code: Optional[int] = None
+    error: Optional[str] = None
+    apns_id: Optional[str] = None
+      </signature>
+      <path>backend/app/services/push/models.py</path>
+    </interface>
+    <interface name="APNS HTTP/2" kind="REST endpoint">
+      <signature>POST /3/device/{device_token}
+Host: api.push.apple.com (or api.sandbox.push.apple.com)
+Authorization: bearer {jwt}
+apns-topic: {bundle_id}
+apns-push-type: alert
+apns-priority: 10</signature>
+      <path>External API - Apple Push Notification service</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio for async tests. Mock external services with unittest.mock or pytest-mock. Tests should be in backend/tests/test_services/. Use fixtures from conftest.py. Coverage target is 80%+.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_apns_provider.py</location>
+      <location>backend/tests/test_services/test_push/</location>
+    </locations>
+    <ideas>
+      <idea ac="AC-2.1.1">Test HTTP/2 connection to mock APNS server</idea>
+      <idea ac="AC-2.1.2">Test JWT generation with valid p8 key produces correct signature</idea>
+      <idea ac="AC-2.1.2">Test JWT contains correct headers (alg=ES256, kid=key_id)</idea>
+      <idea ac="AC-2.1.2">Test JWT contains correct claims (iss=team_id, iat=timestamp)</idea>
+      <idea ac="AC-2.1.3">Test APNSConfig loads from environment variables</idea>
+      <idea ac="AC-2.1.3">Test APNSConfig validates required fields</idea>
+      <idea ac="AC-2.1.4">Test payload builds correct aps dictionary structure</idea>
+      <idea ac="AC-2.1.4">Test all aps fields are correctly formatted (alert, badge, sound, etc.)</idea>
+      <idea ac="AC-2.1.5">Test 200 response marks delivery successful</idea>
+      <idea ac="AC-2.1.5">Test 400 response logs error but doesn't delete token</idea>
+      <idea ac="AC-2.1.5">Test 403 response indicates auth configuration issue</idea>
+      <idea ac="AC-2.1.5">Test 410 response triggers token invalidation</idea>
+      <idea ac="AC-2.1.5">Test 429 response triggers exponential backoff</idea>
+      <idea ac="AC-2.1.5">Test 500+ response triggers retry with backoff</idea>
+      <idea ac="AC-2.1.6">Test token invalidation marks token inactive</idea>
+      <idea ac="AC-2.1.6">Test batch send handles mixed success/failure correctly</idea>
+    </ideas>
+  </tests>
+</story-context>

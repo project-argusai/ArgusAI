@@ -15,9 +15,11 @@ class TestDeviceModel:
 
     def test_create_device(self, db_session, test_user):
         """Test basic device creation."""
+        import uuid
+        device_id = f"test-device-{uuid.uuid4().hex[:8]}"
         device = Device(
             user_id=test_user.id,
-            device_id="test-device-001",
+            device_id=device_id,
             platform="ios",
             name="iPhone 15 Pro",
         )
@@ -27,7 +29,7 @@ class TestDeviceModel:
 
         assert device.id is not None
         assert device.user_id == test_user.id
-        assert device.device_id == "test-device-001"
+        assert device.device_id == device_id
         assert device.platform == "ios"
         assert device.name == "iPhone 15 Pro"
         assert device.created_at is not None
@@ -35,9 +37,10 @@ class TestDeviceModel:
 
     def test_push_token_encryption(self, db_session, test_user):
         """Test push token is encrypted and can be decrypted."""
+        import uuid
         device = Device(
             user_id=test_user.id,
-            device_id="encryption-test",
+            device_id=f"encryption-test-{uuid.uuid4().hex[:8]}",
             platform="android",
         )
 
@@ -59,9 +62,10 @@ class TestDeviceModel:
 
     def test_push_token_none_handling(self, db_session, test_user):
         """Test handling of None push token."""
+        import uuid
         device = Device(
             user_id=test_user.id,
-            device_id="no-token-test",
+            device_id=f"no-token-test-{uuid.uuid4().hex[:8]}",
             platform="ios",
         )
 
@@ -75,9 +79,10 @@ class TestDeviceModel:
 
     def test_update_last_seen(self, db_session, test_user):
         """Test update_last_seen method."""
+        import uuid
         device = Device(
             user_id=test_user.id,
-            device_id="last-seen-test",
+            device_id=f"last-seen-test-{uuid.uuid4().hex[:8]}",
             platform="ios",
         )
         db_session.add(device)
@@ -93,9 +98,10 @@ class TestDeviceModel:
 
     def test_user_relationship(self, db_session, test_user):
         """Test Device -> User relationship."""
+        import uuid
         device = Device(
             user_id=test_user.id,
-            device_id="relationship-test",
+            device_id=f"relationship-test-{uuid.uuid4().hex[:8]}",
             platform="android",
         )
         db_session.add(device)
@@ -109,14 +115,17 @@ class TestDeviceModel:
 
     def test_user_has_devices_relationship(self, db_session, test_user):
         """Test User -> Device relationship."""
+        import uuid
+        device_id_1 = f"user-devices-test-1-{uuid.uuid4().hex[:8]}"
+        device_id_2 = f"user-devices-test-2-{uuid.uuid4().hex[:8]}"
         device1 = Device(
             user_id=test_user.id,
-            device_id="user-devices-test-1",
+            device_id=device_id_1,
             platform="ios",
         )
         device2 = Device(
             user_id=test_user.id,
-            device_id="user-devices-test-2",
+            device_id=device_id_2,
             platform="android",
         )
         db_session.add_all([device1, device2])
@@ -124,17 +133,18 @@ class TestDeviceModel:
         db_session.refresh(test_user)
 
         # User should have devices relationship
-        assert len(test_user.devices) == 2
+        assert len(test_user.devices) >= 2  # May have more from other tests
         device_ids = {d.device_id for d in test_user.devices}
-        assert "user-devices-test-1" in device_ids
-        assert "user-devices-test-2" in device_ids
+        assert device_id_1 in device_ids
+        assert device_id_2 in device_ids
 
     def test_device_id_unique_constraint(self, db_session, test_user):
         """Test device_id uniqueness constraint."""
         import uuid
+        shared_device_id = f"unique-test-{uuid.uuid4().hex[:8]}"
         device1 = Device(
             user_id=test_user.id,
-            device_id="unique-test",
+            device_id=shared_device_id,
             platform="ios",
         )
         db_session.add(device1)
@@ -151,7 +161,7 @@ class TestDeviceModel:
         # Try to create device with same device_id (even for different user)
         device2 = Device(
             user_id=other_user.id,
-            device_id="unique-test",  # Same device_id
+            device_id=shared_device_id,  # Same device_id
             platform="android",
         )
         db_session.add(device2)
@@ -161,9 +171,11 @@ class TestDeviceModel:
 
     def test_to_dict_without_token(self, db_session, test_user):
         """Test to_dict excludes push_token by default."""
+        import uuid
+        device_id = f"dict-test-{uuid.uuid4().hex[:8]}"
         device = Device(
             user_id=test_user.id,
-            device_id="dict-test",
+            device_id=device_id,
             platform="ios",
             name="Test Device",
         )
@@ -174,15 +186,16 @@ class TestDeviceModel:
         result = device.to_dict()
 
         assert "push_token" not in result
-        assert result["device_id"] == "dict-test"
+        assert result["device_id"] == device_id
         assert result["platform"] == "ios"
         assert result["name"] == "Test Device"
 
     def test_to_dict_with_token(self, db_session, test_user):
         """Test to_dict includes push_token when requested."""
+        import uuid
         device = Device(
             user_id=test_user.id,
-            device_id="dict-token-test",
+            device_id=f"dict-token-test-{uuid.uuid4().hex[:8]}",
             platform="ios",
         )
         device.set_push_token("secret-token")
@@ -196,9 +209,11 @@ class TestDeviceModel:
 
     def test_cascade_delete_on_user(self, db_session, test_user):
         """Test devices are deleted when user is deleted."""
+        import uuid
+        cascade_device_id = f"cascade-test-{uuid.uuid4().hex[:8]}"
         device = Device(
             user_id=test_user.id,
-            device_id="cascade-test",
+            device_id=cascade_device_id,
             platform="ios",
         )
         db_session.add(device)
@@ -210,7 +225,7 @@ class TestDeviceModel:
 
         # Device should be gone
         remaining = db_session.query(Device).filter(
-            Device.device_id == "cascade-test"
+            Device.device_id == cascade_device_id
         ).first()
         assert remaining is None
 

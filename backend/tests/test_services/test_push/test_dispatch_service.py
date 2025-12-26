@@ -905,3 +905,204 @@ class TestDeviceModelIntegration:
         devices = service._get_user_devices("user-123")
 
         assert devices == []
+
+    def test_get_user_devices_includes_quiet_hours_fields(self, mock_db):
+        """Test _get_user_devices includes quiet hours configuration (Story P11-2.5)."""
+        from app.models.device import Device
+
+        mock_device = MagicMock(spec=Device)
+        mock_device.device_id = "device-quiet-hours"
+        mock_device.user_id = "user-123"
+        mock_device.platform = "ios"
+        mock_device.name = "Quiet Hours Device"
+        mock_device.get_push_token.return_value = "ios-token-456"
+        mock_device.quiet_hours_enabled = True
+        mock_device.quiet_hours_start = "22:00"
+        mock_device.quiet_hours_end = "07:00"
+        mock_device.quiet_hours_timezone = "America/New_York"
+        mock_device.quiet_hours_override_critical = True
+
+        mock_db.query.return_value.filter.return_value.all.return_value = [
+            mock_device,
+        ]
+
+        service = PushDispatchService(db=mock_db)
+        devices = service._get_user_devices("user-123")
+
+        assert len(devices) == 1
+        assert devices[0].quiet_hours_enabled is True
+        assert devices[0].quiet_hours_start == "22:00"
+        assert devices[0].quiet_hours_end == "07:00"
+        assert devices[0].quiet_hours_timezone == "America/New_York"
+        assert devices[0].quiet_hours_override_critical is True
+
+
+# =============================================================================
+# Quiet Hours Tests (Story P11-2.5)
+# =============================================================================
+
+
+class TestQuietHours:
+    """Test quiet hours functionality in dispatch service."""
+
+    @pytest.fixture
+    def mock_db(self):
+        """Create mock database session."""
+        return MagicMock()
+
+    def test_is_device_in_quiet_hours_disabled(self, mock_db):
+        """Test device with quiet hours disabled is not in quiet hours."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=False,
+            quiet_hours_start="22:00",
+            quiet_hours_end="07:00",
+            quiet_hours_timezone="UTC",
+        )
+
+        service = PushDispatchService(db=mock_db)
+        result = service._is_device_in_quiet_hours(device)
+
+        assert result is False
+
+    def test_is_device_in_quiet_hours_no_times(self, mock_db):
+        """Test device with quiet hours enabled but no times is not in quiet hours."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=True,
+            quiet_hours_start=None,
+            quiet_hours_end=None,
+            quiet_hours_timezone="UTC",
+        )
+
+        service = PushDispatchService(db=mock_db)
+        result = service._is_device_in_quiet_hours(device)
+
+        assert result is False
+
+    def test_is_device_in_quiet_hours_same_day_range(self, mock_db):
+        """Test quiet hours during same day (e.g., 09:00-17:00)."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=True,
+            quiet_hours_start="09:00",
+            quiet_hours_end="17:00",
+            quiet_hours_timezone="UTC",
+        )
+
+        service = PushDispatchService(db=mock_db)
+
+        # Test at 12:00 UTC - should be in quiet hours
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        noon_utc = datetime(2025, 12, 26, 12, 0, tzinfo=ZoneInfo("UTC"))
+
+        with patch('app.services.push.dispatch_service.datetime') as mock_datetime:
+            mock_datetime.now.return_value = noon_utc
+            mock_datetime.strptime = datetime.strptime
+            result = service._is_device_in_quiet_hours(device)
+
+        assert result is True
+
+    def test_is_device_in_quiet_hours_overnight_range(self, mock_db):
+        """Test overnight quiet hours (e.g., 22:00-07:00)."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=True,
+            quiet_hours_start="22:00",
+            quiet_hours_end="07:00",
+            quiet_hours_timezone="UTC",
+        )
+
+        service = PushDispatchService(db=mock_db)
+
+        # Test at 23:00 UTC - should be in quiet hours
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        late_night = datetime(2025, 12, 26, 23, 0, tzinfo=ZoneInfo("UTC"))
+
+        with patch('app.services.push.dispatch_service.datetime') as mock_datetime:
+            mock_datetime.now.return_value = late_night
+            mock_datetime.strptime = datetime.strptime
+            result = service._is_device_in_quiet_hours(device)
+
+        assert result is True
+
+    def test_is_device_in_quiet_hours_critical_override(self, mock_db):
+        """Test critical alerts bypass quiet hours when override is enabled."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=True,
+            quiet_hours_start="22:00",
+            quiet_hours_end="07:00",
+            quiet_hours_timezone="UTC",
+            quiet_hours_override_critical=True,
+        )
+
+        service = PushDispatchService(db=mock_db)
+
+        # Even at 23:00, critical alerts should not be blocked
+        result = service._is_device_in_quiet_hours(device, is_critical=True)
+
+        assert result is False  # Critical alert bypasses quiet hours
+
+    def test_is_device_in_quiet_hours_critical_no_override(self, mock_db):
+        """Test critical alerts respect quiet hours when override is disabled."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=True,
+            quiet_hours_start="22:00",
+            quiet_hours_end="07:00",
+            quiet_hours_timezone="UTC",
+            quiet_hours_override_critical=False,
+        )
+
+        service = PushDispatchService(db=mock_db)
+
+        # At 23:00, critical alert should still be blocked (override disabled)
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        late_night = datetime(2025, 12, 26, 23, 0, tzinfo=ZoneInfo("UTC"))
+
+        with patch('app.services.push.dispatch_service.datetime') as mock_datetime:
+            mock_datetime.now.return_value = late_night
+            mock_datetime.strptime = datetime.strptime
+            result = service._is_device_in_quiet_hours(device, is_critical=True)
+
+        assert result is True  # Critical blocked because override is disabled
+
+    def test_is_device_in_quiet_hours_invalid_timezone(self, mock_db):
+        """Test invalid timezone fails open (doesn't block)."""
+        device = DeviceInfo(
+            device_id="device-123",
+            user_id="user-123",
+            platform="ios",
+            push_token="token-123",
+            quiet_hours_enabled=True,
+            quiet_hours_start="22:00",
+            quiet_hours_end="07:00",
+            quiet_hours_timezone="Invalid/Timezone",
+        )
+
+        service = PushDispatchService(db=mock_db)
+        result = service._is_device_in_quiet_hours(device)
+
+        assert result is False  # Fail open - don't block notifications

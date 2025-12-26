@@ -683,8 +683,8 @@ development_status:
   epic-p11-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P11-3.md
   p11-3-1-implement-mcpcontextprovider-mvp-with-feedback-context: done
   p11-3-2-add-entity-match-context-to-provider: done
-  p11-3-3-integrate-camera-and-time-pattern-context: backlog
-  p11-3-4-add-context-caching-and-performance-metrics: backlog
+  p11-3-3-integrate-camera-and-time-pattern-context: done
+  p11-3-4-add-context-caching-and-performance-metrics: done
   epic-p11-3-retrospective: optional
 
   # Epic P11-4: Query-Adaptive Frame Selection
@@ -702,6 +702,6 @@ development_status:
   epic-p11-5: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P11-5.md
   p11-5-1-optimize-camera-list-performance: backlog
   p11-5-2-add-test-connection-before-camera-save: backlog
-  p11-5-3-create-github-pages-documentation-site: backlog
+  p11-5-3-update-github-pages-documentation-site: backlog
   p11-5-4-add-export-motion-events-to-csv: backlog
   epic-p11-5-retrospective: optional

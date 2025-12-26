@@ -1,12 +1,16 @@
 """
-MCPContextProvider for AI Context Enhancement (Story P11-3.1, P11-3.2)
+MCPContextProvider for AI Context Enhancement (Story P11-3.1, P11-3.2, P11-3.3, P11-3.4)
 
 This module provides the MCPContextProvider class that gathers context
-from user feedback history and known entities to enhance AI description prompts.
+from user feedback history, known entities, camera patterns, and time patterns
+to enhance AI description prompts.
 
 Architecture:
     - Queries EventFeedback by camera_id for feedback history
     - Queries RecognizedEntity for entity context (P11-3.2)
+    - Queries Camera and Event for camera patterns (P11-3.3)
+    - Calculates time-of-day activity patterns (P11-3.3)
+    - Caches context with 60-second TTL for performance (P11-3.4)
     - Calculates camera-specific accuracy rates
     - Extracts common correction patterns
     - Formats context for AI prompt injection
@@ -15,17 +19,21 @@ Architecture:
 Flow:
     Event → MCPContextProvider.get_context(camera_id, event_time, entity_id)
                                     ↓
+                      Check cache for camera:hour key
+                                    ↓
+                      If cached and not expired → return cached
+                                    ↓
                       Query recent feedback (last 50)
                                     ↓
                       Query entity details if entity_id provided
                                     ↓
-                      Calculate accuracy rate
+                      Query camera patterns and location
                                     ↓
-                      Extract common corrections
+                      Calculate time-based activity patterns
                                     ↓
-                      Build FeedbackContext and EntityContext
+                      Build FeedbackContext, EntityContext, CameraContext, TimePatternContext
                                     ↓
-                      Return AIContext
+                      Cache and return AIContext
 """
 import asyncio
 import logging
@@ -36,11 +44,28 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
-from sqlalchemy import desc, select
+from prometheus_client import Counter as PromCounter, Histogram
+from sqlalchemy import desc, select, func, extract
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics for context gathering (Story P11-3.4)
+MCP_CONTEXT_LATENCY = Histogram(
+    'argusai_mcp_context_latency_seconds',
+    'Time to gather MCP context',
+    ['cached'],
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+)
+MCP_CACHE_HITS = PromCounter(
+    'argusai_mcp_cache_hits_total',
+    'Number of MCP context cache hits'
+)
+MCP_CACHE_MISSES = PromCounter(
+    'argusai_mcp_cache_misses_total',
+    'Number of MCP context cache misses'
+)
 
 
 @dataclass
@@ -66,20 +91,20 @@ class EntityContext:
 
 @dataclass
 class CameraContext:
-    """Context about camera location and patterns (placeholder for P11-3.3)."""
+    """Context about camera location and patterns (Story P11-3.3)."""
     camera_id: str
-    location_hint: Optional[str]
-    typical_objects: List[str]
-    false_positive_patterns: List[str]
+    location_hint: Optional[str]  # Camera name (e.g., "Front Door")
+    typical_objects: List[str]  # Top 3 common detection types
+    false_positive_patterns: List[str]  # Common false positives from negative feedback
 
 
 @dataclass
 class TimePatternContext:
-    """Context about time-of-day patterns (placeholder for P11-3.3)."""
+    """Context about time-of-day patterns (Story P11-3.3)."""
     hour: int
     typical_activity_level: str  # low, medium, high
-    is_unusual: bool
-    typical_event_count: float
+    is_unusual: bool  # True if activity during typically quiet hours
+    typical_event_count: float  # Average events per day at this hour
 
 
 @dataclass
@@ -91,22 +116,52 @@ class AIContext:
     time_pattern: Optional[TimePatternContext] = None
 
 
+@dataclass
+class CachedContext:
+    """Cached context with TTL tracking (Story P11-3.4)."""
+    context: AIContext
+    created_at: datetime
+
+    def is_expired(self, ttl_seconds: int = 60) -> bool:
+        """Check if cached context has expired."""
+        now = datetime.now(timezone.utc)
+        # Handle timezone-naive created_at
+        created = self.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return (now - created).total_seconds() > ttl_seconds
+
+
 class MCPContextProvider:
     """
-    Provides context for AI prompts based on accumulated feedback and entities.
+    Provides context for AI prompts based on accumulated feedback, entities, and patterns.
 
-    This implementation includes feedback context (P11-3.1) and entity context (P11-3.2).
-    Camera and time pattern context will be added in subsequent stories.
+    This implementation includes:
+    - Feedback context (P11-3.1): accuracy rates and correction patterns
+    - Entity context (P11-3.2): known people/vehicles and similar entities
+    - Camera context (P11-3.3): location hints and typical objects
+    - Time pattern context (P11-3.3): activity levels and unusual timing flags
+    - Context caching (P11-3.4): 60-second TTL cache for performance
 
     Attributes:
         FEEDBACK_LIMIT: Number of recent feedback items to query (50)
         MAX_ENTITY_CONTEXT_CHARS: Maximum characters for entity context to prevent prompt overflow (500)
         MAX_SIMILAR_ENTITIES: Maximum similar entities to suggest (3)
+        EVENT_HISTORY_DAYS: Days of event history to analyze for patterns (30)
+        MAX_TYPICAL_OBJECTS: Maximum typical objects to include (3)
+        MAX_FALSE_POSITIVES: Maximum false positive patterns to include (3)
+        CACHE_TTL_SECONDS: Cache TTL in seconds (60)
+        SLOW_QUERY_THRESHOLD_MS: Threshold for slow query warning (50)
     """
 
     FEEDBACK_LIMIT = 50
     MAX_ENTITY_CONTEXT_CHARS = 500
     MAX_SIMILAR_ENTITIES = 3
+    EVENT_HISTORY_DAYS = 30
+    MAX_TYPICAL_OBJECTS = 3
+    MAX_FALSE_POSITIVES = 3
+    CACHE_TTL_SECONDS = 60
+    SLOW_QUERY_THRESHOLD_MS = 50
 
     def __init__(self, db: Session = None):
         """
@@ -116,9 +171,35 @@ class MCPContextProvider:
             db: Optional SQLAlchemy session. If None, must be provided to get_context().
         """
         self._db = db
+        self._cache: Dict[str, CachedContext] = {}
         logger.info(
             "MCPContextProvider initialized",
             extra={"event_type": "mcp_context_provider_init"}
+        )
+
+    def _get_cache_key(self, camera_id: str, event_time: datetime) -> str:
+        """
+        Generate cache key from camera ID and hour (Story P11-3.4 AC-3.4.2).
+
+        Args:
+            camera_id: UUID of the camera
+            event_time: When the event occurred
+
+        Returns:
+            Cache key in format "{camera_id}:{hour}"
+        """
+        return f"{camera_id}:{event_time.hour}"
+
+    def clear_cache(self) -> None:
+        """
+        Clear the context cache (Story P11-3.4).
+
+        Useful for testing and manual cache invalidation.
+        """
+        self._cache.clear()
+        logger.debug(
+            "MCP context cache cleared",
+            extra={"event_type": "mcp.cache_cleared"}
         )
 
     async def get_context(
@@ -131,6 +212,7 @@ class MCPContextProvider:
         """
         Gather context for AI prompt generation.
 
+        Uses caching with 60-second TTL for performance (Story P11-3.4).
         Uses fail-open design: if any context component fails, returns
         partial context with None for failed components.
 
@@ -153,7 +235,51 @@ class MCPContextProvider:
             )
             return AIContext()
 
-        # Gather context components in parallel (fail-open)
+        # Check cache first (Story P11-3.4 AC-3.4.1)
+        cache_key = self._get_cache_key(camera_id, event_time)
+        cached = self._cache.get(cache_key)
+
+        if cached and not cached.is_expired(self.CACHE_TTL_SECONDS):
+            # Cache hit
+            context_gather_time_ms = (time.time() - start_time) * 1000
+            MCP_CACHE_HITS.inc()
+            MCP_CONTEXT_LATENCY.labels(cached="true").observe(context_gather_time_ms / 1000)
+
+            logger.debug(
+                f"MCP context cache hit for camera {camera_id}",
+                extra={
+                    "event_type": "mcp.cache_hit",
+                    "camera_id": camera_id,
+                    "cache_key": cache_key,
+                    "duration_ms": round(context_gather_time_ms, 2),
+                }
+            )
+
+            # Entity context is not cached (depends on entity_id), fetch if needed
+            if entity_id:
+                entity_ctx = await self._safe_get_entity_context(session, entity_id)
+                return AIContext(
+                    feedback=cached.context.feedback,
+                    entity=entity_ctx,
+                    camera=cached.context.camera,
+                    time_pattern=cached.context.time_pattern,
+                )
+
+            return cached.context
+
+        # Cache miss - gather all context components
+        MCP_CACHE_MISSES.inc()
+
+        logger.debug(
+            f"MCP context cache miss for camera {camera_id}",
+            extra={
+                "event_type": "mcp.cache_miss",
+                "camera_id": camera_id,
+                "cache_key": cache_key,
+            }
+        )
+
+        # Gather context components (fail-open)
         feedback_ctx = await self._safe_get_feedback_context(session, camera_id)
 
         # Entity context (P11-3.2) - only if entity_id provided
@@ -161,11 +287,48 @@ class MCPContextProvider:
         if entity_id:
             entity_ctx = await self._safe_get_entity_context(session, entity_id)
 
-        # Camera and time pattern context are placeholders for future stories
-        camera_ctx = None  # P11-3.3
-        time_ctx = None    # P11-3.3
+        # Camera context (P11-3.3)
+        camera_ctx = await self._safe_get_camera_context(session, camera_id)
+
+        # Time pattern context (P11-3.3)
+        time_ctx = await self._safe_get_time_pattern_context(session, camera_id, event_time)
 
         context_gather_time_ms = (time.time() - start_time) * 1000
+
+        # Record metrics (Story P11-3.4 AC-3.4.4)
+        MCP_CONTEXT_LATENCY.labels(cached="false").observe(context_gather_time_ms / 1000)
+
+        # Warn if slow (Story P11-3.4 AC-3.4.3)
+        if context_gather_time_ms > self.SLOW_QUERY_THRESHOLD_MS:
+            logger.warning(
+                f"MCP context gathering exceeded {self.SLOW_QUERY_THRESHOLD_MS}ms threshold",
+                extra={
+                    "event_type": "mcp.slow_query",
+                    "camera_id": camera_id,
+                    "duration_ms": round(context_gather_time_ms, 2),
+                    "threshold_ms": self.SLOW_QUERY_THRESHOLD_MS,
+                }
+            )
+
+        # Build context
+        context = AIContext(
+            feedback=feedback_ctx,
+            entity=entity_ctx,
+            camera=camera_ctx,
+            time_pattern=time_ctx,
+        )
+
+        # Cache context (without entity, which is request-specific)
+        cached_context = AIContext(
+            feedback=feedback_ctx,
+            entity=None,  # Entity is not cached
+            camera=camera_ctx,
+            time_pattern=time_ctx,
+        )
+        self._cache[cache_key] = CachedContext(
+            context=cached_context,
+            created_at=datetime.now(timezone.utc),
+        )
 
         # Log context gathering
         logger.info(
@@ -178,15 +341,11 @@ class MCPContextProvider:
                 "has_entity": entity_ctx is not None,
                 "has_camera": camera_ctx is not None,
                 "has_time_pattern": time_ctx is not None,
+                "cached": False,
             }
         )
 
-        return AIContext(
-            feedback=feedback_ctx,
-            entity=entity_ctx,
-            camera=camera_ctx,
-            time_pattern=time_ctx,
-        )
+        return context
 
     async def _safe_get_feedback_context(
         self,
@@ -449,6 +608,234 @@ class MCPContextProvider:
             for e in similar
         ]
 
+    async def _safe_get_camera_context(
+        self,
+        db: Session,
+        camera_id: str,
+    ) -> Optional[CameraContext]:
+        """
+        Safely get camera context with error handling.
+
+        Implements fail-open: returns None on any error instead of propagating.
+
+        Args:
+            db: SQLAlchemy session
+            camera_id: UUID of the camera
+
+        Returns:
+            CameraContext or None if error occurs
+        """
+        try:
+            return await self._get_camera_context(db, camera_id)
+        except Exception as e:
+            logger.warning(
+                f"Failed to get camera context for camera {camera_id}: {e}",
+                extra={
+                    "event_type": "mcp.context_error",
+                    "component": "camera",
+                    "camera_id": camera_id,
+                    "error": str(e),
+                }
+            )
+            return None
+
+    async def _get_camera_context(
+        self,
+        db: Session,
+        camera_id: str,
+    ) -> Optional[CameraContext]:
+        """
+        Get camera context for a camera (Story P11-3.3 AC-3.3.1, AC-3.3.2, AC-3.3.5).
+
+        Queries the Camera model for location hint and analyzes recent events
+        to find typical detection types and false positive patterns.
+
+        Args:
+            db: SQLAlchemy session
+            camera_id: UUID of the camera
+
+        Returns:
+            CameraContext with location hint and patterns, or None if camera not found
+        """
+        from app.models.camera import Camera
+        from app.models.event import Event
+        from app.models.event_feedback import EventFeedback
+
+        # Query camera by ID
+        camera = (
+            db.query(Camera)
+            .filter(Camera.id == camera_id)
+            .first()
+        )
+
+        if not camera:
+            logger.debug(
+                f"Camera not found: {camera_id}",
+                extra={
+                    "event_type": "mcp.camera_not_found",
+                    "camera_id": camera_id,
+                }
+            )
+            return None
+
+        # Get typical objects from recent events (last 30 days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.EVENT_HISTORY_DAYS)
+
+        events_with_detection = (
+            db.query(Event.smart_detection_type)
+            .filter(Event.camera_id == camera_id)
+            .filter(Event.created_at > cutoff_date)
+            .filter(Event.smart_detection_type.isnot(None))
+            .filter(Event.smart_detection_type != "")
+            .all()
+        )
+
+        # Count detection types
+        detection_counts: Counter = Counter()
+        for (detection_type,) in events_with_detection:
+            if detection_type:
+                detection_counts[detection_type] += 1
+
+        typical_objects = [obj for obj, _ in detection_counts.most_common(self.MAX_TYPICAL_OBJECTS)]
+
+        # Get false positive patterns from negative feedback
+        negative_feedback = (
+            db.query(EventFeedback.correction)
+            .filter(EventFeedback.camera_id == camera_id)
+            .filter(EventFeedback.rating == 'not_helpful')
+            .filter(EventFeedback.correction.isnot(None))
+            .filter(EventFeedback.correction != "")
+            .order_by(desc(EventFeedback.created_at))
+            .limit(20)
+            .all()
+        )
+
+        # Extract common patterns from false positives
+        fp_corrections = [c.correction for c in negative_feedback if c.correction]
+        false_positive_patterns = self._extract_common_patterns(fp_corrections)[:self.MAX_FALSE_POSITIVES]
+
+        logger.debug(
+            f"Camera context gathered for {camera_id}",
+            extra={
+                "event_type": "mcp.camera_context_gathered",
+                "camera_id": camera_id,
+                "location_hint": camera.name,
+                "typical_objects_count": len(typical_objects),
+                "false_positive_count": len(false_positive_patterns),
+            }
+        )
+
+        return CameraContext(
+            camera_id=camera.id,
+            location_hint=camera.name,
+            typical_objects=typical_objects,
+            false_positive_patterns=false_positive_patterns,
+        )
+
+    async def _safe_get_time_pattern_context(
+        self,
+        db: Session,
+        camera_id: str,
+        event_time: datetime,
+    ) -> Optional[TimePatternContext]:
+        """
+        Safely get time pattern context with error handling.
+
+        Implements fail-open: returns None on any error instead of propagating.
+
+        Args:
+            db: SQLAlchemy session
+            camera_id: UUID of the camera
+            event_time: When the event occurred
+
+        Returns:
+            TimePatternContext or None if error occurs
+        """
+        try:
+            return await self._get_time_pattern_context(db, camera_id, event_time)
+        except Exception as e:
+            logger.warning(
+                f"Failed to get time pattern context for camera {camera_id}: {e}",
+                extra={
+                    "event_type": "mcp.context_error",
+                    "component": "time_pattern",
+                    "camera_id": camera_id,
+                    "error": str(e),
+                }
+            )
+            return None
+
+    async def _get_time_pattern_context(
+        self,
+        db: Session,
+        camera_id: str,
+        event_time: datetime,
+    ) -> Optional[TimePatternContext]:
+        """
+        Get time pattern context for a camera (Story P11-3.3 AC-3.3.3, AC-3.3.4).
+
+        Analyzes historical event data to determine typical activity levels
+        for the current hour and flags unusual timing.
+
+        Args:
+            db: SQLAlchemy session
+            camera_id: UUID of the camera
+            event_time: When the event occurred
+
+        Returns:
+            TimePatternContext with activity levels and unusual flags
+        """
+        from app.models.event import Event
+
+        hour = event_time.hour
+
+        # Get event count for this hour over the last 30 days
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=self.EVENT_HISTORY_DAYS)
+
+        # Count events at this hour
+        events_at_hour = (
+            db.query(func.count(Event.id))
+            .filter(Event.camera_id == camera_id)
+            .filter(Event.created_at > cutoff_date)
+            .filter(extract('hour', Event.created_at) == hour)
+            .scalar()
+        ) or 0
+
+        # Calculate average per day
+        avg_per_day = events_at_hour / self.EVENT_HISTORY_DAYS
+
+        # Determine activity level
+        if avg_per_day < 1:
+            level = "low"
+        elif avg_per_day < 5:
+            level = "medium"
+        else:
+            level = "high"
+
+        # Flag unusual: activity during low-activity hours (10pm - 6am)
+        # or any activity when that hour is typically low
+        is_late_night = (hour >= 22 or hour <= 6)
+        is_unusual = (level == "low" and is_late_night) or (level == "low" and avg_per_day < 0.5)
+
+        logger.debug(
+            f"Time pattern context gathered for camera {camera_id} at hour {hour}",
+            extra={
+                "event_type": "mcp.time_pattern_context_gathered",
+                "camera_id": camera_id,
+                "hour": hour,
+                "avg_per_day": round(avg_per_day, 2),
+                "activity_level": level,
+                "is_unusual": is_unusual,
+            }
+        )
+
+        return TimePatternContext(
+            hour=hour,
+            typical_activity_level=level,
+            is_unusual=is_unusual,
+            typical_event_count=round(avg_per_day, 2),
+        )
+
     def _extract_common_patterns(self, corrections: List[str]) -> List[str]:
         """
         Extract common patterns from correction texts.
@@ -517,13 +904,15 @@ class MCPContextProvider:
             entity_parts = self._format_entity_context(context.entity)
             parts.extend(entity_parts)
 
-        # Camera context (placeholder for P11-3.3)
-        if context.camera and context.camera.location_hint:
-            parts.append(f"Camera location: {context.camera.location_hint}")
+        # Camera context (Story P11-3.3 AC-3.3.1, AC-3.3.2, AC-3.3.5)
+        if context.camera:
+            camera_parts = self._format_camera_context(context.camera)
+            parts.extend(camera_parts)
 
-        # Time pattern context (placeholder for P11-3.3)
-        if context.time_pattern and context.time_pattern.is_unusual:
-            parts.append("Note: This is unusual activity for this time of day")
+        # Time pattern context (Story P11-3.3 AC-3.3.3, AC-3.3.4)
+        if context.time_pattern:
+            time_parts = self._format_time_pattern_context(context.time_pattern)
+            parts.extend(time_parts)
 
         return "\n".join(parts) if parts else ""
 
@@ -594,6 +983,60 @@ class MCPContextProvider:
                     "original_chars": total_chars,
                 }
             )
+
+        return parts
+
+    def _format_camera_context(self, camera: CameraContext) -> List[str]:
+        """
+        Format camera context for inclusion in AI prompt (Story P11-3.3 AC-3.3.1, AC-3.3.2, AC-3.3.5).
+
+        Includes camera location hint, typical objects, and false positive patterns.
+
+        Args:
+            camera: CameraContext with camera details
+
+        Returns:
+            List of formatted context strings
+        """
+        parts = []
+
+        # Location hint (AC-3.3.1)
+        if camera.location_hint:
+            parts.append(f"Camera location: {camera.location_hint}")
+
+        # Typical objects (AC-3.3.2)
+        if camera.typical_objects:
+            objects_str = ", ".join(camera.typical_objects)
+            parts.append(f"Commonly detected at this camera: {objects_str}")
+
+        # False positive patterns (AC-3.3.5)
+        if camera.false_positive_patterns:
+            patterns_str = ", ".join(camera.false_positive_patterns)
+            parts.append(f"Common false positive patterns: {patterns_str}")
+
+        return parts
+
+    def _format_time_pattern_context(self, time_pattern: TimePatternContext) -> List[str]:
+        """
+        Format time pattern context for inclusion in AI prompt (Story P11-3.3 AC-3.3.3, AC-3.3.4).
+
+        Includes activity level and unusual timing flag.
+
+        Args:
+            time_pattern: TimePatternContext with time-based patterns
+
+        Returns:
+            List of formatted context strings
+        """
+        parts = []
+
+        # Activity level (AC-3.3.3)
+        hour_str = f"{time_pattern.hour:02d}:00"
+        parts.append(f"Time of day: {hour_str} (typical activity: {time_pattern.typical_activity_level})")
+
+        # Unusual flag (AC-3.3.4)
+        if time_pattern.is_unusual:
+            parts.append("⚠️ Note: This is unusual activity for this time of day")
 
         return parts
 

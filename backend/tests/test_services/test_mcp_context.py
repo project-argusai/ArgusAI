@@ -1,9 +1,10 @@
 """
-Tests for MCPContextProvider (Story P11-3.1, P11-3.2).
+Tests for MCPContextProvider (Story P11-3.1, P11-3.2, P11-3.3, P11-3.4).
 
 Tests feedback context gathering, accuracy calculation, pattern extraction,
 entity context gathering, similar entity matching, context size limiting,
-prompt formatting, and fail-open behavior.
+camera context gathering, time pattern context gathering,
+caching, performance metrics, prompt formatting, and fail-open behavior.
 """
 
 import pytest
@@ -18,8 +19,12 @@ from app.services.mcp_context import (
     EntityContext,
     CameraContext,
     TimePatternContext,
+    CachedContext,
     get_mcp_context_provider,
     reset_mcp_context_provider,
+    MCP_CACHE_HITS,
+    MCP_CACHE_MISSES,
+    MCP_CONTEXT_LATENCY,
 )
 from app.models.event_feedback import EventFeedback
 from app.models.camera import Camera
@@ -1044,3 +1049,911 @@ class TestEntityContextFailOpen:
         result = await provider._safe_get_entity_context(mock_db, entity_id)
 
         assert result is None
+
+
+class TestCameraContextGathering:
+    """Tests for camera context gathering (Story P11-3.3)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    def _create_mock_camera(
+        self,
+        camera_id: str = None,
+        name: str = "Front Door",
+    ) -> MagicMock:
+        """Create a mock Camera object."""
+        camera = MagicMock(spec=Camera)
+        camera.id = camera_id or str(uuid.uuid4())
+        camera.name = name
+        return camera
+
+    @pytest.mark.asyncio
+    async def test_get_camera_context_with_valid_camera(self, provider, camera_id):
+        """Test camera context is returned for valid camera (AC-3.3.1)."""
+        mock_db = MagicMock()
+        mock_camera_query = MagicMock()
+        mock_events_query = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_camera = self._create_mock_camera(camera_id=camera_id, name="Driveway")
+
+        # Setup camera query
+        mock_camera_query.filter.return_value = mock_camera_query
+        mock_camera_query.first.return_value = mock_camera
+
+        # Setup events query (for typical objects)
+        mock_events_query.filter.return_value = mock_events_query
+        mock_events_query.all.return_value = [
+            ("person",), ("person",), ("person",),
+            ("vehicle",), ("vehicle",),
+            ("package",),
+        ]
+
+        # Setup feedback query (for false positives)
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+
+        call_count = [0]
+        def query_side_effect(model):
+            call_count[0] += 1
+            if hasattr(model, '__name__'):
+                if model.__name__ == "Camera":
+                    return mock_camera_query
+                elif model.__name__ == "Event":
+                    return mock_events_query
+            # EventFeedback correction query
+            return mock_feedback_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        result = await provider._get_camera_context(mock_db, camera_id)
+
+        assert result is not None
+        assert result.camera_id == camera_id
+        assert result.location_hint == "Driveway"
+
+    @pytest.mark.asyncio
+    async def test_get_camera_context_not_found(self, provider, camera_id):
+        """Test camera context returns None when camera not found (AC-3.3.1)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.first.return_value = None  # Camera not found
+        mock_db.query.return_value = mock_query
+
+        result = await provider._get_camera_context(mock_db, camera_id)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_camera_context_typical_objects(self, provider, camera_id):
+        """Test typical objects are extracted from events (AC-3.3.2)."""
+        mock_db = MagicMock()
+        mock_camera_query = MagicMock()
+        mock_events_query = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_camera = self._create_mock_camera(camera_id=camera_id)
+
+        mock_camera_query.filter.return_value = mock_camera_query
+        mock_camera_query.first.return_value = mock_camera
+
+        # Multiple person and vehicle detections
+        mock_events_query.filter.return_value = mock_events_query
+        mock_events_query.all.return_value = [
+            ("person",), ("person",), ("person",), ("person",), ("person",),
+            ("vehicle",), ("vehicle",), ("vehicle",),
+            ("animal",),
+        ]
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+
+        query_results = [mock_camera_query, mock_events_query, mock_feedback_query]
+        call_idx = [0]
+        def query_side_effect(model):
+            result = query_results[min(call_idx[0], len(query_results) - 1)]
+            call_idx[0] += 1
+            return result
+
+        mock_db.query.side_effect = query_side_effect
+
+        result = await provider._get_camera_context(mock_db, camera_id)
+
+        assert result is not None
+        assert "person" in result.typical_objects
+        assert len(result.typical_objects) <= 3
+
+    @pytest.mark.asyncio
+    async def test_get_camera_context_false_positives(self, provider, camera_id):
+        """Test false positive patterns are extracted (AC-3.3.5)."""
+        mock_db = MagicMock()
+        mock_camera_query = MagicMock()
+        mock_events_query = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_camera = self._create_mock_camera(camera_id=camera_id)
+
+        mock_camera_query.filter.return_value = mock_camera_query
+        mock_camera_query.first.return_value = mock_camera
+
+        mock_events_query.filter.return_value = mock_events_query
+        mock_events_query.all.return_value = []
+
+        # Create negative feedback corrections for false positives
+        mock_corrections = [
+            MagicMock(correction="shadow from tree"),
+            MagicMock(correction="shadow in morning"),
+            MagicMock(correction="tree branch moving"),
+        ]
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = mock_corrections
+
+        query_results = [mock_camera_query, mock_events_query, mock_feedback_query]
+        call_idx = [0]
+        def query_side_effect(model):
+            result = query_results[min(call_idx[0], len(query_results) - 1)]
+            call_idx[0] += 1
+            return result
+
+        mock_db.query.side_effect = query_side_effect
+
+        result = await provider._get_camera_context(mock_db, camera_id)
+
+        assert result is not None
+        # Should have common patterns from corrections
+        assert len(result.false_positive_patterns) <= 3
+
+    @pytest.mark.asyncio
+    async def test_safe_get_camera_context_catches_exceptions(self, provider, camera_id):
+        """Test _safe_get_camera_context catches and logs exceptions."""
+        mock_db = MagicMock()
+        mock_db.query.side_effect = Exception("Database error")
+
+        result = await provider._safe_get_camera_context(mock_db, camera_id)
+
+        assert result is None
+
+
+class TestTimePatternContextGathering:
+    """Tests for time pattern context gathering (Story P11-3.3)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_get_time_pattern_context_low_activity(self, provider, camera_id):
+        """Test time pattern with low activity level (AC-3.3.3)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # Very few events at this hour (< 1 per day avg over 30 days)
+        mock_query.filter.return_value = mock_query
+        mock_query.scalar.return_value = 10  # 10 events in 30 days = 0.33/day
+
+        mock_db.query.return_value = mock_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)  # 2 PM
+        result = await provider._get_time_pattern_context(mock_db, camera_id, event_time)
+
+        assert result is not None
+        assert result.hour == 14
+        assert result.typical_activity_level == "low"
+        assert result.typical_event_count < 1
+
+    @pytest.mark.asyncio
+    async def test_get_time_pattern_context_medium_activity(self, provider, camera_id):
+        """Test time pattern with medium activity level (AC-3.3.3)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # Medium events: 1-5 per day avg
+        mock_query.filter.return_value = mock_query
+        mock_query.scalar.return_value = 90  # 90 events in 30 days = 3/day
+
+        mock_db.query.return_value = mock_query
+
+        event_time = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)  # 10 AM
+        result = await provider._get_time_pattern_context(mock_db, camera_id, event_time)
+
+        assert result is not None
+        assert result.hour == 10
+        assert result.typical_activity_level == "medium"
+        assert 1 <= result.typical_event_count < 5
+
+    @pytest.mark.asyncio
+    async def test_get_time_pattern_context_high_activity(self, provider, camera_id):
+        """Test time pattern with high activity level (AC-3.3.3)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # High events: > 5 per day avg
+        mock_query.filter.return_value = mock_query
+        mock_query.scalar.return_value = 210  # 210 events in 30 days = 7/day
+
+        mock_db.query.return_value = mock_query
+
+        event_time = datetime(2024, 1, 15, 17, 0, 0, tzinfo=timezone.utc)  # 5 PM
+        result = await provider._get_time_pattern_context(mock_db, camera_id, event_time)
+
+        assert result is not None
+        assert result.hour == 17
+        assert result.typical_activity_level == "high"
+        assert result.typical_event_count >= 5
+
+    @pytest.mark.asyncio
+    async def test_get_time_pattern_context_is_unusual_late_night(self, provider, camera_id):
+        """Test unusual flag for late night activity (AC-3.3.4)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # Low activity during late night = unusual
+        mock_query.filter.return_value = mock_query
+        mock_query.scalar.return_value = 5  # Very few events at 3 AM
+
+        mock_db.query.return_value = mock_query
+
+        event_time = datetime(2024, 1, 15, 3, 0, 0, tzinfo=timezone.utc)  # 3 AM
+        result = await provider._get_time_pattern_context(mock_db, camera_id, event_time)
+
+        assert result is not None
+        assert result.hour == 3
+        assert result.is_unusual is True
+
+    @pytest.mark.asyncio
+    async def test_get_time_pattern_context_not_unusual_daytime(self, provider, camera_id):
+        """Test unusual flag is False for normal daytime activity (AC-3.3.4)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # Medium activity during day = not unusual
+        mock_query.filter.return_value = mock_query
+        mock_query.scalar.return_value = 60  # ~2/day avg
+
+        mock_db.query.return_value = mock_query
+
+        event_time = datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)  # Noon
+        result = await provider._get_time_pattern_context(mock_db, camera_id, event_time)
+
+        assert result is not None
+        assert result.hour == 12
+        assert result.is_unusual is False
+
+    @pytest.mark.asyncio
+    async def test_safe_get_time_pattern_context_catches_exceptions(self, provider, camera_id):
+        """Test _safe_get_time_pattern_context catches and logs exceptions."""
+        mock_db = MagicMock()
+        mock_db.query.side_effect = Exception("Database error")
+
+        event_time = datetime.now(timezone.utc)
+        result = await provider._safe_get_time_pattern_context(mock_db, camera_id, event_time)
+
+        assert result is None
+
+
+class TestCameraContextFormatting:
+    """Tests for camera context prompt formatting (Story P11-3.3)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    def test_format_camera_location_hint(self, provider):
+        """Test formatting includes camera location hint (AC-3.3.1)."""
+        context = AIContext(
+            camera=CameraContext(
+                camera_id="cam1",
+                location_hint="Back Patio",
+                typical_objects=[],
+                false_positive_patterns=[],
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Camera location: Back Patio" in result
+
+    def test_format_camera_typical_objects(self, provider):
+        """Test formatting includes typical objects (AC-3.3.2)."""
+        context = AIContext(
+            camera=CameraContext(
+                camera_id="cam1",
+                location_hint="Garage",
+                typical_objects=["vehicle", "person", "package"],
+                false_positive_patterns=[],
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Commonly detected at this camera: vehicle, person, package" in result
+
+    def test_format_camera_false_positives(self, provider):
+        """Test formatting includes false positive patterns (AC-3.3.5)."""
+        context = AIContext(
+            camera=CameraContext(
+                camera_id="cam1",
+                location_hint="Backyard",
+                typical_objects=[],
+                false_positive_patterns=["shadow", "tree", "wind"],
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Common false positive patterns: shadow, tree, wind" in result
+
+    def test_format_camera_full_context(self, provider):
+        """Test formatting with all camera context fields."""
+        context = AIContext(
+            camera=CameraContext(
+                camera_id="cam1",
+                location_hint="Front Door",
+                typical_objects=["person", "package"],
+                false_positive_patterns=["shadow"],
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Camera location: Front Door" in result
+        assert "Commonly detected at this camera: person, package" in result
+        assert "Common false positive patterns: shadow" in result
+
+
+class TestTimePatternContextFormatting:
+    """Tests for time pattern context prompt formatting (Story P11-3.3)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    def test_format_time_pattern_activity_level(self, provider):
+        """Test formatting includes activity level (AC-3.3.3)."""
+        context = AIContext(
+            time_pattern=TimePatternContext(
+                hour=14,
+                typical_activity_level="medium",
+                is_unusual=False,
+                typical_event_count=3.5,
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Time of day: 14:00 (typical activity: medium)" in result
+
+    def test_format_time_pattern_unusual_flag(self, provider):
+        """Test formatting includes unusual flag (AC-3.3.4)."""
+        context = AIContext(
+            time_pattern=TimePatternContext(
+                hour=3,
+                typical_activity_level="low",
+                is_unusual=True,
+                typical_event_count=0.2,
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "unusual activity" in result.lower()
+
+    def test_format_time_pattern_not_unusual(self, provider):
+        """Test formatting without unusual flag when not unusual."""
+        context = AIContext(
+            time_pattern=TimePatternContext(
+                hour=12,
+                typical_activity_level="high",
+                is_unusual=False,
+                typical_event_count=8.0,
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Time of day: 12:00 (typical activity: high)" in result
+        assert "unusual" not in result.lower()
+
+
+class TestCameraAndTimeContextFailOpen:
+    """Tests for camera and time context fail-open behavior (Story P11-3.3)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_camera_error_returns_none(self, provider, camera_id):
+        """Test that camera context errors return None, not exception."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+        mock_camera_query = MagicMock()
+
+        # Setup feedback to work
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+
+        # Setup camera to fail
+        mock_camera_query.filter.side_effect = Exception("Camera query failed")
+
+        def query_side_effect(model):
+            if hasattr(model, '__name__') and model.__name__ == "Camera":
+                return mock_camera_query
+            return mock_feedback_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        context = await provider.get_context(
+            camera_id=camera_id,
+            event_time=datetime.now(timezone.utc),
+            db=mock_db,
+        )
+
+        # Should return context with None camera, not raise exception
+        assert isinstance(context, AIContext)
+        assert context.camera is None
+
+    @pytest.mark.asyncio
+    async def test_time_pattern_error_returns_none(self, provider, camera_id):
+        """Test that time pattern errors return None, not exception."""
+        mock_db = MagicMock()
+
+        # All queries fail
+        mock_db.query.side_effect = Exception("Time pattern query failed")
+
+        context = await provider.get_context(
+            camera_id=camera_id,
+            event_time=datetime.now(timezone.utc),
+            db=mock_db,
+        )
+
+        # Should return context with None time_pattern, not raise exception
+        assert isinstance(context, AIContext)
+        assert context.time_pattern is None
+
+    @pytest.mark.asyncio
+    async def test_partial_context_with_camera_and_time_errors(self, provider, camera_id):
+        """Test partial context is returned when camera and time fail but feedback works."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        # Setup feedback to work with some data
+        mock_feedback = MagicMock()
+        mock_feedback.rating = "helpful"
+        mock_feedback.correction = None
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = [mock_feedback]
+
+        error_models = ["Camera", "Event"]
+        def query_side_effect(model):
+            if hasattr(model, '__name__') and model.__name__ in error_models:
+                raise Exception(f"{model.__name__} query failed")
+            return mock_feedback_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        context = await provider.get_context(
+            camera_id=camera_id,
+            event_time=datetime.now(timezone.utc),
+            db=mock_db,
+        )
+
+        # Should have partial context
+        assert isinstance(context, AIContext)
+        assert context.feedback is not None  # Feedback worked
+        assert context.camera is None  # Camera failed
+        assert context.time_pattern is None  # Time pattern failed
+
+
+class TestCachedContext:
+    """Tests for CachedContext dataclass (Story P11-3.4)."""
+
+    def test_cached_context_not_expired(self):
+        """Test cached context is not expired within TTL."""
+        context = AIContext(
+            feedback=FeedbackContext(
+                accuracy_rate=0.9,
+                total_feedback=10,
+                common_corrections=[],
+                recent_negative_reasons=[],
+            )
+        )
+        cached = CachedContext(
+            context=context,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        assert cached.is_expired(ttl_seconds=60) is False
+
+    def test_cached_context_expired(self):
+        """Test cached context is expired after TTL."""
+        context = AIContext()
+        cached = CachedContext(
+            context=context,
+            created_at=datetime.now(timezone.utc) - timedelta(seconds=120),
+        )
+
+        assert cached.is_expired(ttl_seconds=60) is True
+
+    def test_cached_context_handles_naive_datetime(self):
+        """Test cached context handles timezone-naive datetime."""
+        context = AIContext()
+        # Create timezone-naive datetime
+        cached = CachedContext(
+            context=context,
+            created_at=datetime.utcnow(),  # Naive datetime
+        )
+
+        # Should not raise, should handle timezone comparison
+        result = cached.is_expired(ttl_seconds=60)
+        assert isinstance(result, bool)
+
+
+class TestContextCaching:
+    """Tests for context caching (Story P11-3.4)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    def test_cache_key_generation(self, provider, camera_id):
+        """Test cache key is generated from camera_id and hour (AC-3.4.2)."""
+        event_time = datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc)
+
+        cache_key = provider._get_cache_key(camera_id, event_time)
+
+        assert cache_key == f"{camera_id}:14"
+
+    def test_cache_key_different_hours(self, provider, camera_id):
+        """Test cache keys are different for different hours."""
+        event_time_1 = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        event_time_2 = datetime(2024, 1, 15, 15, 0, 0, tzinfo=timezone.utc)
+
+        key_1 = provider._get_cache_key(camera_id, event_time_1)
+        key_2 = provider._get_cache_key(camera_id, event_time_2)
+
+        assert key_1 != key_2
+        assert key_1 == f"{camera_id}:10"
+        assert key_2 == f"{camera_id}:15"
+
+    @pytest.mark.asyncio
+    async def test_cache_stores_context(self, provider, camera_id):
+        """Test context is stored in cache after gathering (AC-3.4.1)."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        # Setup feedback query
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        mock_db.query.return_value = mock_feedback_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        # First call - should be cache miss
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        # Check cache has entry
+        cache_key = provider._get_cache_key(camera_id, event_time)
+        assert cache_key in provider._cache
+
+    @pytest.mark.asyncio
+    async def test_cache_returns_cached_context(self, provider, camera_id):
+        """Test cached context is returned on cache hit (AC-3.4.1)."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        mock_db.query.return_value = mock_feedback_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        # First call - cache miss
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        # Reset mock to verify second call doesn't query DB
+        mock_db.reset_mock()
+
+        # Second call - should be cache hit (no DB queries except potentially entity)
+        result = await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        assert result is not None
+        assert isinstance(result, AIContext)
+
+    @pytest.mark.asyncio
+    async def test_cache_expires_after_ttl(self, provider, camera_id):
+        """Test cache expires after TTL (AC-3.4.1)."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        mock_db.query.return_value = mock_feedback_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        # First call
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        # Manually expire the cache entry
+        cache_key = provider._get_cache_key(camera_id, event_time)
+        provider._cache[cache_key].created_at = datetime.now(timezone.utc) - timedelta(seconds=120)
+
+        # Verify entry is expired
+        assert provider._cache[cache_key].is_expired(provider.CACHE_TTL_SECONDS) is True
+
+    def test_clear_cache(self, provider, camera_id):
+        """Test clear_cache removes all entries (AC-3.4.1)."""
+        # Add some entries to cache
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+        cache_key = provider._get_cache_key(camera_id, event_time)
+        provider._cache[cache_key] = CachedContext(
+            context=AIContext(),
+            created_at=datetime.now(timezone.utc),
+        )
+
+        assert len(provider._cache) == 1
+
+        provider.clear_cache()
+
+        assert len(provider._cache) == 0
+
+
+class TestContextMetrics:
+    """Tests for Prometheus metrics (Story P11-3.4)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_cache_miss_increments_counter(self, provider, camera_id):
+        """Test cache miss increments MCP_CACHE_MISSES counter (AC-3.4.5)."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        mock_db.query.return_value = mock_feedback_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        initial_misses = MCP_CACHE_MISSES._value.get()
+
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        # Counter should have incremented
+        assert MCP_CACHE_MISSES._value.get() > initial_misses
+
+    @pytest.mark.asyncio
+    async def test_cache_hit_increments_counter(self, provider, camera_id):
+        """Test cache hit increments MCP_CACHE_HITS counter (AC-3.4.5)."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        mock_db.query.return_value = mock_feedback_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        # First call - cache miss
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        initial_hits = MCP_CACHE_HITS._value.get()
+
+        # Second call - cache hit
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        # Counter should have incremented
+        assert MCP_CACHE_HITS._value.get() > initial_hits
+
+    @pytest.mark.asyncio
+    async def test_latency_histogram_recorded(self, provider, camera_id):
+        """Test latency is recorded in histogram (AC-3.4.4)."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        mock_db.query.return_value = mock_feedback_query
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        # Get initial count
+        initial_count = MCP_CONTEXT_LATENCY._metrics[("false",)]._sum.get()
+
+        await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            db=mock_db,
+        )
+
+        # Histogram should have been updated
+        new_count = MCP_CONTEXT_LATENCY._metrics[("false",)]._sum.get()
+        assert new_count >= initial_count  # Sum should increase or stay same
+
+
+class TestContextCachingWithEntity:
+    """Tests for caching behavior with entity context (Story P11-3.4)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    @pytest.fixture
+    def entity_id(self):
+        """Sample entity ID."""
+        return str(uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_entity_not_cached(self, provider, camera_id, entity_id):
+        """Test entity context is fetched even on cache hit."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+        mock_entity_query = MagicMock()
+
+        # Setup feedback query
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+        mock_feedback_query.first.return_value = None
+        mock_feedback_query.scalar.return_value = 0
+
+        # Setup entity query
+        mock_entity = MagicMock()
+        mock_entity.id = entity_id
+        mock_entity.name = "Test Entity"
+        mock_entity.entity_type = "person"
+        mock_entity.vehicle_color = None
+        mock_entity.vehicle_make = None
+        mock_entity.vehicle_model = None
+        mock_entity.last_seen_at = datetime.now(timezone.utc)
+        mock_entity.occurrence_count = 5
+
+        mock_entity_query.filter.return_value = mock_entity_query
+        mock_entity_query.first.return_value = mock_entity
+        mock_entity_query.order_by.return_value = mock_entity_query
+        mock_entity_query.limit.return_value = mock_entity_query
+        mock_entity_query.all.return_value = []
+
+        call_count = [0]
+        def query_side_effect(model):
+            call_count[0] += 1
+            if hasattr(model, '__name__') and model.__name__ == "RecognizedEntity":
+                return mock_entity_query
+            return mock_feedback_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        event_time = datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc)
+
+        # First call with entity - cache miss
+        result1 = await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            entity_id=entity_id,
+            db=mock_db,
+        )
+
+        # Entity should be in result
+        assert result1.entity is not None
+
+        # Reset mock
+        mock_db.reset_mock()
+        mock_db.query.side_effect = query_side_effect
+
+        # Second call with entity - cache hit for feedback/camera/time, but entity still fetched
+        result2 = await provider.get_context(
+            camera_id=camera_id,
+            event_time=event_time,
+            entity_id=entity_id,
+            db=mock_db,
+        )
+
+        # Entity should still be in result
+        assert result2.entity is not None

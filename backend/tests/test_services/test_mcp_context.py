@@ -1,7 +1,8 @@
 """
-Tests for MCPContextProvider (Story P11-3.1).
+Tests for MCPContextProvider (Story P11-3.1, P11-3.2).
 
 Tests feedback context gathering, accuracy calculation, pattern extraction,
+entity context gathering, similar entity matching, context size limiting,
 prompt formatting, and fail-open behavior.
 """
 
@@ -23,6 +24,7 @@ from app.services.mcp_context import (
 from app.models.event_feedback import EventFeedback
 from app.models.camera import Camera
 from app.models.event import Event
+from app.models.recognized_entity import RecognizedEntity
 
 
 class TestMCPContextProvider:
@@ -527,3 +529,518 @@ class TestRecentNegativeFeedback:
         reasons = context.feedback.recent_negative_reasons
         if len(reasons) > 0:
             assert "Actual correction" in reasons or reasons == []
+
+
+class TestEntityContextGathering:
+    """Tests for entity context gathering (Story P11-3.2)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def entity_id(self):
+        """Sample entity ID."""
+        return str(uuid.uuid4())
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    def _create_mock_entity(
+        self,
+        entity_id: str = None,
+        entity_type: str = "person",
+        name: str = "John Doe",
+        occurrence_count: int = 5,
+        vehicle_color: str = None,
+        vehicle_make: str = None,
+        vehicle_model: str = None,
+        vehicle_signature: str = None,
+        last_seen_at: datetime = None,
+    ) -> MagicMock:
+        """Create a mock RecognizedEntity object."""
+        entity = MagicMock(spec=RecognizedEntity)
+        entity.id = entity_id or str(uuid.uuid4())
+        entity.entity_type = entity_type
+        entity.name = name
+        entity.occurrence_count = occurrence_count
+        entity.vehicle_color = vehicle_color
+        entity.vehicle_make = vehicle_make
+        entity.vehicle_model = vehicle_model
+        entity.vehicle_signature = vehicle_signature
+        entity.last_seen_at = last_seen_at or datetime.now(timezone.utc)
+        entity.display_name = name or f"{entity_type.title()} #{entity.id[:8]}"
+        return entity
+
+    @pytest.mark.asyncio
+    async def test_get_context_with_entity_id(self, provider, camera_id, entity_id):
+        """Test get_context includes entity context when entity_id provided (AC-3.2.1)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_feedback_query = MagicMock()
+        mock_entity_query = MagicMock()
+
+        # Setup entity query
+        mock_entity = self._create_mock_entity(entity_id=entity_id, name="Mail Carrier")
+        mock_entity_query.filter.return_value = mock_entity_query
+        mock_entity_query.first.return_value = mock_entity
+        mock_entity_query.order_by.return_value = mock_entity_query
+        mock_entity_query.limit.return_value = mock_entity_query
+        mock_entity_query.all.return_value = []  # No similar entities
+
+        # Setup feedback query
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+
+        # Make query return appropriate mock based on model
+        def query_side_effect(model):
+            if model.__name__ == "RecognizedEntity":
+                return mock_entity_query
+            return mock_feedback_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        context = await provider.get_context(
+            camera_id=camera_id,
+            event_time=datetime.now(timezone.utc),
+            entity_id=entity_id,
+            db=mock_db,
+        )
+
+        assert context.entity is not None
+        assert context.entity.entity_id == entity_id
+        assert context.entity.name == "Mail Carrier"
+        assert context.entity.entity_type == "person"
+
+    @pytest.mark.asyncio
+    async def test_get_context_without_entity_id(self, provider, camera_id):
+        """Test get_context returns None entity when no entity_id provided."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        context = await provider.get_context(
+            camera_id=camera_id,
+            event_time=datetime.now(timezone.utc),
+            db=mock_db,
+        )
+
+        assert context.entity is None
+
+    @pytest.mark.asyncio
+    async def test_get_entity_context_not_found(self, provider, entity_id):
+        """Test entity context returns None when entity not found."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+        mock_query.filter.return_value = mock_query
+        mock_query.first.return_value = None  # Entity not found
+        mock_db.query.return_value = mock_query
+
+        result = await provider._get_entity_context(mock_db, entity_id)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_entity_context_with_vehicle_attributes(self, provider, entity_id):
+        """Test entity context includes vehicle attributes (AC-3.2.3)."""
+        mock_db = MagicMock()
+        mock_entity_query = MagicMock()
+        mock_similar_query = MagicMock()
+
+        mock_entity = self._create_mock_entity(
+            entity_id=entity_id,
+            entity_type="vehicle",
+            name="Family Car",
+            vehicle_color="white",
+            vehicle_make="toyota",
+            vehicle_model="camry",
+            vehicle_signature="white-toyota-camry",
+        )
+
+        mock_entity_query.filter.return_value = mock_entity_query
+        mock_entity_query.first.return_value = mock_entity
+
+        mock_similar_query.filter.return_value = mock_similar_query
+        mock_similar_query.order_by.return_value = mock_similar_query
+        mock_similar_query.limit.return_value = mock_similar_query
+        mock_similar_query.all.return_value = []
+
+        call_count = [0]
+        def query_side_effect(model):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_entity_query
+            return mock_similar_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        result = await provider._get_entity_context(mock_db, entity_id)
+
+        assert result is not None
+        assert result.entity_type == "vehicle"
+        assert result.attributes.get("color") == "white"
+        assert result.attributes.get("make") == "toyota"
+        assert result.attributes.get("model") == "camry"
+
+    @pytest.mark.asyncio
+    async def test_get_entity_context_sighting_count(self, provider, entity_id):
+        """Test entity context includes sighting count (AC-3.2.4)."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        mock_entity = self._create_mock_entity(
+            entity_id=entity_id,
+            occurrence_count=15,
+        )
+
+        mock_query.filter.return_value = mock_query
+        mock_query.first.return_value = mock_entity
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        result = await provider._get_entity_context(mock_db, entity_id)
+
+        assert result is not None
+        assert result.sighting_count == 15
+
+
+class TestSimilarEntityMatching:
+    """Tests for similar entity matching (Story P11-3.2 AC-3.2.2)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def entity_id(self):
+        """Sample entity ID."""
+        return str(uuid.uuid4())
+
+    def _create_mock_entity(
+        self,
+        entity_id: str = None,
+        entity_type: str = "vehicle",
+        name: str = None,
+        occurrence_count: int = 1,
+        vehicle_signature: str = None,
+    ) -> MagicMock:
+        """Create a mock RecognizedEntity object."""
+        entity = MagicMock(spec=RecognizedEntity)
+        entity.id = entity_id or str(uuid.uuid4())
+        entity.entity_type = entity_type
+        entity.name = name
+        entity.occurrence_count = occurrence_count
+        entity.vehicle_signature = vehicle_signature
+        entity.display_name = name or f"{entity_type.title()} #{entity.id[:8]}"
+        return entity
+
+    @pytest.mark.asyncio
+    async def test_similar_entities_for_vehicle(self, provider, entity_id):
+        """Test similar entities are found for vehicles by signature pattern."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # Create similar vehicles with same color
+        similar_vehicles = [
+            self._create_mock_entity(
+                entity_type="vehicle",
+                name="Neighbor's Car",
+                occurrence_count=10,
+                vehicle_signature="white-honda-accord",
+            ),
+            self._create_mock_entity(
+                entity_type="vehicle",
+                name=None,
+                occurrence_count=5,
+                vehicle_signature="white-ford-fusion",
+            ),
+        ]
+
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = similar_vehicles
+        mock_db.query.return_value = mock_query
+
+        result = await provider._get_similar_entities(
+            mock_db,
+            entity_id,
+            "vehicle",
+            "white-toyota-camry",
+        )
+
+        assert len(result) == 2
+        assert result[0]["name"] == "Neighbor's Car"
+        assert result[0]["entity_type"] == "vehicle"
+
+    @pytest.mark.asyncio
+    async def test_similar_entities_empty_when_none_found(self, provider, entity_id):
+        """Test similar entities returns empty list when none found."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        result = await provider._get_similar_entities(
+            mock_db,
+            entity_id,
+            "person",
+            None,
+        )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_similar_entities_max_limit(self, provider, entity_id):
+        """Test similar entities respects MAX_SIMILAR_ENTITIES limit."""
+        mock_db = MagicMock()
+        mock_query = MagicMock()
+
+        # Provider should only return MAX_SIMILAR_ENTITIES (3)
+        mock_query.filter.return_value = mock_query
+        mock_query.order_by.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = []
+        mock_db.query.return_value = mock_query
+
+        # Verify limit is called with MAX_SIMILAR_ENTITIES
+        await provider._get_similar_entities(
+            mock_db,
+            entity_id,
+            "vehicle",
+            "white-toyota-camry",
+        )
+
+        mock_query.limit.assert_called_with(provider.MAX_SIMILAR_ENTITIES)
+
+
+class TestEntityContextSizeLimiting:
+    """Tests for entity context size limiting (Story P11-3.2 AC-3.2.5)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    def test_context_within_limit(self, provider):
+        """Test entity context formatting stays within MAX_ENTITY_CONTEXT_CHARS."""
+        entity = EntityContext(
+            entity_id="123",
+            name="Short Name",
+            entity_type="person",
+            attributes={},
+            last_seen=datetime.now(timezone.utc),
+            sighting_count=5,
+        )
+
+        result = provider._format_entity_context(entity)
+        total_chars = sum(len(part) for part in result)
+
+        assert total_chars <= provider.MAX_ENTITY_CONTEXT_CHARS
+
+    def test_long_attributes_truncated(self, provider):
+        """Test that long attributes are truncated to stay within limit."""
+        # Create entity with very long attributes
+        long_attrs = {
+            "description": "A" * 200,
+            "notes": "B" * 200,
+        }
+
+        entity = EntityContext(
+            entity_id="123",
+            name="Test Entity",
+            entity_type="vehicle",
+            attributes=long_attrs,
+            last_seen=datetime.now(timezone.utc),
+            sighting_count=5,
+        )
+
+        result = provider._format_entity_context(entity)
+        total_chars = sum(len(part) for part in result)
+
+        # Should be limited
+        assert total_chars <= provider.MAX_ENTITY_CONTEXT_CHARS + 100  # Allow some margin
+
+    def test_prioritizes_name_and_type(self, provider):
+        """Test that name and type are always included even with long attributes."""
+        entity = EntityContext(
+            entity_id="123",
+            name="Important Name",
+            entity_type="person",
+            attributes={"long_key": "A" * 500},  # Very long attribute
+            last_seen=datetime.now(timezone.utc),
+            sighting_count=5,
+        )
+
+        result = provider._format_entity_context(entity)
+
+        # First part should always include name and type
+        assert len(result) >= 1
+        assert "Important Name" in result[0]
+        assert "person" in result[0]
+
+
+class TestEntityContextFormatting:
+    """Tests for entity context prompt formatting (Story P11-3.2)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    def test_format_entity_with_sighting_history(self, provider):
+        """Test formatting includes sighting history (AC-3.2.4)."""
+        context = AIContext(
+            entity=EntityContext(
+                entity_id="123",
+                name="Regular Visitor",
+                entity_type="person",
+                attributes={},
+                last_seen=datetime.now(timezone.utc) - timedelta(hours=2),
+                sighting_count=12,
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Regular Visitor" in result
+        assert "12" in result  # Sighting count
+        assert "Seen" in result
+
+    def test_format_entity_with_vehicle_attributes(self, provider):
+        """Test formatting includes vehicle attributes (AC-3.2.3)."""
+        context = AIContext(
+            entity=EntityContext(
+                entity_id="123",
+                name="Family Car",
+                entity_type="vehicle",
+                attributes={"color": "silver", "make": "honda", "model": "civic"},
+                last_seen=datetime.now(timezone.utc),
+                sighting_count=25,
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Family Car" in result
+        assert "vehicle" in result
+        assert "color=silver" in result
+        assert "make=honda" in result
+
+    def test_format_entity_with_similar_entities(self, provider):
+        """Test formatting includes similar entity hints (AC-3.2.2)."""
+        context = AIContext(
+            entity=EntityContext(
+                entity_id="123",
+                name="White Toyota",
+                entity_type="vehicle",
+                attributes={},
+                last_seen=datetime.now(timezone.utc),
+                sighting_count=5,
+                similar_entities=[
+                    {"id": "456", "name": "White Honda", "entity_type": "vehicle", "occurrence_count": 3},
+                    {"id": "789", "name": "White Ford", "entity_type": "vehicle", "occurrence_count": 2},
+                ],
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "White Toyota" in result
+        assert "Similar known entities" in result
+        assert "White Honda" in result
+
+    def test_format_entity_singular_sighting(self, provider):
+        """Test formatting uses singular 'time' for single sighting."""
+        context = AIContext(
+            entity=EntityContext(
+                entity_id="123",
+                name="New Visitor",
+                entity_type="person",
+                attributes={},
+                last_seen=datetime.now(timezone.utc),
+                sighting_count=1,
+            )
+        )
+        result = provider.format_for_prompt(context)
+
+        assert "Seen 1 time" in result
+        assert "Seen 1 times" not in result
+
+
+class TestEntityContextFailOpen:
+    """Tests for entity context fail-open behavior (Story P11-3.2)."""
+
+    @pytest.fixture
+    def provider(self):
+        """Create a fresh MCPContextProvider instance."""
+        return MCPContextProvider()
+
+    @pytest.fixture
+    def camera_id(self):
+        """Sample camera ID."""
+        return str(uuid.uuid4())
+
+    @pytest.fixture
+    def entity_id(self):
+        """Sample entity ID."""
+        return str(uuid.uuid4())
+
+    @pytest.mark.asyncio
+    async def test_entity_error_returns_none(self, provider, camera_id, entity_id):
+        """Test that entity lookup errors return None, not exception."""
+        mock_db = MagicMock()
+        mock_feedback_query = MagicMock()
+        mock_entity_query = MagicMock()
+
+        # Setup feedback to work
+        mock_feedback_query.filter.return_value = mock_feedback_query
+        mock_feedback_query.order_by.return_value = mock_feedback_query
+        mock_feedback_query.limit.return_value = mock_feedback_query
+        mock_feedback_query.all.return_value = []
+
+        # Setup entity to fail
+        mock_entity_query.filter.side_effect = Exception("Entity query failed")
+
+        def query_side_effect(model):
+            if model.__name__ == "RecognizedEntity":
+                return mock_entity_query
+            return mock_feedback_query
+
+        mock_db.query.side_effect = query_side_effect
+
+        context = await provider.get_context(
+            camera_id=camera_id,
+            event_time=datetime.now(timezone.utc),
+            entity_id=entity_id,
+            db=mock_db,
+        )
+
+        # Should return context with None entity, not raise exception
+        assert isinstance(context, AIContext)
+        assert context.entity is None
+        # Feedback should still work
+        assert context.feedback is not None
+
+    @pytest.mark.asyncio
+    async def test_safe_get_entity_context_catches_exceptions(self, provider, entity_id):
+        """Test _safe_get_entity_context catches and logs exceptions."""
+        mock_db = MagicMock()
+        mock_db.query.side_effect = Exception("Database error")
+
+        result = await provider._safe_get_entity_context(mock_db, entity_id)
+
+        assert result is None

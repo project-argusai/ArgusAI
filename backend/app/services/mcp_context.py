@@ -1,26 +1,29 @@
 """
-MCPContextProvider for AI Context Enhancement (Story P11-3.1)
+MCPContextProvider for AI Context Enhancement (Story P11-3.1, P11-3.2)
 
 This module provides the MCPContextProvider class that gathers context
-from user feedback history to enhance AI description prompts.
+from user feedback history and known entities to enhance AI description prompts.
 
 Architecture:
     - Queries EventFeedback by camera_id for feedback history
+    - Queries RecognizedEntity for entity context (P11-3.2)
     - Calculates camera-specific accuracy rates
     - Extracts common correction patterns
     - Formats context for AI prompt injection
     - Fail-open design ensures AI works even if context fails
 
 Flow:
-    Event → MCPContextProvider.get_context(camera_id, event_time)
+    Event → MCPContextProvider.get_context(camera_id, event_time, entity_id)
                                     ↓
                       Query recent feedback (last 50)
+                                    ↓
+                      Query entity details if entity_id provided
                                     ↓
                       Calculate accuracy rate
                                     ↓
                       Extract common corrections
                                     ↓
-                      Build FeedbackContext
+                      Build FeedbackContext and EntityContext
                                     ↓
                       Return AIContext
 """
@@ -30,7 +33,7 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy import desc, select
@@ -51,13 +54,14 @@ class FeedbackContext:
 
 @dataclass
 class EntityContext:
-    """Context about a matched entity (placeholder for P11-3.2)."""
+    """Context about a matched entity (Story P11-3.2)."""
     entity_id: str
     name: str
-    entity_type: str  # person, vehicle
-    attributes: Dict[str, str]
+    entity_type: str  # person, vehicle, unknown
+    attributes: Dict[str, str]  # color, make, model for vehicles
     last_seen: Optional[datetime]
     sighting_count: int
+    similar_entities: List[Dict[str, Any]] = field(default_factory=list)  # Top 3 similar by occurrence
 
 
 @dataclass
@@ -89,16 +93,20 @@ class AIContext:
 
 class MCPContextProvider:
     """
-    Provides context for AI prompts based on accumulated feedback.
+    Provides context for AI prompts based on accumulated feedback and entities.
 
-    This is the MVP implementation (P11-3.1) that focuses on feedback context.
-    Entity, camera, and time pattern context will be added in subsequent stories.
+    This implementation includes feedback context (P11-3.1) and entity context (P11-3.2).
+    Camera and time pattern context will be added in subsequent stories.
 
     Attributes:
         FEEDBACK_LIMIT: Number of recent feedback items to query (50)
+        MAX_ENTITY_CONTEXT_CHARS: Maximum characters for entity context to prevent prompt overflow (500)
+        MAX_SIMILAR_ENTITIES: Maximum similar entities to suggest (3)
     """
 
     FEEDBACK_LIMIT = 50
+    MAX_ENTITY_CONTEXT_CHARS = 500
+    MAX_SIMILAR_ENTITIES = 3
 
     def __init__(self, db: Session = None):
         """
@@ -148,8 +156,12 @@ class MCPContextProvider:
         # Gather context components in parallel (fail-open)
         feedback_ctx = await self._safe_get_feedback_context(session, camera_id)
 
-        # Entity, camera, and time pattern context are placeholders for future stories
-        entity_ctx = None  # P11-3.2
+        # Entity context (P11-3.2) - only if entity_id provided
+        entity_ctx = None
+        if entity_id:
+            entity_ctx = await self._safe_get_entity_context(session, entity_id)
+
+        # Camera and time pattern context are placeholders for future stories
         camera_ctx = None  # P11-3.3
         time_ctx = None    # P11-3.3
 
@@ -269,6 +281,174 @@ class MCPContextProvider:
             recent_negative_reasons=recent_negative[:5],
         )
 
+    async def _safe_get_entity_context(
+        self,
+        db: Session,
+        entity_id: str,
+    ) -> Optional[EntityContext]:
+        """
+        Safely get entity context with error handling.
+
+        Implements fail-open: returns None on any error instead of propagating.
+
+        Args:
+            db: SQLAlchemy session
+            entity_id: UUID of the entity
+
+        Returns:
+            EntityContext or None if error occurs
+        """
+        try:
+            return await self._get_entity_context(db, entity_id)
+        except Exception as e:
+            logger.warning(
+                f"Failed to get entity context for entity {entity_id}: {e}",
+                extra={
+                    "event_type": "mcp.context_error",
+                    "component": "entity",
+                    "entity_id": entity_id,
+                    "error": str(e),
+                }
+            )
+            return None
+
+    async def _get_entity_context(
+        self,
+        db: Session,
+        entity_id: str,
+    ) -> Optional[EntityContext]:
+        """
+        Get entity context for a matched entity (Story P11-3.2).
+
+        Queries the RecognizedEntity model to get entity details including
+        name, type, attributes, and sighting count. Also queries for similar
+        entities of the same type.
+
+        Args:
+            db: SQLAlchemy session
+            entity_id: UUID of the entity
+
+        Returns:
+            EntityContext with entity details, or None if entity not found
+        """
+        from app.models.recognized_entity import RecognizedEntity
+
+        # Query entity by ID
+        entity = (
+            db.query(RecognizedEntity)
+            .filter(RecognizedEntity.id == entity_id)
+            .first()
+        )
+
+        if not entity:
+            logger.debug(
+                f"Entity not found: {entity_id}",
+                extra={
+                    "event_type": "mcp.entity_not_found",
+                    "entity_id": entity_id,
+                }
+            )
+            return None
+
+        # Build attributes dict from entity fields
+        attributes = {}
+        if entity.vehicle_color:
+            attributes['color'] = entity.vehicle_color
+        if entity.vehicle_make:
+            attributes['make'] = entity.vehicle_make
+        if entity.vehicle_model:
+            attributes['model'] = entity.vehicle_model
+
+        # Get similar entities (for context)
+        similar_entities = await self._get_similar_entities(
+            db, entity_id, entity.entity_type, entity.vehicle_signature
+        )
+
+        # Use display_name if name is not set
+        name = entity.name or entity.display_name
+
+        logger.debug(
+            f"Entity context gathered for {entity_id}",
+            extra={
+                "event_type": "mcp.entity_context_gathered",
+                "entity_id": entity_id,
+                "entity_type": entity.entity_type,
+                "has_name": entity.name is not None,
+                "attribute_count": len(attributes),
+                "similar_count": len(similar_entities),
+            }
+        )
+
+        return EntityContext(
+            entity_id=entity.id,
+            name=name,
+            entity_type=entity.entity_type,
+            attributes=attributes,
+            last_seen=entity.last_seen_at,
+            sighting_count=entity.occurrence_count,
+            similar_entities=similar_entities,
+        )
+
+    async def _get_similar_entities(
+        self,
+        db: Session,
+        entity_id: str,
+        entity_type: str,
+        vehicle_signature: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get similar entities of the same type (Story P11-3.2 AC-3.2.2).
+
+        For vehicles, matches by vehicle_signature pattern.
+        For persons, returns other persons sorted by occurrence count.
+
+        Args:
+            db: SQLAlchemy session
+            entity_id: UUID of current entity (to exclude from results)
+            entity_type: Type of entity (person, vehicle)
+            vehicle_signature: Optional vehicle signature for matching
+
+        Returns:
+            List of top 3 similar entities with id, name, type, occurrence_count
+        """
+        from app.models.recognized_entity import RecognizedEntity
+
+        # Build query for similar entities
+        query = (
+            db.query(RecognizedEntity)
+            .filter(RecognizedEntity.id != entity_id)  # Exclude current entity
+            .filter(RecognizedEntity.entity_type == entity_type)
+        )
+
+        # For vehicles, try to match by similar signature pattern
+        if entity_type == "vehicle" and vehicle_signature:
+            # Extract color from signature (first part before dash)
+            sig_parts = vehicle_signature.split("-")
+            if len(sig_parts) >= 1:
+                color = sig_parts[0]
+                # Find vehicles with same color or similar signature
+                query = query.filter(
+                    RecognizedEntity.vehicle_signature.ilike(f"{color}%")
+                )
+
+        # Order by occurrence count (most seen first) and limit
+        query = (
+            query.order_by(desc(RecognizedEntity.occurrence_count))
+            .limit(self.MAX_SIMILAR_ENTITIES)
+        )
+
+        similar = query.all()
+
+        return [
+            {
+                "id": e.id,
+                "name": e.name or e.display_name,
+                "entity_type": e.entity_type,
+                "occurrence_count": e.occurrence_count,
+            }
+            for e in similar
+        ]
+
     def _extract_common_patterns(self, corrections: List[str]) -> List[str]:
         """
         Extract common patterns from correction texts.
@@ -332,12 +512,10 @@ class MCPContextProvider:
                 corrections_str = ", ".join(context.feedback.common_corrections)
                 parts.append(f"Common corrections: {corrections_str}")
 
-        # Entity context (placeholder for P11-3.2)
+        # Entity context (Story P11-3.2)
         if context.entity:
-            parts.append(f"Known entity: {context.entity.name} ({context.entity.entity_type})")
-            if context.entity.attributes:
-                attrs = ", ".join(f"{k}={v}" for k, v in context.entity.attributes.items())
-                parts.append(f"Entity attributes: {attrs}")
+            entity_parts = self._format_entity_context(context.entity)
+            parts.extend(entity_parts)
 
         # Camera context (placeholder for P11-3.3)
         if context.camera and context.camera.location_hint:
@@ -348,6 +526,114 @@ class MCPContextProvider:
             parts.append("Note: This is unusual activity for this time of day")
 
         return "\n".join(parts) if parts else ""
+
+    def _format_entity_context(self, entity: EntityContext) -> List[str]:
+        """
+        Format entity context for inclusion in AI prompt (Story P11-3.2 AC-3.2.3, AC-3.2.4).
+
+        Includes entity name, type, attributes, sighting history, and similar entities.
+        Limits context size to MAX_ENTITY_CONTEXT_CHARS to prevent prompt overflow (AC-3.2.5).
+
+        Args:
+            entity: EntityContext with entity details
+
+        Returns:
+            List of formatted context strings
+        """
+        parts = []
+        total_chars = 0
+
+        # Primary entity identification (always included)
+        primary = f"Known entity: {entity.name} ({entity.entity_type})"
+        parts.append(primary)
+        total_chars += len(primary)
+
+        # Vehicle-specific attributes (color, make, model)
+        if entity.attributes:
+            attrs = ", ".join(f"{k}={v}" for k, v in entity.attributes.items())
+            attr_str = f"Entity attributes: {attrs}"
+            if total_chars + len(attr_str) <= self.MAX_ENTITY_CONTEXT_CHARS:
+                parts.append(attr_str)
+                total_chars += len(attr_str)
+
+        # Sighting history (AC-3.2.4)
+        if entity.sighting_count > 0:
+            sighting_str = f"Seen {entity.sighting_count} time"
+            if entity.sighting_count != 1:
+                sighting_str += "s"
+
+            # Add last seen time if available
+            if entity.last_seen:
+                try:
+                    last_seen_str = self._format_time_ago(entity.last_seen)
+                    if last_seen_str:
+                        sighting_str += f", last seen {last_seen_str}"
+                except Exception:
+                    # Fallback if formatting fails
+                    pass
+
+            if total_chars + len(sighting_str) <= self.MAX_ENTITY_CONTEXT_CHARS:
+                parts.append(sighting_str)
+                total_chars += len(sighting_str)
+
+        # Similar entities (AC-3.2.2) - only if space permits
+        if entity.similar_entities and total_chars < self.MAX_ENTITY_CONTEXT_CHARS - 50:
+            similar_names = [e["name"] for e in entity.similar_entities[:2]]
+            if similar_names:
+                similar_str = f"Similar known entities: {', '.join(similar_names)}"
+                if total_chars + len(similar_str) <= self.MAX_ENTITY_CONTEXT_CHARS:
+                    parts.append(similar_str)
+
+        # Log if truncation occurred
+        if total_chars > self.MAX_ENTITY_CONTEXT_CHARS:
+            logger.debug(
+                f"Entity context truncated to {self.MAX_ENTITY_CONTEXT_CHARS} chars",
+                extra={
+                    "event_type": "mcp.entity_context_truncated",
+                    "entity_id": entity.entity_id,
+                    "original_chars": total_chars,
+                }
+            )
+
+        return parts
+
+    def _format_time_ago(self, dt: datetime) -> str:
+        """
+        Format a datetime as a human-readable "time ago" string.
+
+        Args:
+            dt: The datetime to format
+
+        Returns:
+            String like "2 hours ago", "3 days ago", etc.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Handle timezone-naive datetimes
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        diff = now - dt
+
+        seconds = diff.total_seconds()
+
+        if seconds < 60:
+            return "just now"
+        elif seconds < 3600:
+            minutes = int(seconds / 60)
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        elif seconds < 86400:
+            hours = int(seconds / 3600)
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        elif seconds < 604800:
+            days = int(seconds / 86400)
+            return f"{days} day{'s' if days != 1 else ''} ago"
+        elif seconds < 2592000:
+            weeks = int(seconds / 604800)
+            return f"{weeks} week{'s' if weeks != 1 else ''} ago"
+        else:
+            months = int(seconds / 2592000)
+            return f"{months} month{'s' if months != 1 else ''} ago"
 
 
 # Global singleton instance

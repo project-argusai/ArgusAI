@@ -682,7 +682,7 @@ development_status:
   # Focus: Improve AI accuracy through accumulated context
   epic-p11-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P11-3.md
   p11-3-1-implement-mcpcontextprovider-mvp-with-feedback-context: done
-  p11-3-2-add-entity-match-context-to-provider: backlog
+  p11-3-2-add-entity-match-context-to-provider: review
   p11-3-3-integrate-camera-and-time-pattern-context: backlog
   p11-3-4-add-context-caching-and-performance-metrics: backlog
   epic-p11-3-retrospective: optional

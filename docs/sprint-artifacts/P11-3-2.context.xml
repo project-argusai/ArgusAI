@@ -1,0 +1,183 @@
+<story-context id="P11-3-2" v="1.0">
+  <metadata>
+    <epicId>P11-3</epicId>
+    <storyId>3.2</storyId>
+    <title>Add Entity Match Context to Provider</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-26</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P11-3-2.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>system</asA>
+    <iWant>to include known entity information in AI prompts</iWant>
+    <soThat>the AI can identify recognized people and vehicles</soThat>
+    <tasks>
+      <task id="1">Implement _get_entity_context method</task>
+      <task id="2">Add recent sighting context</task>
+      <task id="3">Implement similar entity suggestions</task>
+      <task id="4">Add context size limiting</task>
+      <task id="5">Integrate entity context into get_context flow</task>
+      <task id="6">Update format_for_prompt for entity context</task>
+      <task id="7">Write unit tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-3.2.1">Entity context includes matched entity details</criterion>
+    <criterion id="AC-3.2.2">Similar entities (by embedding) suggested</criterion>
+    <criterion id="AC-3.2.3">Entity names and attributes included in prompt</criterion>
+    <criterion id="AC-3.2.4">Recent entity sightings provide temporal context</criterion>
+    <criterion id="AC-3.2.5">Context size limited to prevent prompt overflow</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P11-3.md</path>
+        <title>Epic Technical Specification: AI Context Enhancement (MCP)</title>
+        <section>Entity Context Query</section>
+        <snippet>EntityContext dataclass with entity_id, name, entity_type, attributes, last_seen, sighting_count. Query pattern: get entity by ID, count recent sightings (last 30 days), return context.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/phase-11-additions.md</path>
+        <title>Phase 11 Architecture Additions</title>
+        <section>MCP Context Provider</section>
+        <snippet>MCPContextProvider gathers context via database queries (ADR-P11-003). Integrates with existing context_prompt_service.py. Target: less than 50ms context gathering.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase11.md</path>
+        <title>ArgusAI Phase 11 - Epic and Story Breakdown</title>
+        <section>P11-3.2: Add Entity Match Context to Provider</section>
+        <snippet>Acceptance criteria: Entity context includes matched entity details, similar entities suggested, names/attributes in prompt, recent sightings for temporal context, context size limited.</snippet>
+      </doc>
+      <doc>
+        <path>docs/sprint-artifacts/P11-3-1.md</path>
+        <title>Story P11-3.1: Implement MCPContextProvider MVP</title>
+        <section>Completion Notes List</section>
+        <snippet>Created MCPContextProvider with AIContext, FeedbackContext, EntityContext dataclasses. EntityContext placeholder now needs full implementation. Fail-open design with _safe_get wrappers.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/mcp_context.py</path>
+        <kind>service</kind>
+        <symbol>MCPContextProvider</symbol>
+        <lines>90-389</lines>
+        <reason>Main file to modify - contains EntityContext dataclass (placeholder) and get_context method that needs entity context integration</reason>
+      </file>
+      <file>
+        <path>backend/app/models/recognized_entity.py</path>
+        <kind>model</kind>
+        <symbol>RecognizedEntity, EntityEvent</symbol>
+        <lines>25-253</lines>
+        <reason>Entity model with id, entity_type, name, vehicle fields, occurrence_count, last_seen_at. EntityEvent junction table links entities to events with similarity_score.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/entity_service.py</path>
+        <kind>service</kind>
+        <symbol>EntityService.get_entity, EntityService.get_entity_for_event</symbol>
+        <lines>912-985, 1455-1495</lines>
+        <reason>Reference for entity query patterns - get_entity returns entity details with recent events, get_entity_for_event returns entity linked to specific event</reason>
+      </file>
+      <file>
+        <path>backend/app/services/embedding_service.py</path>
+        <kind>service</kind>
+        <symbol>EmbeddingService</symbol>
+        <reason>CLIP embedding generation - may be useful for similar entity matching by embedding comparison</reason>
+      </file>
+      <file>
+        <path>backend/app/services/similarity_service.py</path>
+        <kind>service</kind>
+        <symbol>batch_cosine_similarity</symbol>
+        <reason>Cosine similarity function for comparing embeddings - useful for finding similar entities</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_mcp_context.py</path>
+        <kind>test</kind>
+        <symbol>TestPromptFormatting.test_format_with_entity</symbol>
+        <lines>310-326</lines>
+        <reason>Existing test for entity context formatting - verify works with real data, extend with new tests</reason>
+      </file>
+      <file>
+        <path>backend/tests/test_services/test_entity_alert_service.py</path>
+        <kind>test</kind>
+        <symbol>fixtures</symbol>
+        <lines>31-95</lines>
+        <reason>Test fixture patterns for entity mocking with MagicMock</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package>sqlalchemy>=2.0</package>
+        <package>pytest>=7.0</package>
+        <package>pytest-asyncio>=0.21</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Fail-open design: entity lookup failures must not break AI descriptions</constraint>
+    <constraint>Target less than 50ms for uncached context queries (NFR3)</constraint>
+    <constraint>Entity names may contain PII - handle appropriately in logs</constraint>
+    <constraint>Context size limited to 500 chars to prevent prompt overflow</constraint>
+    <constraint>Use existing dataclass EntityContext - do not recreate</constraint>
+    <constraint>Follow singleton pattern with get_mcp_context_provider()</constraint>
+    <constraint>Use async methods for database queries</constraint>
+    <constraint>Query RecognizedEntity table directly, not through EntityService (to avoid circular dependencies)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>MCPContextProvider.get_context</name>
+      <kind>async method</kind>
+      <signature>async def get_context(self, camera_id: str, event_time: datetime, entity_id: Optional[str] = None, db: Session = None) -> AIContext</signature>
+      <path>backend/app/services/mcp_context.py</path>
+    </interface>
+    <interface>
+      <name>EntityContext dataclass</name>
+      <kind>dataclass</kind>
+      <signature>@dataclass EntityContext(entity_id: str, name: str, entity_type: str, attributes: Dict[str, str], last_seen: Optional[datetime], sighting_count: int)</signature>
+      <path>backend/app/services/mcp_context.py</path>
+    </interface>
+    <interface>
+      <name>RecognizedEntity model</name>
+      <kind>SQLAlchemy model</kind>
+      <signature>RecognizedEntity(id, entity_type, name, first_seen_at, last_seen_at, occurrence_count, vehicle_color, vehicle_make, vehicle_model, vehicle_signature)</signature>
+      <path>backend/app/models/recognized_entity.py</path>
+    </interface>
+    <interface>
+      <name>EntityEvent model</name>
+      <kind>SQLAlchemy model</kind>
+      <signature>EntityEvent(entity_id, event_id, similarity_score, created_at)</signature>
+      <path>backend/app/models/recognized_entity.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Follow pytest patterns established in backend/tests/. Use @pytest.mark.asyncio for async tests. Mock database sessions with MagicMock. Use fixtures for reusable test data. Target 90%+ coverage for new code. Use in-memory SQLite for integration tests when needed.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_mcp_context.py</location>
+      <location>backend/tests/test_services/</location>
+    </locations>
+    <ideas>
+      <idea ac="3.2.1">Test _get_entity_context returns EntityContext with correct fields for valid entity</idea>
+      <idea ac="3.2.1">Test _get_entity_context returns None for non-existent entity_id</idea>
+      <idea ac="3.2.2">Test similar entity matching for vehicle type by vehicle_signature pattern</idea>
+      <idea ac="3.2.2">Test similar entity matching returns empty list when no similar entities</idea>
+      <idea ac="3.2.3">Test format_for_prompt includes entity name and type</idea>
+      <idea ac="3.2.3">Test format_for_prompt includes vehicle attributes (color, make, model)</idea>
+      <idea ac="3.2.4">Test sighting_count is correctly calculated from occurrence_count</idea>
+      <idea ac="3.2.4">Test last_seen timestamp is included in context</idea>
+      <idea ac="3.2.5">Test context size limiting truncates long attributes</idea>
+      <idea ac="3.2.5">Test context prioritizes name and type over attributes when truncating</idea>
+      <idea ac="all">Test fail-open: database errors return None, not exception</idea>
+      <idea ac="all">Test get_context with entity_id populates entity field in AIContext</idea>
+    </ideas>
+  </tests>
+</story-context>

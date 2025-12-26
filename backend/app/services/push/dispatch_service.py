@@ -99,7 +99,7 @@ class DispatchResult:
 class DeviceInfo:
     """Device information for routing.
 
-    Note: This is a stub until Story P11-2.4 creates the Device model.
+    Includes quiet hours configuration for per-device preference checking (Story P11-2.5).
     """
 
     device_id: str
@@ -107,6 +107,12 @@ class DeviceInfo:
     platform: str  # 'ios', 'android', 'web'
     push_token: str
     name: Optional[str] = None
+    # Quiet hours fields (Story P11-2.5)
+    quiet_hours_enabled: bool = False
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+    quiet_hours_timezone: str = "UTC"
+    quiet_hours_override_critical: bool = True
 
 
 class PushDispatchService:
@@ -202,6 +208,12 @@ class PushDispatchService:
                             platform=device.platform,
                             push_token=push_token,
                             name=device.name,
+                            # Quiet hours (Story P11-2.5)
+                            quiet_hours_enabled=device.quiet_hours_enabled,
+                            quiet_hours_start=device.quiet_hours_start,
+                            quiet_hours_end=device.quiet_hours_end,
+                            quiet_hours_timezone=device.quiet_hours_timezone,
+                            quiet_hours_override_critical=device.quiet_hours_override_critical,
                         ))
 
             logger.debug(
@@ -217,6 +229,69 @@ class PushDispatchService:
             )
             return []
 
+    def _is_device_in_quiet_hours(
+        self,
+        device: DeviceInfo,
+        is_critical: bool = False,
+    ) -> bool:
+        """
+        Check if device is currently in quiet hours (Story P11-2.5).
+
+        Args:
+            device: DeviceInfo with quiet hours configuration
+            is_critical: If True, check override_critical flag
+
+        Returns:
+            True if notifications should be suppressed, False otherwise
+        """
+        if not device.quiet_hours_enabled:
+            return False
+
+        if not device.quiet_hours_start or not device.quiet_hours_end:
+            return False
+
+        # If critical and override is allowed, don't suppress
+        if is_critical and device.quiet_hours_override_critical:
+            return False
+
+        try:
+            from zoneinfo import ZoneInfo
+
+            tz = ZoneInfo(device.quiet_hours_timezone)
+            now = datetime.now(tz)
+            current_time = now.time()
+
+            start_time = datetime.strptime(device.quiet_hours_start, "%H:%M").time()
+            end_time = datetime.strptime(device.quiet_hours_end, "%H:%M").time()
+
+            # Handle overnight quiet hours (e.g., 22:00 - 07:00)
+            if start_time > end_time:
+                # Quiet hours span midnight
+                in_quiet = current_time >= start_time or current_time < end_time
+            else:
+                # Normal range (e.g., 09:00 - 17:00)
+                in_quiet = start_time <= current_time < end_time
+
+            if in_quiet:
+                logger.debug(
+                    f"Device {device.device_id} is in quiet hours",
+                    extra={
+                        "device_id": device.device_id,
+                        "start": device.quiet_hours_start,
+                        "end": device.quiet_hours_end,
+                        "timezone": device.quiet_hours_timezone,
+                        "current_time": str(current_time),
+                    }
+                )
+            return in_quiet
+
+        except Exception as e:
+            logger.warning(
+                f"Error checking quiet hours for device {device.device_id}: {e}"
+            )
+            # Fail open - don't suppress
+            return False
+
     def _check_preferences(
         self,
         user_id: str,
@@ -225,9 +300,10 @@ class PushDispatchService:
         is_critical: bool = False,
     ) -> tuple[bool, bool]:
         """
-        Check notification preferences for dispatch.
+        Check user-level notification preferences for dispatch.
 
-        Reuses logic from push_notification_service.py.
+        Note: Per-device quiet hours are checked in dispatch() for each device.
+        This method handles user-level preferences (not currently implemented).
 
         Args:
             user_id: User ID to check preferences for
@@ -238,19 +314,9 @@ class PushDispatchService:
         Returns:
             Tuple of (should_send, sound_enabled)
         """
-        # Import here to avoid circular imports
-        from app.services.push_notification_service import (
-            is_within_quiet_hours,
-        )
-        from app.models.notification_preference import NotificationPreference
-
         try:
-            # Look up user's notification preferences
-            # Note: Currently preferences are per-subscription, not per-user
-            # For now, return (True, True) to allow all notifications
-            # P11-2.5 will add user-level quiet hours
-
-            # Stub: Always allow, sound enabled
+            # User-level preferences not yet implemented
+            # Per-device quiet hours are checked separately in dispatch()
             return (True, True)
 
         except Exception as e:
@@ -412,7 +478,24 @@ class PushDispatchService:
             )
 
         # Get user's mobile devices
-        devices = self._get_user_devices(user_id)
+        all_devices = self._get_user_devices(user_id)
+
+        # Filter devices by quiet hours (Story P11-2.5)
+        devices = []
+        quiet_hours_skipped = 0
+        for device in all_devices:
+            if self._is_device_in_quiet_hours(device, is_critical):
+                quiet_hours_skipped += 1
+                logger.info(
+                    f"Skipping device due to quiet hours",
+                    extra={
+                        "device_id": device.device_id,
+                        "user_id": user_id,
+                        "is_critical": is_critical,
+                    }
+                )
+            else:
+                devices.append(device)
 
         # Also dispatch to web push subscriptions
         web_results = await self._dispatch_to_web(
@@ -423,12 +506,16 @@ class PushDispatchService:
 
         if not devices and not web_results:
             logger.debug(
-                f"No devices found for user {user_id}",
-                extra={"user_id": user_id}
+                f"No devices found for user {user_id} (or all in quiet hours)",
+                extra={
+                    "user_id": user_id,
+                    "quiet_hours_skipped": quiet_hours_skipped,
+                }
             )
             return DispatchResult(
                 user_id=user_id,
-                total_devices=0,
+                total_devices=quiet_hours_skipped,
+                skipped_count=quiet_hours_skipped,
                 duration_ms=(time.time() - start_time) * 1000,
             )
 
@@ -478,9 +565,10 @@ class PushDispatchService:
             f"Dispatch complete",
             extra={
                 "user_id": user_id,
-                "total_devices": len(all_results),
+                "total_devices": len(all_results) + quiet_hours_skipped,
                 "success": success_count,
                 "failed": failure_count,
+                "skipped_quiet_hours": quiet_hours_skipped,
                 "invalid_tokens": invalid_tokens,
                 "duration_ms": round(duration_ms, 2),
             }
@@ -488,9 +576,10 @@ class PushDispatchService:
 
         return DispatchResult(
             user_id=user_id,
-            total_devices=len(all_results),
+            total_devices=len(all_results) + quiet_hours_skipped,
             success_count=success_count,
             failure_count=failure_count,
+            skipped_count=quiet_hours_skipped,
             results=all_results,
             duration_ms=duration_ms,
         )

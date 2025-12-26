@@ -34,6 +34,7 @@ from app.schemas.device import (
     DeviceResponse,
     DeviceListResponse,
     DeviceRegistrationResponse,
+    DevicePreferencesUpdate,
 )
 
 __all__ = [
@@ -66,4 +67,6 @@ __all__ = [
     "DeviceResponse",
     "DeviceListResponse",
     "DeviceRegistrationResponse",
+    # Story P11-2.5: Device preferences
+    "DevicePreferencesUpdate",
 ]

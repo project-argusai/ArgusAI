@@ -1,0 +1,153 @@
+<story-context id="P11-2-5" v="1.0">
+  <metadata>
+    <epicId>P11-2</epicId>
+    <storyId>2.5</storyId>
+    <title>Add Mobile Push Preferences (Quiet Hours)</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-26</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P11-2-5.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>user</asA>
+    <iWant>to set quiet hours for push notifications</iWant>
+    <soThat>I'm not disturbed during sleep or meetings</soThat>
+    <tasks>
+      <task n="1">Extend Device model with quiet hours fields (AC: 2.5.1, 2.5.2, 2.5.5)</task>
+      <task n="2">Extend Device API schemas (AC: 2.5.1, 2.5.5)</task>
+      <task n="3">Implement timezone-aware quiet hours check (AC: 2.5.2, 2.5.3)</task>
+      <task n="4">Update PushDispatchService to check quiet hours (AC: 2.5.3, 2.5.4)</task>
+      <task n="5">Add UI controls for quiet hours in Settings (AC: 2.5.1, 2.5.5)</task>
+      <task n="6">Write unit tests (AC: all)</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <ac id="2.5.1">User can set quiet hours start and end time</ac>
+    <ac id="2.5.2">Quiet hours respect user's timezone</ac>
+    <ac id="2.5.3">Notifications suppressed during quiet hours</ac>
+    <ac id="2.5.4">Override option for critical alerts</ac>
+    <ac id="2.5.5">Per-device quiet hours supported</ac>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P11-2.md" title="Epic P11-2 Tech Spec" section="AC-2.5.1-5">
+        Quiet hours implementation: Add fields to NotificationPreferences for quiet_hours_start, quiet_hours_end, quiet_hours_timezone, and quiet_hours_enabled. PushDispatchService checks quiet hours before dispatch.
+      </doc>
+      <doc path="docs/epics-phase11.md" title="Phase 11 Epics" section="P11-2.5">
+        Tasks include: Add quiet_hours fields to notification preferences, implement timezone-aware check, update dispatch service, add UI controls, write tests for timezone edge cases.
+      </doc>
+      <doc path="docs/architecture/phase-11-additions.md" title="Phase 11 Architecture" section="NotificationPreferences Extensions">
+        Extends NotificationPreference model with quiet_hours_start (Time), quiet_hours_end (Time), quiet_hours_timezone (String), quiet_hours_enabled (Boolean).
+      </doc>
+      <doc path="docs/sprint-artifacts/P11-2-4.md" title="Previous Story P11-2.4" section="Completion Notes">
+        Device model created with user_id, device_id, platform, push_token. API endpoints at /api/v1/devices. Dispatch service queries Device model in _get_user_devices().
+      </doc>
+    </docs>
+
+    <code>
+      <file path="backend/app/models/device.py" kind="model" reason="Extend with quiet hours fields: quiet_hours_enabled, quiet_hours_start, quiet_hours_end, quiet_hours_timezone, quiet_hours_override_critical">
+        Current Device model with id, user_id, device_id, platform, name, push_token, last_seen_at, created_at. Has encryption helpers set_push_token/get_push_token.
+      </file>
+      <file path="backend/app/schemas/device.py" kind="schema" reason="Extend DeviceCreate and DeviceResponse with quiet hours fields; add DevicePreferencesUpdate schema">
+        Pydantic schemas: DeviceCreate, DeviceTokenUpdate, DeviceResponse, DeviceListResponse, DeviceRegistrationResponse. DevicePlatform enum.
+      </file>
+      <file path="backend/app/api/v1/devices.py" kind="api" reason="Add PUT /devices/{device_id}/preferences endpoint for quiet hours">
+        Current endpoints: POST / (register), GET / (list), DELETE /{device_id} (revoke), PUT /{device_id}/token (update token).
+      </file>
+      <file path="backend/app/services/push/dispatch_service.py" kind="service" lines="220-262" reason="Replace _check_preferences stub with real per-device quiet hours logic">
+        PushDispatchService._check_preferences() is currently a stub returning (True, True). Needs to query device quiet hours and check with is_within_quiet_hours logic.
+      </file>
+      <file path="backend/app/services/push_notification_service.py" kind="service" lines="43-88" symbol="is_within_quiet_hours" reason="Reuse this timezone-aware quiet hours algorithm for device quiet hours">
+        Existing is_within_quiet_hours(start, end, tz_name, now) handles overnight hours spanning midnight. Uses zoneinfo.ZoneInfo.
+      </file>
+      <file path="backend/app/models/notification_preference.py" kind="model" reason="Reference pattern for quiet hours on web push subscriptions">
+        NotificationPreference model with quiet_hours_enabled, quiet_hours_start, quiet_hours_end, timezone fields linked to PushSubscription.
+      </file>
+      <file path="backend/tests/test_services/test_push/test_dispatch_service.py" kind="test" reason="Add quiet hours integration tests">
+        Existing dispatch service tests. Add tests for per-device quiet hours.
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="pytz" version="existing">Timezone handling (alternative to zoneinfo for Python &lt;3.9 compat)</package>
+        <package name="zoneinfo" version="stdlib">Standard library timezone support (Python 3.9+)</package>
+        <package name="pydantic" version="2.x">Schema validation</package>
+        <package name="sqlalchemy" version="2.0">ORM for Device model extension</package>
+        <package name="alembic" version="existing">Database migrations</package>
+      </python>
+      <frontend>
+        <package name="react" version="19.x">UI components</package>
+        <package name="@tanstack/react-query" version="5.x">Data fetching</package>
+        <package name="tailwindcss" version="4.x">Styling</package>
+        <package name="date-fns-tz" version="^3.x">Timezone utilities for frontend (if needed)</package>
+      </frontend>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint source="architecture">Device quiet hours are per-device, not per-user. This allows different schedules for work vs personal devices.</constraint>
+    <constraint source="tech-spec">quiet_hours_override_critical defaults to True - critical alerts (doorbell, package) can break through quiet hours unless explicitly disabled.</constraint>
+    <constraint source="existing-patterns">Reuse is_within_quiet_hours logic from push_notification_service.py - handles overnight hours spanning midnight correctly.</constraint>
+    <constraint source="security">Plain text storage for quiet hours fields is acceptable (not sensitive like push tokens).</constraint>
+    <constraint source="dispatch-service">_check_preferences() currently returns (True, True) stub - must be replaced with real logic querying Device model.</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="PUT /api/v1/devices/{device_id}/preferences" kind="REST endpoint">
+      <signature>
+        Request Body:
+          quiet_hours_enabled: boolean
+          quiet_hours_start: string (HH:MM format)
+          quiet_hours_end: string (HH:MM format)
+          quiet_hours_timezone: string (IANA timezone)
+          quiet_hours_override_critical: boolean
+        Response: DeviceResponse
+      </signature>
+      <path>backend/app/api/v1/devices.py</path>
+    </interface>
+    <interface name="is_within_quiet_hours" kind="function">
+      <signature>is_within_quiet_hours(start: str, end: str, tz_name: str, now: Optional[datetime] = None) -> bool</signature>
+      <path>backend/app/services/push_notification_service.py:43-88</path>
+    </interface>
+    <interface name="Device.quiet_hours fields" kind="model extension">
+      <signature>
+        quiet_hours_enabled: Boolean, default=False
+        quiet_hours_start: String(5), nullable, format="HH:MM"
+        quiet_hours_end: String(5), nullable, format="HH:MM"
+        quiet_hours_timezone: String(64), default="UTC"
+        quiet_hours_override_critical: Boolean, default=True
+      </signature>
+      <path>backend/app/models/device.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Backend tests use pytest with pytest-asyncio. Test files in backend/tests/.
+      Push-related tests in backend/tests/test_services/test_push/.
+      API tests in backend/tests/test_api/.
+      Use fixtures for database sessions. Mock external services.
+      Follow existing patterns in test_dispatch_service.py for push tests.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_push/test_dispatch_service.py</location>
+      <location>backend/tests/test_api/test_devices.py</location>
+      <location>backend/tests/test_models/test_device.py</location>
+    </locations>
+    <ideas>
+      <idea ac="2.5.1">Test Device model stores quiet_hours_start, quiet_hours_end correctly</idea>
+      <idea ac="2.5.2">Test quiet hours with different timezones (UTC, America/New_York, Asia/Tokyo)</idea>
+      <idea ac="2.5.2">Test DST transition edge cases</idea>
+      <idea ac="2.5.3">Test notification is skipped when device is in quiet hours</idea>
+      <idea ac="2.5.3">Test overnight quiet hours (22:00-07:00) crossing midnight</idea>
+      <idea ac="2.5.4">Test critical alerts bypass quiet hours when override_critical=True</idea>
+      <idea ac="2.5.4">Test critical alerts respect quiet hours when override_critical=False</idea>
+      <idea ac="2.5.5">Test different devices for same user can have different quiet hours</idea>
+      <idea ac="all">Test API PUT /devices/{device_id}/preferences endpoint</idea>
+    </ideas>
+  </tests>
+</story-context>

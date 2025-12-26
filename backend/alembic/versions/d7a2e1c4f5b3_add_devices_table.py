@@ -1,7 +1,7 @@
 """add_devices_table
 
 Revision ID: d7a2e1c4f5b3
-Revises: c941f8a3e7d2
+Revises: 052_entity_adjustments
 Create Date: 2025-12-26 10:00:00.000000
 
 Story P11-2.4: Implement Device Registration and Token Management
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'd7a2e1c4f5b3'
-down_revision = 'c941f8a3e7d2'
+down_revision = '052_entity_adjustments'
 branch_labels = None
 depends_on = None
 

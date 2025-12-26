@@ -671,7 +671,7 @@ development_status:
   epic-p11-2: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P11-2.md
   p11-2-1-implement-apns-provider-for-ios-push: done
   p11-2-2-implement-fcm-provider-for-android-push: done
-  p11-2-3-create-unified-push-dispatch-service: backlog
+  p11-2-3-create-unified-push-dispatch-service: done
   p11-2-4-implement-device-registration-and-token-management: backlog
   p11-2-5-add-mobile-push-preferences-quiet-hours: backlog
   p11-2-6-support-notification-thumbnails-attachments: backlog

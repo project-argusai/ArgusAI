@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Story Context: P11-2.3 - Create Unified Push Dispatch Service -->
+<!-- Generated: 2025-12-26 -->
+<!-- Epic: P11-2 (Mobile Push Notifications) -->
+
+<story-context id="P11-2.3" title="Create Unified Push Dispatch Service">
+
+  <!-- ============================================================ -->
+  <!-- ARTIFACTS: Project files required for implementation -->
+  <!-- ============================================================ -->
+
+  <artifacts>
+    <file path="backend/app/services/push/__init__.py" relevance="high">
+      <description>Push services package exports - needs DispatchService added</description>
+      <exports>
+        - APNSProvider: iOS push notification provider
+        - APNSConfig, APNSPayload, APNSAlert: APNS models
+        - FCMProvider: Android push notification provider
+        - FCMConfig, FCMPayload: FCM models
+        - DeliveryResult, DeliveryStatus: Common result types
+        - format_event_for_apns, format_event_for_fcm: Payload formatters
+      </exports>
+    </file>
+
+    <file path="backend/app/services/push/apns_provider.py" relevance="high">
+      <description>APNS provider for iOS - provides interface pattern for dispatch</description>
+      <interface>
+        <method>send(device_token: str, payload: APNSPayload) -> DeliveryResult</method>
+        <method>send_batch(device_tokens: List[str], payload: APNSPayload, concurrency: int = 10) -> List[DeliveryResult]</method>
+        <method>close() -> None</method>
+      </interface>
+      <patterns>
+        - Token invalidation callback via on_token_invalid
+        - Retry with exponential backoff (MAX_RETRIES=3)
+        - Async context manager support
+      </patterns>
+    </file>
+
+    <file path="backend/app/services/push/fcm_provider.py" relevance="high">
+      <description>FCM provider for Android - provides interface pattern for dispatch</description>
+      <interface>
+        <method>send(device_token: str, payload: FCMPayload, data_only: bool = False) -> DeliveryResult</method>
+        <method>send_batch(device_tokens: List[str], payload: FCMPayload, ...) -> List[DeliveryResult]</method>
+        <method>send_data_only(device_token: str, data: dict) -> DeliveryResult</method>
+        <method>close() -> None</method>
+      </interface>
+      <patterns>
+        - Lazy Firebase initialization
+        - asyncio.to_thread wrapper for blocking SDK
+        - Same callback and retry patterns as APNS
+      </patterns>
+    </file>
+
+    <file path="backend/app/services/push/models.py" relevance="high">
+      <description>Pydantic models for push notifications - add DispatchResult</description>
+      <models>
+        - DeliveryStatus: Enum (SUCCESS, FAILED, INVALID_TOKEN, RATE_LIMITED, AUTH_ERROR, SERVER_ERROR)
+        - DeliveryResult: Dataclass for per-device delivery result
+        - APNSConfig, APNSPayload, APNSAlert: APNS-specific models
+        - FCMConfig, FCMPayload: FCM-specific models
+        - format_event_for_apns(): Event to APNS payload converter
+        - format_event_for_fcm(): Event to FCM payload converter
+      </models>
+      <add>
+        - DispatchResult: Aggregated result with counts and per-device results
+      </add>
+    </file>
+
+    <file path="backend/app/services/push/constants.py" relevance="medium">
+      <description>Constants for push providers</description>
+      <constants>
+        - MAX_RETRIES = 3
+        - RETRY_BASE_DELAY_SECONDS = 1
+        - JWT_ALGORITHM = "ES256"
+        - JWT_TOKEN_LIFETIME_SECONDS = 3600
+        - APNS hosts and status codes
+      </constants>
+    </file>
+
+    <file path="backend/app/services/push_notification_service.py" relevance="high">
+      <description>Existing Web Push service - integration point</description>
+      <key-functions>
+        - PushNotificationService.send_notification(): Single subscription
+        - PushNotificationService.broadcast_notification(): All subscriptions
+        - PushNotificationService.broadcast_event_notification(): With preference filtering
+        - is_within_quiet_hours(): Timezone-aware quiet hours check
+        - should_send_notification(): Preference check (camera, object type, quiet hours)
+        - format_rich_notification(): Event to web push payload
+        - send_event_notification(): Main entry point for event pipeline
+      </key-functions>
+      <note>Dispatch service should reuse is_within_quiet_hours and preference checking logic</note>
+    </file>
+
+    <file path="backend/app/models/notification_preference.py" relevance="medium">
+      <description>Notification preferences model</description>
+      <fields>
+        - quiet_hours_enabled, quiet_hours_start, quiet_hours_end, timezone
+        - enabled_cameras (JSON list)
+        - enabled_object_types (JSON list)
+        - sound_enabled
+      </fields>
+      <methods>
+        - is_camera_enabled(camera_id): Check if camera notifications enabled
+        - is_object_type_enabled(object_type): Check if object type enabled
+      </methods>
+    </file>
+
+    <file path="backend/app/models/push_subscription.py" relevance="medium">
+      <description>Web push subscription model - for web platform routing</description>
+      <fields>
+        - id, endpoint, p256dh_key, auth_key
+        - user_agent, last_used_at, created_at
+      </fields>
+    </file>
+
+    <file path="backend/app/core/config.py" relevance="medium">
+      <description>App configuration with APNS/FCM settings</description>
+      <settings>
+        - APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID, APNS_BUNDLE_ID, APNS_USE_SANDBOX
+        - FCM_PROJECT_ID, FCM_CREDENTIALS_FILE
+        - apns_ready property: All APNS settings configured
+        - fcm_ready property: All FCM settings configured
+      </settings>
+    </file>
+
+    <file path="backend/app/core/metrics.py" relevance="low">
+      <description>Prometheus metrics - add dispatch metrics</description>
+      <add>
+        - argusai_push_dispatch_total{status}
+        - argusai_push_dispatch_devices{platform,status}
+        - argusai_push_dispatch_duration_seconds
+      </add>
+    </file>
+  </artifacts>
+
+  <!-- ============================================================ -->
+  <!-- INTERFACES: APIs and service contracts -->
+  <!-- ============================================================ -->
+
+  <interfaces>
+    <interface name="PushDispatchService" type="class">
+      <description>Unified dispatch service routing to WebPush, APNS, FCM</description>
+      <constructor>
+        <param name="db" type="Session">Database session for device lookup</param>
+        <param name="apns_provider" type="Optional[APNSProvider]">APNS provider instance</param>
+        <param name="fcm_provider" type="Optional[FCMProvider]">FCM provider instance</param>
+        <param name="web_push_service" type="Optional[PushNotificationService]">Web push service</param>
+      </constructor>
+      <methods>
+        <method name="dispatch">
+          <description>Dispatch notification to all user's devices</description>
+          <params>
+            <param name="user_id" type="str">User ID to dispatch to</param>
+            <param name="notification" type="NotificationPayload">Notification content</param>
+            <param name="is_critical" type="bool">Override quiet hours if True</param>
+            <param name="camera_id" type="Optional[str]">For preference filtering</param>
+            <param name="smart_detection_type" type="Optional[str]">For preference filtering</param>
+          </params>
+          <returns>DispatchResult with aggregated status</returns>
+        </method>
+        <method name="dispatch_event">
+          <description>Convenience method for event notifications</description>
+          <params>
+            <param name="user_id" type="str">User ID</param>
+            <param name="event_id" type="str">Event ID</param>
+            <param name="camera_id" type="str">Camera ID</param>
+            <param name="camera_name" type="str">Camera name</param>
+            <param name="description" type="str">Event description</param>
+            <param name="smart_detection_type" type="Optional[str]">Detection type</param>
+            <param name="thumbnail_url" type="Optional[str]">Thumbnail URL</param>
+          </params>
+          <returns>DispatchResult</returns>
+        </method>
+      </methods>
+    </interface>
+
+    <interface name="DispatchResult" type="dataclass">
+      <description>Aggregated result of dispatching to multiple devices</description>
+      <fields>
+        <field name="user_id" type="str">Target user ID</field>
+        <field name="total_devices" type="int">Total devices found</field>
+        <field name="success_count" type="int">Successful deliveries</field>
+        <field name="failure_count" type="int">Failed deliveries</field>
+        <field name="skipped_count" type="int">Skipped due to preferences</field>
+        <field name="results" type="List[DeliveryResult]">Per-device results</field>
+        <field name="duration_ms" type="float">Total dispatch time</field>
+      </fields>
+      <properties>
+        <property name="all_succeeded" type="bool">True if no failures</property>
+        <property name="any_succeeded" type="bool">True if at least one success</property>
+      </properties>
+    </interface>
+
+    <interface name="NotificationPayload" type="dataclass">
+      <description>Platform-agnostic notification payload</description>
+      <fields>
+        <field name="title" type="str">Notification title</field>
+        <field name="body" type="str">Notification body</field>
+        <field name="data" type="Dict[str, Any]">Custom data payload</field>
+        <field name="image_url" type="Optional[str]">Thumbnail/image URL</field>
+        <field name="tag" type="Optional[str]">Grouping/collapse tag</field>
+        <field name="priority" type="str">Priority: high or normal</field>
+      </fields>
+    </interface>
+  </interfaces>
+
+  <!-- ============================================================ -->
+  <!-- CONSTRAINTS: Technical and business constraints -->
+  <!-- ============================================================ -->
+
+  <constraints>
+    <constraint id="C1" type="technical">
+      <description>Device model not yet created</description>
+      <impact>Story P11-2.4 creates Device model. For this story, use mock device data or existing web push subscriptions for testing.</impact>
+      <workaround>Create stub device lookup that returns empty list, web push subscriptions, or mock devices for testing</workaround>
+    </constraint>
+
+    <constraint id="C2" type="performance">
+      <description>Push dispatch latency target: &lt;100ms</description>
+      <source>docs/sprint-artifacts/tech-spec-epic-P11-2.md NFR Performance</source>
+      <impact>Use asyncio.gather for parallel dispatch, no unnecessary awaits</impact>
+    </constraint>
+
+    <constraint id="C3" type="technical">
+      <description>Max concurrent dispatch: 100 devices</description>
+      <source>docs/sprint-artifacts/tech-spec-epic-P11-2.md NFR14</source>
+      <impact>Use asyncio.Semaphore to limit concurrent provider calls</impact>
+    </constraint>
+
+    <constraint id="C4" type="reliability">
+      <description>Fail-open policy</description>
+      <source>docs/sprint-artifacts/tech-spec-epic-P11-2.md Reliability</source>
+      <impact>If one device fails, continue with others. Never block event processing.</impact>
+    </constraint>
+
+    <constraint id="C5" type="technical">
+      <description>Providers may not be configured</description>
+      <impact>Gracefully handle missing APNS/FCM config. Route only to available providers.</impact>
+    </constraint>
+  </constraints>
+
+  <!-- ============================================================ -->
+  <!-- TEST IDEAS: Testing strategies and scenarios -->
+  <!-- ============================================================ -->
+
+  <test-ideas>
+    <test-group name="Routing Logic">
+      <test>Route iOS device to APNSProvider</test>
+      <test>Route Android device to FCMProvider</test>
+      <test>Route web subscription to WebPushService</test>
+      <test>Route mixed platforms to correct providers in parallel</test>
+      <test>Skip routing if provider not configured</test>
+    </test-group>
+
+    <test-group name="Parallel Dispatch">
+      <test>Send to multiple devices concurrently</test>
+      <test>Handle exception from one device without affecting others</test>
+      <test>Respect concurrency limit with Semaphore</test>
+      <test>Aggregate results from all devices</test>
+    </test-group>
+
+    <test-group name="Preference Filtering">
+      <test>Skip device during quiet hours (non-critical)</test>
+      <test>Deliver to device during quiet hours (critical alert)</test>
+      <test>Skip device when camera not in enabled list</test>
+      <test>Skip device when object type not in enabled list</test>
+      <test>Handle timezone-aware quiet hours correctly</test>
+    </test-group>
+
+    <test-group name="Result Aggregation">
+      <test>DispatchResult counts match actual outcomes</test>
+      <test>all_succeeded is True only when failure_count == 0</test>
+      <test>Skipped devices included in skipped_count</test>
+      <test>Per-device DeliveryResult preserved in results list</test>
+    </test-group>
+
+    <test-group name="Token Invalidation">
+      <test>Token invalidation callback triggered on INVALID_TOKEN status</test>
+      <test>Callback errors don't affect other devices</test>
+    </test-group>
+
+    <test-group name="Provider Unavailability">
+      <test>Dispatch succeeds with only web push available</test>
+      <test>Dispatch succeeds with only APNS available</test>
+      <test>Dispatch succeeds with only FCM available</test>
+      <test>Dispatch returns empty result when no providers configured</test>
+    </test-group>
+  </test-ideas>
+
+  <!-- ============================================================ -->
+  <!-- LEARNINGS: From previous stories in this epic -->
+  <!-- ============================================================ -->
+
+  <learnings>
+    <learning source="P11-2.1" status="done">
+      <topic>APNS Provider Patterns</topic>
+      <points>
+        - DeliveryResult and DeliveryStatus in models.py - reuse these
+        - Token invalidation via on_token_invalid callback
+        - Retry with MAX_RETRIES=3, exponential backoff
+        - send_batch uses Semaphore for concurrency control
+        - Async context manager for cleanup
+      </points>
+    </learning>
+
+    <learning source="P11-2.2" status="done">
+      <topic>FCM Provider Patterns</topic>
+      <points>
+        - Firebase Admin SDK is synchronous - wrapped with asyncio.to_thread
+        - Same DeliveryResult/DeliveryStatus models as APNS
+        - Same on_token_invalid callback pattern
+        - send_batch uses FCM multicast API
+        - Lazy Firebase initialization on first send
+      </points>
+    </learning>
+
+    <learning source="push_notification_service.py">
+      <topic>Web Push and Preference Filtering</topic>
+      <points>
+        - is_within_quiet_hours() handles overnight ranges (22:00-07:00)
+        - should_send_notification() returns (should_send, sound_enabled)
+        - broadcast_event_notification() applies filters before sending
+        - format_rich_notification() creates consistent payload
+        - Session management: create session if not provided, close in finally
+      </points>
+    </learning>
+  </learnings>
+
+  <!-- ============================================================ -->
+  <!-- REFERENCES: Documentation and external resources -->
+  <!-- ============================================================ -->
+
+  <references>
+    <reference type="epic-tech-spec">docs/sprint-artifacts/tech-spec-epic-P11-2.md</reference>
+    <reference type="architecture">docs/api/mobile-push-architecture.md</reference>
+    <reference type="phase-additions">docs/architecture/phase-11-additions.md</reference>
+    <reference type="epics">docs/epics-phase11.md#P11-2.3</reference>
+    <reference type="previous-story">docs/sprint-artifacts/P11-2-2.md</reference>
+  </references>
+
+</story-context>

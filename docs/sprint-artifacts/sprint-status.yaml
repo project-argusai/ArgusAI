@@ -660,7 +660,7 @@ development_status:
   # Focus: Secure remote access without VPN or port forwarding
   epic-p11-1: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P11-1.md
   p11-1-1-implement-cloudflare-tunnel-integration: done
-  p11-1-2-add-tunnel-status-monitoring-and-auto-reconnect: backlog
+  p11-1-2-add-tunnel-status-monitoring-and-auto-reconnect: done
   p11-1-3-create-settings-ui-for-tunnel-configuration: backlog
   p11-1-4-document-tunnel-setup-in-user-guide: backlog
   epic-p11-1-retrospective: optional

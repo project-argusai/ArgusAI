@@ -2040,6 +2040,7 @@ def _parse_certificate(cert_path: str) -> dict:
 
 
 # Story P11-1.1: Cloudflare Tunnel Endpoints
+# Story P11-1.2: Enhanced with uptime and reconnect tracking
 
 class TunnelStatusResponse(BaseModel):
     """Response schema for tunnel status."""
@@ -2049,6 +2050,10 @@ class TunnelStatusResponse(BaseModel):
     hostname: Optional[str] = Field(None, description="Tunnel hostname if connected")
     error: Optional[str] = Field(None, description="Error message if status is error")
     enabled: bool = Field(..., description="Whether tunnel is enabled in settings")
+    # Story P11-1.2: Enhanced status fields (AC-1.2.4)
+    uptime_seconds: float = Field(default=0.0, description="Tunnel uptime in seconds")
+    last_connected: Optional[str] = Field(None, description="ISO timestamp of last connection")
+    reconnect_count: int = Field(default=0, description="Number of reconnection attempts")
 
 
 class TunnelStartRequest(BaseModel):
@@ -2066,9 +2071,9 @@ class TunnelActionResponse(BaseModel):
 @router.get("/tunnel/status", response_model=TunnelStatusResponse)
 async def get_tunnel_status(db: Session = Depends(get_db)):
     """
-    Get Cloudflare Tunnel status
+    Get Cloudflare Tunnel status (Story P11-1.2 AC-1.2.4)
 
-    Returns current tunnel connection status, hostname, and configuration state.
+    Returns current tunnel connection status, hostname, uptime, and configuration state.
 
     **Response:**
     ```json
@@ -2078,7 +2083,10 @@ async def get_tunnel_status(db: Session = Depends(get_db)):
         "is_running": true,
         "hostname": "my-tunnel.trycloudflare.com",
         "error": null,
-        "enabled": true
+        "enabled": true,
+        "uptime_seconds": 3600.5,
+        "last_connected": "2025-12-25T12:00:00+00:00",
+        "reconnect_count": 0
     }
     ```
 
@@ -2100,7 +2108,11 @@ async def get_tunnel_status(db: Session = Depends(get_db)):
         is_running=status_dict["is_running"],
         hostname=status_dict["hostname"],
         error=status_dict["error"],
-        enabled=is_enabled
+        enabled=is_enabled,
+        # Story P11-1.2: Enhanced fields
+        uptime_seconds=status_dict.get("uptime_seconds", 0.0),
+        last_connected=status_dict.get("last_connected"),
+        reconnect_count=status_dict.get("reconnect_count", 0),
     )
 
 

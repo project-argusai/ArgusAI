@@ -266,6 +266,28 @@ homekit_snapshot_cache_misses_total = Counter(
 )
 
 # ============================================================================
+# Cloudflare Tunnel Metrics (Story P11-1.2)
+# ============================================================================
+
+tunnel_connected = Gauge(
+    'argusai_tunnel_connected',
+    'Cloudflare Tunnel connection status (0=disconnected, 1=connected)',
+    registry=REGISTRY
+)
+
+tunnel_reconnect_total = Counter(
+    'argusai_tunnel_reconnect_total',
+    'Total Cloudflare Tunnel reconnection attempts',
+    registry=REGISTRY
+)
+
+tunnel_uptime_seconds = Gauge(
+    'argusai_tunnel_uptime_seconds',
+    'Cloudflare Tunnel uptime in seconds',
+    registry=REGISTRY
+)
+
+# ============================================================================
 # System Resource Metrics
 # ============================================================================
 
@@ -556,6 +578,31 @@ def record_homekit_snapshot_cache_miss(camera_id: str):
         camera_id: Camera ID
     """
     homekit_snapshot_cache_misses_total.labels(camera_id=camera_id).inc()
+
+
+def update_tunnel_connection_status(connected: bool):
+    """
+    Update Cloudflare Tunnel connection status metric (Story P11-1.2 AC5).
+
+    Args:
+        connected: Whether tunnel is connected
+    """
+    tunnel_connected.set(1 if connected else 0)
+
+
+def record_tunnel_reconnect_attempt():
+    """Record a Cloudflare Tunnel reconnection attempt (Story P11-1.2 AC5)."""
+    tunnel_reconnect_total.inc()
+
+
+def update_tunnel_uptime(uptime_seconds: float):
+    """
+    Update Cloudflare Tunnel uptime metric (Story P11-1.2 AC5).
+
+    Args:
+        uptime_seconds: Tunnel uptime in seconds
+    """
+    tunnel_uptime_seconds.set(uptime_seconds)
 
 
 def update_system_metrics():

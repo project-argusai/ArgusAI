@@ -132,6 +132,7 @@ class TestDeviceAPI:
 
     def test_list_devices_only_own_devices(self, client, db_session, auth_headers, test_user):
         """Test that listing only returns current user's devices."""
+        import uuid
         # Create device for test user
         device1 = Device(
             user_id=test_user.id,
@@ -142,7 +143,7 @@ class TestDeviceAPI:
 
         # Create another user and device
         other_user = User(
-            username="other_user",
+            username=f"other_user_{uuid.uuid4().hex[:8]}",
             password_hash="$2b$12$fakehash",
         )
         db_session.add(other_user)
@@ -200,9 +201,10 @@ class TestDeviceAPI:
 
     def test_revoke_device_other_user(self, client, db_session, auth_headers, test_user):
         """Test cannot revoke another user's device."""
+        import uuid
         # Create another user and device
         other_user = User(
-            username="owner",
+            username=f"owner_{uuid.uuid4().hex[:8]}",
             password_hash="$2b$12$fakehash",
         )
         db_session.add(other_user)
@@ -295,9 +297,10 @@ def db_session():
 
 @pytest.fixture
 def test_user(db_session):
-    """Create test user."""
+    """Create test user with unique username."""
+    import uuid
     user = User(
-        username="testuser",
+        username=f"testuser_{uuid.uuid4().hex[:8]}",
         password_hash="$2b$12$fakehashfakehashfakehashfakehashfakehashfakehashfake",
         is_active=True,
     )

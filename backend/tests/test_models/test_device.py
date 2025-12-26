@@ -131,6 +131,7 @@ class TestDeviceModel:
 
     def test_device_id_unique_constraint(self, db_session, test_user):
         """Test device_id uniqueness constraint."""
+        import uuid
         device1 = Device(
             user_id=test_user.id,
             device_id="unique-test",
@@ -141,7 +142,7 @@ class TestDeviceModel:
 
         # Create another user
         other_user = User(
-            username="other",
+            username=f"other_{uuid.uuid4().hex[:8]}",
             password_hash="$2b$12$fakehashfakehashfakehashfakehashfakehashfakehashfake",
         )
         db_session.add(other_user)
@@ -233,9 +234,10 @@ def db_session():
 
 @pytest.fixture
 def test_user(db_session):
-    """Create test user."""
+    """Create test user with unique username."""
+    import uuid
     user = User(
-        username="devicetestuser",
+        username=f"devicetestuser_{uuid.uuid4().hex[:8]}",
         password_hash="$2b$12$fakehashfakehashfakehashfakehashfakehashfakehashfake",
         is_active=True,
     )

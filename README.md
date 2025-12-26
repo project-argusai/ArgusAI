@@ -2,9 +2,14 @@
 
 AI-powered event detection and monitoring for home security. Analyzes video feeds from multiple camera sources, detects motion and smart events, and uses AI to generate natural language descriptions of what's happening.
 
-## What's New (Phase 10 In Progress)
+## What's New (Phase 11 In Progress)
 
-### Phase 10 (Current)
+### Phase 11 (Current)
+- **Remote Access via Cloudflare Tunnel** - Secure access from anywhere without port forwarding
+- **Tunnel Settings UI** - Configure tunnel token and monitor connection status
+- **Tunnel Documentation** - Step-by-step setup guide for remote access
+
+### Phase 10 (Complete)
 - **Docker Containerization** - Single-command deployment with docker-compose
 - **Multi-stage Dockerfiles** - Optimized backend and frontend images
 - **Optional PostgreSQL** - Production database with `--profile postgres`
@@ -512,6 +517,39 @@ To enable xAI Grok:
 2. Add to **Settings** → **AI Providers** → **xAI Grok**
 3. Grok uses the `grok-2-vision-1212` model for image analysis
 
+## Remote Access (Phase 11)
+
+ArgusAI supports secure remote access via Cloudflare Tunnel, allowing you to access your dashboard from anywhere without port forwarding or VPN.
+
+### Quick Setup
+
+1. Install cloudflared on your ArgusAI server:
+   ```bash
+   # Debian/Ubuntu
+   curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+   echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflared.list
+   sudo apt update && sudo apt install cloudflared
+
+   # macOS
+   brew install cloudflared
+   ```
+
+2. Create a tunnel in Cloudflare Zero Trust dashboard
+3. Copy the tunnel token
+4. In ArgusAI, go to **Settings** → **Integrations** → **Cloudflare Tunnel**
+5. Enable tunnel and paste the token
+6. Click **Test Connection**
+
+For detailed setup instructions, see the [Tunnel Setup Guide](docs/guides/tunnel-setup.md).
+
+### Benefits
+
+- No port forwarding required
+- Works with CGNAT (Carrier-Grade NAT)
+- TLS 1.3 encryption
+- Optional Cloudflare Access for additional authentication
+- Free tier for personal use
+
 ## HomeKit Setup (Phase 5+)
 
 ArgusAI includes native HomeKit integration via HAP-Python:
@@ -653,6 +691,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 | Document | Description |
 |----------|-------------|
 | [User Guide](docs/user-guide.md) | Complete guide for setup and usage |
+| [Tunnel Setup Guide](docs/guides/tunnel-setup.md) | Remote access via Cloudflare Tunnel |
 | [API Reference](docs/api-reference.md) | Full REST API documentation |
 | [API Quick Reference](docs/api-quick-reference.md) | One-page endpoint summary with curl examples |
 | [OpenAPI Guide](docs/openapi-guide.md) | Export and use OpenAPI specs |

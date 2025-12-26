@@ -174,22 +174,48 @@ class PushDispatchService:
         """
         Get all devices registered for a user.
 
-        Note: This is a stub implementation. Story P11-2.4 will create
-        the Device model and implement actual database lookup.
+        Queries the Device model for all devices owned by the user.
 
         Args:
             user_id: User ID to get devices for
 
         Returns:
-            List of DeviceInfo for the user
+            List of DeviceInfo for the user (iOS and Android only)
         """
-        # TODO: P11-2.4 - Replace with actual Device model query
-        # For now, return empty list - web push handled separately
-        logger.debug(
-            f"Device lookup stub called for user {user_id}",
-            extra={"note": "Awaiting P11-2.4 Device model implementation"}
-        )
-        return []
+        from app.models.device import Device
+
+        try:
+            devices = self.db.query(Device).filter(
+                Device.user_id == user_id
+            ).all()
+
+            result = []
+            for device in devices:
+                # Only include iOS and Android devices for push
+                # (web devices use web push subscriptions instead)
+                if device.platform in ("ios", "android"):
+                    push_token = device.get_push_token()
+                    if push_token:  # Only include devices with valid tokens
+                        result.append(DeviceInfo(
+                            device_id=device.device_id,
+                            user_id=device.user_id,
+                            platform=device.platform,
+                            push_token=push_token,
+                            name=device.name,
+                        ))
+
+            logger.debug(
+                f"Found {len(result)} mobile devices for user {user_id}",
+                extra={"user_id": user_id, "device_count": len(result)}
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Error querying devices for user {user_id}: {e}",
+                exc_info=True
+            )
+            return []
 
     def _check_preferences(
         self,

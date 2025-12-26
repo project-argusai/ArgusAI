@@ -1,6 +1,6 @@
 """User SQLAlchemy ORM model for authentication"""
 from sqlalchemy import Column, String, Boolean, DateTime
-from sqlalchemy.orm import validates
+from sqlalchemy.orm import validates, relationship
 from app.core.database import Base
 import uuid
 from datetime import datetime, timezone
@@ -31,6 +31,9 @@ class User(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     last_login = Column(DateTime, nullable=True)
+
+    # Relationship to Device (Story P11-2.4)
+    devices = relationship("Device", back_populates="user", cascade="all, delete-orphan")
 
     @validates('username')
     def validate_username(self, key, value):

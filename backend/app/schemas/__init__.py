@@ -27,6 +27,14 @@ from app.schemas.feedback import (
     CorrectionSummary,
     FeedbackStatsResponse,
 )
+from app.schemas.device import (
+    DevicePlatform,
+    DeviceCreate,
+    DeviceTokenUpdate,
+    DeviceResponse,
+    DeviceListResponse,
+    DeviceRegistrationResponse,
+)
 
 __all__ = [
     "CameraBase",
@@ -51,4 +59,11 @@ __all__ = [
     "DailyFeedbackStats",
     "CorrectionSummary",
     "FeedbackStatsResponse",
+    # Story P11-2.4: Device schemas
+    "DevicePlatform",
+    "DeviceCreate",
+    "DeviceTokenUpdate",
+    "DeviceResponse",
+    "DeviceListResponse",
+    "DeviceRegistrationResponse",
 ]

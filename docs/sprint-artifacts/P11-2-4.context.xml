@@ -1,0 +1,213 @@
+<story-context id="P11-2-4" v="1.0">
+  <metadata>
+    <epicId>P11-2</epicId>
+    <storyId>4</storyId>
+    <title>Implement Device Registration and Token Management</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-26</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P11-2-4.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>mobile user</asA>
+    <iWant>to register my device for push notifications</iWant>
+    <soThat>I receive alerts on this specific device</soThat>
+    <tasks>
+      <task id="1" ac="2.4.1,2.4.5">Create Device SQLAlchemy model with encryption</task>
+      <task id="2" ac="2.4.1">Create Alembic migration for devices table</task>
+      <task id="3" ac="2.4.2,2.4.3">Create Pydantic schemas for API validation</task>
+      <task id="4" ac="2.4.2,2.4.3,2.4.4">Create Device CRUD API endpoints</task>
+      <task id="5" ac="2.4.6">Implement upsert logic for device registration</task>
+      <task id="6" ac="2.4.1">Integrate Device model with PushDispatchService</task>
+      <task id="7" ac="all">Write unit tests</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="2.4.1">Device model stores device_id, platform, name, push_token, user_id, last_seen</criterion>
+    <criterion id="2.4.2">POST `/api/v1/devices` registers new device</criterion>
+    <criterion id="2.4.3">GET `/api/v1/devices` lists user's devices</criterion>
+    <criterion id="2.4.4">DELETE `/api/v1/devices/{id}` revokes device</criterion>
+    <criterion id="2.4.5">Device tokens encrypted at rest using Fernet</criterion>
+    <criterion id="2.4.6">Duplicate device_id updates existing record (upsert)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P11-2.md</path>
+        <title>Epic Technical Specification: Mobile Push Notifications</title>
+        <section>Data Models and Contracts</section>
+        <snippet>Device model with id, user_id, device_id, platform, name, push_token (encrypted), last_seen_at, created_at. Relationship to User model. Unique constraint on device_id.</snippet>
+      </doc>
+      <doc>
+        <path>docs/api/mobile-push-architecture.md</path>
+        <title>Mobile Push Notification Architecture</title>
+        <section>Device Token Storage Model</section>
+        <snippet>Comprehensive schema for mobile_push_tokens table with device_id, platform, push_service, device_token, token_type, device_model, os_version, app_version, app_bundle_id, created_at, updated_at, last_used_at, is_active, failure_count, last_failure_at, last_failure_reason.</snippet>
+      </doc>
+      <doc>
+        <path>docs/api/mobile-push-architecture.md</path>
+        <title>Mobile Push Notification Architecture</title>
+        <section>Token Registration Flow</section>
+        <snippet>Describes mobile client registration flow: request permission, get token from APNS/FCM, generate device_id if not exists, POST /api/v1/devices with token and metadata, upsert record.</snippet>
+      </doc>
+      <doc>
+        <path>docs/epics-phase11.md</path>
+        <title>ArgusAI Phase 11 Epic Breakdown</title>
+        <section>P11-2.4: Implement Device Registration and Token Management</section>
+        <snippet>Story definition with acceptance criteria for device model, CRUD API endpoints, encryption, and upsert logic. Estimated at 3 story points.</snippet>
+      </doc>
+      <doc>
+        <path>docs/PRD-phase11.md</path>
+        <title>Phase 11 PRD</title>
+        <section>Device Management Requirements (FR31-FR38)</section>
+        <snippet>FR31-FR35 define device registration requirements including device_id, platform, name, user_id, push_token, last_seen. Unique device pairing codes for initial setup.</snippet>
+      </doc>
+    </docs>
+
+    <code>
+      <file>
+        <path>backend/app/services/push/dispatch_service.py</path>
+        <kind>service</kind>
+        <symbol>PushDispatchService._get_user_devices</symbol>
+        <lines>173-192</lines>
+        <reason>Stub method that needs to be replaced with actual Device model query. Currently returns empty list with TODO comment for P11-2.4.</reason>
+      </file>
+      <file>
+        <path>backend/app/services/push/dispatch_service.py</path>
+        <kind>dataclass</kind>
+        <symbol>DeviceInfo</symbol>
+        <lines>98-110</lines>
+        <reason>Stub dataclass for device info routing. May be replaced or kept as internal DTO after Device model is created.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/push_subscription.py</path>
+        <kind>model</kind>
+        <symbol>PushSubscription</symbol>
+        <lines>9-65</lines>
+        <reason>Reference pattern for push-related model with user_id FK, timestamps, and relationship. Device model should follow similar pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/user.py</path>
+        <kind>model</kind>
+        <symbol>User</symbol>
+        <lines>13-57</lines>
+        <reason>User model for foreign key relationship. Device.user_id will reference User.id with CASCADE delete.</reason>
+      </file>
+      <file>
+        <path>backend/app/utils/encryption.py</path>
+        <kind>utility</kind>
+        <symbol>encrypt_password, decrypt_password</symbol>
+        <lines>19-130</lines>
+        <reason>Existing Fernet encryption utilities. Use for push_token encryption. Already handles 'encrypted:' prefix pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/models/__init__.py</path>
+        <kind>module</kind>
+        <symbol>Model exports</symbol>
+        <lines>1-56</lines>
+        <reason>Add Device import and export to __all__ list following existing pattern.</reason>
+      </file>
+      <file>
+        <path>backend/app/schemas/auth.py</path>
+        <kind>schema</kind>
+        <symbol>Pydantic schemas</symbol>
+        <lines>1-45</lines>
+        <reason>Reference pattern for Pydantic schemas with Field definitions, validators, and Config class.</reason>
+      </file>
+      <file>
+        <path>backend/alembic/versions/8332702b9c11_add_push_subscriptions_table.py</path>
+        <kind>migration</kind>
+        <symbol>upgrade, downgrade</symbol>
+        <lines>1-46</lines>
+        <reason>Reference pattern for Alembic migration with create_table, indexes, and FK constraints.</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entrypoint</kind>
+        <symbol>app.include_router</symbol>
+        <lines>908-931</lines>
+        <reason>Register devices_router in same pattern as other routers. Import at top, include_router with prefix at bottom.</reason>
+      </file>
+    </code>
+
+    <dependencies>
+      <python>
+        <package name="sqlalchemy" version="2.0+">ORM for Device model</package>
+        <package name="alembic" version="*">Database migrations</package>
+        <package name="pydantic" version="2.0+">API schema validation</package>
+        <package name="fastapi" version="0.115+">API routing</package>
+        <package name="cryptography" version="*">Fernet encryption for push_token</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="security">Push tokens MUST be encrypted at rest using existing Fernet encryption utilities in app/utils/encryption.py</constraint>
+    <constraint type="api">All endpoints require JWT authentication - use existing auth dependency pattern</constraint>
+    <constraint type="database">Device.device_id must be unique across all devices (unique constraint)</constraint>
+    <constraint type="database">Device.user_id foreign key to users.id with CASCADE delete</constraint>
+    <constraint type="pattern">Follow existing model patterns from push_subscription.py for structure and relationships</constraint>
+    <constraint type="pattern">Follow existing router patterns from push.py for API endpoints</constraint>
+    <constraint type="integration">Replace stub in dispatch_service.py _get_user_devices with real database query</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>POST /api/v1/devices</name>
+      <kind>REST endpoint</kind>
+      <signature>POST /api/v1/devices - Body: {device_id: str, platform: str, name: str, push_token: str} - Returns: DeviceResponse</signature>
+      <path>backend/app/api/v1/devices.py</path>
+    </interface>
+    <interface>
+      <name>GET /api/v1/devices</name>
+      <kind>REST endpoint</kind>
+      <signature>GET /api/v1/devices - Returns: List[DeviceResponse] (user's devices only)</signature>
+      <path>backend/app/api/v1/devices.py</path>
+    </interface>
+    <interface>
+      <name>DELETE /api/v1/devices/{device_id}</name>
+      <kind>REST endpoint</kind>
+      <signature>DELETE /api/v1/devices/{device_id} - Returns: 204 No Content</signature>
+      <path>backend/app/api/v1/devices.py</path>
+    </interface>
+    <interface>
+      <name>PUT /api/v1/devices/{device_id}/token</name>
+      <kind>REST endpoint</kind>
+      <signature>PUT /api/v1/devices/{device_id}/token - Body: {push_token: str} - Returns: {success: bool}</signature>
+      <path>backend/app/api/v1/devices.py</path>
+    </interface>
+    <interface>
+      <name>Device SQLAlchemy Model</name>
+      <kind>ORM model</kind>
+      <signature>class Device(Base): id, user_id, device_id, platform, name, push_token, last_seen_at, created_at</signature>
+      <path>backend/app/models/device.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Tests use pytest with async fixtures. Backend tests in backend/tests/. Follow patterns from test_services/test_push/. Use mock for external dependencies. API tests use TestClient. Database tests use test database with transactions that rollback.</standards>
+    <locations>
+      <location>backend/tests/test_services/test_push/test_device_service.py</location>
+      <location>backend/tests/test_api/test_devices.py</location>
+      <location>backend/tests/test_models/test_device.py</location>
+    </locations>
+    <ideas>
+      <idea ac="2.4.1">Test Device model creation with all required fields</idea>
+      <idea ac="2.4.1">Test Device.user relationship loads correctly</idea>
+      <idea ac="2.4.5">Test push_token encryption roundtrip (encrypt then decrypt)</idea>
+      <idea ac="2.4.5">Test encrypted tokens stored with 'encrypted:' prefix</idea>
+      <idea ac="2.4.2">Test POST /api/v1/devices creates new device</idea>
+      <idea ac="2.4.2">Test POST /api/v1/devices returns 401 without auth</idea>
+      <idea ac="2.4.3">Test GET /api/v1/devices returns only user's devices</idea>
+      <idea ac="2.4.3">Test GET /api/v1/devices excludes push_token from response</idea>
+      <idea ac="2.4.4">Test DELETE /api/v1/devices/{id} removes device</idea>
+      <idea ac="2.4.4">Test DELETE /api/v1/devices/{id} returns 404 for other user's device</idea>
+      <idea ac="2.4.6">Test upsert - existing device_id updates record instead of creating duplicate</idea>
+      <idea ac="2.4.6">Test upsert - updates last_seen_at timestamp</idea>
+      <idea ac="integration">Test dispatch_service._get_user_devices returns devices from database</idea>
+    </ideas>
+  </tests>
+</story-context>

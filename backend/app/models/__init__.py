@@ -23,6 +23,7 @@ from app.models.prompt_history import PromptHistory
 from app.models.face_embedding import FaceEmbedding
 from app.models.vehicle_embedding import VehicleEmbedding
 from app.models.homekit import HomeKitConfig, HomeKitAccessory
+from app.models.device import Device
 
 __all__ = [
     "ProtectController",
@@ -52,4 +53,5 @@ __all__ = [
     "VehicleEmbedding",
     "HomeKitConfig",
     "HomeKitAccessory",
+    "Device",
 ]

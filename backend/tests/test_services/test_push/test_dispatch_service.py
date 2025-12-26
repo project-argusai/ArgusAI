@@ -799,3 +799,109 @@ class TestWebPushIntegration:
             )
 
             assert results == []  # Should return empty list on error
+
+
+# =============================================================================
+# Device Model Integration Tests (Story P11-2.4)
+# =============================================================================
+
+
+class TestDeviceModelIntegration:
+    """Tests for _get_user_devices with real Device model.
+
+    Story P11-2.4: Integration between dispatch service and Device model.
+    """
+
+    def test_get_user_devices_returns_mobile_devices(self, mock_db):
+        """Test _get_user_devices returns iOS and Android devices with tokens."""
+        from app.models.device import Device
+
+        # Create mock devices
+        mock_ios_device = MagicMock(spec=Device)
+        mock_ios_device.device_id = "ios-device-1"
+        mock_ios_device.user_id = "user-123"
+        mock_ios_device.platform = "ios"
+        mock_ios_device.name = "iPhone"
+        mock_ios_device.get_push_token.return_value = "apns-token-abc"
+
+        mock_android_device = MagicMock(spec=Device)
+        mock_android_device.device_id = "android-device-1"
+        mock_android_device.user_id = "user-123"
+        mock_android_device.platform = "android"
+        mock_android_device.name = "Pixel"
+        mock_android_device.get_push_token.return_value = "fcm-token-xyz"
+
+        # Mock database query
+        mock_db.query.return_value.filter.return_value.all.return_value = [
+            mock_ios_device,
+            mock_android_device,
+        ]
+
+        service = PushDispatchService(db=mock_db)
+        devices = service._get_user_devices("user-123")
+
+        assert len(devices) == 2
+        assert devices[0].device_id == "ios-device-1"
+        assert devices[0].platform == "ios"
+        assert devices[0].push_token == "apns-token-abc"
+        assert devices[1].device_id == "android-device-1"
+        assert devices[1].platform == "android"
+        assert devices[1].push_token == "fcm-token-xyz"
+
+    def test_get_user_devices_excludes_web_devices(self, mock_db):
+        """Test _get_user_devices excludes web platform devices."""
+        from app.models.device import Device
+
+        mock_web_device = MagicMock(spec=Device)
+        mock_web_device.device_id = "web-device-1"
+        mock_web_device.user_id = "user-123"
+        mock_web_device.platform = "web"
+        mock_web_device.name = "Browser"
+        mock_web_device.get_push_token.return_value = "web-token"
+
+        mock_db.query.return_value.filter.return_value.all.return_value = [
+            mock_web_device,
+        ]
+
+        service = PushDispatchService(db=mock_db)
+        devices = service._get_user_devices("user-123")
+
+        assert len(devices) == 0  # Web devices excluded
+
+    def test_get_user_devices_excludes_devices_without_token(self, mock_db):
+        """Test _get_user_devices excludes devices without push token."""
+        from app.models.device import Device
+
+        mock_device = MagicMock(spec=Device)
+        mock_device.device_id = "no-token-device"
+        mock_device.user_id = "user-123"
+        mock_device.platform = "ios"
+        mock_device.name = "No Token"
+        mock_device.get_push_token.return_value = None
+
+        mock_db.query.return_value.filter.return_value.all.return_value = [
+            mock_device,
+        ]
+
+        service = PushDispatchService(db=mock_db)
+        devices = service._get_user_devices("user-123")
+
+        assert len(devices) == 0  # Devices without tokens excluded
+
+    def test_get_user_devices_handles_db_error(self, mock_db):
+        """Test _get_user_devices returns empty list on database error."""
+        mock_db.query.side_effect = Exception("Database error")
+
+        service = PushDispatchService(db=mock_db)
+        devices = service._get_user_devices("user-123")
+
+        assert devices == []  # Returns empty list on error
+
+    def test_get_user_devices_returns_empty_for_no_devices(self, mock_db):
+        """Test _get_user_devices returns empty list when user has no devices."""
+        mock_db.query.return_value.filter.return_value.all.return_value = []
+
+        service = PushDispatchService(db=mock_db)
+        devices = service._get_user_devices("user-123")
+
+        assert devices == []

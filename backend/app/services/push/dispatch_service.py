@@ -647,12 +647,16 @@ class PushDispatchService:
         description: str,
         smart_detection_type: Optional[str] = None,
         thumbnail_url: Optional[str] = None,
+        thumbnail_path: Optional[str] = None,
+        base_url: Optional[str] = None,
         is_critical: bool = False,
     ) -> DispatchResult:
         """
         Convenience method for dispatching event notifications.
 
         Creates a properly formatted notification from event data.
+        If thumbnail_path is provided with base_url, generates a signed URL
+        for secure thumbnail access (Story P11-2.6).
 
         Args:
             user_id: User to notify
@@ -661,12 +665,24 @@ class PushDispatchService:
             camera_name: Camera display name
             description: Event description
             smart_detection_type: Optional detection type
-            thumbnail_url: Optional thumbnail URL
+            thumbnail_url: Optional pre-generated thumbnail URL (legacy)
+            thumbnail_path: Optional path to thumbnail file for signed URL generation
+            base_url: Base URL for signed URL generation (e.g., "https://example.com")
             is_critical: Override quiet hours if True
 
         Returns:
             DispatchResult with aggregated status
         """
+        # Story P11-2.6: Generate signed thumbnail URL if thumbnail_path and base_url provided
+        final_thumbnail_url = thumbnail_url  # Use legacy URL if provided
+
+        if thumbnail_path and base_url and not thumbnail_url:
+            final_thumbnail_url = self._generate_thumbnail_url(
+                event_id=event_id,
+                thumbnail_path=thumbnail_path,
+                base_url=base_url,
+            )
+
         # Build title based on detection type
         if smart_detection_type:
             detection_labels = {
@@ -703,7 +719,7 @@ class PushDispatchService:
             title=title,
             body=body,
             data=data,
-            image_url=thumbnail_url,
+            image_url=final_thumbnail_url,
             tag=camera_id,  # Group by camera
             priority="high",
         )
@@ -715,6 +731,91 @@ class PushDispatchService:
             camera_id=camera_id,
             smart_detection_type=smart_detection_type,
         )
+
+    def _generate_thumbnail_url(
+        self,
+        event_id: str,
+        thumbnail_path: str,
+        base_url: str,
+    ) -> Optional[str]:
+        """
+        Generate a signed thumbnail URL for push notifications (Story P11-2.6).
+
+        Optimizes the thumbnail and generates a signed URL with expiration.
+        Falls back gracefully if optimization or signing fails.
+
+        Args:
+            event_id: Event ID for signed URL
+            thumbnail_path: Path to thumbnail file
+            base_url: Base URL for the API
+
+        Returns:
+            Signed thumbnail URL, or None if generation fails
+        """
+        import os
+
+        try:
+            # Verify thumbnail file exists
+            from app.services.snapshot_service import (
+                DEFAULT_THUMBNAIL_PATH,
+                optimize_thumbnail_for_notification,
+            )
+
+            # Normalize path
+            if thumbnail_path.startswith('/api/v1/thumbnails/'):
+                relative_path = thumbnail_path[len('/api/v1/thumbnails/'):]
+            else:
+                relative_path = thumbnail_path
+
+            thumbnail_file = os.path.join(DEFAULT_THUMBNAIL_PATH, relative_path)
+
+            if not os.path.exists(thumbnail_file):
+                logger.warning(
+                    "Thumbnail file not found for push notification",
+                    extra={
+                        "event_id": event_id,
+                        "thumbnail_path": thumbnail_path,
+                    }
+                )
+                return None
+
+            # Optimize thumbnail for notification (resizes and compresses if needed)
+            optimized_path = optimize_thumbnail_for_notification(thumbnail_path)
+            if not optimized_path:
+                logger.warning(
+                    "Failed to optimize thumbnail, using original",
+                    extra={"event_id": event_id, "thumbnail_path": thumbnail_path}
+                )
+                # Continue with original - fallback behavior
+
+            # Generate signed URL
+            from app.services.signed_url_service import get_signed_url_service
+
+            signed_url_service = get_signed_url_service()
+            signed_url = signed_url_service.generate_signed_url(
+                event_id=event_id,
+                base_url=base_url,
+                expiration_seconds=60,  # 60 second expiration for push notifications
+            )
+
+            logger.debug(
+                "Generated signed thumbnail URL for push notification",
+                extra={
+                    "event_id": event_id,
+                    "base_url": base_url,
+                }
+            )
+
+            return signed_url
+
+        except Exception as e:
+            logger.error(
+                f"Failed to generate signed thumbnail URL: {e}",
+                extra={"event_id": event_id},
+                exc_info=True
+            )
+            # Fallback: return None (notification will be text-only)
+            return None
 
     async def close(self) -> None:
         """Close providers and release resources."""

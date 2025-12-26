@@ -540,3 +540,232 @@ def get_snapshot_service() -> SnapshotService:
     if _snapshot_service is None:
         _snapshot_service = SnapshotService()
     return _snapshot_service
+
+
+# =============================================================================
+# Story P11-2.6: Notification Thumbnail Optimization
+# =============================================================================
+
+# Notification image constraints
+NOTIFICATION_MAX_DIMENSION = 1024  # Max width/height for notification images
+NOTIFICATION_MAX_FILE_SIZE = 1 * 1024 * 1024  # 1MB max for push notifications
+NOTIFICATION_JPEG_QUALITY = 80  # Initial JPEG quality
+NOTIFICATION_MIN_QUALITY = 20  # Minimum quality before giving up
+
+# Optimized thumbnail cache directory suffix
+NOTIFICATION_CACHE_SUFFIX = "_notification"
+
+
+def optimize_thumbnail_for_notification(
+    thumbnail_path: str,
+    cache_dir: str = DEFAULT_THUMBNAIL_PATH,
+) -> Optional[str]:
+    """
+    Optimize a thumbnail image for push notification display (Story P11-2.6).
+
+    Resizes large images to max 1024x1024 and compresses to under 1MB.
+    Results are cached to avoid re-processing.
+
+    Args:
+        thumbnail_path: Path to the original thumbnail (absolute or relative API path)
+        cache_dir: Base directory for thumbnail storage
+
+    Returns:
+        Path to optimized thumbnail, or None if optimization fails.
+        Returns original path if already optimized or under limits.
+
+    Note:
+        - iOS recommends <5MB attachments, but 1MB is safer for bandwidth
+        - Android FCM BigPicture works best with images under 1MB
+        - Cached files are named with _notification suffix
+    """
+    import os
+    from pathlib import Path
+
+    try:
+        # Normalize path - handle both API paths and filesystem paths
+        if thumbnail_path.startswith('/api/v1/thumbnails/'):
+            relative_path = thumbnail_path[len('/api/v1/thumbnails/'):]
+        else:
+            relative_path = thumbnail_path
+
+        # Build absolute path
+        original_file = os.path.join(cache_dir, relative_path)
+
+        if not os.path.exists(original_file):
+            logger.warning(
+                f"Original thumbnail not found for optimization: {original_file}",
+                extra={"thumbnail_path": thumbnail_path}
+            )
+            return None
+
+        # Check if cached version exists
+        original_path = Path(original_file)
+        cached_name = f"{original_path.stem}{NOTIFICATION_CACHE_SUFFIX}{original_path.suffix}"
+        cached_file = original_path.parent / cached_name
+
+        if cached_file.exists():
+            # Return cached version
+            logger.debug(
+                "Using cached notification thumbnail",
+                extra={"cached_file": str(cached_file)}
+            )
+            # Return relative path in same format as input
+            if thumbnail_path.startswith('/api/v1/thumbnails/'):
+                return f"/api/v1/thumbnails/{os.path.dirname(relative_path)}/{cached_name}"
+            return str(cached_file)
+
+        # Check if original is already small enough
+        original_size = os.path.getsize(original_file)
+        with Image.open(original_file) as img:
+            width, height = img.size
+
+            # If already under limits, return original
+            if (width <= NOTIFICATION_MAX_DIMENSION and
+                height <= NOTIFICATION_MAX_DIMENSION and
+                original_size <= NOTIFICATION_MAX_FILE_SIZE):
+                logger.debug(
+                    "Thumbnail already optimized",
+                    extra={
+                        "width": width,
+                        "height": height,
+                        "size_bytes": original_size,
+                    }
+                )
+                return thumbnail_path
+
+            # Need to optimize
+            logger.debug(
+                "Optimizing thumbnail for notification",
+                extra={
+                    "original_width": width,
+                    "original_height": height,
+                    "original_size": original_size,
+                }
+            )
+
+            # Resize if too large
+            if width > NOTIFICATION_MAX_DIMENSION or height > NOTIFICATION_MAX_DIMENSION:
+                img.thumbnail(
+                    (NOTIFICATION_MAX_DIMENSION, NOTIFICATION_MAX_DIMENSION),
+                    Image.Resampling.LANCZOS
+                )
+
+            # Convert to RGB if necessary (for JPEG)
+            if img.mode in ('RGBA', 'P', 'LA'):
+                img = img.convert('RGB')
+
+            # Save with compression, reducing quality if needed
+            quality = NOTIFICATION_JPEG_QUALITY
+
+            while quality >= NOTIFICATION_MIN_QUALITY:
+                # Save to buffer first to check size
+                buffer = io.BytesIO()
+                img.save(buffer, "JPEG", quality=quality, optimize=True)
+                compressed_size = buffer.tell()
+
+                if compressed_size <= NOTIFICATION_MAX_FILE_SIZE:
+                    # Size is good, save to file
+                    buffer.seek(0)
+                    with open(cached_file, 'wb') as f:
+                        f.write(buffer.read())
+
+                    logger.info(
+                        "Notification thumbnail optimized",
+                        extra={
+                            "cached_file": str(cached_file),
+                            "original_size": original_size,
+                            "optimized_size": compressed_size,
+                            "quality": quality,
+                            "width": img.width,
+                            "height": img.height,
+                        }
+                    )
+
+                    # Return path in same format as input
+                    if thumbnail_path.startswith('/api/v1/thumbnails/'):
+                        return f"/api/v1/thumbnails/{os.path.dirname(relative_path)}/{cached_name}"
+                    return str(cached_file)
+
+                # Still too large, reduce quality
+                quality -= 10
+
+            # Couldn't get under size limit even at minimum quality
+            logger.warning(
+                "Could not optimize thumbnail under size limit",
+                extra={
+                    "thumbnail_path": thumbnail_path,
+                    "min_size": compressed_size,
+                    "target_size": NOTIFICATION_MAX_FILE_SIZE,
+                }
+            )
+            # Return original as fallback
+            return thumbnail_path
+
+    except Exception as e:
+        logger.error(
+            f"Failed to optimize thumbnail for notification: {e}",
+            extra={"thumbnail_path": thumbnail_path},
+            exc_info=True
+        )
+        # Return original as fallback
+        return thumbnail_path
+
+
+def cleanup_notification_cache(cache_dir: str = DEFAULT_THUMBNAIL_PATH) -> int:
+    """
+    Clean up notification thumbnail cache files (Story P11-2.6).
+
+    Should be called during retention cleanup to remove orphaned cache files.
+
+    Args:
+        cache_dir: Base directory for thumbnail storage
+
+    Returns:
+        Number of cache files deleted
+    """
+    import os
+    from pathlib import Path
+
+    deleted_count = 0
+
+    try:
+        cache_path = Path(cache_dir)
+        if not cache_path.exists():
+            return 0
+
+        # Find all notification cache files
+        for cache_file in cache_path.rglob(f"*{NOTIFICATION_CACHE_SUFFIX}*"):
+            if cache_file.is_file():
+                # Check if original exists
+                original_name = cache_file.name.replace(NOTIFICATION_CACHE_SUFFIX, "")
+                original_file = cache_file.parent / original_name
+
+                if not original_file.exists():
+                    # Original was deleted, clean up cache
+                    try:
+                        cache_file.unlink()
+                        deleted_count += 1
+                        logger.debug(
+                            "Deleted orphaned notification cache file",
+                            extra={"file": str(cache_file)}
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to delete cache file {cache_file}: {e}"
+                        )
+
+        if deleted_count > 0:
+            logger.info(
+                f"Cleaned up {deleted_count} notification cache files",
+                extra={"cache_dir": cache_dir, "deleted_count": deleted_count}
+            )
+
+        return deleted_count
+
+    except Exception as e:
+        logger.error(
+            f"Error cleaning up notification cache: {e}",
+            exc_info=True
+        )
+        return deleted_count

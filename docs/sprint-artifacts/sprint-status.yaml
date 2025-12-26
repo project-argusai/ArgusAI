@@ -674,7 +674,7 @@ development_status:
   p11-2-3-create-unified-push-dispatch-service: done
   p11-2-4-implement-device-registration-and-token-management: done
   p11-2-5-add-mobile-push-preferences-quiet-hours: done
-  p11-2-6-support-notification-thumbnails-attachments: backlog
+  p11-2-6-support-notification-thumbnails-attachments: review
   epic-p11-2-retrospective: optional
 
   # Epic P11-3: AI Context Enhancement (MCP)

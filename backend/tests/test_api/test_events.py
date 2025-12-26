@@ -2113,3 +2113,223 @@ def test_delivery_carrier_display_name_mapping(test_camera, carrier, display_nam
     data = response.json()
     assert data["delivery_carrier"] == carrier
     assert data["delivery_carrier_display"] == display_name
+
+
+# =============================================================================
+# Story P11-2.6: Signed Thumbnail Endpoint Tests
+# =============================================================================
+
+
+class TestSignedThumbnailEndpoint:
+    """Tests for GET /events/{event_id}/thumbnail with signed URL validation."""
+
+    @pytest.fixture
+    def event_with_thumbnail(self, test_camera):
+        """Create an event with a base64 thumbnail."""
+        db = TestingSessionLocal()
+        try:
+            # Create a simple valid JPEG (minimal 1x1 red pixel)
+            # This is a minimal valid JPEG
+            jpeg_bytes = bytes([
+                0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
+                0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
+                0x00, 0x08, 0x06, 0x06, 0x07, 0x06, 0x05, 0x08, 0x07, 0x07, 0x07, 0x09,
+                0x09, 0x08, 0x0A, 0x0C, 0x14, 0x0D, 0x0C, 0x0B, 0x0B, 0x0C, 0x19, 0x12,
+                0x13, 0x0F, 0x14, 0x1D, 0x1A, 0x1F, 0x1E, 0x1D, 0x1A, 0x1C, 0x1C, 0x20,
+                0x24, 0x2E, 0x27, 0x20, 0x22, 0x2C, 0x23, 0x1C, 0x1C, 0x28, 0x37, 0x29,
+                0x2C, 0x30, 0x31, 0x34, 0x34, 0x34, 0x1F, 0x27, 0x39, 0x3D, 0x38, 0x32,
+                0x3C, 0x2E, 0x33, 0x34, 0x32, 0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01,
+                0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xFF, 0xC4, 0x00, 0x1F, 0x00, 0x00,
+                0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                0x09, 0x0A, 0x0B, 0xFF, 0xC4, 0x00, 0xB5, 0x10, 0x00, 0x02, 0x01, 0x03,
+                0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04, 0x04, 0x00, 0x00, 0x01, 0x7D,
+                0x01, 0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06,
+                0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81, 0x91, 0xA1, 0x08,
+                0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72,
+                0x82, 0x09, 0x0A, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28,
+                0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45,
+                0x46, 0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59,
+                0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x73, 0x74, 0x75,
+                0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89,
+                0x8A, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3,
+                0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
+                0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9,
+                0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9, 0xDA, 0xE1, 0xE2,
+                0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4,
+                0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01,
+                0x00, 0x00, 0x3F, 0x00, 0xFB, 0xD5, 0xDB, 0x20, 0xA8, 0xF1, 0x5E, 0xFF,
+                0xD9
+            ])
+            thumbnail_b64 = base64.b64encode(jpeg_bytes).decode('utf-8')
+
+            event = Event(
+                id="event-with-thumbnail-signed",
+                camera_id=test_camera.id,
+                timestamp=datetime.now(timezone.utc),
+                description="Test event with thumbnail",
+                confidence=90,
+                objects_detected=json.dumps(["person"]),
+                alert_triggered=False,
+                thumbnail_base64=thumbnail_b64
+            )
+            db.add(event)
+            db.commit()
+            event_id = event.id  # Capture id before session closes
+            return event_id
+        finally:
+            db.close()
+
+    @pytest.fixture
+    def event_without_thumbnail(self, test_camera):
+        """Create an event without a thumbnail."""
+        db = TestingSessionLocal()
+        try:
+            event = Event(
+                id="event-no-thumbnail-signed",
+                camera_id=test_camera.id,
+                timestamp=datetime.now(timezone.utc),
+                description="Test event without thumbnail",
+                confidence=90,
+                objects_detected=json.dumps(["person"]),
+                alert_triggered=False,
+                thumbnail_base64=None,
+                thumbnail_path=None
+            )
+            db.add(event)
+            db.commit()
+            event_id = event.id  # Capture id before session closes
+            return event_id
+        finally:
+            db.close()
+
+    def test_get_thumbnail_with_valid_signature(self, event_with_thumbnail):
+        """Test getting thumbnail with valid signed URL (AC: 2.6.3)."""
+        import time
+        from unittest.mock import patch, MagicMock
+
+        event_id = event_with_thumbnail  # fixture now returns event_id string
+        expires = int(time.time()) + 60
+        signature = "valid-signature"
+
+        # Mock the service to accept our signature
+        mock_service = MagicMock()
+        mock_service.verify_signed_url.return_value = True
+
+        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+            response = client.get(
+                f"/api/v1/events/{event_id}/thumbnail",
+                params={"signature": signature, "expires": expires}
+            )
+
+            assert response.status_code == 200
+            assert response.headers["content-type"] == "image/jpeg"
+
+    def test_get_thumbnail_invalid_signature(self, event_with_thumbnail):
+        """Test getting thumbnail with invalid signature (AC: 2.6.3)."""
+        import time
+        from unittest.mock import patch, MagicMock
+
+        event_id = event_with_thumbnail  # fixture now returns event_id string
+        expires = int(time.time()) + 60
+        invalid_signature = "invalid-signature-12345"
+
+        # Mock service to reject signature
+        mock_service = MagicMock()
+        mock_service.verify_signed_url.return_value = False
+
+        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+            response = client.get(
+                f"/api/v1/events/{event_id}/thumbnail",
+                params={"signature": invalid_signature, "expires": expires}
+            )
+
+            assert response.status_code == 403
+            assert "Invalid or expired signature" in response.json()["detail"]
+
+    def test_get_thumbnail_expired_signature(self, event_with_thumbnail):
+        """Test getting thumbnail with expired signature (AC: 2.6.3)."""
+        import time
+        from unittest.mock import patch, MagicMock
+
+        event_id = event_with_thumbnail  # fixture now returns event_id string
+        # Expired timestamp
+        expires = int(time.time()) - 100
+        signature = "any-signature"
+
+        # Mock service to reject expired
+        mock_service = MagicMock()
+        mock_service.verify_signed_url.return_value = False
+
+        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+            response = client.get(
+                f"/api/v1/events/{event_id}/thumbnail",
+                params={"signature": signature, "expires": expires}
+            )
+
+            assert response.status_code == 403
+
+    def test_get_thumbnail_event_not_found(self, test_camera):
+        """Test getting thumbnail for non-existent event."""
+        import time
+        from unittest.mock import patch, MagicMock
+
+        expires = int(time.time()) + 60
+        signature = "valid-signature"
+
+        # Mock service to accept signature
+        mock_service = MagicMock()
+        mock_service.verify_signed_url.return_value = True
+
+        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+            response = client.get(
+                "/api/v1/events/nonexistent-event-id/thumbnail",
+                params={"signature": signature, "expires": expires}
+            )
+
+            assert response.status_code == 404
+
+    def test_get_thumbnail_event_has_no_thumbnail(self, event_without_thumbnail):
+        """Test getting thumbnail for event without thumbnail (AC: 2.6.5)."""
+        import time
+        from unittest.mock import patch, MagicMock
+
+        event_id = event_without_thumbnail  # fixture now returns event_id string
+        expires = int(time.time()) + 60
+        signature = "valid-signature"
+
+        # Mock service to accept signature
+        mock_service = MagicMock()
+        mock_service.verify_signed_url.return_value = True
+
+        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+            response = client.get(
+                f"/api/v1/events/{event_id}/thumbnail",
+                params={"signature": signature, "expires": expires}
+            )
+
+            assert response.status_code == 404
+            assert "no thumbnail" in response.json()["detail"].lower()
+
+    def test_get_thumbnail_cache_headers(self, event_with_thumbnail):
+        """Test that thumbnail response has correct cache headers."""
+        import time
+        from unittest.mock import patch, MagicMock
+
+        event_id = event_with_thumbnail  # fixture now returns event_id string
+        expires = int(time.time()) + 60
+        signature = "valid-signature"
+
+        mock_service = MagicMock()
+        mock_service.verify_signed_url.return_value = True
+
+        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+            response = client.get(
+                f"/api/v1/events/{event_id}/thumbnail",
+                params={"signature": signature, "expires": expires}
+            )
+
+            # Should have private cache headers (signed URLs shouldn't be cached)
+            assert response.status_code == 200
+            cache_control = response.headers.get("cache-control", "")
+            assert "private" in cache_control or "no-store" in cache_control

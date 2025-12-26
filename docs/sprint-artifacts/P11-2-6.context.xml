@@ -1,0 +1,175 @@
+<story-context id="P11-2-6" v="1.0">
+  <metadata>
+    <epicId>P11-2</epicId>
+    <storyId>6</storyId>
+    <title>Support Notification Thumbnails/Attachments</title>
+    <status>ready-for-dev</status>
+    <generatedAt>2025-12-26</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P11-2-6.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>mobile user</asA>
+    <iWant>see event thumbnails in notifications</iWant>
+    <soThat>I can quickly assess the situation without opening the app</soThat>
+    <tasks>
+      <task id="1">Create signed URL service for secure thumbnail access (AC: 2.6.3)
+        <subtask id="1.1">Create signed_url_service.py in backend/app/services/</subtask>
+        <subtask id="1.2">Implement generate_signed_url(event_id, expiration_seconds) using HMAC-SHA256</subtask>
+        <subtask id="1.3">Implement verify_signed_url(event_id, signature, timestamp) for validation</subtask>
+        <subtask id="1.4">Use existing ENCRYPTION_KEY environment variable for signing</subtask>
+        <subtask id="1.5">Set default expiration to 60 seconds (configurable)</subtask>
+      </task>
+      <task id="2">Create thumbnail endpoint with signed URL validation (AC: 2.6.3, 2.6.4)
+        <subtask id="2.1">Add GET /api/v1/events/{event_id}/thumbnail?signature=...&amp;expires=... endpoint</subtask>
+        <subtask id="2.2">Validate signature and expiration before serving</subtask>
+        <subtask id="2.3">Return 403 Forbidden for invalid/expired signatures</subtask>
+        <subtask id="2.4">Stream thumbnail from disk storage efficiently</subtask>
+        <subtask id="2.5">Set appropriate cache headers (private, no-store due to signed URLs)</subtask>
+      </task>
+      <task id="3">Implement image optimization for notifications (AC: 2.6.4)
+        <subtask id="3.1">Create optimize_thumbnail_for_notification(image_path) function</subtask>
+        <subtask id="3.2">Resize images to max 1024x1024px (maintain aspect ratio)</subtask>
+        <subtask id="3.3">Compress to ≤1MB (JPEG quality 80)</subtask>
+        <subtask id="3.4">Use Pillow (PIL) for image processing (already a dependency)</subtask>
+        <subtask id="3.5">Cache optimized thumbnails to avoid re-processing</subtask>
+        <subtask id="3.6">Clean up optimized cache during retention cleanup</subtask>
+      </task>
+      <task id="4">Update push payload builders with signed thumbnail URLs (AC: 2.6.1, 2.6.2)
+        <subtask id="4.1">Update format_event_for_apns() to generate signed thumbnail URL</subtask>
+        <subtask id="4.2">Update format_event_for_fcm() to include signed URL in image_url field</subtask>
+        <subtask id="4.3">Pass base URL from settings/config for full URL construction</subtask>
+        <subtask id="4.4">Include mutable-content: 1 in APNS payload (already done)</subtask>
+        <subtask id="4.5">Handle edge cases where thumbnail_path is None or file missing</subtask>
+      </task>
+      <task id="5">Update dispatch service for thumbnail integration (AC: 2.6.1, 2.6.2, 2.6.5)
+        <subtask id="5.1">Add base_url parameter to dispatch methods</subtask>
+        <subtask id="5.2">Generate signed URLs before calling payload formatters</subtask>
+        <subtask id="5.3">Verify thumbnail file exists before including URL</subtask>
+        <subtask id="5.4">Log when falling back to text-only (thumbnail unavailable)</subtask>
+      </task>
+      <task id="6">Implement fallback handling (AC: 2.6.5)
+        <subtask id="6.1">Handle missing thumbnail files gracefully (send text-only)</subtask>
+        <subtask id="6.2">Handle image optimization failures (use original if optimization fails)</subtask>
+        <subtask id="6.3">Handle signed URL generation failures (send without image)</subtask>
+        <subtask id="6.4">Add structured logging for fallback scenarios</subtask>
+      </task>
+      <task id="7">Write unit tests (AC: all)
+        <subtask id="7.1">Test signed URL generation and verification</subtask>
+        <subtask id="7.2">Test expired signature rejection</subtask>
+        <subtask id="7.3">Test thumbnail endpoint with valid/invalid signatures</subtask>
+        <subtask id="7.4">Test image optimization (resize, compress, cache)</subtask>
+        <subtask id="7.5">Test APNS payload with thumbnail URL</subtask>
+        <subtask id="7.6">Test FCM payload with BigPicture image URL</subtask>
+        <subtask id="7.7">Test fallback scenarios (missing thumbnail, optimization failure)</subtask>
+      </task>
+      <task id="8">Update documentation (AC: all)
+        <subtask id="8.1">Document signed URL scheme in architecture docs</subtask>
+        <subtask id="8.2">Document iOS Notification Service Extension requirements for native app</subtask>
+        <subtask id="8.3">Add API endpoint to OpenAPI spec</subtask>
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-2.6.1">iOS notifications include image attachment via Notification Service Extension</criterion>
+    <criterion id="AC-2.6.2">Android notifications include BigPicture style with thumbnail</criterion>
+    <criterion id="AC-2.6.3">Thumbnail URL accessible via signed temporary link with expiration</criterion>
+    <criterion id="AC-2.6.4">Images optimized for notification display (≤1MB, max 1024px)</criterion>
+    <criterion id="AC-2.6.5">Fallback to text-only notification if image unavailable or fails</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/sprint-artifacts/tech-spec-epic-P11-2.md" title="Epic P11-2 Tech Spec" section="Story 2.6" snippet="Specifies signed URL approach, image optimization requirements, and platform-specific notification attachments for iOS/Android."/>
+      <doc path="docs/epics-phase11.md" title="Phase 11 Epics" section="P11-2: Mobile Push Notifications" snippet="High-level epic description for mobile push with thumbnails as final story."/>
+      <doc path="docs/architecture/phase-11-additions.md" title="Phase 11 Architecture" section="Push Notification Architecture" snippet="Describes push notification flow including APNS mutable-content and FCM BigPicture patterns."/>
+      <doc path="docs/sprint-artifacts/P11-2-5.md" title="Story P11-2.5 (Previous)" section="Learnings" snippet="Device model has quiet hours; dispatch service checks per-device preferences; 95 push tests passing."/>
+    </docs>
+    <code>
+      <file path="backend/app/services/push/models.py" kind="service-models" symbol="format_event_for_apns, format_event_for_fcm, APNSPayload, FCMPayload" reason="Payload formatters that need thumbnail_url integration. Already accept thumbnail_url parameter."/>
+      <file path="backend/app/services/push/apns_provider.py" kind="provider" symbol="APNSProvider" lines="1-518" reason="APNS HTTP/2 provider - already sends mutable_content=1 for iOS Notification Service Extension."/>
+      <file path="backend/app/services/push/fcm_provider.py" kind="provider" symbol="FCMProvider" reason="FCM provider - FCMPayload already has image_url field for BigPicture style."/>
+      <file path="backend/app/services/push/dispatch_service.py" kind="service" symbol="PushDispatchService, dispatch_event" lines="641-717" reason="Convenience method that calls dispatch - needs to generate signed URLs and pass to payloads."/>
+      <file path="backend/app/services/snapshot_service.py" kind="service" symbol="SnapshotService, _generate_thumbnail, _resize_for_ai" lines="442-497" reason="Existing thumbnail generation with Pillow. Pattern for image optimization."/>
+      <file path="backend/app/core/config.py" kind="config" symbol="Settings.ENCRYPTION_KEY" lines="17" reason="ENCRYPTION_KEY to use for HMAC signing of URLs."/>
+      <file path="backend/main.py" kind="app" symbol="get_thumbnail" lines="938-967" reason="Existing thumbnail endpoint - will add new signed variant."/>
+      <file path="backend/app/api/v1/events.py" kind="api" symbol="_normalize_thumbnail_path, THUMBNAIL_DIR" lines="49-66" reason="Existing thumbnail path helpers to reuse."/>
+      <file path="backend/app/services/cleanup_service.py" kind="service" symbol="CleanupService" reason="Needs to clean up optimized thumbnail cache during retention cleanup."/>
+    </code>
+    <dependencies>
+      <python>
+        <package name="pillow" version=">=10.0">Image processing for optimization</package>
+        <package name="cryptography" version=">=41.0">Fernet already used; provides HMAC</package>
+        <package name="pydantic" version=">=2.0">Settings and models</package>
+        <package name="fastapi" version=">=0.115">API framework</package>
+        <package name="httpx" version=">=0.27">HTTP/2 client for APNS</package>
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint category="security">Signed URLs must use HMAC-SHA256 with ENCRYPTION_KEY</constraint>
+    <constraint category="security">URL expiration must be short (60 seconds default) to limit exposure</constraint>
+    <constraint category="security">No path traversal in thumbnail paths (validate input)</constraint>
+    <constraint category="performance">Image optimization must be cached to avoid repeated processing</constraint>
+    <constraint category="performance">Optimized images must be ≤1MB per platform requirements</constraint>
+    <constraint category="compatibility">iOS requires mutable-content:1 for Notification Service Extension to download image</constraint>
+    <constraint category="compatibility">Android FCM image_url must be publicly accessible or use FCM proxy</constraint>
+    <constraint category="architecture">Follow existing service layer patterns in backend/app/services/</constraint>
+    <constraint category="architecture">Use structured logging with extra dict for observability</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="SignedURLService" kind="service-class">
+      <method>generate_signed_url(event_id: str, base_url: str, expiration_seconds: int = 60) -> str</method>
+      <method>verify_signed_url(event_id: str, signature: str, expires: int) -> bool</method>
+    </interface>
+    <interface name="GET /api/v1/events/{event_id}/thumbnail" kind="REST-endpoint">
+      <param name="signature" type="query" required="true">HMAC-SHA256 signature</param>
+      <param name="expires" type="query" required="true">Unix timestamp expiration</param>
+      <response status="200">JPEG image bytes</response>
+      <response status="403">Invalid or expired signature</response>
+      <response status="404">Event or thumbnail not found</response>
+    </interface>
+    <interface name="format_event_for_apns" kind="function-signature">
+      <current>format_event_for_apns(event_id, camera_id, camera_name, description, smart_detection_type, thumbnail_url, entity_names, is_vip, anomaly_score) -> APNSPayload</current>
+      <note>thumbnail_url already supported - need to pass signed URL from dispatch</note>
+    </interface>
+    <interface name="format_event_for_fcm" kind="function-signature">
+      <current>format_event_for_fcm(event_id, camera_id, camera_name, description, smart_detection_type, thumbnail_url, entity_names, is_vip, anomaly_score) -> FCMPayload</current>
+      <note>thumbnail_url maps to FCMPayload.image_url - already supported</note>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      Follow pytest patterns in backend/tests/. Use pytest-asyncio for async tests.
+      Mock external dependencies (APNS, FCM). Use fixtures for database sessions.
+      Target 90%+ coverage for new code. Follow existing test file structure in test_services/test_push/.
+    </standards>
+    <locations>
+      <location>backend/tests/test_services/test_signed_url_service.py</location>
+      <location>backend/tests/test_api/test_events.py</location>
+      <location>backend/tests/test_services/test_push/test_dispatch_service.py</location>
+      <location>backend/tests/test_services/test_snapshot_service.py</location>
+    </locations>
+    <ideas>
+      <idea ac="AC-2.6.1">test_apns_payload_includes_thumbnail_url - verify format_event_for_apns includes URL in custom_data</idea>
+      <idea ac="AC-2.6.2">test_fcm_payload_includes_image_url - verify FCMPayload.image_url is set</idea>
+      <idea ac="AC-2.6.3">test_signed_url_generation - verify URL format and signature validity</idea>
+      <idea ac="AC-2.6.3">test_signed_url_verification_success - valid signature passes</idea>
+      <idea ac="AC-2.6.3">test_signed_url_verification_expired - expired timestamp rejected</idea>
+      <idea ac="AC-2.6.3">test_signed_url_verification_invalid - tampered signature rejected</idea>
+      <idea ac="AC-2.6.3">test_thumbnail_endpoint_valid_signature - returns image with valid signed URL</idea>
+      <idea ac="AC-2.6.3">test_thumbnail_endpoint_invalid_signature - returns 403</idea>
+      <idea ac="AC-2.6.3">test_thumbnail_endpoint_expired - returns 403</idea>
+      <idea ac="AC-2.6.4">test_image_optimization_resize - large images resized to max 1024px</idea>
+      <idea ac="AC-2.6.4">test_image_optimization_compress - output under 1MB</idea>
+      <idea ac="AC-2.6.4">test_optimization_cache - second call uses cached file</idea>
+      <idea ac="AC-2.6.5">test_dispatch_fallback_missing_thumbnail - sends text-only notification</idea>
+      <idea ac="AC-2.6.5">test_dispatch_fallback_optimization_error - uses original thumbnail</idea>
+    </ideas>
+  </tests>
+</story-context>

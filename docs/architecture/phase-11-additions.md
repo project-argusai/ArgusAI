@@ -44,6 +44,7 @@ backend/
 │   │   │   ├── fcm_provider.py       # P11-2.2: Android push
 │   │   │   ├── dispatch_service.py   # P11-2.3: Unified routing
 │   │   │   └── token_manager.py      # P11-2.4: Device tokens
+│   │   ├── signed_url_service.py     # P11-2.6: Signed thumbnail URLs
 │   │   ├── tunnel_service.py         # P11-1.1: Cloudflare Tunnel
 │   │   └── mcp_context.py            # P11-3.1: Context provider
 │   ├── api/v1/
@@ -291,6 +292,88 @@ class PushDispatchService:
             details=results,
         )
 ```
+
+### Notification Thumbnail Attachments (P11-2.6)
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                     Thumbnail Attachment Flow                        │
+│                                                                      │
+│  Event Created ─► Thumbnail Saved ─► Push Dispatch                   │
+│                                            │                         │
+│                         ┌──────────────────┼──────────────────┐     │
+│                         ▼                  ▼                  ▼     │
+│                    Optimize           Generate          Verify       │
+│                    Thumbnail          Signed URL        Thumbnail    │
+│                   (≤1MB, 1024px)     (HMAC-SHA256)     File Exists   │
+│                         │                  │                  │     │
+│                         └──────────────────┼──────────────────┘     │
+│                                            ▼                         │
+│                                     Include in Payload               │
+│                                            │                         │
+│                         ┌──────────────────┼──────────────────┐     │
+│                         ▼                  ▼                  ▼     │
+│                       APNS              FCM             Fallback     │
+│                  (mutable-content)  (BigPicture)    (text-only)     │
+│                         │                  │                         │
+│                         ▼                  ▼                         │
+│                   iOS NSE           Android SDK                      │
+│                  Downloads         Auto-downloads                    │
+│                   Attaches          & Displays                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Signed URL Service:**
+
+```python
+class SignedURLService:
+    """Generates time-limited signed URLs for secure thumbnail access."""
+
+    def generate_signed_url(
+        self,
+        event_id: str,
+        base_url: str,
+        expiration_seconds: int = 60,
+    ) -> str:
+        """
+        Generate HMAC-SHA256 signed URL for thumbnail.
+
+        URL format: {base_url}/api/v1/events/{event_id}/thumbnail?signature={sig}&expires={ts}
+        """
+        expires = int(time.time()) + expiration_seconds
+        message = f"{event_id}:{expires}".encode()
+        signature = hmac.new(secret_key, message, hashlib.sha256).hexdigest()
+        return f"{base_url}/api/v1/events/{event_id}/thumbnail?signature={signature}&expires={expires}"
+
+    def verify_signed_url(self, event_id: str, signature: str, expires: int) -> bool:
+        """Verify URL signature and expiration."""
+        if time.time() > expires:
+            return False  # Expired
+        expected = hmac.new(secret_key, f"{event_id}:{expires}".encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(signature, expected)
+```
+
+**Image Optimization:**
+
+- Maximum dimension: 1024x1024px (maintains aspect ratio)
+- Maximum file size: 1MB
+- JPEG quality: 80 (reduced to 20 if needed for size)
+- Cached with `_notification` suffix to avoid re-processing
+
+**Platform-Specific Handling:**
+
+| Platform | Mechanism | Maximum Size | Notes |
+|----------|-----------|--------------|-------|
+| iOS | Notification Service Extension | ~10MB | App must implement UNNotificationServiceExtension |
+| Android | FCM BigPicture style | 1MB recommended | SDK auto-downloads image |
+| Web | Web Push image field | 1MB | Browser displays automatically |
+
+**Fallback Behavior (AC-2.6.5):**
+
+- Missing thumbnail file → Send text-only notification
+- Optimization failure → Use original thumbnail
+- Signed URL failure → Send without image
+- All failures logged with structured metadata
 
 ### MCP Context Provider (P11-3.1)
 

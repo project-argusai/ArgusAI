@@ -2525,3 +2525,176 @@ async def download_event_video(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to download event video"
         )
+
+
+# =============================================================================
+# Story P11-2.6: Signed Thumbnail Endpoint for Push Notifications
+# =============================================================================
+
+
+@router.get(
+    "/{event_id}/thumbnail",
+    summary="Get event thumbnail with signed URL validation",
+    description="""
+    Retrieve event thumbnail image with signed URL authentication.
+
+    This endpoint is designed for push notifications where the mobile app
+    needs to download the thumbnail for display. The URL must be signed
+    to prevent unauthorized access.
+
+    **Signed URL Parameters:**
+    - signature: HMAC-SHA256 signature of event_id:expires
+    - expires: Unix timestamp when the URL expires
+
+    **Responses:**
+    - 200: JPEG image bytes
+    - 403: Invalid or expired signature
+    - 404: Event or thumbnail not found
+
+    **Usage:**
+    Generate signed URLs using the SignedURLService before sending push notifications.
+    """,
+    response_class=Response,
+    responses={
+        200: {"content": {"image/jpeg": {}}, "description": "Thumbnail image"},
+        403: {"description": "Invalid or expired signature"},
+        404: {"description": "Event or thumbnail not found"},
+    },
+)
+async def get_event_thumbnail_signed(
+    event_id: str,
+    signature: str = Query(..., description="HMAC-SHA256 signature"),
+    expires: int = Query(..., description="Unix timestamp expiration"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get event thumbnail with signed URL validation (Story P11-2.6).
+
+    Designed for push notification image attachments. Validates signature
+    and expiration before serving the thumbnail.
+
+    Args:
+        event_id: Event UUID
+        signature: HMAC-SHA256 signature from signed URL
+        expires: Unix timestamp expiration from signed URL
+        db: Database session
+
+    Returns:
+        JPEG image bytes with appropriate headers
+
+    Raises:
+        403: Invalid or expired signature
+        404: Event or thumbnail not found
+    """
+    from app.services.signed_url_service import get_signed_url_service
+
+    # Validate signature first
+    signed_url_service = get_signed_url_service()
+    if not signed_url_service.verify_signed_url(event_id, signature, expires):
+        logger.warning(
+            "Invalid or expired signed URL for thumbnail",
+            extra={
+                "event_id": event_id,
+                "expires": expires,
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or expired signature"
+        )
+
+    # Look up event
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event {event_id} not found"
+        )
+
+    # Check for thumbnail
+    if not event.thumbnail_path and not event.thumbnail_base64:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event has no thumbnail"
+        )
+
+    # Get thumbnail bytes
+    thumbnail_bytes = None
+
+    if event.thumbnail_base64:
+        # Decode base64 thumbnail
+        try:
+            b64_str = event.thumbnail_base64
+            if b64_str.startswith("data:"):
+                # Strip data URI prefix
+                comma_idx = b64_str.find(",")
+                if comma_idx > 0:
+                    b64_str = b64_str[comma_idx + 1:]
+            thumbnail_bytes = base64.b64decode(b64_str)
+        except Exception as e:
+            logger.error(f"Failed to decode base64 thumbnail for event {event_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to decode thumbnail"
+            )
+
+    elif event.thumbnail_path:
+        # Load from filesystem
+        thumb_path = _normalize_thumbnail_path(event.thumbnail_path)
+
+        # Security: Prevent path traversal
+        if ".." in thumb_path:
+            logger.warning(
+                "Path traversal attempt in thumbnail path",
+                extra={"event_id": event_id, "path": thumb_path}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid thumbnail path"
+            )
+
+        thumbnail_file = os.path.join(THUMBNAIL_DIR, thumb_path)
+
+        if not os.path.exists(thumbnail_file):
+            logger.warning(
+                f"Thumbnail file not found: {thumbnail_file}",
+                extra={"event_id": event_id}
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Thumbnail file not found"
+            )
+
+        try:
+            with open(thumbnail_file, "rb") as f:
+                thumbnail_bytes = f.read()
+        except Exception as e:
+            logger.error(f"Failed to read thumbnail file for event {event_id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to read thumbnail"
+            )
+
+    if not thumbnail_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Unable to retrieve thumbnail"
+        )
+
+    logger.debug(
+        "Serving signed thumbnail",
+        extra={
+            "event_id": event_id,
+            "size_bytes": len(thumbnail_bytes),
+        }
+    )
+
+    return Response(
+        content=thumbnail_bytes,
+        media_type="image/jpeg",
+        headers={
+            # Private, no-store because URLs are signed with expiration
+            "Cache-Control": "private, no-store, max-age=0",
+            "Content-Length": str(len(thumbnail_bytes)),
+        }
+    )

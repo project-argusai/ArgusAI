@@ -64,15 +64,19 @@ export function PasswordChangeForm() {
   const newPassword = watch('newPassword');
 
   const onSubmit = async (data: PasswordChangeFormData) => {
+    console.log('PasswordChangeForm: onSubmit called');
     try {
       setIsSubmitting(true);
-      await apiClient.auth.changePassword({
+      console.log('PasswordChangeForm: calling API...');
+      const response = await apiClient.auth.changePassword({
         current_password: data.currentPassword,
         new_password: data.newPassword,
       });
+      console.log('PasswordChangeForm: API response:', response);
       toast.success('Password updated successfully');
       reset(); // Clear form on success
     } catch (error) {
+      console.error('PasswordChangeForm: API error:', error);
       // Handle specific error messages from backend
       if (error instanceof Error) {
         const message = error.message.toLowerCase();

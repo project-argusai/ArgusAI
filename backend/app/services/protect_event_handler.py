@@ -57,6 +57,7 @@ from app.services.clip_service import get_clip_service
 from app.services.frame_extractor import get_frame_extractor
 from app.services.frame_storage_service import get_frame_storage_service
 from app.services.video_storage_service import get_video_storage_service
+from app.services.context_prompt_service import get_context_prompt_service
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIResult
@@ -937,6 +938,51 @@ class ProtectEventHandler:
             db = SessionLocal()
             try:
                 await ai_service.load_api_keys_from_db(db)
+
+                # Story P11-3: Build context-enhanced prompt for AI
+                # This gathers feedback history, camera patterns, and time patterns from MCP
+                self._context_enhanced_prompt = None
+                try:
+                    context_service = get_context_prompt_service()
+                    base_prompt = (
+                        "Describe what you see in this image. Include: "
+                        "WHO (people, their appearance, clothing), "
+                        "WHAT (objects, vehicles, packages), "
+                        "WHERE (location in frame), "
+                        "and ACTIONS (what is happening). "
+                        "Be specific and detailed."
+                    )
+
+                    context_result = await context_service.build_context_enhanced_prompt(
+                        db=db,
+                        event_id=str(uuid.uuid4()),  # Temp ID for context lookup
+                        base_prompt=base_prompt,
+                        camera_id=camera.id,
+                        event_time=snapshot_result.timestamp,
+                        matched_entity=None,  # Entity matching not available in Protect flow yet
+                    )
+
+                    if context_result and context_result.context_included:
+                        self._context_enhanced_prompt = context_result.prompt
+                        logger.info(
+                            f"Context-enhanced prompt built for camera '{camera.name}'",
+                            extra={
+                                "event_type": "protect_context_enhanced",
+                                "camera_id": camera.id,
+                                "mcp_context_included": context_result.mcp_context_included,
+                                "mcp_feedback_included": context_result.mcp_feedback_included,
+                                "mcp_camera_included": context_result.mcp_camera_included,
+                                "mcp_time_pattern_included": context_result.mcp_time_pattern_included,
+                                "mcp_accuracy_rate": context_result.mcp_accuracy_rate,
+                                "context_gather_time_ms": round(context_result.context_gather_time_ms, 2),
+                            }
+                        )
+                except Exception as ctx_error:
+                    # Fail-open: context failures don't block AI description
+                    logger.warning(
+                        f"Failed to build context-enhanced prompt for camera '{camera.name}': {ctx_error}",
+                        extra={"camera_id": camera.id, "error": str(ctx_error)}
+                    )
             finally:
                 db.close()
 
@@ -1273,12 +1319,16 @@ class ProtectEventHandler:
             include_audio = caps.get("supports_audio_transcription", False)
 
             # Build custom prompt for event context
-            custom_prompt = None
+            # Story P11-3: Use context-enhanced prompt if available
             if is_doorbell_ring:
                 custom_prompt = (
                     "This is a doorbell ring event. Describe who is at the door, "
                     "their appearance, what they might want, and any packages or items visible."
                 )
+            elif hasattr(self, '_context_enhanced_prompt') and self._context_enhanced_prompt:
+                custom_prompt = self._context_enhanced_prompt
+            else:
+                custom_prompt = None
 
             # Story P3-4.4 AC3: 30 second timeout for video analysis
             VIDEO_ANALYSIS_TIMEOUT_SECONDS = 30
@@ -1421,12 +1471,16 @@ class ProtectEventHandler:
                 return None
 
             # Build custom prompt for event context
-            custom_prompt = None
+            # Story P11-3: Use context-enhanced prompt if available
             if is_doorbell_ring:
                 custom_prompt = (
                     "This is a doorbell ring event. Describe who is at the door, "
                     "their appearance, what they might want, and any packages or items visible."
                 )
+            elif hasattr(self, '_context_enhanced_prompt') and self._context_enhanced_prompt:
+                custom_prompt = self._context_enhanced_prompt
+            else:
+                custom_prompt = None
 
             # Story P3-4.4 AC3: 30 second timeout for video analysis
             VIDEO_ANALYSIS_TIMEOUT_SECONDS = 30
@@ -1662,7 +1716,13 @@ class ProtectEventHandler:
             # Story P3-2.6 AC1: Call AIService.describe_images() with extracted frames
             try:
                 # Story P2-4.1: Use doorbell-specific prompt for ring events
-                custom_prompt = DOORBELL_RING_PROMPT if is_doorbell_ring else None
+                # Story P11-3: Use context-enhanced prompt if available
+                if is_doorbell_ring:
+                    custom_prompt = DOORBELL_RING_PROMPT
+                elif hasattr(self, '_context_enhanced_prompt') and self._context_enhanced_prompt:
+                    custom_prompt = self._context_enhanced_prompt
+                else:
+                    custom_prompt = None
 
                 # Story P3-5.3: Extract audio and transcribe for doorbell cameras
                 audio_transcription = None
@@ -1787,7 +1847,13 @@ class ProtectEventHandler:
                 frame_bgr = frame_rgb
 
             # Story P2-4.1: Use doorbell-specific prompt for ring events (AC4)
-            custom_prompt = DOORBELL_RING_PROMPT if is_doorbell_ring else None
+            # Story P11-3: Use context-enhanced prompt if available
+            if is_doorbell_ring:
+                custom_prompt = DOORBELL_RING_PROMPT
+            elif hasattr(self, '_context_enhanced_prompt') and self._context_enhanced_prompt:
+                custom_prompt = self._context_enhanced_prompt
+            else:
+                custom_prompt = None
 
             # Call AI service (AC1, AC2, AC3)
             result = await ai_service.generate_description(

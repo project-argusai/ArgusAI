@@ -377,6 +377,8 @@ class ProtectEventHandler:
                             # Broadcast the event even without AI description
                             await self._broadcast_event_created(stored_event, camera)
                             asyncio.create_task(self._process_correlation(stored_event))
+                            # Publish to MQTT for Home Assistant (even without AI)
+                            await self._publish_event_to_mqtt(stored_event, camera, None)
                             return True
 
                         return False
@@ -425,6 +427,9 @@ class ProtectEventHandler:
                     # Story P2-4.3: Fire-and-forget correlation processing (AC6)
                     # Doesn't block event creation - runs asynchronously
                     asyncio.create_task(self._process_correlation(stored_event))
+
+                    # Publish to MQTT for Home Assistant (Bug fix: Protect events weren't publishing to MQTT)
+                    await self._publish_event_to_mqtt(stored_event, camera, ai_result)
 
                     return True
 
@@ -2628,6 +2633,116 @@ class ProtectEventHandler:
                 }
             )
             return 0
+
+    async def _publish_event_to_mqtt(
+        self,
+        event: Event,
+        camera: Camera,
+        ai_result: Optional["AIResult"]
+    ) -> None:
+        """
+        Publish Protect event to MQTT for Home Assistant integration.
+
+        Publishes to multiple topics:
+        - Event topic: Full event details with AI description
+        - Last event topic: Timestamp and description snippet
+        - Activity topic: Sets activity state to ON
+        - Counts topic: Updates daily/weekly event counts
+
+        Args:
+            event: Stored Event model
+            camera: Camera that captured the event
+            ai_result: AI result (may be None for failed AI events)
+        """
+        try:
+            from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
+            from app.services.mqtt_status_service import get_camera_event_counts, set_activity_on
+
+            mqtt_service = get_mqtt_service()
+
+            # Only publish if MQTT is connected
+            if not mqtt_service.is_connected:
+                logger.debug(
+                    f"MQTT not connected, skipping event publish for {event.id[:8]}...",
+                    extra={"event_id": event.id}
+                )
+                return
+
+            # 1. Publish main event to event topic
+            try:
+                api_base_url = mqtt_service.get_api_base_url()
+                mqtt_payload = serialize_event_for_mqtt(event, camera.name, api_base_url=api_base_url)
+                topic = mqtt_service.get_event_topic(str(camera.id))
+
+                success = await mqtt_service.publish(topic, mqtt_payload)
+                if success:
+                    logger.info(
+                        f"Protect event published to MQTT",
+                        extra={
+                            "event_type": "mqtt_protect_event_published",
+                            "event_id": event.id,
+                            "topic": topic,
+                            "camera_id": str(camera.id)
+                        }
+                    )
+                else:
+                    logger.warning(
+                        f"MQTT publish returned False for Protect event {event.id[:8]}...",
+                        extra={"event_id": event.id, "topic": topic}
+                    )
+            except Exception as pub_err:
+                logger.warning(
+                    f"Failed to publish Protect event to MQTT: {pub_err}",
+                    extra={"event_id": event.id, "error": str(pub_err)}
+                )
+
+            # 2. Publish last event timestamp
+            try:
+                description = ai_result.description if ai_result else event.description
+                await mqtt_service.publish_last_event_timestamp(
+                    camera_id=str(camera.id),
+                    camera_name=camera.name,
+                    event_id=str(event.id),
+                    timestamp=event.timestamp,
+                    description=description,
+                    smart_detection_type=event.smart_detection_type
+                )
+            except Exception as ts_err:
+                logger.warning(f"Failed to publish last event timestamp: {ts_err}")
+
+            # 3. Publish activity state ON
+            try:
+                await mqtt_service.publish_activity_state(
+                    camera_id=str(camera.id),
+                    state="ON",
+                    last_event_at=event.timestamp
+                )
+                await set_activity_on(str(camera.id), event.timestamp)
+            except Exception as act_err:
+                logger.warning(f"Failed to publish activity state: {act_err}")
+
+            # 4. Publish updated event counts
+            try:
+                counts = await get_camera_event_counts(str(camera.id))
+                await mqtt_service.publish_event_counts(
+                    camera_id=str(camera.id),
+                    camera_name=camera.name,
+                    events_today=counts["events_today"],
+                    events_this_week=counts["events_this_week"]
+                )
+            except Exception as cnt_err:
+                logger.warning(f"Failed to publish event counts: {cnt_err}")
+
+        except Exception as e:
+            # MQTT failures must not block event processing
+            logger.warning(
+                f"MQTT publishing failed for Protect event {event.id[:8]}...: {e}",
+                extra={
+                    "event_type": "mqtt_protect_publish_error",
+                    "event_id": event.id,
+                    "error": str(e)
+                }
+            )
 
     async def _process_correlation(self, event: Event) -> None:
         """

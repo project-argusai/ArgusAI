@@ -1,5 +1,5 @@
 /**
- * EntityAlertModal component tests (Story P7-4.3)
+ * EntityAlertModal component tests (Story P7-4.3, P12-1.1)
  */
 
 import React from 'react';
@@ -12,6 +12,18 @@ import type { IEntity } from '@/types/entity';
 vi.mock('sonner', () => ({
   toast: {
     info: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+}));
+
+// Mock API client
+const mockCreate = vi.fn();
+vi.mock('@/lib/api-client', () => ({
+  api: {
+    alertRules: {
+      create: (...args: unknown[]) => mockCreate(...args),
+    },
   },
 }));
 
@@ -36,6 +48,7 @@ describe('EntityAlertModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCreate.mockResolvedValue({ id: 'rule-123', name: 'Alert: John Doe detected' });
   });
 
   // AC1: Modal opens from entity card
@@ -145,8 +158,8 @@ describe('EntityAlertModal', () => {
     });
   });
 
-  // AC5: "Coming Soon" message shown when save attempted
-  it('shows "Coming Soon" toast when Save is clicked (Story P7-4.3 AC5)', async () => {
+  // AC5: Creates alert rule on save
+  it('creates alert rule when Save is clicked (Story P7-4.3 AC5, P12-1.1)', async () => {
     const { toast } = await import('sonner');
 
     render(
@@ -160,10 +173,80 @@ describe('EntityAlertModal', () => {
     const saveButton = screen.getByRole('button', { name: /save alert/i });
     fireEvent.click(saveButton);
 
-    expect(toast.info).toHaveBeenCalledWith('Coming Soon', {
-      description: expect.stringContaining('Entity-based alerts will be available'),
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledWith({
+        name: 'Alert: John Doe detected',
+        is_enabled: true,
+        entity_id: 'entity-123',
+        entity_match_mode: 'specific',
+        conditions: {
+          object_types: ['person'],
+        },
+        actions: {
+          dashboard_notification: true,
+        },
+        cooldown_minutes: 5,
+      });
+    });
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Alert Created', {
+        description: expect.stringContaining('John Doe'),
+      });
     });
     expect(mockOnClose).toHaveBeenCalled();
+  });
+
+  it('shows error toast when API call fails', async () => {
+    const { toast } = await import('sonner');
+    mockCreate.mockRejectedValue(new Error('Network error'));
+
+    render(
+      <EntityAlertModal
+        isOpen={true}
+        onClose={mockOnClose}
+        entity={mockEntity}
+      />
+    );
+
+    const saveButton = screen.getByRole('button', { name: /save alert/i });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Failed to Create Alert', {
+        description: 'Network error',
+      });
+    });
+    expect(mockOnClose).not.toHaveBeenCalled();
+  });
+
+  it('creates vehicle alert rule for vehicle entity', async () => {
+    const vehicleEntity: IEntity = {
+      ...mockEntity,
+      entity_type: 'vehicle',
+      name: 'Blue Sedan',
+    };
+
+    render(
+      <EntityAlertModal
+        isOpen={true}
+        onClose={mockOnClose}
+        entity={vehicleEntity}
+      />
+    );
+
+    const saveButton = screen.getByRole('button', { name: /save alert/i });
+    fireEvent.click(saveButton);
+
+    await waitFor(() => {
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conditions: {
+            object_types: ['vehicle'],
+          },
+        })
+      );
+    });
   });
 
   // AC6: Link to alert rules page provided

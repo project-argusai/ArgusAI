@@ -1,14 +1,13 @@
 /**
- * EntityAlertModal component - Stub UI for configuring entity-based alerts (Story P7-4.3)
+ * EntityAlertModal component - Configure entity-based alerts (Story P7-4.3, P12-1.1)
  *
- * This is a non-functional UI that displays alert configuration options.
- * Actual entity alerting will be implemented in a future phase.
+ * Creates alert rules that trigger when a specific entity is detected.
  *
  * AC1: Modal opens from entity card "Add Alert" button
- * AC2: Shows "Notify when seen" option
- * AC3: Shows "Notify when NOT seen for X hours" option with hour input
+ * AC2: Shows "Notify when seen" option - creates alert rule with entity_match_mode='specific'
+ * AC3: Shows "Notify when NOT seen for X hours" option (coming soon)
  * AC4: Time range configuration displayed
- * AC5: "Coming Soon" message shown when save attempted
+ * AC5: Creates alert rule on save
  * AC6: Link to alert rules page provided
  */
 
@@ -29,8 +28,9 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Bell, Clock, ExternalLink } from 'lucide-react';
+import { Bell, Clock, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { api } from '@/lib/api-client';
 import type { IEntity } from '@/types/entity';
 
 export interface EntityAlertModalProps {
@@ -43,24 +43,72 @@ export interface EntityAlertModalProps {
 }
 
 /**
- * EntityAlertModal - Non-functional stub for entity alert configuration
+ * EntityAlertModal - Configure entity-based alert rules
  */
 export function EntityAlertModal({ isOpen, onClose, entity }: EntityAlertModalProps) {
-  // Form state (non-functional, just for UI)
+  // Form state
   const [notifyWhenSeen, setNotifyWhenSeen] = useState(true);
   const [notifyWhenNotSeen, setNotifyWhenNotSeen] = useState(false);
   const [notSeenHours, setNotSeenHours] = useState('24');
   const [timeRange, setTimeRange] = useState<'all-day' | 'custom'>('all-day');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Display name with fallback
   const displayName = entity.name || `Unknown ${entity.entity_type}`;
 
-  // AC5: Handle save - show "Coming Soon" message
-  const handleSave = () => {
-    toast.info('Coming Soon', {
-      description: 'Entity-based alerts will be available in a future update. For now, use the Alert Rules page to create general alerts.',
-    });
-    onClose();
+  // Handle save - create alert rule for entity
+  const handleSave = async () => {
+    // Validate: at least one notification type must be selected
+    if (!notifyWhenSeen && !notifyWhenNotSeen) {
+      toast.error('Please select at least one notification option');
+      return;
+    }
+
+    // "Notify when NOT seen" is not yet implemented
+    if (notifyWhenNotSeen && !notifyWhenSeen) {
+      toast.info('Coming Soon', {
+        description: '"Notify when NOT seen" requires scheduled monitoring which is not yet available. Please also enable "Notify when seen" or use the Alert Rules page.',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      // Create alert rule with entity_match_mode='specific'
+      await api.alertRules.create({
+        name: `Alert: ${displayName} detected`,
+        is_enabled: true,
+        entity_id: entity.id,
+        entity_match_mode: 'specific',
+        conditions: {
+          object_types: [entity.entity_type === 'vehicle' ? 'vehicle' : 'person'],
+        },
+        actions: {
+          dashboard_notification: true,
+        },
+        cooldown_minutes: 5,
+      });
+
+      toast.success('Alert Created', {
+        description: `You will be notified when ${displayName} is detected.`,
+      });
+
+      // Show info about "NOT seen" if that was also selected
+      if (notifyWhenNotSeen) {
+        toast.info('Note', {
+          description: '"Notify when NOT seen" is coming soon. The "when seen" alert has been created.',
+        });
+      }
+
+      onClose();
+    } catch (error) {
+      console.error('Failed to create entity alert:', error);
+      toast.error('Failed to Create Alert', {
+        description: error instanceof Error ? error.message : 'An unexpected error occurred',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -178,12 +226,18 @@ export function EntityAlertModal({ isOpen, onClose, entity }: EntityAlertModalPr
             View Alert Rules
           </Link>
           <div className="flex-1" />
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
-          {/* AC5: Save button shows Coming Soon */}
-          <Button onClick={handleSave}>
-            Save Alert
+          <Button onClick={handleSave} disabled={isSubmitting}>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              'Save Alert'
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

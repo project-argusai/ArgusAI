@@ -183,6 +183,23 @@ class PairingService:
         self.db.query(PairingCode).filter(PairingCode.code == code).delete()
         self.db.commit()
 
+    def get_pending_code(self, code: str) -> Optional[PairingCode]:
+        """
+        Get a specific pending pairing code.
+
+        Args:
+            code: The 6-digit pairing code
+
+        Returns:
+            PairingCode if found and still pending, None otherwise
+        """
+        now = datetime.now(timezone.utc)
+        return self.db.query(PairingCode).filter(
+            PairingCode.code == code,
+            PairingCode.confirmed_at.is_(None),
+            PairingCode.expires_at > now
+        ).first()
+
     def get_pending_pairings(self, user_id: Optional[str] = None) -> list[PairingCode]:
         """
         Get pending (unconfirmed, unexpired) pairing codes.

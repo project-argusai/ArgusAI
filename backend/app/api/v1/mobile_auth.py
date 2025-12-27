@@ -195,6 +195,50 @@ async def list_pending_pairings(
     )
 
 
+@router.delete(
+    "/pending/{code}",
+    summary="Delete pending pairing",
+    description="Delete/reject a pending pairing request. "
+                "Requires authentication.",
+    responses={
+        401: {"description": "Not authenticated"},
+        404: {"description": "Pairing code not found"},
+    }
+)
+async def delete_pending_pairing(
+    code: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a pending pairing request.
+
+    Allows the web dashboard to reject/cancel a pairing request.
+    """
+    service = PairingService(db)
+
+    # Check if code exists
+    pairing = service.get_pending_code(code)
+    if not pairing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pairing code not found"
+        )
+
+    service.delete_code(code)
+
+    logger.info(
+        "Pairing request deleted",
+        extra={
+            "event_type": "pairing_deleted",
+            "code": code[:3] + "***",
+            "user_id": current_user.id,
+        }
+    )
+
+    return {"message": "Pairing request deleted"}
+
+
 # ============================================================================
 # Token Endpoints (P12-3.4, P12-3.5, P12-3.6)
 # ============================================================================

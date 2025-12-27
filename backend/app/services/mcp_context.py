@@ -49,22 +49,28 @@ from sqlalchemy import desc, select, func, extract
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.metrics import REGISTRY
+
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics for context gathering (Story P11-3.4)
+# Use the app's custom REGISTRY to ensure metrics appear in /metrics endpoint
 MCP_CONTEXT_LATENCY = Histogram(
     'argusai_mcp_context_latency_seconds',
     'Time to gather MCP context',
     ['cached'],
-    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0]
+    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+    registry=REGISTRY
 )
 MCP_CACHE_HITS = PromCounter(
     'argusai_mcp_cache_hits_total',
-    'Number of MCP context cache hits'
+    'Number of MCP context cache hits',
+    registry=REGISTRY
 )
 MCP_CACHE_MISSES = PromCounter(
     'argusai_mcp_cache_misses_total',
-    'Number of MCP context cache misses'
+    'Number of MCP context cache misses',
+    registry=REGISTRY
 )
 
 

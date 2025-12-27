@@ -88,7 +88,11 @@ class Device(Base):
         """Device inactive if not seen in 90+ days (Story P12-2.1)."""
         if not self.last_seen_at:
             return True
-        return (datetime.now(timezone.utc) - self.last_seen_at).days > 90
+        # Ensure last_seen_at is timezone-aware for comparison
+        last_seen = self.last_seen_at
+        if last_seen.tzinfo is None:
+            last_seen = last_seen.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - last_seen).days > 90
 
     def __repr__(self):
         return f"<Device(id={self.id}, device_id={self.device_id[:20]}..., platform={self.platform})>"

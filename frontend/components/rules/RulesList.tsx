@@ -193,6 +193,21 @@ function RuleRow({ rule, onToggleEnabled, onEdit, onDelete, isToggling }: RuleRo
       {/* Name */}
       <td className="p-4">
         <div className="font-medium">{rule.name}</div>
+        {/* Show entity info if this is an entity-specific rule */}
+        {rule.entity_match_mode === 'specific' && rule.entity_name && (
+          <div className="text-xs text-muted-foreground mt-1">
+            <Badge variant="secondary" className="text-xs">
+              Entity: {rule.entity_name}
+            </Badge>
+          </div>
+        )}
+        {rule.entity_match_mode === 'unknown' && (
+          <div className="text-xs text-muted-foreground mt-1">
+            <Badge variant="secondary" className="text-xs">
+              Strangers only
+            </Badge>
+          </div>
+        )}
         {rule.trigger_count > 0 && (
           <div className="text-xs text-muted-foreground mt-1">
             Triggered {rule.trigger_count} time{rule.trigger_count !== 1 ? 's' : ''}

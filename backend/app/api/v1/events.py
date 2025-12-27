@@ -1805,6 +1805,7 @@ async def smart_reanalyze_event(
             query=request.query,
             top_k=request.top_k,
             min_similarity=request.min_similarity,
+            use_cache=request.use_cache,
         )
 
         # 4. Get total frame embeddings count for response
@@ -1944,6 +1945,94 @@ async def smart_reanalyze_event(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Smart re-analysis failed. Please try again or contact support if the issue persists."
+        )
+
+
+@router.get("/{event_id}/query-suggestions")
+async def get_query_suggestions(
+    event_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get suggested queries for an event (Story P12-4.4)
+
+    Returns query suggestions based on the event's smart detection type
+    and detected objects to help users formulate effective queries.
+
+    Args:
+        event_id: Event UUID
+        db: Database session
+
+    Returns:
+        QuerySuggestionsResponse with suggested queries
+
+    Raises:
+        404: Event not found
+
+    Example:
+        GET /events/123e4567-e89b-12d3-a456-426614174000/query-suggestions
+    """
+    from app.services.query_adaptive.query_suggester import get_query_suggester
+    from app.schemas.event import QuerySuggestionsResponse
+
+    try:
+        # Find the event
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Event {event_id} not found"
+            )
+
+        # Get suggestions
+        suggester = get_query_suggester()
+        suggestions = suggester.get_suggestions_for_event(event)
+
+        # Parse objects_detected
+        objects_raw = event.objects_detected
+        if isinstance(objects_raw, str):
+            try:
+                objects = json.loads(objects_raw)
+            except json.JSONDecodeError:
+                objects = []
+        elif isinstance(objects_raw, list):
+            objects = objects_raw
+        else:
+            objects = []
+
+        logger.info(
+            f"Generated query suggestions for event {event_id}",
+            extra={
+                "event_type": "query_suggestions_generated",
+                "event_id": event_id,
+                "suggestion_count": len(suggestions),
+                "smart_detection_type": event.smart_detection_type,
+            }
+        )
+
+        return QuerySuggestionsResponse(
+            event_id=event_id,
+            suggestions=suggestions,
+            smart_detection_type=event.smart_detection_type,
+            objects_detected=objects,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to get query suggestions for event {event_id}: {e}",
+            exc_info=True,
+            extra={
+                "event_type": "query_suggestions_error",
+                "event_id": event_id,
+                "error_type": type(e).__name__,
+                "error_message": str(e)
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get query suggestions"
         )
 
 

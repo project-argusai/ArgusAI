@@ -391,6 +391,14 @@ class SmartReanalyzeRequest(BaseModel):
         default="multi_frame",
         description="Analysis mode to use for AI analysis"
     )
+    use_cache: bool = Field(
+        default=True,
+        description="Whether to use cached results if available (Story P12-4.4)"
+    )
+    comparison_mode: bool = Field(
+        default=False,
+        description="Include uniform frame selection for A/B comparison (Story P12-4.5)"
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -399,11 +407,13 @@ class SmartReanalyzeRequest(BaseModel):
                     "query": "Was there a package delivery?",
                     "top_k": 5,
                     "min_similarity": 0.2,
-                    "analysis_mode": "multi_frame"
+                    "analysis_mode": "multi_frame",
+                    "use_cache": True
                 },
                 {
                     "query": "person with dog",
-                    "top_k": 3
+                    "top_k": 3,
+                    "comparison_mode": True
                 }
             ]
         }
@@ -433,6 +443,102 @@ class SmartReanalyzeResponse(BaseModel):
                     "top_frame_score": 0.78,
                     "query_time_ms": 45.2,
                     "scoring_time_ms": 2.3
+                }
+            ]
+        }
+    }
+
+
+# Story P12-4: Query-Adaptive Optimization Schemas
+
+
+class FrameWithScore(BaseModel):
+    """Individual frame with relevance and quality scores (Story P12-4.5)"""
+    frame_index: int = Field(..., ge=0, description="Frame index within the event")
+    relevance_score: float = Field(..., ge=0.0, le=100.0, description="Query relevance score (0-100)")
+    quality_score: float = Field(50.0, ge=0.0, le=100.0, description="Frame quality score (0-100)")
+    combined_score: float = Field(..., ge=0.0, le=100.0, description="Combined score (relevance*0.7 + quality*0.3)")
+    thumbnail_url: Optional[str] = Field(None, description="URL to frame thumbnail")
+    timestamp_offset_ms: int = Field(0, ge=0, description="Offset from event start in milliseconds")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "frame_index": 3,
+                    "relevance_score": 85.5,
+                    "quality_score": 72.0,
+                    "combined_score": 81.45,
+                    "thumbnail_url": "/api/v1/events/abc123/frames/3/thumbnail",
+                    "timestamp_offset_ms": 1500
+                }
+            ]
+        }
+    }
+
+
+class EnhancedSmartReanalyzeResponse(BaseModel):
+    """Enhanced response schema for smart re-analysis with frame details (Story P12-4.5)"""
+    event_id: str = Field(..., description="Event UUID")
+    query: str = Field(..., description="Original query")
+    formatted_query: str = Field(..., description="Query after auto-formatting for CLIP")
+    description: str = Field(..., description="Updated AI description focused on query")
+    selected_frames: List[FrameWithScore] = Field(..., description="Selected frames with scores")
+    total_frames_analyzed: int = Field(..., ge=0, description="Total frames with embeddings")
+    selection_time_ms: float = Field(..., ge=0, description="Total selection time (ms)")
+    cached: bool = Field(False, description="Whether result was from cache")
+    suggested_queries: List[str] = Field(default_factory=list, description="Suggested follow-up queries")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "event_id": "abc123",
+                    "query": "package delivery",
+                    "formatted_query": "a photo of package delivery",
+                    "description": "A FedEx delivery person placed a cardboard box on the front porch.",
+                    "selected_frames": [
+                        {
+                            "frame_index": 3,
+                            "relevance_score": 85.5,
+                            "quality_score": 72.0,
+                            "combined_score": 81.45,
+                            "thumbnail_url": "/api/v1/events/abc123/frames/3/thumbnail",
+                            "timestamp_offset_ms": 1500
+                        }
+                    ],
+                    "total_frames_analyzed": 10,
+                    "selection_time_ms": 125.3,
+                    "cached": False,
+                    "suggested_queries": [
+                        "What company is the package from?",
+                        "Where was it placed?"
+                    ]
+                }
+            ]
+        }
+    }
+
+
+class QuerySuggestionsResponse(BaseModel):
+    """Response schema for GET /api/v1/events/{event_id}/query-suggestions (Story P12-4.4)"""
+    event_id: str = Field(..., description="Event UUID")
+    suggestions: List[str] = Field(..., description="Suggested queries for this event")
+    smart_detection_type: Optional[str] = Field(None, description="Event's smart detection type")
+    objects_detected: List[str] = Field(default_factory=list, description="Objects detected in event")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "event_id": "abc123",
+                    "suggestions": [
+                        "Is this a delivery person?",
+                        "What are they carrying?",
+                        "What company is the package from?"
+                    ],
+                    "smart_detection_type": "person",
+                    "objects_detected": ["person", "package"]
                 }
             ]
         }

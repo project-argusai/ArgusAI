@@ -573,6 +573,58 @@ export const apiClient = {
     },
 
     /**
+     * Smart re-analyze with query-adaptive frame selection (Story P12-4.5)
+     * @param eventId Event ID (UUID string) to re-analyze
+     * @param query Natural language query to focus the analysis
+     * @param options Additional options like top_k and use_cache
+     * @returns Smart re-analysis response with frame scores
+     */
+    smartReanalyze: async (
+      eventId: string,
+      query: string,
+      options?: {
+        top_k?: number;
+        min_similarity?: number;
+        use_cache?: boolean;
+        analysis_mode?: string;
+      }
+    ): Promise<{
+      event_id: string;
+      description: string;
+      query: string;
+      frames_selected: number;
+      frames_available: number;
+      top_frame_score: number;
+      query_time_ms: number;
+      scoring_time_ms: number;
+    }> => {
+      return apiFetch(`/events/${eventId}/smart-reanalyze`, {
+        method: 'POST',
+        body: JSON.stringify({
+          query,
+          top_k: options?.top_k ?? 5,
+          min_similarity: options?.min_similarity ?? 0.2,
+          use_cache: options?.use_cache ?? true,
+          analysis_mode: options?.analysis_mode ?? 'multi_frame',
+        }),
+      });
+    },
+
+    /**
+     * Get query suggestions for an event (Story P12-4.4)
+     * @param eventId Event ID (UUID string)
+     * @returns Query suggestions based on event type and detected objects
+     */
+    getQuerySuggestions: async (eventId: string): Promise<{
+      event_id: string;
+      suggestions: string[];
+      smart_detection_type: string | null;
+      objects_detected: string[];
+    }> => {
+      return apiFetch(`/events/${eventId}/query-suggestions`);
+    },
+
+    /**
      * Get today's package deliveries summary (Story P7-2.4)
      * Returns total count, breakdown by carrier, and recent 5 events
      * @returns Package delivery summary for dashboard widget

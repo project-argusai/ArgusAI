@@ -39,6 +39,48 @@ npm run build    # Production build
 npm run lint     # ESLint
 ```
 
+## Production Server Access
+
+Claude Code has SSH access to the production server for troubleshooting and deployment:
+
+```bash
+ssh root@argusai.bengtson.local
+```
+
+### Server Details
+- **Host**: `argusai.bengtson.local` (10.0.1.46)
+- **Application Path**: `/ArgusAI`
+- **Backend venv**: `/ArgusAI/backend/venv`
+- **Frontend**: HTTPS on port 3000 (custom SSL server)
+- **Backend**: HTTP on port 8000 (proxied by frontend)
+
+### Common Server Commands
+```bash
+# Deploy latest changes
+cd /ArgusAI && git pull && sudo systemctl restart argusai-backend
+
+# Restart services
+sudo systemctl restart argusai-backend
+sudo systemctl restart argusai-frontend
+
+# View logs
+sudo journalctl -u argusai-backend -f
+sudo journalctl -u argusai-frontend -f
+
+# Run Python commands in backend context
+cd /ArgusAI/backend && source venv/bin/activate && python3 -c "..."
+
+# Test API endpoints
+curl -s http://127.0.0.1:8000/api/v1/cameras
+curl -s -H "X-API-Key: <key>" http://127.0.0.1:8000/api/v1/events?limit=5
+```
+
+### Service Configuration
+- Backend service: `/etc/systemd/system/argusai-backend.service`
+- Frontend service: `/etc/systemd/system/argusai-frontend.service`
+- Frontend env: `/ArgusAI/frontend/.env.local`
+- SSL certs: `/ArgusAI/backend/data/certs/`
+
 ## Architecture
 
 ### Event Processing Pipeline

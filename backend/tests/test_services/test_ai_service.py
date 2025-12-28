@@ -597,7 +597,7 @@ class TestExponentialBackoff:
         # First two calls fail with 429, third succeeds
         call_count = 0
 
-        async def mock_generate(image_base64, camera_name, timestamp, detected_objects, custom_prompt=None, audio_transcription=None):
+        async def mock_generate(image_base64, camera_name, timestamp, detected_objects, custom_prompt=None, audio_transcription=None, ocr_result=None):
             nonlocal call_count
             call_count += 1
             if call_count < 3:

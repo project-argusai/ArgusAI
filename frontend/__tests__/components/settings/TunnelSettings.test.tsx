@@ -23,6 +23,7 @@ vi.mock('@/lib/api-client', () => ({
       getStatus: vi.fn(),
       start: vi.fn(),
       stop: vi.fn(),
+      test: vi.fn(),
     },
   },
 }));
@@ -432,10 +433,12 @@ describe('TunnelSettings', () => {
 
     it('uses token input when testing with new token', async () => {
       const user = userEvent.setup();
-      vi.mocked(apiClient.tunnel.start).mockResolvedValue({
+      // Story P13-2.4: Test connection with token uses dedicated test endpoint
+      vi.mocked(apiClient.tunnel.test).mockResolvedValue({
         success: true,
-        message: 'Connection test successful',
-        status: mockStatusConnected,
+        error: null,
+        latency_ms: 250,
+        hostname: 'my-tunnel.trycloudflare.com',
       });
 
       renderWithProviders(<TunnelSettings />);
@@ -453,7 +456,7 @@ describe('TunnelSettings', () => {
       await user.click(button);
 
       await waitFor(() => {
-        expect(apiClient.tunnel.start).toHaveBeenCalledWith('my-new-token');
+        expect(apiClient.tunnel.test).toHaveBeenCalledWith('my-new-token');
       });
     });
   });

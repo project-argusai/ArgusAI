@@ -96,6 +96,78 @@ Webhook → Git Status Before → Store Status → Execute Claude Code → Git S
 
 ---
 
+## GitHub Webhook Integration
+
+### github-webhook.json
+
+Receives and processes GitHub webhook events, routing them to appropriate handlers for automation and notifications.
+
+**Story:** P13-5.2
+
+**Flow:**
+```
+GitHub Webhook → Validate → Parse Event → Route by Type → Handle Event → Notify/Trigger → Response
+                                              ↓
+                              ┌───────────────┼───────────────┐───────────────┐
+                              ▼               ▼               ▼               ▼
+                           Push         Pull Request      Issues         Workflow Run
+                              ↓               ↓               ↓               ↓
+                        (main only)      (merged?)      (labeled?)      (failed?)
+                              ↓               ↓               ↓               ↓
+                          Notify          Notify      BMAD Pipeline      Notify
+```
+
+**Webhook Endpoint:** `POST /webhook/github-webhook`
+
+**Supported GitHub Events:**
+| Event | Actions | Behavior |
+|-------|---------|----------|
+| `push` | - | Notifies on pushes to main branch |
+| `pull_request` | `closed` (merged) | Notifies on PR merges |
+| `issues` | `labeled` | Triggers BMAD pipeline if labeled with `automate`, `bmad-pipeline`, or `auto-implement` |
+| `workflow_run` | `completed` (failure) | Notifies on CI/CD failures |
+| `issue_comment` | - | Logs for monitoring |
+| `release` | - | Logs for monitoring |
+| `create`/`delete` | - | Logs for monitoring |
+
+**Label-Based Automation:**
+When an issue is labeled with one of the following labels, the BMAD pipeline is automatically triggered:
+- `automate`
+- `bmad-pipeline`
+- `auto-implement`
+
+The workflow extracts epic/story IDs from issue titles using patterns like:
+- `P13-5.1: Story title...`
+- `[P13-5] Epic description...`
+- `P13-5: Epic title...`
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "eventType": "issues",
+  "action": "labeled",
+  "processed": true
+}
+```
+
+**Environment Variables:**
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `WEBHOOK_URL` | n8n instance URL for internal webhook calls | Yes |
+| `NOTIFICATION_WEBHOOK_URL` | Slack/Discord webhook for notifications | No |
+| `GITHUB_TOKEN` | GitHub token for API access | No |
+
+**GitHub Webhook Setup:**
+1. Go to your GitHub repository → Settings → Webhooks
+2. Click "Add webhook"
+3. Payload URL: `https://your-n8n-url/webhook/github-webhook`
+4. Content type: `application/json`
+5. Select events: `Push`, `Pull requests`, `Issues`, `Workflow runs`
+6. Enable the webhook
+
+---
+
 ## BMAD Workflow Integration
 
 These workflows execute BMAD (Big Mad Agile Development) methodology workflows for automated story creation, context generation, and implementation.

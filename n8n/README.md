@@ -60,6 +60,13 @@ curl -X POST http://localhost:5678/webhook/claude-code \
 |----------|----------|-------------|
 | claude-code-basic.json | `/webhook/claude-code` | Simple prompt execution |
 | claude-code-with-git.json | `/webhook/claude-code-git` | Execution with git status tracking |
+| github-webhook.json | `/webhook/github-webhook` | GitHub event handling and automation triggers |
+| bmad-create-story.json | `/webhook/bmad-create-story` | Create story from epic |
+| bmad-story-context.json | `/webhook/bmad-story-context` | Generate story context XML |
+| bmad-dev-story.json | `/webhook/bmad-dev-story` | Implement story with git tracking |
+| bmad-pipeline.json | `/webhook/bmad-pipeline` | Full BMAD pipeline orchestration |
+| bmad-pipeline-with-approval.json | `/webhook/bmad-pipeline-approval` | Pipeline with human approval gate |
+| monitoring-dashboard.json | `/webhook/dashboard-metrics` | Workflow execution metrics |
 
 See [workflows/README.md](workflows/README.md) for detailed documentation.
 
@@ -121,3 +128,8 @@ See [workflows/README.md](workflows/README.md#troubleshooting) for common issues
 - **P9-5.4**: Create n8n Claude Code integration (this implementation)
 - **P9-5.5**: Build prompt generation system
 - **P9-5.6**: Implement git commit/PR automation
+- **P13-5.1**: Add n8n service to Docker Compose
+- **P13-5.2**: Create GitHub Webhook Integration Workflow
+- **P13-5.3**: BMAD Workflow Integration (covered by bmad-pipeline.json)
+- **P13-5.4**: Notification Workflow (covered by Slack/Discord support)
+- **P13-5.5**: Pipeline Dashboard (covered by monitoring-dashboard.json)

@@ -1,0 +1,607 @@
+{
+  "name": "GitHub Webhook Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "github-webhook",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.headers['x-github-event'] }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-github-event",
+      "name": "Validate GitHub Event",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Parse GitHub webhook event\nconst headers = $input.item.json.headers || {};\nconst body = $input.item.json.body || {};\n\nconst eventType = headers['x-github-event'];\nconst action = body.action || null;\nconst repository = body.repository?.full_name || 'unknown';\n\n// Build event summary\nlet eventSummary = {\n  eventType,\n  action,\n  repository,\n  sender: body.sender?.login || 'unknown',\n  timestamp: new Date().toISOString(),\n  deliveryId: headers['x-github-delivery'] || null\n};\n\n// Handle specific event types\nswitch (eventType) {\n  case 'push':\n    eventSummary.branch = body.ref?.replace('refs/heads/', '') || 'unknown';\n    eventSummary.commits = body.commits?.length || 0;\n    eventSummary.headCommit = body.head_commit?.message || null;\n    eventSummary.compareUrl = body.compare || null;\n    break;\n    \n  case 'pull_request':\n    eventSummary.prNumber = body.pull_request?.number || null;\n    eventSummary.prTitle = body.pull_request?.title || null;\n    eventSummary.prState = body.pull_request?.state || null;\n    eventSummary.prMerged = body.pull_request?.merged || false;\n    eventSummary.prUrl = body.pull_request?.html_url || null;\n    eventSummary.baseBranch = body.pull_request?.base?.ref || null;\n    eventSummary.headBranch = body.pull_request?.head?.ref || null;\n    break;\n    \n  case 'issues':\n    eventSummary.issueNumber = body.issue?.number || null;\n    eventSummary.issueTitle = body.issue?.title || null;\n    eventSummary.issueState = body.issue?.state || null;\n    eventSummary.issueUrl = body.issue?.html_url || null;\n    eventSummary.labels = body.issue?.labels?.map(l => l.name) || [];\n    // Extract epic/story ID from issue title (e.g., \"P13-5.1: ...\" or \"[P13-5] ...\")\n    const titleMatch = eventSummary.issueTitle?.match(/\\[?P(\\d+)[-.]?(\\d+)?(?:\\.(\\d+))?\\]?:?\\s*/);\n    if (titleMatch) {\n      eventSummary.epicId = `P${titleMatch[1]}-${titleMatch[2] || ''}`;\n      eventSummary.storyId = titleMatch[3] || null;\n    }\n    break;\n    \n  case 'issue_comment':\n    eventSummary.issueNumber = body.issue?.number || null;\n    eventSummary.issueTitle = body.issue?.title || null;\n    eventSummary.commentBody = body.comment?.body || null;\n    eventSummary.commentUrl = body.comment?.html_url || null;\n    break;\n    \n  case 'workflow_run':\n    eventSummary.workflowName = body.workflow_run?.name || null;\n    eventSummary.workflowStatus = body.workflow_run?.status || null;\n    eventSummary.workflowConclusion = body.workflow_run?.conclusion || null;\n    eventSummary.workflowUrl = body.workflow_run?.html_url || null;\n    break;\n    \n  case 'release':\n    eventSummary.releaseTag = body.release?.tag_name || null;\n    eventSummary.releaseName = body.release?.name || null;\n    eventSummary.releaseUrl = body.release?.html_url || null;\n    eventSummary.prerelease = body.release?.prerelease || false;\n    break;\n    \n  case 'create':\n  case 'delete':\n    eventSummary.refType = body.ref_type || null;\n    eventSummary.ref = body.ref || null;\n    break;\n}\n\nreturn { json: eventSummary };"
+      },
+      "id": "parse-event",
+      "name": "Parse GitHub Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "push",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.eventType }}",
+                    "operation": "equals",
+                    "value2": "push"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "pull_request",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.eventType }}",
+                    "operation": "equals",
+                    "value2": "pull_request"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "issues",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.eventType }}",
+                    "operation": "equals",
+                    "value2": "issues"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "workflow_run",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.eventType }}",
+                    "operation": "equals",
+                    "value2": "workflow_run"
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "other",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.eventType }}",
+                    "operation": "isNotEmpty"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "route-by-event",
+      "name": "Route by Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.branch }}",
+              "operation": "equals",
+              "value2": "main"
+            }
+          ]
+        }
+      },
+      "id": "check-main-branch",
+      "name": "Is Main Branch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 100]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format push notification\nconst event = $input.item.json;\n\nconst message = {\n  title: `Push to ${event.branch}`,\n  text: `${event.sender} pushed ${event.commits} commit(s) to ${event.repository}`,\n  details: event.headCommit ? `Latest: ${event.headCommit.substring(0, 72)}...` : null,\n  url: event.compareUrl,\n  type: 'push',\n  severity: event.branch === 'main' ? 'high' : 'normal'\n};\n\nreturn { json: message };"
+      },
+      "id": "format-push-notification",
+      "name": "Format Push Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 60]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "equals",
+              "value2": "labeled"
+            }
+          ],
+          "combine": "and"
+        }
+      },
+      "id": "check-labeled-action",
+      "name": "Is Labeled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Check if issue has 'automate' or 'bmad-pipeline' label\nconst event = $input.item.json;\nconst labels = event.labels || [];\n\nconst shouldAutomate = labels.some(label => \n  label === 'automate' || \n  label === 'bmad-pipeline' || \n  label === 'auto-implement'\n);\n\nreturn { \n  json: { \n    ...event, \n    shouldAutomate,\n    automationLabel: labels.find(l => ['automate', 'bmad-pipeline', 'auto-implement'].includes(l)) || null\n  } \n};"
+      },
+      "id": "check-automation-label",
+      "name": "Check Automation Label",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 260]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.shouldAutomate }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "should-automate",
+      "name": "Should Automate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1400, 260]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}/webhook/bmad-pipeline",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "epicId",
+              "value": "={{ $json.epicId }}"
+            },
+            {
+              "name": "storyId",
+              "value": "={{ $json.storyId }}"
+            },
+            {
+              "name": "issueNumber",
+              "value": "={{ $json.issueNumber }}"
+            },
+            {
+              "name": "autoImplement",
+              "value": "true"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "id": "trigger-bmad-pipeline",
+      "name": "Trigger BMAD Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 220]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.action }}",
+              "operation": "equals",
+              "value2": "closed"
+            }
+          ],
+          "combine": "and",
+          "boolean": [
+            {
+              "value1": "={{ $json.prMerged }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-pr-merged",
+      "name": "PR Merged?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 500]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format PR merged notification\nconst event = $input.item.json;\n\nconst message = {\n  title: `PR #${event.prNumber} Merged`,\n  text: `${event.prTitle}`,\n  details: `${event.headBranch} → ${event.baseBranch}`,\n  url: event.prUrl,\n  type: 'pr_merged',\n  severity: event.baseBranch === 'main' ? 'high' : 'normal'\n};\n\nreturn { json: message };"
+      },
+      "id": "format-pr-merged-notification",
+      "name": "Format PR Merged Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 460]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.workflowConclusion }}",
+              "operation": "equals",
+              "value2": "failure"
+            }
+          ]
+        }
+      },
+      "id": "check-workflow-failure",
+      "name": "Workflow Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1000, 700]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Format workflow failure notification\nconst event = $input.item.json;\n\nconst message = {\n  title: `Workflow Failed: ${event.workflowName}`,\n  text: `CI/CD workflow failed on ${event.repository}`,\n  details: `Status: ${event.workflowConclusion}`,\n  url: event.workflowUrl,\n  type: 'workflow_failure',\n  severity: 'critical'\n};\n\nreturn { json: message };"
+      },
+      "id": "format-workflow-failure-notification",
+      "name": "Format Failure Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 660]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.NOTIFICATION_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.title + ': ' + $json.text + ($json.details ? '\\n' + $json.details : '') + ($json.url ? '\\n<' + $json.url + '>' : ''), username: 'ArgusAI GitHub', icon_emoji: $json.severity === 'critical' ? ':x:' : ($json.severity === 'high' ? ':warning:' : ':information_source:') }) }}",
+        "options": {}
+      },
+      "id": "send-notification",
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1600, 500],
+      "executeOnce": false
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { success: true, eventType: $('Parse GitHub Event').item.json.eventType, action: $('Parse GitHub Event').item.json.action, processed: true } }}"
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1800, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": "400",
+        "responseBody": "={{ { success: false, error: 'Invalid GitHub webhook: missing x-github-event header' } }}"
+      },
+      "id": "invalid-event-response",
+      "name": "Invalid Event Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [600, 500]
+    },
+    {
+      "parameters": {},
+      "id": "noop-other-events",
+      "name": "Log Other Events",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1000, 900]
+    }
+  ],
+  "connections": {
+    "GitHub Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate GitHub Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate GitHub Event": {
+      "main": [
+        [
+          {
+            "node": "Parse GitHub Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Invalid Event Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse GitHub Event": {
+      "main": [
+        [
+          {
+            "node": "Route by Event Type",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Event Type": {
+      "main": [
+        [
+          {
+            "node": "Is Main Branch?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PR Merged?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is Labeled?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Workflow Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Other Events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Main Branch?": {
+      "main": [
+        [
+          {
+            "node": "Format Push Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Push Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Labeled?": {
+      "main": [
+        [
+          {
+            "node": "Check Automation Label",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Automation Label": {
+      "main": [
+        [
+          {
+            "node": "Should Automate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Automate?": {
+      "main": [
+        [
+          {
+            "node": "Trigger BMAD Pipeline",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger BMAD Pipeline": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PR Merged?": {
+      "main": [
+        [
+          {
+            "node": "Format PR Merged Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format PR Merged Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Workflow Failed?": {
+      "main": [
+        [
+          {
+            "node": "Format Failure Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Failure Notification": {
+      "main": [
+        [
+          {
+            "node": "Send Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Notification": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Other Events": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "instanceId": "argusai-n8n"
+  },
+  "tags": [
+    {
+      "name": "github"
+    },
+    {
+      "name": "automation"
+    },
+    {
+      "name": "ci-cd"
+    }
+  ]
+}

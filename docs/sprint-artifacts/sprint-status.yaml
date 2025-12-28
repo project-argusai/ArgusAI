@@ -817,10 +817,14 @@ development_status:
   # Priority: P2
   # Focus: AI-assisted development automation
   # Status: COMPLETE 2025-12-28
+  # Notes: Stories 5.3-5.5 were already implemented in prior work:
+  #   - BMAD workflows (bmad-pipeline.json, bmad-dev-story.json, etc.)
+  #   - Notification support (Slack/Discord webhooks in all BMAD workflows)
+  #   - Pipeline dashboard (monitoring-dashboard.json)
   epic-p13-5: done  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P13-5.md
   p13-5-1-create-n8n-docker-compose-configuration: done  # Added n8n service to docker-compose.yml with automation profile
-  p13-5-2-create-github-webhook-integration-workflow: done  # Created github-webhook.json for PR/issue/push handling
-  p13-5-3-create-bmad-workflow-integration: done  # Pre-existing: bmad-pipeline.json, bmad-create-story.json, etc.
-  p13-5-4-create-notification-workflow: done  # Pre-existing: Notification support in bmad-pipeline.json
+  p13-5-2-create-github-webhook-integration-workflow: done  # github-webhook.json with event routing
+  p13-5-3-create-bmad-workflow-integration: done  # Pre-existing: bmad-pipeline.json, bmad-dev-story.json
+  p13-5-4-create-notification-workflow: done  # Pre-existing: Slack/Discord webhook support
   p13-5-5-create-pipeline-dashboard-view: done  # Pre-existing: monitoring-dashboard.json
   epic-p13-5-retrospective: optional

@@ -2,11 +2,13 @@
 # Story P10-2.4: Create docker-compose.yml
 # Story P10-2.5: Add PostgreSQL Service
 # Story P10-2.6: Add nginx Reverse Proxy with SSL
+# Story P13-5.1: Add n8n Workflow Automation Service
 #
 # Usage:
 #   docker-compose up -d                          # Start backend and frontend (SQLite)
 #   docker-compose --profile postgres up -d       # Start with PostgreSQL
 #   docker-compose --profile ssl up -d            # Start with nginx SSL reverse proxy
+#   docker-compose --profile automation up -d     # Start with n8n workflow automation
 #   docker-compose --profile postgres --profile ssl up -d  # PostgreSQL + SSL
 #   docker-compose down                           # Stop containers (preserves volumes)
 #   docker-compose logs -f                        # Follow logs
@@ -198,6 +200,66 @@ services:
     networks:
       - argusai-net
 
+  # ==============================================================================
+  # n8n Workflow Automation (Optional - use with --profile automation)
+  # ==============================================================================
+  # Story P13-5.1: Add n8n Service to Docker Compose
+  #
+  # Provides workflow automation for CI/CD pipelines, BMAD workflows, and GitHub
+  # webhook integration. Can be used to automate story implementation, code review,
+  # and PR management.
+  #
+  # To use:
+  #   1. Set N8N_BASIC_AUTH_PASSWORD in .env (defaults to 'changeme')
+  #   2. Run: docker-compose --profile automation up -d
+  #   3. Access n8n at http://localhost:5678
+  #
+  # Environment variables (optional):
+  #   - N8N_BASIC_AUTH_USER: Admin username (default: admin)
+  #   - N8N_BASIC_AUTH_PASSWORD: Admin password (CHANGE IN PRODUCTION!)
+  #   - N8N_WEBHOOK_URL: External webhook URL (default: http://localhost:5678)
+  #   - NOTIFICATION_WEBHOOK_URL: Slack/Discord webhook for notifications
+  #
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: argusai-n8n
+    profiles:
+      - automation
+    ports:
+      - "5678:5678"
+    environment:
+      # n8n configuration
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-true}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-changeme}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-http}
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
+      # ArgusAI integration
+      - ARGUSAI_PROJECT_PATH=/argusai
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Notification webhooks (optional)
+      - NOTIFICATION_WEBHOOK_URL=${NOTIFICATION_WEBHOOK_URL:-}
+      # GitHub integration (optional)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    volumes:
+      # Named volume for n8n data persistence (workflows, credentials, execution history)
+      - n8n-data:/home/node/.n8n
+      # Mount project root for Claude Code CLI access (read-write for code changes)
+      - ./:/argusai:rw
+      # Mount workflow templates (read-only)
+      - ./n8n/workflows:/home/node/workflows:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5678/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - argusai-net
+
 # ==============================================================================
 # Named Volumes - Persistent Storage
 # ==============================================================================
@@ -214,6 +276,11 @@ volumes:
   # PostgreSQL data volume (used with --profile postgres)
   # Story P10-2.5: Add PostgreSQL Service
   pgdata:
+    driver: local
+
+  # n8n data volume (used with --profile automation)
+  # Story P13-5.1: Add n8n Service to Docker Compose
+  n8n-data:
     driver: local
 
 # ==============================================================================

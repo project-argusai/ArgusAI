@@ -2992,3 +2992,178 @@ async def get_event_thumbnail_signed(
             "Content-Length": str(len(thumbnail_bytes)),
         }
     )
+
+
+# =============================================================================
+# Entity Reprocessing Endpoints (Epic P13-3)
+# =============================================================================
+
+from pydantic import BaseModel, Field
+from app.services.reprocessing_service import get_reprocessing_service
+
+
+class ReprocessingRequest(BaseModel):
+    """Request body for starting entity reprocessing."""
+    start_date: Optional[datetime] = Field(None, description="Filter events from this date")
+    end_date: Optional[datetime] = Field(None, description="Filter events until this date")
+    camera_id: Optional[str] = Field(None, description="Filter by camera ID")
+    only_unmatched: bool = Field(True, description="Only process events without entity matches")
+
+
+class ReprocessingEstimate(BaseModel):
+    """Response for reprocessing event count estimate."""
+    estimated_events: int = Field(..., description="Number of events that would be processed")
+    filters: dict = Field(..., description="Applied filters")
+
+
+class ReprocessingJobResponse(BaseModel):
+    """Response containing reprocessing job status."""
+    job_id: str = Field(..., description="Unique job identifier")
+    status: str = Field(..., description="Job status: pending, running, completed, cancelled, failed")
+    total_events: int = Field(..., description="Total events to process")
+    processed: int = Field(..., description="Events processed so far")
+    matched: int = Field(..., description="Events matched to entities")
+    embeddings_generated: int = Field(..., description="New embeddings generated")
+    errors: int = Field(..., description="Processing errors encountered")
+    percent_complete: float = Field(..., description="Completion percentage")
+    started_at: Optional[str] = Field(None, description="Job start time")
+    completed_at: Optional[str] = Field(None, description="Job completion time")
+    error_message: Optional[str] = Field(None, description="Error message if failed")
+    filters: dict = Field(..., description="Applied filters")
+
+
+@router.post(
+    "/reprocess-entities",
+    response_model=ReprocessingJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Start entity reprocessing job",
+    description="""
+    Start a background job to reprocess events for entity matching.
+
+    This is useful after:
+    - Creating new entities to match against
+    - Improving the entity matching algorithm
+    - Processing events that failed initial entity matching
+
+    Only one reprocessing job can run at a time. Returns 409 if a job is already running.
+
+    **WebSocket Updates:**
+    While the job runs, progress updates are broadcast via WebSocket with type `reprocessing_progress`.
+    Upon completion, a `reprocessing_complete` message is sent.
+    """,
+)
+async def start_entity_reprocessing(
+    request: ReprocessingRequest,
+    db: Session = Depends(get_db),
+):
+    """Start a new entity reprocessing job."""
+    reprocessing_service = get_reprocessing_service()
+
+    try:
+        job = await reprocessing_service.start_reprocessing(
+            db=db,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            camera_id=request.camera_id,
+            only_unmatched=request.only_unmatched,
+        )
+
+        logger.info(
+            f"Entity reprocessing started: {job.job_id}",
+            extra={
+                "event_type": "reprocessing_api_start",
+                "job_id": job.job_id,
+                "total_events": job.total_events,
+            }
+        )
+
+        return ReprocessingJobResponse(**job.to_dict())
+
+    except ValueError as e:
+        if "already running" in str(e):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(e)
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+
+@router.get(
+    "/reprocess-entities",
+    response_model=Optional[ReprocessingJobResponse],
+    summary="Get current reprocessing job status",
+    description="Get the status of the current or most recent reprocessing job.",
+)
+async def get_reprocessing_status():
+    """Get current reprocessing job status."""
+    reprocessing_service = get_reprocessing_service()
+    job = await reprocessing_service.get_status()
+
+    if not job:
+        return None
+
+    return ReprocessingJobResponse(**job.to_dict())
+
+
+@router.delete(
+    "/reprocess-entities",
+    response_model=Optional[ReprocessingJobResponse],
+    summary="Cancel current reprocessing job",
+    description="Cancel the currently running reprocessing job. Partial results are preserved.",
+)
+async def cancel_entity_reprocessing():
+    """Cancel the current reprocessing job."""
+    reprocessing_service = get_reprocessing_service()
+    job = await reprocessing_service.cancel_reprocessing()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No reprocessing job is currently running"
+        )
+
+    logger.info(
+        f"Entity reprocessing cancelled: {job.job_id}",
+        extra={
+            "event_type": "reprocessing_api_cancel",
+            "job_id": job.job_id,
+            "processed": job.processed,
+        }
+    )
+
+    return ReprocessingJobResponse(**job.to_dict())
+
+
+@router.post(
+    "/reprocess-entities/estimate",
+    response_model=ReprocessingEstimate,
+    summary="Estimate reprocessing event count",
+    description="Get an estimate of how many events would be processed with the given filters.",
+)
+async def estimate_reprocessing(
+    request: ReprocessingRequest,
+    db: Session = Depends(get_db),
+):
+    """Estimate the number of events that would be reprocessed."""
+    reprocessing_service = get_reprocessing_service()
+
+    count = await reprocessing_service.estimate_event_count(
+        db=db,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        camera_id=request.camera_id,
+        only_unmatched=request.only_unmatched,
+    )
+
+    return ReprocessingEstimate(
+        estimated_events=count,
+        filters={
+            "start_date": request.start_date.isoformat() if request.start_date else None,
+            "end_date": request.end_date.isoformat() if request.end_date else None,
+            "camera_id": request.camera_id,
+            "only_unmatched": request.only_unmatched,
+        }
+    )

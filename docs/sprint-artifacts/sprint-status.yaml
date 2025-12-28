@@ -795,11 +795,12 @@ development_status:
   # Epic P13-3: Entity Reprocessing
   # Priority: P3
   # Focus: Bulk reprocessing for entity matching
-  epic-p13-3: backlog  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P13-3.md
-  p13-3-1-create-reprocessing-background-task: backlog
-  p13-3-2-implement-reprocessing-api-endpoints: backlog
-  p13-3-3-add-websocket-progress-updates: backlog
-  p13-3-4-create-reprocessing-ui: backlog
+  # Status: COMPLETE 2025-12-28
+  epic-p13-3: done  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P13-3.md
+  p13-3-1-create-reprocessing-background-task: done  # ReprocessingService with batch processing
+  p13-3-2-implement-reprocessing-api-endpoints: done  # POST/GET/DELETE /reprocess-entities
+  p13-3-3-add-websocket-progress-updates: done  # reprocessing_progress/complete messages
+  p13-3-4-create-reprocessing-ui: done  # EntityReprocessing component in Data tab
   epic-p13-3-retrospective: optional
 
   # Epic P13-4: Branding

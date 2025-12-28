@@ -2071,6 +2071,53 @@ export const apiClient = {
   },
 
   // ============================================================================
+  // Entity Reprocessing (Epic P13-3)
+  // ============================================================================
+  reprocessing: {
+    /**
+     * Estimate how many events would be reprocessed
+     * @param filters Optional filters for reprocessing
+     * @returns Estimated event count
+     */
+    estimate: async (filters?: ReprocessingFilters): Promise<ReprocessingEstimate> => {
+      return apiFetch('/events/reprocess-entities/estimate', {
+        method: 'POST',
+        body: JSON.stringify(filters || {}),
+      });
+    },
+
+    /**
+     * Start entity reprocessing job
+     * @param filters Optional filters for reprocessing
+     * @returns Created job
+     */
+    start: async (filters?: ReprocessingFilters): Promise<ReprocessingJob> => {
+      return apiFetch('/events/reprocess-entities', {
+        method: 'POST',
+        body: JSON.stringify(filters || {}),
+      });
+    },
+
+    /**
+     * Get current reprocessing job status
+     * @returns Current job or null
+     */
+    getStatus: async (): Promise<ReprocessingJob | null> => {
+      return apiFetch('/events/reprocess-entities');
+    },
+
+    /**
+     * Cancel current reprocessing job
+     * @returns Cancelled job
+     */
+    cancel: async (): Promise<ReprocessingJob> => {
+      return apiFetch('/events/reprocess-entities', {
+        method: 'DELETE',
+      });
+    },
+  },
+
+  // ============================================================================
   // Push Notifications (Story P4-1)
   // ============================================================================
   push: {
@@ -2616,4 +2663,62 @@ export interface TunnelTestResponse {
   error: string | null;
   latency_ms: number | null;
   hostname: string | null;
+}
+
+// Epic P13-3: Entity Reprocessing types
+export interface ReprocessingFilters {
+  start_date?: string;
+  end_date?: string;
+  camera_id?: string;
+  only_unmatched?: boolean;
+}
+
+export interface ReprocessingEstimate {
+  estimated_events: number;
+  filters: ReprocessingFilters;
+}
+
+export interface ReprocessingJob {
+  job_id: string;
+  status: 'pending' | 'running' | 'completed' | 'cancelled' | 'failed';
+  total_events: number;
+  processed: number;
+  matched: number;
+  embeddings_generated: number;
+  errors: number;
+  percent_complete: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  filters: ReprocessingFilters;
+}
+
+// WebSocket message types for reprocessing (P13-3.3)
+export interface ReprocessingProgressMessage {
+  type: 'reprocessing_progress';
+  data: {
+    job_id: string;
+    processed: number;
+    total: number;
+    matched: number;
+    embeddings_generated: number;
+    errors: number;
+    percent_complete: number;
+  };
+  timestamp: string;
+}
+
+export interface ReprocessingCompleteMessage {
+  type: 'reprocessing_complete';
+  data: {
+    job_id: string;
+    status: string;
+    total_processed: number;
+    total_matched: number;
+    embeddings_generated: number;
+    total_errors: number;
+    duration_seconds: number;
+    error_message: string | null;
+  };
+  timestamp: string;
 }

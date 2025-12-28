@@ -67,6 +67,7 @@ import { FrameSamplingStrategySelector, type FrameSamplingStrategy } from '@/com
 import { PasswordChangeForm } from '@/components/settings/PasswordChangeForm';
 import { DeviceManager } from '@/components/settings/DeviceManager';
 import { APIKeySettings } from '@/components/settings/APIKeySettings';
+import { EntityReprocessing } from '@/components/settings/EntityReprocessing';
 import { PairingConfirmation } from '@/components/settings/PairingConfirmation';
 import { ControllerForm, type ControllerData, DeleteControllerDialog, DiscoveredCameraList } from '@/components/protect';
 import { useQuery } from '@tanstack/react-query';
@@ -1130,6 +1131,11 @@ Keep the summary concise (2-3 paragraphs).`}
 
               {/* Motion Events Export Section (Story P6-4.2) */}
               <MotionEventsExport />
+
+              {/* Entity Reprocessing Section (Epic P13-3) */}
+              <ErrorBoundary context="Entity Reprocessing">
+                <EntityReprocessing />
+              </ErrorBoundary>
 
               {/* Backup & Restore Section (Story 6.4) */}
               <BackupRestore />

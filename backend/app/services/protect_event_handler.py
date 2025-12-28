@@ -160,6 +160,36 @@ class ProtectEventHandler:
         # Story P3-5.3: Track last audio transcription for passing to event storage
         self._last_audio_transcription: Optional[str] = None
 
+    def _try_ocr_extraction(self, frame: np.ndarray, db: Session) -> Optional[Any]:
+        """Extract OCR from frame if enabled and available (Story P9-3.2).
+
+        Args:
+            frame: BGR numpy array from camera frame
+            db: Database session for checking settings
+
+        Returns:
+            OCRResult if OCR is enabled, available, and extraction succeeds; None otherwise
+        """
+        from app.models.system_setting import SystemSetting
+        from app.services.ocr_service import extract_overlay_text, is_ocr_available
+
+        # Check if OCR is enabled in settings
+        setting = db.query(SystemSetting).filter(
+            SystemSetting.key == 'settings_attempt_ocr_extraction'
+        ).first()
+        if not (setting and setting.value.lower() == 'true'):
+            return None
+
+        # Check if tesseract is available
+        if not is_ocr_available():
+            return None
+
+        try:
+            return extract_overlay_text(frame)
+        except Exception as e:
+            logger.warning(f"OCR extraction failed: {e}")
+            return None
+
     async def handle_event(
         self,
         controller_id: str,
@@ -1779,6 +1809,22 @@ class ProtectEventHandler:
                 if camera.is_doorbell:
                     audio_transcription = await self._extract_and_transcribe_audio(clip_path, camera)
 
+                # Story P9-3.2: Extract OCR from first frame if enabled
+                ocr_result = None
+                if frames:
+                    try:
+                        # Decode first frame from bytes to numpy array for OCR
+                        first_frame_image = Image.open(io.BytesIO(frames[0]))
+                        first_frame_rgb = np.array(first_frame_image)
+                        if len(first_frame_rgb.shape) == 3 and first_frame_rgb.shape[2] == 3:
+                            first_frame_bgr = first_frame_rgb[:, :, ::-1]  # RGB to BGR
+                        else:
+                            first_frame_bgr = first_frame_rgb
+                        with SessionLocal() as ocr_db:
+                            ocr_result = self._try_ocr_extraction(first_frame_bgr, ocr_db)
+                    except Exception as ocr_err:
+                        logger.warning(f"OCR extraction from first frame failed: {ocr_err}")
+
                 result = await ai_service.describe_images(
                     images=frames,
                     camera_name=camera.name,
@@ -1786,7 +1832,8 @@ class ProtectEventHandler:
                     detected_objects=[event_type],
                     sla_timeout_ms=10000,  # 10s SLA for multi-frame (higher than single-frame)
                     custom_prompt=custom_prompt,
-                    audio_transcription=audio_transcription  # Story P3-5.3
+                    audio_transcription=audio_transcription,  # Story P3-5.3
+                    ocr_result=ocr_result  # Story P9-3.2
                 )
                 # Store transcription for later use when saving event
                 self._last_audio_transcription = audio_transcription
@@ -1896,6 +1943,11 @@ class ProtectEventHandler:
             else:
                 frame_bgr = frame_rgb
 
+            # Story P9-3.2: Extract OCR from frame overlay if enabled
+            ocr_result = None
+            with SessionLocal() as db:
+                ocr_result = self._try_ocr_extraction(frame_bgr, db)
+
             # Story P2-4.1: Use doorbell-specific prompt for ring events (AC4)
             # Story P11-3: Use context-enhanced prompt if available
             if is_doorbell_ring:
@@ -1912,7 +1964,8 @@ class ProtectEventHandler:
                 timestamp=self._formatted_timestamp,
                 detected_objects=[event_type],
                 sla_timeout_ms=5000,  # 5s SLA target
-                custom_prompt=custom_prompt
+                custom_prompt=custom_prompt,
+                ocr_result=ocr_result
             )
 
             # Check if AI succeeded

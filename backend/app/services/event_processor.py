@@ -728,6 +728,24 @@ class EventProcessor:
             # Step 5: Generate AI description (with context if available)
             logger.debug(f"Worker {worker_id}: Calling AI service for camera {event.camera_name}")
 
+            # Story P9-3.2: Extract OCR from frame overlay if enabled
+            ocr_result = None
+            try:
+                from app.models.system_setting import SystemSetting
+                from app.services.ocr_service import extract_overlay_text, is_ocr_available
+
+                with SessionLocal() as ocr_db:
+                    setting = ocr_db.query(SystemSetting).filter(
+                        SystemSetting.key == 'settings_attempt_ocr_extraction'
+                    ).first()
+                    if setting and setting.value.lower() == 'true' and is_ocr_available():
+                        try:
+                            ocr_result = extract_overlay_text(event.frame)
+                        except Exception as ocr_err:
+                            logger.warning(f"OCR extraction failed: {ocr_err}")
+            except Exception as ocr_setup_err:
+                logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
+
             ai_result = await self.ai_service.generate_description(
                 frame=event.frame,
                 camera_name=event.camera_name,
@@ -735,6 +753,7 @@ class EventProcessor:
                 detected_objects=event.detected_objects,
                 sla_timeout_ms=5000,
                 custom_prompt=context_enhanced_prompt,  # Story P4-3.4: Pass enhanced prompt
+                ocr_result=ocr_result,  # Story P9-3.2: Pass OCR extraction result
             )
 
             # Story P2-6.3 AC13: If all AI providers fail, store event without description

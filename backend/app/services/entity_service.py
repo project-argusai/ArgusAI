@@ -314,11 +314,28 @@ class EntityService:
         ).all()
 
         self._entity_cache = {}
+        skipped_count = 0
         for entity in entities:
             try:
+                if not entity.reference_embedding:
+                    skipped_count += 1
+                    logger.warning(
+                        f"Entity {entity.id} has no reference embedding, skipping",
+                        extra={"entity_id": entity.id}
+                    )
+                    continue
                 embedding = json.loads(entity.reference_embedding)
+                # Skip empty or invalid embeddings
+                if not embedding or not isinstance(embedding, list) or len(embedding) != 512:
+                    skipped_count += 1
+                    logger.warning(
+                        f"Entity {entity.id} has invalid embedding (length={len(embedding) if embedding else 0}), skipping",
+                        extra={"entity_id": entity.id, "embedding_length": len(embedding) if embedding else 0}
+                    )
+                    continue
                 self._entity_cache[entity.id] = embedding
             except json.JSONDecodeError:
+                skipped_count += 1
                 logger.warning(
                     f"Invalid embedding JSON for entity {entity.id}",
                     extra={"entity_id": entity.id}
@@ -328,10 +345,12 @@ class EntityService:
         load_time_ms = (time.time() - start_time) * 1000
 
         logger.info(
-            f"Entity cache loaded: {len(self._entity_cache)} entities in {load_time_ms:.2f}ms",
+            f"Entity cache loaded: {len(self._entity_cache)} entities in {load_time_ms:.2f}ms"
+            + (f" ({skipped_count} skipped due to invalid embeddings)" if skipped_count > 0 else ""),
             extra={
                 "event_type": "entity_cache_loaded",
                 "entity_count": len(self._entity_cache),
+                "skipped_count": skipped_count,
                 "load_time_ms": round(load_time_ms, 2),
             }
         )

@@ -1,6 +1,6 @@
 # Sprint Status
 # Auto-generated from epics.md, epics-phase2.md, epics-phase3.md, epics-phase4.md, epics-phase5.md, epics-phase6.md, epics-phase7.md, epics-phase8.md, epics-phase9.md, epics-phase10.md, epics-phase11.md
-# Last updated: 2025-12-25
+# Last updated: 2025-12-28
 
 # STATUS DEFINITIONS:
 # ==================
@@ -769,13 +769,14 @@ development_status:
   # Epic P13-1: API Key Management
   # Priority: P2
   # Focus: Secure programmatic access for third-party integrations
-  epic-p13-1: backlog  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P13-1.md
-  p13-1-1-create-apikey-database-model-and-migration: backlog
-  p13-1-2-implement-api-key-generation-endpoint: backlog
-  p13-1-3-implement-api-key-list-and-revoke-endpoints: backlog
-  p13-1-4-implement-api-key-authentication-middleware: backlog
-  p13-1-5-implement-api-key-rate-limiting: backlog
-  p13-1-6-create-api-keys-settings-ui: backlog
+  # Status: COMPLETE - PR #257 merged 2025-12-28
+  epic-p13-1: done  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P13-1.md
+  p13-1-1-create-apikey-database-model-and-migration: done
+  p13-1-2-implement-api-key-generation-endpoint: done
+  p13-1-3-implement-api-key-list-and-revoke-endpoints: done
+  p13-1-4-implement-api-key-authentication-middleware: done
+  p13-1-5-implement-api-key-rate-limiting: done
+  p13-1-6-create-api-keys-settings-ui: done
   epic-p13-1-retrospective: optional
 
   # Epic P13-2: Cloud Relay

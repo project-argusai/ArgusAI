@@ -90,7 +90,8 @@ export function EntitySelectModal({
   }, [selectedEntityId, entities]);
 
   // Handle entity selection
-  const handleEntityClick = useCallback((entityId: string) => {
+  const handleEntityClick = useCallback((e: React.MouseEvent, entityId: string) => {
+    e.stopPropagation();
     setSelectedEntityId((prev) => (prev === entityId ? null : entityId));
   }, []);
 
@@ -132,7 +133,7 @@ export function EntitySelectModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -182,7 +183,7 @@ export function EntitySelectModal({
                   <button
                     key={entity.id}
                     type="button"
-                    onClick={() => handleEntityClick(entity.id)}
+                    onClick={(e) => handleEntityClick(e, entity.id)}
                     className={cn(
                       'w-full flex items-center gap-3 p-2 rounded-md text-left transition-colors',
                       'hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',

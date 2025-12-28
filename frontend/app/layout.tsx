@@ -38,18 +38,46 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
       { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180" },
       { url: "/icons/apple-touch-icon-120.png", sizes: "120x120" },
       { url: "/icons/apple-touch-icon-152.png", sizes: "152x152" },
       { url: "/icons/apple-touch-icon-167.png", sizes: "167x167" },
       { url: "/icons/apple-touch-icon-180.png", sizes: "180x180" },
     ],
   },
+  openGraph: {
+    title: "ArgusAI",
+    description: "AI-powered event detection and monitoring for home security",
+    url: "https://project-argusai.github.io/ArgusAI/",
+    siteName: "ArgusAI",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "ArgusAI - AI-Powered Home Security",
+      },
+    ],
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ArgusAI",
+    description: "AI-powered event detection and monitoring for home security",
+    images: ["/og-image.png"],
+  },
   other: {
     "mobile-web-app-capable": "yes",
+    "msapplication-TileImage": "/mstile-150x150.png",
+    "msapplication-TileColor": "#0a0a0a",
   },
 };
 

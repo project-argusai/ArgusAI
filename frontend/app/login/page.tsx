@@ -15,7 +15,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Loader2, Eye, EyeOff, AlertCircle, Camera } from 'lucide-react';
+import { Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import Image from 'next/image';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -110,10 +111,16 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
+          {/* P13-4.2: Use ArgusAI logo image */}
           <div className="flex justify-center mb-4">
-            <div className="p-3 bg-blue-100 dark:bg-blue-900 rounded-full">
-              <Camera className="h-8 w-8 text-blue-600 dark:text-blue-400" />
-            </div>
+            <Image
+              src="/icons/icon-96.png"
+              alt="ArgusAI"
+              width={64}
+              height={64}
+              className="rounded-xl"
+              priority
+            />
           </div>
           <CardTitle className="text-2xl font-bold">
             ArgusAI

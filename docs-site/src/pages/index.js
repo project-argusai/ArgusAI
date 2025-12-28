@@ -12,6 +12,14 @@ function HomepageHeader() {
   return (
     <header className={clsx('hero hero--primary', styles.heroBanner)}>
       <div className="container">
+        {/* P13-4.3: Add ArgusAI logo to hero section */}
+        <img
+          src="/ArgusAI/img/logo.png"
+          alt="ArgusAI Logo"
+          className={styles.heroLogo}
+          width={120}
+          height={120}
+        />
         <Heading as="h1" className="hero__title">
           {siteConfig.title}
         </Heading>

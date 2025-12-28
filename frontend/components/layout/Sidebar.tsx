@@ -7,6 +7,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { Home, Calendar, Video, Bell, Settings, ChevronLeft, ChevronRight, Users, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,13 +61,20 @@ export function Sidebar() {
       <div className="flex flex-col h-full">
         {/* IMP-003: App branding header in sidebar */}
         {/* BUG-003: Use dynamic system name from settings */}
+        {/* P13-4.2: Use ArgusAI logo image */}
         <div className={cn(
           "flex items-center gap-2 p-4 border-b",
           isCollapsed ? "justify-center" : ""
         )}>
-          <div className="p-1.5 bg-primary/10 rounded-lg flex-shrink-0">
-            <Video className="h-5 w-5 text-primary" aria-hidden="true" />
-          </div>
+          <Image
+            src="/icons/icon-96.png"
+            alt=""
+            width={28}
+            height={28}
+            className="rounded-lg flex-shrink-0"
+            aria-hidden="true"
+            priority
+          />
           {!isCollapsed && (
             <span className="font-bold text-lg truncate">{settings.systemName}</span>
           )}

@@ -72,12 +72,13 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       // Replace with your project's social card
-      image: 'img/argusai-social-card.png',
+      // P13-4.3: Updated to use ArgusAI branding assets
+      image: 'img/docusaurus-social-card.png',
       navbar: {
         title: 'ArgusAI',
         logo: {
           alt: 'ArgusAI Logo',
-          src: 'img/logo.svg',
+          src: 'img/logo.png',
         },
         items: [
           {

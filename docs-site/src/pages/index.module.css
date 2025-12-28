@@ -5,6 +5,13 @@
   overflow: hidden;
 }
 
+/* P13-4.3: Hero logo styling */
+.heroLogo {
+  margin-bottom: 1.5rem;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
 @media screen and (max-width: 996px) {
   .heroBanner {
     padding: 2rem;

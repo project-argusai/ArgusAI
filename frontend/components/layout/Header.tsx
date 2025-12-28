@@ -7,6 +7,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Video, Calendar, Bell, Settings, Menu, Home, User, Circle, LogOut, KeyRound, Users } from 'lucide-react';
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -65,11 +66,17 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:hidden">
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
-          {/* Logo - BUG-003: Use dynamic system name */}
+          {/* Logo - BUG-003: Use dynamic system name, P13-4.2: Use ArgusAI logo */}
           <Link href="/" className="flex items-center gap-2" aria-label={`${settings.systemName} - Home`}>
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Video className="h-6 w-6 text-primary" aria-hidden="true" />
-            </div>
+            <Image
+              src="/icons/icon-96.png"
+              alt=""
+              width={32}
+              height={32}
+              className="rounded-lg"
+              aria-hidden="true"
+              priority
+            />
             <span className="font-bold text-xl hidden sm:inline-block">
               {settings.systemName}
             </span>

@@ -785,6 +785,7 @@ app = FastAPI(
     title="ArgusAI API",
     description=OPENAPI_DESCRIPTION,
     version="1.0.0",
+    redirect_slashes=False,  # Disable trailing slash redirects to avoid proxy issues
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",

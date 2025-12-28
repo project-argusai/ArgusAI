@@ -2303,6 +2303,11 @@ class ProtectEventHandler:
                             threshold=0.75,
                         )
 
+                        # BUG-020 Fix: Update event.matched_entity_ids so events appear linked in UI
+                        import json as json_lib
+                        event.matched_entity_ids = json_lib.dumps([entity_result.entity_id])
+                        db.commit()
+
                         logger.info(
                             f"Entity {'created' if entity_result.is_new else 'matched'} for Protect event {event.id}",
                             extra={
@@ -2502,13 +2507,18 @@ class ProtectEventHandler:
                             entity_type = event_type
 
                         entity_service = get_entity_service()
-                        await entity_service.match_or_create_entity(
+                        entity_result = await entity_service.match_or_create_entity(
                             db=db,
                             event_id=event.id,
                             embedding=embedding_vector,
                             entity_type=entity_type,
                             threshold=0.75,
                         )
+
+                        # BUG-020 Fix: Update event.matched_entity_ids so events appear linked in UI
+                        import json as json_lib
+                        event.matched_entity_ids = json_lib.dumps([entity_result.entity_id])
+                        db.commit()
             except Exception as embed_error:
                 logger.debug(
                     f"Embedding/entity matching failed for no-AI event {event.id}: {embed_error}"

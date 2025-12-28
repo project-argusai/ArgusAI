@@ -137,20 +137,34 @@ export function TunnelSettings() {
     }
   };
 
-  // Test connection handler
+  // Test connection handler (Story P13-2.4)
   const handleTestConnection = async () => {
     setIsTesting(true);
     try {
-      // Start with token to test, then check status
-      const result = await apiClient.tunnel.start(tokenInput || undefined);
-      if (result.success) {
-        toast.success('Connection test successful', {
-          description: result.message,
-        });
+      // If token is provided, use dedicated test endpoint (doesn't persist config)
+      if (tokenInput) {
+        const result = await apiClient.tunnel.test(tokenInput);
+        if (result.success) {
+          toast.success('Connection test successful', {
+            description: `Connected to ${result.hostname} in ${result.latency_ms}ms`,
+          });
+        } else {
+          toast.error('Connection test failed', {
+            description: result.error || 'Unknown error',
+          });
+        }
       } else {
-        toast.error('Connection test failed', {
-          description: result.message,
-        });
+        // No token provided - start with saved token
+        const result = await apiClient.tunnel.start();
+        if (result.success) {
+          toast.success('Connection test successful', {
+            description: result.message,
+          });
+        } else {
+          toast.error('Connection test failed', {
+            description: result.message,
+          });
+        }
       }
       queryClient.invalidateQueries({ queryKey: ['tunnel-status'] });
     } catch (error) {

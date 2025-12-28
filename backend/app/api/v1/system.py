@@ -2218,6 +2218,147 @@ async def start_tunnel(
         )
 
 
+class TunnelTestRequest(BaseModel):
+    """Request schema for tunnel connectivity test."""
+    token: str = Field(..., min_length=10, description="Tunnel token to test")
+
+
+class TunnelTestResponse(BaseModel):
+    """Response schema for tunnel connectivity test."""
+    success: bool = Field(..., description="Whether test succeeded")
+    error: Optional[str] = Field(None, description="Error message if test failed")
+    latency_ms: Optional[int] = Field(None, description="Connection latency in milliseconds")
+    hostname: Optional[str] = Field(None, description="Tunnel hostname if connected")
+
+
+@router.post("/tunnel/test", response_model=TunnelTestResponse)
+async def test_tunnel_connectivity(
+    request: TunnelTestRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Test tunnel connectivity without persisting configuration (Story P13-2.4)
+
+    Starts tunnel with provided token, waits for connection,
+    and returns result. Stops tunnel after test unless it was
+    already running with the same configuration.
+
+    **Request Body:**
+    ```json
+    {
+        "token": "your-tunnel-token"
+    }
+    ```
+
+    **Response:**
+    ```json
+    {
+        "success": true,
+        "error": null,
+        "latency_ms": 2500,
+        "hostname": "my-tunnel.trycloudflare.com"
+    }
+    ```
+
+    **Status Codes:**
+    - 200: Test result returned
+    - 400: Invalid token format
+    - 500: Internal server error
+    """
+    import asyncio
+    import time
+
+    from app.services.tunnel_service import get_tunnel_service
+
+    tunnel_service = get_tunnel_service()
+    was_running = tunnel_service.is_running
+    original_token = None
+
+    # Get the currently saved token to compare
+    encrypted_token = _get_setting_from_db(db, f"{SETTINGS_PREFIX}tunnel_token")
+    if encrypted_token:
+        try:
+            original_token = decrypt_password(encrypted_token)
+        except ValueError:
+            original_token = None
+
+    start_time = time.time()
+
+    try:
+        # If tunnel is running with a different token, stop it first
+        if was_running:
+            await tunnel_service.stop()
+            # Brief wait for cleanup
+            await asyncio.sleep(1)
+
+        # Start with test token
+        success = await tunnel_service.start(request.token)
+
+        if not success:
+            return TunnelTestResponse(
+                success=False,
+                error=tunnel_service.error_message or "Failed to start tunnel",
+                latency_ms=None,
+                hostname=None,
+            )
+
+        # Wait for connection (max 30 seconds)
+        for _ in range(30):
+            await asyncio.sleep(1)
+            if tunnel_service.is_connected:
+                break
+
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        if tunnel_service.is_connected:
+            hostname = tunnel_service.hostname
+            logger.info(
+                f"Tunnel test successful: {hostname} in {latency_ms}ms",
+                extra={"event_type": "tunnel_test_success", "hostname": hostname, "latency_ms": latency_ms}
+            )
+            return TunnelTestResponse(
+                success=True,
+                error=None,
+                latency_ms=latency_ms,
+                hostname=hostname,
+            )
+        else:
+            error_msg = tunnel_service.error_message or "Connection timeout after 30 seconds"
+            logger.warning(
+                f"Tunnel test failed: {error_msg}",
+                extra={"event_type": "tunnel_test_failed", "error": error_msg}
+            )
+            return TunnelTestResponse(
+                success=False,
+                error=error_msg,
+                latency_ms=latency_ms,
+                hostname=None,
+            )
+
+    except Exception as e:
+        logger.error(
+            f"Tunnel test error: {e}",
+            extra={"event_type": "tunnel_test_error", "error": str(e)}
+        )
+        return TunnelTestResponse(
+            success=False,
+            error=str(e),
+            latency_ms=None,
+            hostname=None,
+        )
+
+    finally:
+        # Restore original state if test token differs from saved token
+        if not was_running or (original_token and original_token != request.token):
+            # Stop the test tunnel
+            await tunnel_service.stop()
+
+            # Restart with original token if it was running
+            if was_running and original_token:
+                await asyncio.sleep(1)
+                await tunnel_service.start(original_token)
+
+
 @router.post("/tunnel/stop", response_model=TunnelActionResponse)
 async def stop_tunnel(db: Session = Depends(get_db)):
     """

@@ -2482,6 +2482,19 @@ export const apiClient = {
         method: 'POST',
       });
     },
+
+    /**
+     * Test Cloudflare Tunnel connectivity (Story P13-2.4)
+     * Tests connection without persisting configuration
+     * @param token Tunnel token to test
+     * @returns Test result with latency and hostname
+     */
+    test: async (token: string): Promise<TunnelTestResponse> => {
+      return apiFetch('/system/tunnel/test', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+    },
   },
 };
 
@@ -2595,4 +2608,12 @@ export interface TunnelActionResponse {
   success: boolean;
   message: string;
   status?: TunnelStatus;
+}
+
+// Story P13-2.4: Tunnel connectivity test response
+export interface TunnelTestResponse {
+  success: boolean;
+  error: string | null;
+  latency_ms: number | null;
+  hostname: string | null;
 }

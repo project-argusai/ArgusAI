@@ -112,11 +112,10 @@ async def scheduled_backup_job():
     """
     try:
         # Check if automatic backups are enabled
-        from app.core.database import SessionLocal
+        from app.core.database import get_db_session
         from app.models.system_setting import SystemSetting
 
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             auto_backup_setting = db.query(SystemSetting).filter(
                 SystemSetting.key == "settings_auto_backup_enabled"
             ).first()
@@ -131,9 +130,6 @@ async def scheduled_backup_job():
                 SystemSetting.key == "settings_backup_retention_count"
             ).first()
             keep_count = int(retention_setting.value) if retention_setting else 7
-
-        finally:
-            db.close()
 
         logger.info("Starting scheduled automatic backup")
 
@@ -172,10 +168,9 @@ async def scheduled_pattern_calculation_job():
     try:
         logger.info("Starting scheduled pattern calculation")
 
-        from app.core.database import SessionLocal
+        from app.core.database import get_db_session
 
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             # Get pattern service and recalculate all patterns
             pattern_service = get_pattern_service()
             result = await pattern_service.recalculate_all_patterns(db)
@@ -188,9 +183,6 @@ async def scheduled_pattern_calculation_job():
                     **result
                 }
             )
-
-        finally:
-            db.close()
 
     except Exception as e:
         logger.error(f"Scheduled pattern calculation failed: {e}", exc_info=True)

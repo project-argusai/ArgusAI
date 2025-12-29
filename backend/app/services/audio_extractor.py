@@ -347,12 +347,11 @@ class AudioExtractor:
 
         try:
             # Import here to avoid circular imports
-            from app.core.database import SessionLocal
+            from app.core.database import get_db_session
             from app.models.settings import Settings
             from app.utils.encryption import decrypt_password
 
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Load OpenAI API key from settings (same pattern as AIService)
                 setting = db.query(Settings).filter(
                     Settings.key == "ai_api_key_openai"
@@ -376,9 +375,6 @@ class AudioExtractor:
                     extra={"event_type": "whisper_client_init"}
                 )
                 return self._openai_client
-
-            finally:
-                db.close()
 
         except Exception as e:
             logger.error(
@@ -478,14 +474,13 @@ class AudioExtractor:
         """
         try:
             # Import here to avoid circular imports
-            from app.core.database import SessionLocal
+            from app.core.database import get_db_session
             from app.models.ai_usage import AIUsage
 
             # Calculate cost: $0.006 per minute
             cost_estimate = (duration_seconds / 60.0) * WHISPER_COST_PER_MINUTE
 
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 usage = AIUsage(
                     timestamp=datetime.now(timezone.utc),
                     provider="whisper",
@@ -510,9 +505,6 @@ class AudioExtractor:
                         "success": success
                     }
                 )
-
-            finally:
-                db.close()
 
         except Exception as e:
             # Don't fail transcription if usage tracking fails

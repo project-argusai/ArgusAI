@@ -28,7 +28,7 @@ from typing import Optional
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.services.embedding_service import get_embedding_service
 from app.services.entity_service import get_entity_service
 from app.services.websocket_manager import get_websocket_manager
@@ -300,11 +300,8 @@ class ReprocessingService:
 
         try:
             # Get event IDs to process
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 event_ids = await self._get_event_ids(db, job)
-            finally:
-                db.close()
 
             # Process in batches
             for i in range(0, len(event_ids), self.BATCH_SIZE):
@@ -321,23 +318,22 @@ class ReprocessingService:
                     if job.cancel_requested:
                         break
 
-                    db = SessionLocal()
                     try:
-                        result = await self._process_single_event(
-                            db, event_id, embedding_service, entity_service
-                        )
-                        db.commit()
-                        job.processed += 1
+                        with get_db_session() as db:
+                            result = await self._process_single_event(
+                                db, event_id, embedding_service, entity_service
+                            )
+                            db.commit()
+                            job.processed += 1
 
-                        if result.get("matched"):
-                            job.matched += 1
-                        if result.get("embedding_generated"):
-                            job.embeddings_generated += 1
+                            if result.get("matched"):
+                                job.matched += 1
+                            if result.get("embedding_generated"):
+                                job.embeddings_generated += 1
 
-                        job.last_processed_event_id = event_id
+                            job.last_processed_event_id = event_id
 
                     except Exception as e:
-                        db.rollback()
                         job.processed += 1  # Still count as processed
                         job.errors += 1
                         logger.warning(
@@ -348,8 +344,6 @@ class ReprocessingService:
                                 "error": str(e),
                             }
                         )
-                    finally:
-                        db.close()
 
                 # Send progress update if interval elapsed
                 now = time.time()

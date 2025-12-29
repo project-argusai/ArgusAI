@@ -480,10 +480,9 @@ Timeline:
         import google.generativeai as genai
         from app.models.system_setting import SystemSetting
         from app.utils.encryption import decrypt_password
-        from app.core.database import SessionLocal
+        from app.core.database import get_db_session
 
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             # Load API keys from database
             settings = db.query(SystemSetting).filter(
                 SystemSetting.key.in_([
@@ -539,9 +538,6 @@ Timeline:
 
             # All providers failed
             raise Exception(f"All AI providers failed. Errors: {'; '.join(errors)}")
-
-        finally:
-            db.close()
 
     async def _call_openai(
         self,

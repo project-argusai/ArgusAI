@@ -29,7 +29,7 @@ from apscheduler.job import Job
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.models.activity_summary import ActivitySummary
 from app.models.system_setting import SystemSetting
 from app.services.summary_service import get_summary_service, SummaryResult
@@ -203,83 +203,79 @@ class DigestScheduler:
             }
         )
 
-        # Get database session
-        db = SessionLocal()
+        # Get database session with context manager for automatic cleanup
+        with get_db_session() as db:
+            try:
+                # Check if digest already exists (idempotent)
+                if self._digest_exists_for_date(db, target_date):
+                    logger.info(
+                        f"Digest already exists for {target_date}, skipping",
+                        extra={
+                            "event_type": "digest_skipped_exists",
+                            "target_date": target_date.isoformat()
+                        }
+                    )
+                    self._last_status = "skipped"
+                    return None
 
-        try:
-            # Check if digest already exists (idempotent)
-            if self._digest_exists_for_date(db, target_date):
+                # Calculate midnight-to-midnight range in UTC
+                start_time = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+                end_time = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+
+                # Call SummaryService to generate summary
+                summary_service = get_summary_service()
+                result = await summary_service.generate_summary(
+                    db=db,
+                    start_time=start_time,
+                    end_time=end_time,
+                    camera_ids=None  # All cameras
+                )
+
+                if not result.success:
+                    logger.error(
+                        f"Digest generation failed: {result.error}",
+                        extra={
+                            "event_type": "digest_generation_failed",
+                            "error": result.error
+                        }
+                    )
+                    self._last_status = "error"
+                    self._last_error = result.error
+                    return None
+
+                # Store the result with digest_type='daily'
+                digest = self._save_digest(db, result, target_date)
+
+                # Deliver the digest via configured channels (Story P4-4.3)
+                await self._deliver_digest(db, digest)
+
+                self._last_status = "success"
+                self._last_error = None
+
                 logger.info(
-                    f"Digest already exists for {target_date}, skipping",
+                    f"Digest generated and delivered for {target_date}",
                     extra={
-                        "event_type": "digest_skipped_exists",
-                        "target_date": target_date.isoformat()
+                        "event_type": "digest_generation_success",
+                        "target_date": target_date.isoformat(),
+                        "event_count": result.event_count,
+                        "ai_cost": float(result.ai_cost)
                     }
                 )
-                self._last_status = "skipped"
-                return None
 
-            # Calculate midnight-to-midnight range in UTC
-            start_time = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-            end_time = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+                return result
 
-            # Call SummaryService to generate summary
-            summary_service = get_summary_service()
-            result = await summary_service.generate_summary(
-                db=db,
-                start_time=start_time,
-                end_time=end_time,
-                camera_ids=None  # All cameras
-            )
-
-            if not result.success:
+            except Exception as e:
                 logger.error(
-                    f"Digest generation failed: {result.error}",
+                    f"Digest generation error: {e}",
                     extra={
-                        "event_type": "digest_generation_failed",
-                        "error": result.error
-                    }
+                        "event_type": "digest_generation_error",
+                        "error": str(e)
+                    },
+                    exc_info=True
                 )
                 self._last_status = "error"
-                self._last_error = result.error
-                return None
-
-            # Store the result with digest_type='daily'
-            digest = self._save_digest(db, result, target_date)
-
-            # Deliver the digest via configured channels (Story P4-4.3)
-            await self._deliver_digest(db, digest)
-
-            self._last_status = "success"
-            self._last_error = None
-
-            logger.info(
-                f"Digest generated and delivered for {target_date}",
-                extra={
-                    "event_type": "digest_generation_success",
-                    "target_date": target_date.isoformat(),
-                    "event_count": result.event_count,
-                    "ai_cost": float(result.ai_cost)
-                }
-            )
-
-            return result
-
-        except Exception as e:
-            logger.error(
-                f"Digest generation error: {e}",
-                extra={
-                    "event_type": "digest_generation_error",
-                    "error": str(e)
-                },
-                exc_info=True
-            )
-            self._last_status = "error"
-            self._last_error = str(e)
-            raise
-
-        finally:
-            db.close()
+                self._last_error = str(e)
+                raise
 
     def _digest_exists_for_date(self, db: Session, target_date: date) -> bool:
         """
@@ -459,9 +455,8 @@ async def initialize_digest_scheduler() -> None:
     """
     scheduler = get_digest_scheduler()
 
-    # Read settings from database
-    db = SessionLocal()
-    try:
+    # Read settings from database with context manager for automatic cleanup
+    with get_db_session() as db:
         enabled_setting = db.query(SystemSetting).filter(
             SystemSetting.key == "digest_schedule_enabled"
         ).first()
@@ -492,9 +487,6 @@ async def initialize_digest_scheduler() -> None:
                     "enabled": False
                 }
             )
-
-    finally:
-        db.close()
 
 
 async def shutdown_digest_scheduler() -> None:

@@ -154,20 +154,18 @@ async def _process_event_alerts_background(event_id: str):
     Args:
         event_id: UUID of the event to process
     """
-    from app.core.database import SessionLocal
+    from app.core.database import get_db_session
     from app.services.alert_engine import process_event_alerts
 
-    db = SessionLocal()
     try:
-        await process_event_alerts(event_id, db)
+        with get_db_session() as db:
+            await process_event_alerts(event_id, db)
     except Exception as e:
         logger.error(
             f"Background alert processing failed for event {event_id}: {e}",
             exc_info=True,
             extra={"event_id": event_id}
         )
-    finally:
-        db.close()
 
 
 @router.post(

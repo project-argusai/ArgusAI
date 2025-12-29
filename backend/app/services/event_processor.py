@@ -46,7 +46,7 @@ from app.services.motion_detection_service import MotionDetectionService
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
 from app.services.carrier_extractor import extract_carrier
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 
 if TYPE_CHECKING:
     from app.services.mqtt_service import MQTTService
@@ -215,12 +215,9 @@ class EventProcessor:
         self.http_client = httpx.AsyncClient(timeout=10.0)
 
         # Load AI API keys from database
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             await self.ai_service.load_api_keys_from_db(db)
             logger.info("AI service API keys loaded from database")
-        finally:
-            db.close()
 
         # Start AI worker pool
         for i in range(self.worker_count):
@@ -235,21 +232,19 @@ class EventProcessor:
         # Start motion detection tasks for enabled cameras
         # Note: This will be called from FastAPI lifespan after camera service is initialized
         # For now, we'll load cameras from database
-        db = SessionLocal()
         try:
-            enabled_cameras = db.query(Camera).filter(
-                Camera.is_enabled == True,
-                Camera.motion_enabled == True
-            ).all()
+            with get_db_session() as db:
+                enabled_cameras = db.query(Camera).filter(
+                    Camera.is_enabled == True,
+                    Camera.motion_enabled == True
+                ).all()
 
-            for camera in enabled_cameras:
-                await self.start_camera_monitoring(camera)
+                for camera in enabled_cameras:
+                    await self.start_camera_monitoring(camera)
 
-            logger.info(f"Started monitoring {len(enabled_cameras)} enabled cameras")
+                logger.info(f"Started monitoring {len(enabled_cameras)} enabled cameras")
         except Exception as e:
             logger.error(f"Failed to load enabled cameras: {e}", exc_info=True)
-        finally:
-            db.close()
 
         logger.info("EventProcessor started successfully")
 
@@ -563,11 +558,8 @@ class EventProcessor:
         try:
             # Story P3-7.3: Check cost caps before AI analysis
             cost_cap_service = get_cost_cap_service()
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 can_analyze, skip_reason = cost_cap_service.can_analyze(db)
-            finally:
-                db.close()
 
             if not can_analyze:
                 logger.info(
@@ -1395,101 +1387,97 @@ class EventProcessor:
         from datetime import datetime
 
         for attempt in range(max_retries + 1):
-            db = SessionLocal()
             try:
-                # Parse timestamp if string
-                timestamp = event_data.get("timestamp")
-                if isinstance(timestamp, str):
-                    timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                with get_db_session() as db:
+                    # Parse timestamp if string
+                    timestamp = event_data.get("timestamp")
+                    if isinstance(timestamp, str):
+                        timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
 
-                # Handle thumbnail - save to file if base64 provided
-                thumbnail_path = None
-                thumbnail_base64 = event_data.get("thumbnail_base64")
-                if thumbnail_base64:
-                    import base64
+                    # Handle thumbnail - save to file if base64 provided
+                    thumbnail_path = None
+                    thumbnail_base64 = event_data.get("thumbnail_base64")
+                    if thumbnail_base64:
+                        import base64
 
-                    # Strip data URI prefix if present (e.g., "data:image/jpeg;base64,")
-                    if thumbnail_base64.startswith('data:'):
-                        comma_idx = thumbnail_base64.find(',')
-                        if comma_idx != -1:
-                            thumbnail_base64 = thumbnail_base64[comma_idx + 1:]
+                        # Strip data URI prefix if present (e.g., "data:image/jpeg;base64,")
+                        if thumbnail_base64.startswith('data:'):
+                            comma_idx = thumbnail_base64.find(',')
+                            if comma_idx != -1:
+                                thumbnail_base64 = thumbnail_base64[comma_idx + 1:]
 
-                    # Create thumbnails directory structure
-                    date_str = timestamp.strftime("%Y-%m-%d")
-                    thumbnail_dir = os.path.join(
-                        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                        "data", "thumbnails", date_str
+                        # Create thumbnails directory structure
+                        date_str = timestamp.strftime("%Y-%m-%d")
+                        thumbnail_dir = os.path.join(
+                            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                            "data", "thumbnails", date_str
+                        )
+                        os.makedirs(thumbnail_dir, exist_ok=True)
+
+                        # Save thumbnail
+                        event_id = str(uuid.uuid4())
+                        thumbnail_filename = f"{event_id}.jpg"
+                        thumbnail_full_path = os.path.join(thumbnail_dir, thumbnail_filename)
+
+                        with open(thumbnail_full_path, "wb") as f:
+                            f.write(base64.b64decode(thumbnail_base64))
+
+                        thumbnail_path = f"/api/v1/thumbnails/{date_str}/{thumbnail_filename}"
+                    else:
+                        event_id = str(uuid.uuid4())
+
+                    # Create event record
+                    # Convert confidence from 0.0-1.0 to 0-100 integer
+                    confidence_float = event_data.get("confidence", 0.0)
+                    confidence_int = int(confidence_float * 100) if confidence_float <= 1.0 else int(confidence_float)
+
+                    # Convert objects_detected list to JSON string
+                    objects_detected = event_data.get("objects_detected", [])
+                    if isinstance(objects_detected, list):
+                        objects_detected = json.dumps(objects_detected)
+
+                    event = Event(
+                        id=event_id,
+                        camera_id=event_data["camera_id"],
+                        timestamp=timestamp,
+                        description=event_data.get("description", ""),
+                        confidence=confidence_int,
+                        objects_detected=objects_detected,
+                        thumbnail_path=thumbnail_path,
+                        alert_triggered=event_data.get("alert_triggered", False),
+                        provider_used=event_data.get("provider_used"),  # Story P2-5.3: AI provider tracking
+                        description_retry_needed=event_data.get("description_retry_needed", False),  # Story P2-6.3 AC13
+                        ai_cost=event_data.get("ai_cost"),  # Story P3-7.1: AI cost tracking
+                        delivery_carrier=event_data.get("delivery_carrier"),  # Story P7-2.1: Carrier detection
                     )
-                    os.makedirs(thumbnail_dir, exist_ok=True)
 
-                    # Save thumbnail
-                    event_id = str(uuid.uuid4())
-                    thumbnail_filename = f"{event_id}.jpg"
-                    thumbnail_full_path = os.path.join(thumbnail_dir, thumbnail_filename)
+                    db.add(event)
+                    db.commit()
 
-                    with open(thumbnail_full_path, "wb") as f:
-                        f.write(base64.b64decode(thumbnail_base64))
+                    logger.info(
+                        f"Event {event_id} stored successfully",
+                        extra={"event_id": event_id, "camera_id": event_data["camera_id"]}
+                    )
 
-                    thumbnail_path = f"/api/v1/thumbnails/{date_str}/{thumbnail_filename}"
-                else:
-                    event_id = str(uuid.uuid4())
+                    # Story P4-7.1: Update activity baseline incrementally (non-blocking)
+                    # Spawn as background task with its own session since this db will be closed
+                    asyncio.create_task(
+                        self._update_activity_baseline(event_data["camera_id"], event)
+                    )
 
-                # Create event record
-                # Convert confidence from 0.0-1.0 to 0-100 integer
-                confidence_float = event_data.get("confidence", 0.0)
-                confidence_int = int(confidence_float * 100) if confidence_float <= 1.0 else int(confidence_float)
+                    # Story P4-7.2: Calculate and persist anomaly score (non-blocking)
+                    asyncio.create_task(
+                        self._calculate_anomaly_score(event)
+                    )
 
-                # Convert objects_detected list to JSON string
-                objects_detected = event_data.get("objects_detected", [])
-                if isinstance(objects_detected, list):
-                    objects_detected = json.dumps(objects_detected)
-
-                event = Event(
-                    id=event_id,
-                    camera_id=event_data["camera_id"],
-                    timestamp=timestamp,
-                    description=event_data.get("description", ""),
-                    confidence=confidence_int,
-                    objects_detected=objects_detected,
-                    thumbnail_path=thumbnail_path,
-                    alert_triggered=event_data.get("alert_triggered", False),
-                    provider_used=event_data.get("provider_used"),  # Story P2-5.3: AI provider tracking
-                    description_retry_needed=event_data.get("description_retry_needed", False),  # Story P2-6.3 AC13
-                    ai_cost=event_data.get("ai_cost"),  # Story P3-7.1: AI cost tracking
-                    delivery_carrier=event_data.get("delivery_carrier"),  # Story P7-2.1: Carrier detection
-                )
-
-                db.add(event)
-                db.commit()
-
-                logger.info(
-                    f"Event {event_id} stored successfully",
-                    extra={"event_id": event_id, "camera_id": event_data["camera_id"]}
-                )
-
-                # Story P4-7.1: Update activity baseline incrementally (non-blocking)
-                # Spawn as background task with its own session since this db will be closed
-                asyncio.create_task(
-                    self._update_activity_baseline(event_data["camera_id"], event)
-                )
-
-                # Story P4-7.2: Calculate and persist anomaly score (non-blocking)
-                asyncio.create_task(
-                    self._calculate_anomaly_score(event)
-                )
-
-                return event_id  # Return event_id instead of True
+                    return event_id  # Return event_id instead of True
 
             except Exception as e:
-                db.rollback()
                 logger.error(
                     f"Event storage attempt {attempt + 1} failed: {e}",
                     exc_info=True,
                     extra={"attempt": attempt + 1, "max_retries": max_retries}
                 )
-
-            finally:
-                db.close()
 
             # Retry with exponential backoff
             if attempt < max_retries:
@@ -1853,11 +1841,8 @@ class EventProcessor:
             pattern_service = get_pattern_service()
 
             # Use own session since caller's may be closed
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 await pattern_service.update_baseline_incremental(db, camera_id, event)
-            finally:
-                db.close()
 
         except Exception as e:
             # Baseline errors must not propagate (AC3)
@@ -1893,14 +1878,11 @@ class EventProcessor:
             anomaly_service = get_anomaly_scoring_service()
 
             # Use own session since caller's may be closed
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Re-fetch event in new session
                 event_in_session = db.query(Event).filter_by(id=event.id).first()
                 if event_in_session:
                     await anomaly_service.score_event(db, event_in_session)
-            finally:
-                db.close()
 
         except Exception as e:
             # Anomaly scoring errors must not propagate (AC7)
@@ -1955,8 +1937,7 @@ class EventProcessor:
             thumbnail_bytes = base64.b64decode(b64_str)
 
             # Use own session since caller's may be closed
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Step 12: Face Detection and Embedding Storage (P4-8.1)
                 face_ids = await face_service.process_event_faces(
                     db=db,
@@ -2031,8 +2012,6 @@ class EventProcessor:
                             "event_id": event_id,
                         }
                     )
-            finally:
-                db.close()
 
         except Exception as e:
             # Face/person processing errors must not propagate (AC6)
@@ -2088,8 +2067,7 @@ class EventProcessor:
             thumbnail_bytes = base64.b64decode(b64_str)
 
             # Use own session since caller's may be closed
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Step 14a: Vehicle Detection and Embedding Storage (P4-8.3)
                 vehicle_ids = await vehicle_service.process_event_vehicles(
                     db=db,
@@ -2160,8 +2138,6 @@ class EventProcessor:
                             "event_id": event_id,
                         }
                     )
-            finally:
-                db.close()
 
         except Exception as e:
             # Vehicle processing errors must not propagate
@@ -2208,8 +2184,7 @@ class EventProcessor:
             entity_service = get_entity_alert_service()
 
             # Create new database session for background task
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Collect matched entity IDs from face and vehicle embeddings
                 matched_entity_ids = []
 
@@ -2317,9 +2292,6 @@ class EventProcessor:
                     }
                 )
 
-            finally:
-                db.close()
-
         except Exception as e:
             # Entity alert errors must not propagate
             logger.warning(
@@ -2359,8 +2331,7 @@ class EventProcessor:
             audio_handler = get_audio_event_handler()
 
             # Use own session since caller's may be closed
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 # Get the stored event
                 event = db.query(Event).filter(Event.id == event_id).first()
                 if event is None:
@@ -2394,9 +2365,6 @@ class EventProcessor:
                         f"No audio events detected for event {event_id}",
                         extra={"event_id": event_id, "camera_id": camera_id}
                     )
-
-            finally:
-                db.close()
 
         except Exception as e:
             # Audio enrichment errors must not propagate

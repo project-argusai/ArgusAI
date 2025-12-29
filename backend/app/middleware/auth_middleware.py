@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.core.config import settings
 from app.models.user import User
 from app.utils.jwt import decode_access_token, TokenError
@@ -149,8 +149,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         # Fetch user from database
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             user = db.query(User).filter(User.id == user_id).first()
 
             if not user:
@@ -186,9 +185,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 "id": user.id,
                 "username": user.username,
             }
-
-        finally:
-            db.close()
 
         # Continue to route handler
         return await call_next(request)
@@ -234,8 +230,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not api_key_header:
             return False
 
-        db = SessionLocal()
-        try:
+        with get_db_session() as db:
             service = get_api_key_service()
             api_key = service.verify_key(db, api_key_header)
 
@@ -271,6 +266,3 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 }
             )
             return False
-
-        finally:
-            db.close()

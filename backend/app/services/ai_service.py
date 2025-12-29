@@ -2606,12 +2606,11 @@ class AIService:
 
         try:
             import json
-            from app.core.database import SessionLocal
+            from app.core.database import get_db_session
 
             # Open a fresh database session for this query
             # (self.db may be closed after load_api_keys_from_db completes)
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 order_setting = db.query(SystemSetting).filter(
                     SystemSetting.key == "ai_provider_order"
                 ).first()
@@ -2639,8 +2638,6 @@ class AIService:
                         logger.warning(f"Invalid provider order in settings: {e}, using default")
 
                 return default_order
-            finally:
-                db.close()
         except Exception as e:
             logger.warning(f"Failed to load provider order from database: {e}, using default")
             return default_order

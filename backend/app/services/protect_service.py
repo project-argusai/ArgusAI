@@ -19,7 +19,7 @@ import aiohttp
 from uiprotect import ProtectApiClient
 from uiprotect.exceptions import BadRequest, NotAuthorized, NvrError
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.services.websocket_manager import get_websocket_manager
 from app.services.protect_event_handler import get_protect_event_handler
 
@@ -709,8 +709,7 @@ class ProtectService:
             # Attempt reconnection
             try:
                 # Refresh controller from database in case credentials changed
-                db = SessionLocal()
-                try:
+                with get_db_session() as db:
                     from app.models.protect_controller import ProtectController as PC
                     fresh_controller = db.query(PC).filter(PC.id == controller_id).first()
                     if not fresh_controller:
@@ -722,8 +721,6 @@ class ProtectService:
                             }
                         )
                         break
-                finally:
-                    db.close()
 
                 # Create new client
                 client = ProtectApiClient(
@@ -829,7 +826,7 @@ class ProtectService:
         """
         Update controller state in database (AC2, AC7).
 
-        Uses SessionLocal for background task database operations.
+        Uses get_db_session() for background task database operations.
 
         Args:
             controller_id: Controller UUID
@@ -837,22 +834,21 @@ class ProtectService:
             last_connected_at: Timestamp of successful connection (optional)
             last_error: Error message or None to clear (optional)
         """
-        db = SessionLocal()
         try:
-            from app.models.protect_controller import ProtectController as PC
-            controller = db.query(PC).filter(PC.id == controller_id).first()
+            with get_db_session() as db:
+                from app.models.protect_controller import ProtectController as PC
+                controller = db.query(PC).filter(PC.id == controller_id).first()
 
-            if controller:
-                if is_connected is not None:
-                    controller.is_connected = is_connected
-                if last_connected_at is not None:
-                    controller.last_connected_at = last_connected_at
-                if last_error is not None or last_error == "":
-                    controller.last_error = last_error if last_error else None
+                if controller:
+                    if is_connected is not None:
+                        controller.is_connected = is_connected
+                    if last_connected_at is not None:
+                        controller.last_connected_at = last_connected_at
+                    if last_error is not None or last_error == "":
+                        controller.last_error = last_error if last_error else None
 
-                db.commit()
+                    db.commit()
         except Exception as e:
-            db.rollback()
             logger.error(
                 f"Failed to update controller state",
                 extra={
@@ -861,8 +857,6 @@ class ProtectService:
                     "error": str(e)
                 }
             )
-        finally:
-            db.close()
 
     async def _broadcast_status(
         self,

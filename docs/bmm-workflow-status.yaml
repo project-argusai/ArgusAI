@@ -41,6 +41,11 @@ workflow_status:
   # Phase 3: Implementation
   sprint-planning: docs/sprint-artifacts/sprint-status.yaml  # agent: sm
 
+# Phase 14 Artifacts (in progress)
+phase14_artifacts:
+  prd: docs/PRD-phase14.md
+  epics: pending  # Next: create-epics-and-stories workflow
+
 # Phase 13 Artifacts (completed)
 phase13_artifacts:
   prd: docs/PRD-phase13.md

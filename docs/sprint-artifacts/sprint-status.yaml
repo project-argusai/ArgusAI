@@ -864,7 +864,7 @@ development_status:
   # Focus: Unit tests for 6 services with 0% coverage, test fixtures, E2E tests
   # Backlog: TD-026, TD-027, TD-028, TD-029, TD-030, TD-031, TD-032, TD-033, TD-034, TD-035
   epic-p14-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-3.md
-  p14-3-1-add-unit-tests-for-protect-service: backlog
+  p14-3-1-add-unit-tests-for-protect-service: done
   p14-3-2-add-unit-tests-for-protect-event-handler: backlog
   p14-3-3-add-unit-tests-for-snapshot-service: backlog
   p14-3-4-add-unit-tests-for-reprocessing-service: backlog

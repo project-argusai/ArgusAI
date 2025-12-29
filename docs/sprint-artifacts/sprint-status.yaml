@@ -855,7 +855,7 @@ development_status:
   p14-2-2-add-missing-fk-constraint: done
   p14-2-3-add-missing-database-indexes: done
   p14-2-4-fix-delete-endpoint-status-codes: done
-  p14-2-5-add-uuid-validation-on-path-parameters: backlog
+  p14-2-5-add-uuid-validation-on-path-parameters: drafted
   p14-2-6-implement-api-rate-limiting: backlog
   epic-p14-2-retrospective: optional
 

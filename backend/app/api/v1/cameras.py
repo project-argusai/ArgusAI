@@ -24,6 +24,7 @@ except ImportError:
     PYAV_AVAILABLE = False
 
 from app.core.database import get_db
+from app.core.validators import CameraUUID
 from app.models.camera import Camera
 from app.schemas.camera import (
     CameraCreate, CameraUpdate, CameraResponse, CameraTestResponse,
@@ -373,7 +374,7 @@ def test_camera_connection_presave(
 
 @router.get("/{camera_id}", response_model=CameraResponse)
 def get_camera(
-    camera_id: str,
+    camera_id: CameraUUID,
     db: Session = Depends(get_db)
 ):
     """
@@ -390,7 +391,7 @@ def get_camera(
         404: Camera not found
     """
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera = db.query(Camera).filter(Camera.id == str(camera_id)).first()
 
         if not camera:
             raise HTTPException(
@@ -412,7 +413,7 @@ def get_camera(
 
 @router.put("/{camera_id}", response_model=CameraResponse)
 async def update_camera(
-    camera_id: str,
+    camera_id: CameraUUID,
     camera_data: CameraUpdate,
     db: Session = Depends(get_db)
 ):
@@ -431,8 +432,9 @@ async def update_camera(
         404: Camera not found
         400: Validation error
     """
+    camera_id_str = str(camera_id)
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera = db.query(Camera).filter(Camera.id == camera_id_str).first()
 
         if not camera:
             raise HTTPException(
@@ -455,7 +457,7 @@ async def update_camera(
                     "Will be treated as single_frame at runtime (no native clip source).",
                     extra={
                         "event_type": "video_native_on_non_protect",
-                        "camera_id": camera_id,
+                        "camera_id": camera_id_str,
                         "source_type": camera.source_type
                     }
                 )
@@ -474,20 +476,20 @@ async def update_camera(
         # Handle camera thread lifecycle
         if restart_needed and camera.is_enabled:
             # Stop and restart camera
-            camera_service.stop_camera(camera_id)
+            camera_service.stop_camera(camera_id_str)
             camera_service.start_camera(camera)
         elif camera.is_enabled and not was_enabled:
             # Start camera (was disabled, now enabled)
             camera_service.start_camera(camera)
         elif not camera.is_enabled and was_enabled:
             # Stop camera (was enabled, now disabled)
-            camera_service.stop_camera(camera_id)
+            camera_service.stop_camera(camera_id_str)
 
             # Remove MQTT discovery config when camera disabled (Story P4-2.2, AC4)
             try:
-                await on_camera_disabled(camera_id)
+                await on_camera_disabled(camera_id_str)
             except Exception as e:
-                logger.warning(f"Failed to remove MQTT discovery for disabled camera {camera_id}: {e}")
+                logger.warning(f"Failed to remove MQTT discovery for disabled camera {camera_id_str}: {e}")
 
         logger.info(f"Camera updated: {camera_id}")
 
@@ -504,9 +506,9 @@ async def update_camera(
         )
 
 
-@router.delete("/{camera_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_camera(
-    camera_id: str,
+    camera_id: CameraUUID,
     db: Session = Depends(get_db)
 ):
     """
@@ -517,13 +519,14 @@ async def delete_camera(
         db: Database session
 
     Returns:
-        Success confirmation
+        No content (204)
 
     Raises:
         404: Camera not found
     """
+    camera_id_str = str(camera_id)
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera = db.query(Camera).filter(Camera.id == camera_id_str).first()
 
         if not camera:
             raise HTTPException(
@@ -532,22 +535,22 @@ async def delete_camera(
             )
 
         # Stop capture thread if running
-        camera_service.stop_camera(camera_id)
+        camera_service.stop_camera(camera_id_str)
 
         # Remove MQTT discovery config (Story P4-2.2, AC4)
         try:
-            await on_camera_deleted(camera_id)
+            await on_camera_deleted(camera_id_str)
         except Exception as e:
-            logger.warning(f"Failed to remove MQTT discovery for camera {camera_id}: {e}")
+            logger.warning(f"Failed to remove MQTT discovery for camera {camera_id_str}: {e}")
             # Don't fail delete if MQTT discovery removal fails
 
         # Delete from database
         db.delete(camera)
         db.commit()
 
-        logger.info(f"Camera deleted: {camera_id} ({camera.name})")
+        logger.info(f"Camera deleted: {camera_id_str} ({camera.name})")
 
-        return {"deleted": True, "camera_id": camera_id}
+        return None  # 204 No Content
 
     except HTTPException:
         raise
@@ -562,7 +565,7 @@ async def delete_camera(
 
 @router.post("/{camera_id}/reconnect")
 def reconnect_camera(
-    camera_id: str,
+    camera_id: CameraUUID,
     db: Session = Depends(get_db)
 ):
     """
@@ -581,8 +584,9 @@ def reconnect_camera(
     """
     import time
 
+    camera_id_str = str(camera_id)
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera = db.query(Camera).filter(Camera.id == camera_id_str).first()
 
         if not camera:
             raise HTTPException(
@@ -597,7 +601,7 @@ def reconnect_camera(
             )
 
         # Stop camera if running
-        camera_service.stop_camera(camera_id)
+        camera_service.stop_camera(camera_id_str)
         time.sleep(0.5)
 
         # Try to verify connection with PyAV before starting capture thread
@@ -606,7 +610,7 @@ def reconnect_camera(
             import av
             connection_str = camera_service._build_rtsp_url(camera)
             if connection_str.startswith("rtsps://"):
-                logger.info(f"Testing PyAV connection for camera {camera_id}")
+                logger.info(f"Testing PyAV connection for camera {camera_id_str}")
                 container = av.open(connection_str, options={'rtsp_transport': 'tcp'}, timeout=10)
                 stream = container.streams.video[0]
                 # Get one frame to verify
@@ -622,7 +626,7 @@ def reconnect_camera(
         success = camera_service.start_camera(camera)
 
         if success:
-            logger.info(f"Camera {camera_id} reconnect initiated")
+            logger.info(f"Camera {camera_id_str} reconnect initiated")
             return {"success": True, "message": "Camera reconnect initiated"}
         else:
             return {"success": False, "message": "Failed to start camera"}
@@ -630,7 +634,7 @@ def reconnect_camera(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to reconnect camera {camera_id}: {e}", exc_info=True)
+        logger.error(f"Failed to reconnect camera {camera_id_str}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to reconnect camera: {str(e)}"
@@ -639,7 +643,7 @@ def reconnect_camera(
 
 @router.post("/{camera_id}/test", response_model=CameraTestResponse)
 def test_camera_connection(
-    camera_id: str,
+    camera_id: CameraUUID,
     db: Session = Depends(get_db)
 ):
     """
@@ -656,7 +660,7 @@ def test_camera_connection(
         404: Camera not found
     """
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera = db.query(Camera).filter(Camera.id == str(camera_id)).first()
 
         if not camera:
             raise HTTPException(
@@ -827,7 +831,7 @@ def test_camera_connection(
 
 @router.put("/{camera_id}/motion/config", response_model=CameraResponse)
 def update_motion_config(
-    camera_id: str,
+    camera_id: CameraUUID,
     config: MotionConfigUpdate,
     db: Session = Depends(get_db)
 ):
@@ -850,8 +854,9 @@ def update_motion_config(
         - Reloads motion detector if algorithm changed
         - Configuration persists across restarts (AC-12)
     """
+    camera_id_str = str(camera_id)
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        camera = db.query(Camera).filter(Camera.id == camera_id_str).first()
 
         if not camera:
             raise HTTPException(
@@ -878,17 +883,17 @@ def update_motion_config(
 
         # Reload motion detector if algorithm changed
         if algorithm_changed:
-            motion_detection_service.reload_config(camera_id, camera.motion_algorithm)
-            logger.info(f"Motion detector reloaded for camera {camera_id}: {old_algorithm} -> {camera.motion_algorithm}")
+            motion_detection_service.reload_config(camera_id_str, camera.motion_algorithm)
+            logger.info(f"Motion detector reloaded for camera {camera_id_str}: {old_algorithm} -> {camera.motion_algorithm}")
 
-        logger.info(f"Motion configuration updated for camera {camera_id}")
+        logger.info(f"Motion configuration updated for camera {camera_id_str}")
 
         return camera
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to update motion config for camera {camera_id}: {e}", exc_info=True)
+        logger.error(f"Failed to update motion config for camera {camera_id_str}: {e}", exc_info=True)
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

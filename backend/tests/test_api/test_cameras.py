@@ -262,10 +262,17 @@ class TestCameraAPI:
 
     def test_get_camera_not_found(self):
         """GET /cameras/{id} for non-existent camera should return 404"""
-        response = client.get("/api/v1/cameras/non-existent-id")
+        # Use a valid UUID format that doesn't exist in the database
+        response = client.get("/api/v1/cameras/00000000-0000-0000-0000-000000000000")
 
         assert response.status_code == 404
         assert "not found" in response.json()["detail"]
+
+    def test_get_camera_invalid_uuid(self):
+        """GET /cameras/{id} with invalid UUID should return 422"""
+        response = client.get("/api/v1/cameras/non-existent-id")
+
+        assert response.status_code == 422
 
     def test_update_camera(self):
         """PUT /cameras/{id} should update camera"""
@@ -293,9 +300,16 @@ class TestCameraAPI:
 
     def test_update_camera_not_found(self):
         """PUT /cameras/{id} for non-existent camera should return 404"""
-        response = client.put("/api/v1/cameras/non-existent-id", json={"name": "Test"})
+        # Use a valid UUID format that doesn't exist in the database
+        response = client.put("/api/v1/cameras/00000000-0000-0000-0000-000000000000", json={"name": "Test"})
 
         assert response.status_code == 404
+
+    def test_update_camera_invalid_uuid(self):
+        """PUT /cameras/{id} with invalid UUID should return 422"""
+        response = client.put("/api/v1/cameras/non-existent-id", json={"name": "Test"})
+
+        assert response.status_code == 422
 
     def test_delete_camera(self):
         """DELETE /cameras/{id} should delete camera"""
@@ -311,8 +325,7 @@ class TestCameraAPI:
         # Delete camera
         response = client.delete(f"/api/v1/cameras/{camera_id}")
 
-        assert response.status_code == 200
-        assert response.json()["deleted"] is True
+        assert response.status_code == 204  # 204 No Content is proper RESTful behavior for DELETE
 
         # Verify deleted
         get_response = client.get(f"/api/v1/cameras/{camera_id}")
@@ -320,9 +333,16 @@ class TestCameraAPI:
 
     def test_delete_camera_not_found(self):
         """DELETE /cameras/{id} for non-existent camera should return 404"""
-        response = client.delete("/api/v1/cameras/non-existent-id")
+        # Use a valid UUID format that doesn't exist in the database
+        response = client.delete("/api/v1/cameras/00000000-0000-0000-0000-000000000000")
 
         assert response.status_code == 404
+
+    def test_delete_camera_invalid_uuid(self):
+        """DELETE /cameras/{id} with invalid UUID should return 422"""
+        response = client.delete("/api/v1/cameras/non-existent-id")
+
+        assert response.status_code == 422
 
     @patch('app.api.v1.cameras.cv2.VideoCapture')
     def test_test_camera_connection_success(self, mock_videocapture):
@@ -386,9 +406,16 @@ class TestCameraAPI:
 
     def test_test_camera_connection_not_found(self):
         """POST /cameras/{id}/test for non-existent camera should return 404"""
-        response = client.post("/api/v1/cameras/non-existent-id/test")
+        # Use a valid UUID format that doesn't exist in the database
+        response = client.post("/api/v1/cameras/00000000-0000-0000-0000-000000000000/test")
 
         assert response.status_code == 404
+
+    def test_test_camera_connection_invalid_uuid(self):
+        """POST /cameras/{id}/test with invalid UUID should return 422"""
+        response = client.post("/api/v1/cameras/non-existent-id/test")
+
+        assert response.status_code == 422
 
     # USB-Specific Test Connection Tests (Story F1.3)
 

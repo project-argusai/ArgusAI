@@ -856,7 +856,7 @@ development_status:
   p14-2-3-add-missing-database-indexes: done
   p14-2-4-fix-delete-endpoint-status-codes: done
   p14-2-5-add-uuid-validation-on-path-parameters: done
-  p14-2-6-implement-api-rate-limiting: drafted
+  p14-2-6-implement-api-rate-limiting: done
   epic-p14-2-retrospective: optional
 
   # Epic P14-3: Backend Testing Infrastructure

@@ -97,7 +97,7 @@ def test_create_camera_with_audio_settings(mock_videocapture, sample_rtsp_camera
         "audio_threshold": 0.85,
     }
 
-    response = client.post("/api/v1/cameras/", json=camera_data)
+    response = client.post("/api/v1/cameras", json=camera_data)
     assert response.status_code == 201
 
     data = response.json()
@@ -109,7 +109,7 @@ def test_create_camera_with_audio_settings(mock_videocapture, sample_rtsp_camera
 @patch('app.services.camera_service.cv2.VideoCapture')
 def test_create_camera_with_no_audio_settings(mock_videocapture, sample_rtsp_camera):
     """Test creating a camera without audio settings uses defaults."""
-    response = client.post("/api/v1/cameras/", json=sample_rtsp_camera)
+    response = client.post("/api/v1/cameras", json=sample_rtsp_camera)
     assert response.status_code == 201
 
     data = response.json()
@@ -122,7 +122,7 @@ def test_create_camera_with_no_audio_settings(mock_videocapture, sample_rtsp_cam
 def test_update_camera_audio_settings(mock_videocapture, sample_rtsp_camera):
     """Test updating camera audio settings (AC#1, AC#2, AC#3)."""
     # Create camera first
-    create_response = client.post("/api/v1/cameras/", json=sample_rtsp_camera)
+    create_response = client.post("/api/v1/cameras", json=sample_rtsp_camera)
     camera_id = create_response.json()["id"]
 
     # Update with audio settings
@@ -152,7 +152,7 @@ def test_get_camera_returns_audio_settings(mock_videocapture, sample_rtsp_camera
         "audio_threshold": 0.90,
     }
 
-    create_response = client.post("/api/v1/cameras/", json=camera_data)
+    create_response = client.post("/api/v1/cameras", json=camera_data)
     assert create_response.status_code == 201
     camera_id = create_response.json()["id"]
 
@@ -177,11 +177,11 @@ def test_list_cameras_returns_audio_settings(mock_videocapture, sample_rtsp_came
         "audio_threshold": 0.80,
     }
 
-    create_resp = client.post("/api/v1/cameras/", json=camera_data)
+    create_resp = client.post("/api/v1/cameras", json=camera_data)
     assert create_resp.status_code == 201
 
     # List cameras
-    response = client.get("/api/v1/cameras/")
+    response = client.get("/api/v1/cameras")
     assert response.status_code == 200
 
     cameras = response.json()
@@ -208,7 +208,7 @@ def test_update_camera_clear_audio_settings(mock_videocapture, sample_rtsp_camer
         "audio_threshold": 0.85,
     }
 
-    create_response = client.post("/api/v1/cameras/", json=camera_data)
+    create_response = client.post("/api/v1/cameras", json=camera_data)
     camera_id = create_response.json()["id"]
 
     # Clear audio settings
@@ -236,13 +236,13 @@ def test_audio_threshold_validation(mock_videocapture, sample_rtsp_camera):
         "audio_threshold": 1.5,
     }
 
-    response = client.post("/api/v1/cameras/", json=camera_data)
+    response = client.post("/api/v1/cameras", json=camera_data)
     # Either 422 validation error or 400 bad request is acceptable
     assert response.status_code in (400, 422)
 
     # Test threshold < 0.0 should fail
     camera_data["audio_threshold"] = -0.1
-    response = client.post("/api/v1/cameras/", json=camera_data)
+    response = client.post("/api/v1/cameras", json=camera_data)
     assert response.status_code in (400, 422)
 
 
@@ -250,7 +250,7 @@ def test_audio_threshold_validation(mock_videocapture, sample_rtsp_camera):
 def test_audio_event_types_as_string_json(mock_videocapture, sample_rtsp_camera):
     """Test that audio_event_types accepts JSON string format."""
     # Create camera first
-    create_response = client.post("/api/v1/cameras/", json=sample_rtsp_camera)
+    create_response = client.post("/api/v1/cameras", json=sample_rtsp_camera)
     camera_id = create_response.json()["id"]
 
     # Update with audio_event_types as JSON string
@@ -276,7 +276,7 @@ def test_partial_update_preserves_audio_settings(mock_videocapture, sample_rtsp_
         "audio_threshold": 0.80,
     }
 
-    create_response = client.post("/api/v1/cameras/", json=camera_data)
+    create_response = client.post("/api/v1/cameras", json=camera_data)
     assert create_response.status_code == 201
     camera_id = create_response.json()["id"]
 

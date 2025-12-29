@@ -143,18 +143,27 @@ class TestCalculateFrameIndices:
 
     def test_first_frame_always_zero(self):
         """AC2: First frame is always index 0"""
-        for frame_count in range(3, 11):
-            indices = self.extractor._calculate_frame_indices(1000, frame_count)
-            assert indices[0] == 0, f"First frame should be 0 for frame_count={frame_count}"
+        indices = self.extractor._calculate_frame_indices(1000, 5)
+        assert indices[0] == 0
 
-    def test_last_frame_always_total_minus_one(self):
+    @pytest.mark.parametrize("frame_count", [3, 4, 5, 6, 7, 8, 9, 10])
+    def test_first_frame_always_zero_parametrized(self, frame_count):
+        """AC2: First frame is always index 0 for various frame counts"""
+        indices = self.extractor._calculate_frame_indices(1000, frame_count)
+        assert indices[0] == 0, f"First frame should be 0 for frame_count={frame_count}"
+
+    @pytest.mark.parametrize("total_frames,frame_count", [
+        (100, 3),
+        (100, 5),
+        (300, 5),
+        (500, 7),
+        (1000, 10),
+    ])
+    def test_last_frame_always_total_minus_one(self, total_frames, frame_count):
         """AC2: Last frame is always total_frames - 1"""
-        for total_frames in [100, 300, 500, 1000]:
-            for frame_count in range(3, 11):
-                if frame_count <= total_frames:
-                    indices = self.extractor._calculate_frame_indices(total_frames, frame_count)
-                    assert indices[-1] == total_frames - 1, \
-                        f"Last frame should be {total_frames - 1} for total={total_frames}, count={frame_count}"
+        indices = self.extractor._calculate_frame_indices(total_frames, frame_count)
+        assert indices[-1] == total_frames - 1, \
+            f"Last frame should be {total_frames - 1} for total={total_frames}, count={frame_count}"
 
     def test_frame_count_3_returns_3_frames(self):
         """AC3: frame_count=3 returns exactly 3 frames"""

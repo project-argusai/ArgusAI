@@ -658,14 +658,41 @@ class TestSerializationCompleteness:
 
         payload = serialize_event_for_mqtt(mock_event, "Front Door")
 
-        # Check all required fields per AC2
-        required_fields = [
-            "event_id", "camera_id", "camera_name", "description",
-            "objects_detected", "confidence", "source_type",
-            "timestamp", "thumbnail_url"
-        ]
-        for field in required_fields:
-            assert field in payload, f"Missing required field: {field}"
+        # Check essential fields exist
+        assert "event_id" in payload
+        assert "camera_id" in payload
+
+    @pytest.mark.parametrize("field", [
+        "event_id",
+        "camera_id",
+        "camera_name",
+        "description",
+        "objects_detected",
+        "confidence",
+        "source_type",
+        "timestamp",
+        "thumbnail_url",
+    ])
+    def test_serialize_event_required_field(self, field):
+        """Each required field is present in serialized event (AC2)."""
+        mock_event = MagicMock()
+        mock_event.id = "event-123"
+        mock_event.camera_id = "camera-456"
+        mock_event.description = "Person detected"
+        mock_event.objects_detected = '["person"]'
+        mock_event.confidence = 85
+        mock_event.source_type = "protect"
+        mock_event.timestamp = datetime(2025, 12, 11, 14, 30, 0, tzinfo=timezone.utc)
+        mock_event.ai_confidence = None
+        mock_event.smart_detection_type = None
+        mock_event.is_doorbell_ring = False
+        mock_event.provider_used = None
+        mock_event.analysis_mode = None
+        mock_event.low_confidence = False
+        mock_event.correlation_group_id = None
+
+        payload = serialize_event_for_mqtt(mock_event, "Front Door")
+        assert field in payload, f"Missing required field: {field}"
 
     def test_serialize_event_includes_all_optional_fields(self):
         """Serialized event includes optional fields when present (AC7)."""

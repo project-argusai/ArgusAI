@@ -178,16 +178,22 @@ class TestEventProcessor:
         assert event_processor.event_queue.maxsize == 10
         assert event_processor.metrics.queue_depth == 0
 
-    def test_worker_count_clamping(self):
+    @pytest.mark.parametrize("input_count,expected_count", [
+        (1, 2),    # Below minimum, clamped to 2
+        (0, 2),    # Zero, clamped to 2
+        (-1, 2),   # Negative, clamped to 2
+        (2, 2),    # At minimum, stays 2
+        (3, 3),    # Valid mid-range
+        (4, 4),    # Valid mid-range
+        (5, 5),    # At maximum, stays 5
+        (6, 5),    # Above maximum, clamped to 5
+        (10, 5),   # Well above maximum, clamped to 5
+        (100, 5),  # Very high, clamped to 5
+    ])
+    def test_worker_count_clamping(self, input_count, expected_count):
         """Test worker count is clamped to [2-5] range"""
-        processor_low = EventProcessor(worker_count=1)
-        assert processor_low.worker_count == 2
-
-        processor_high = EventProcessor(worker_count=10)
-        assert processor_high.worker_count == 5
-
-        processor_valid = EventProcessor(worker_count=3)
-        assert processor_valid.worker_count == 3
+        processor = EventProcessor(worker_count=input_count)
+        assert processor.worker_count == expected_count, f"Input {input_count} should be clamped to {expected_count}"
 
     @patch('app.services.event_processor.get_db_session')
     @patch('app.services.event_processor.AIService')

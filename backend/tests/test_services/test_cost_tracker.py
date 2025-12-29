@@ -250,23 +250,22 @@ class TestGetCostTracker:
 class TestCostRateConstants:
     """Test the cost rate constants are properly defined."""
 
-    def test_all_providers_have_rates(self):
+    @pytest.mark.parametrize("provider", ["openai", "grok", "claude", "gemini", "whisper"])
+    def test_all_providers_have_rates(self, provider):
         """Test all expected providers have cost rates defined."""
-        expected_providers = ["openai", "grok", "claude", "gemini", "whisper"]
-        for provider in expected_providers:
-            assert provider in PROVIDER_COST_RATES
-            assert "input" in PROVIDER_COST_RATES[provider]
-            assert "output" in PROVIDER_COST_RATES[provider]
+        assert provider in PROVIDER_COST_RATES
+        assert "input" in PROVIDER_COST_RATES[provider]
+        assert "output" in PROVIDER_COST_RATES[provider]
 
-    def test_all_providers_have_image_tokens(self):
+    @pytest.mark.parametrize("provider", ["openai", "grok", "claude", "gemini"])
+    def test_all_providers_have_image_tokens(self, provider):
         """Test all vision providers have image token estimates."""
-        vision_providers = ["openai", "grok", "claude", "gemini"]
-        for provider in vision_providers:
-            assert provider in TOKENS_PER_IMAGE
-            assert "default" in TOKENS_PER_IMAGE[provider]
+        assert provider in TOKENS_PER_IMAGE
+        assert "default" in TOKENS_PER_IMAGE[provider]
 
-    def test_rates_are_non_negative(self):
+    @pytest.mark.parametrize("provider", ["openai", "grok", "claude", "gemini", "whisper"])
+    def test_rates_are_non_negative(self, provider):
         """Test all rates are non-negative."""
-        for provider, rates in PROVIDER_COST_RATES.items():
-            assert rates["input"] >= 0, f"{provider} input rate is negative"
-            assert rates["output"] >= 0, f"{provider} output rate is negative"
+        rates = PROVIDER_COST_RATES[provider]
+        assert rates["input"] >= 0, f"{provider} input rate is negative"
+        assert rates["output"] >= 0, f"{provider} output rate is negative"

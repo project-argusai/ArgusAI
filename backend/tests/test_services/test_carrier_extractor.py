@@ -174,11 +174,18 @@ class TestCarrierPatterns:
         expected_carriers = {"fedex", "ups", "usps", "amazon", "dhl"}
         assert set(CARRIER_DISPLAY_NAMES.keys()) == expected_carriers
 
-    def test_patterns_are_compiled_regex(self):
-        """Test that all patterns are compiled regex objects"""
+    @pytest.mark.parametrize("carrier", [
+        "fedex",
+        "ups",
+        "usps",
+        "amazon",
+        "dhl",
+    ])
+    def test_patterns_are_compiled_regex(self, carrier):
+        """Test that carrier patterns are compiled regex objects"""
         import re
-        for carrier, pattern in CARRIER_PATTERNS.items():
-            assert isinstance(pattern, re.Pattern), f"{carrier} pattern is not compiled"
+        pattern = CARRIER_PATTERNS[carrier]
+        assert isinstance(pattern, re.Pattern), f"{carrier} pattern is not compiled"
 
 
 class TestCarrierExtractionPerformance:

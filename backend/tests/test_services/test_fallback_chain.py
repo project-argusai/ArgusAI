@@ -123,7 +123,7 @@ class TestFallbackChainVideoNative:
                 with patch('app.services.ai_service.ai_service') as mock_ai:
                     mock_ai.load_api_keys_from_db = AsyncMock()
 
-                    with patch('app.services.protect_event_handler.SessionLocal'):
+                    with patch('app.services.protect_event_handler.get_db_session'):
                         result = await handler._submit_to_ai_pipeline(
                             snapshot_result=mock_snapshot_result,
                             camera=mock_camera_protect,
@@ -175,7 +175,7 @@ class TestFallbackChainVideoNative:
             with patch.object(handler, '_single_frame_analysis', side_effect=mock_single_frame):
                 with patch('app.services.ai_service.ai_service') as mock_ai:
                     mock_ai.load_api_keys_from_db = AsyncMock()
-                    with patch('app.services.protect_event_handler.SessionLocal'):
+                    with patch('app.services.protect_event_handler.get_db_session'):
                         await handler._submit_to_ai_pipeline(
                             snapshot_result=mock_snapshot_result,
                             camera=mock_camera_protect,
@@ -208,7 +208,7 @@ class TestFallbackChainMultiFrame:
         ) as mock_single:
             with patch('app.services.ai_service.ai_service') as mock_ai:
                 mock_ai.load_api_keys_from_db = AsyncMock()
-                with patch('app.services.protect_event_handler.SessionLocal'):
+                with patch('app.services.protect_event_handler.get_db_session'):
                     result = await handler._submit_to_ai_pipeline(
                         snapshot_result=mock_snapshot_result,
                         camera=mock_camera_protect,
@@ -242,7 +242,7 @@ class TestFallbackChainMultiFrame:
             ):
                 with patch('app.services.ai_service.ai_service') as mock_ai:
                     mock_ai.load_api_keys_from_db = AsyncMock()
-                    with patch('app.services.protect_event_handler.SessionLocal'):
+                    with patch('app.services.protect_event_handler.get_db_session'):
                         result = await handler._submit_to_ai_pipeline(
                             snapshot_result=mock_snapshot_result,
                             camera=mock_camera_protect,
@@ -277,7 +277,7 @@ class TestCompleteFailure:
             ):
                 with patch('app.services.ai_service.ai_service') as mock_ai:
                     mock_ai.load_api_keys_from_db = AsyncMock()
-                    with patch('app.services.protect_event_handler.SessionLocal'):
+                    with patch('app.services.protect_event_handler.get_db_session'):
                         result = await handler._submit_to_ai_pipeline(
                             snapshot_result=mock_snapshot_result,
                             camera=mock_camera_protect,
@@ -317,7 +317,7 @@ class TestAnalysisModeTracking:
         ):
             with patch('app.services.ai_service.ai_service') as mock_ai:
                 mock_ai.load_api_keys_from_db = AsyncMock()
-                with patch('app.services.protect_event_handler.SessionLocal'):
+                with patch('app.services.protect_event_handler.get_db_session'):
                     result = await handler._submit_to_ai_pipeline(
                         snapshot_result=mock_snapshot_result,
                         camera=mock_camera_protect,
@@ -354,7 +354,7 @@ class TestAnalysisModeTracking:
             with patch.object(handler, '_single_frame_analysis', side_effect=mock_single_frame):
                 with patch('app.services.ai_service.ai_service') as mock_ai:
                     mock_ai.load_api_keys_from_db = AsyncMock()
-                    with patch('app.services.protect_event_handler.SessionLocal'):
+                    with patch('app.services.protect_event_handler.get_db_session'):
                         await handler._submit_to_ai_pipeline(
                             snapshot_result=mock_snapshot_result,
                             camera=mock_camera_protect,
@@ -396,7 +396,7 @@ class TestNonProtectCameras:
                 ) as mock_video:
                     with patch('app.services.ai_service.ai_service') as mock_ai:
                         mock_ai.load_api_keys_from_db = AsyncMock()
-                        with patch('app.services.protect_event_handler.SessionLocal'):
+                        with patch('app.services.protect_event_handler.get_db_session'):
                             result = await handler._submit_to_ai_pipeline(
                                 snapshot_result=mock_snapshot_result,
                                 camera=mock_camera_rtsp,
@@ -431,7 +431,7 @@ class TestNonProtectCameras:
         ) as mock_single:
             with patch('app.services.ai_service.ai_service') as mock_ai:
                 mock_ai.load_api_keys_from_db = AsyncMock()
-                with patch('app.services.protect_event_handler.SessionLocal'):
+                with patch('app.services.protect_event_handler.get_db_session'):
                     result = await handler._submit_to_ai_pipeline(
                         snapshot_result=mock_snapshot_result,
                         camera=mock_camera_usb,
@@ -721,7 +721,7 @@ class TestNonProtectCameraFallbackReason:
         ):
             with patch('app.services.ai_service.ai_service') as mock_ai:
                 mock_ai.load_api_keys_from_db = AsyncMock()
-                with patch('app.services.protect_event_handler.SessionLocal'):
+                with patch('app.services.protect_event_handler.get_db_session'):
                     await handler._submit_to_ai_pipeline(
                         snapshot_result=mock_snapshot_result,
                         camera=mock_camera_rtsp,
@@ -749,7 +749,7 @@ class TestNonProtectCameraFallbackReason:
         ):
             with patch('app.services.ai_service.ai_service') as mock_ai:
                 mock_ai.load_api_keys_from_db = AsyncMock()
-                with patch('app.services.protect_event_handler.SessionLocal'):
+                with patch('app.services.protect_event_handler.get_db_session'):
                     await handler._submit_to_ai_pipeline(
                         snapshot_result=mock_snapshot_result,
                         camera=mock_camera_usb,
@@ -776,7 +776,7 @@ class TestNonProtectCameraFallbackReason:
         ):
             with patch('app.services.ai_service.ai_service') as mock_ai:
                 mock_ai.load_api_keys_from_db = AsyncMock()
-                with patch('app.services.protect_event_handler.SessionLocal'):
+                with patch('app.services.protect_event_handler.get_db_session'):
                     await handler._submit_to_ai_pipeline(
                         snapshot_result=mock_snapshot_result,
                         camera=mock_camera_rtsp,

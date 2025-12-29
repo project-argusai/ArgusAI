@@ -10,6 +10,7 @@ import asyncio
 
 from main import app
 from app.core.database import Base, get_db
+from contextlib import contextmanager
 from app.models.protect_controller import ProtectController
 from app.models.camera import Camera
 from app.services.protect_service import ProtectService, ConnectionTestResult
@@ -41,6 +42,24 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 
 def _override_get_db():
     """Override database dependency for testing"""
+    db = TestingSessionLocal()
+    try:
+        yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+@contextmanager
+def _testing_get_db_session():
+    """
+    Context manager mock for get_db_session() that uses test database.
+    This mimics the get_db_session() context manager from app.core.database.
+    Story P14-2.2: Updated to use context manager pattern instead of SessionLocal.
+    """
     db = TestingSessionLocal()
     try:
         yield db
@@ -1162,7 +1181,7 @@ class TestExponentialBackoff:
 class TestConnectionStateManagement:
     """Test suite for connection state management (Story P2-1.4, AC2, AC7, AC9)"""
 
-    @patch('app.services.protect_service.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_service.get_db_session', _testing_get_db_session)
     @patch('app.services.protect_service.ProtectApiClient')
     @pytest.mark.asyncio
     async def test_database_state_updated_on_connect(self, mock_client_class):
@@ -2213,7 +2232,7 @@ class TestCameraStatusServiceDictionaries:
 class TestForceRefreshParameter:
     """Test suite for force_refresh parameter (Story P2-2.4, AC2, AC3)"""
 
-    @patch('app.services.protect_service.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_service.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_discover_cameras_force_refresh_clears_cache(self):
         """AC3: force_refresh=True should bypass cache"""
@@ -2637,7 +2656,7 @@ class TestEventDeduplication:
 class TestHandleEventCameraLookup:
     """Test suite for camera lookup in event handling (Story P2-3.1, AC3, AC4)"""
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_unknown_camera_discarded(self):
         """AC4: Event from unknown camera is discarded silently"""
@@ -2656,7 +2675,7 @@ class TestHandleEventCameraLookup:
         result = await handler.handle_event("ctrl-1", mock_msg)
         assert result == False
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_disabled_camera_discarded(self):
         """AC4: Event from disabled camera is discarded silently"""
@@ -2691,7 +2710,7 @@ class TestHandleEventCameraLookup:
         finally:
             db.close()
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_non_protect_camera_discarded(self):
         """AC4: Event from camera with wrong source_type is discarded"""
@@ -2730,7 +2749,7 @@ class TestHandleEventCameraLookup:
 class TestHandleEventFullFlow:
     """Test suite for full event handling flow (Story P2-3.1, AC1, AC3, AC5, AC6)"""
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_passes_all_filters(self):
         """AC1, AC3, AC5, AC6: Event that matches all criteria passes (Story P2-3.3)"""
@@ -2810,7 +2829,7 @@ class TestHandleEventFullFlow:
         finally:
             db.close()
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_filtered_by_type(self):
         """AC7: Event filtered when type not in smart_detection_types"""
@@ -2846,7 +2865,7 @@ class TestHandleEventFullFlow:
         finally:
             db.close()
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_all_motion_mode(self):
         """AC8: All motion mode processes all event types (Story P2-3.3)"""
@@ -2923,7 +2942,7 @@ class TestHandleEventFullFlow:
         finally:
             db.close()
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_handle_event_deduplicated(self):
         """AC10: Duplicate event within cooldown is skipped"""
@@ -3957,7 +3976,7 @@ class TestDoorbellRingEventCreatedBroadcast:
 class TestDoorbellRingIntegration:
     """Integration tests for full doorbell ring event flow (Story P2-4.1)"""
 
-    @patch('app.services.protect_event_handler.SessionLocal', TestingSessionLocal)
+    @patch('app.services.protect_event_handler.get_db_session', _testing_get_db_session)
     @pytest.mark.asyncio
     async def test_full_doorbell_ring_flow(self):
         """AC1-8: Full integration test for doorbell ring event"""

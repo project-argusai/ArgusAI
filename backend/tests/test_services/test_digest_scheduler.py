@@ -178,7 +178,11 @@ class TestRunScheduledDigest:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None  # No existing digest
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_summary_service') as mock_get_service:
                 mock_service = MagicMock()
                 mock_service.generate_summary = AsyncMock(return_value=mock_result)
@@ -218,7 +222,11 @@ class TestRunScheduledDigest:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_summary_service') as mock_get_service:
                 mock_service = MagicMock()
                 mock_service.generate_summary = AsyncMock(return_value=mock_result)
@@ -241,7 +249,11 @@ class TestRunScheduledDigest:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = existing_digest
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_summary_service') as mock_get_service:
                 mock_service = MagicMock()
                 mock_get_service.return_value = mock_service
@@ -262,7 +274,11 @@ class TestRunScheduledDigest:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_summary_service') as mock_get_service:
                 mock_service = MagicMock()
                 mock_service.generate_summary = AsyncMock(side_effect=Exception("AI service failed"))
@@ -307,7 +323,11 @@ class TestRunScheduledDigest:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_summary_service') as mock_get_service:
                 mock_service = MagicMock()
                 mock_service.generate_summary = AsyncMock(return_value=mock_result)
@@ -364,7 +384,11 @@ class TestDateRangeCalculation:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_summary_service') as mock_get_service:
                 mock_service = MagicMock()
                 mock_service.generate_summary = AsyncMock(return_value=SummaryResult(
@@ -439,7 +463,11 @@ class TestInitializeDigestScheduler:
             time_setting,     # digest_schedule_time
         ]
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_digest_scheduler') as mock_get:
                 mock_scheduler = MagicMock()
                 mock_get.return_value = mock_scheduler
@@ -463,7 +491,11 @@ class TestInitializeDigestScheduler:
             None,             # digest_schedule_time
         ]
 
-        with patch('app.services.digest_scheduler.SessionLocal', return_value=mock_db):
+        with patch('app.services.digest_scheduler.get_db_session') as mock_get_db:
+            mock_get_db.return_value.__enter__ = MagicMock(return_value=mock_db)
+            mock_get_db.return_value.__exit__ = MagicMock(return_value=False)
+            with patch.object(mock_db, '__enter__', return_value=mock_db), \
+                 patch.object(mock_db, '__exit__', return_value=False):
             with patch('app.services.digest_scheduler.get_digest_scheduler') as mock_get:
                 mock_scheduler = MagicMock()
                 mock_get.return_value = mock_scheduler

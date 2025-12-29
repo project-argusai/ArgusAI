@@ -90,6 +90,9 @@ class AlertRule(Base):
         lazy="joined"
     )
 
+    # Story P14-2.2: Relationship to webhook logs for CASCADE delete
+    webhook_logs = relationship("WebhookLog", back_populates="alert_rule", cascade="all, delete-orphan")
+
     cooldown_minutes = Column(Integer, nullable=False, default=5)
     last_triggered_at = Column(DateTime(timezone=True), nullable=True)
     trigger_count = Column(Integer, nullable=False, default=0)
@@ -129,8 +132,18 @@ class WebhookLog(Base):
     __tablename__ = "webhook_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    alert_rule_id = Column(String, nullable=False, index=True)
-    event_id = Column(String, nullable=False, index=True)
+    alert_rule_id = Column(
+        String,
+        ForeignKey('alert_rules.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
+    event_id = Column(
+        String,
+        ForeignKey('events.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True
+    )
     url = Column(String(2000), nullable=False)
     status_code = Column(Integer, nullable=False, default=0)
     response_time_ms = Column(Integer, nullable=False, default=0)
@@ -138,6 +151,10 @@ class WebhookLog(Base):
     success = Column(Boolean, nullable=False, default=False)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+
+    # Story P14-2.2: Add relationships for ORM navigation and CASCADE delete enforcement
+    alert_rule = relationship("AlertRule", back_populates="webhook_logs")
+    event = relationship("Event", back_populates="webhook_logs")
 
     __table_args__ = (
         Index('idx_webhook_logs_rule_event', 'alert_rule_id', 'event_id'),

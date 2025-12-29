@@ -852,9 +852,9 @@ development_status:
   # Backlog: TD-012, TD-015, TD-016, TD-020, TD-021, TD-024
   epic-p14-2: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-2.md
   p14-2-1-standardize-database-session-management: done
-  p14-2-2-add-missing-fk-constraint: backlog
-  p14-2-3-add-missing-database-indexes: backlog
-  p14-2-4-fix-delete-endpoint-status-codes: backlog
+  p14-2-2-add-missing-fk-constraint: done
+  p14-2-3-add-missing-database-indexes: done
+  p14-2-4-fix-delete-endpoint-status-codes: done
   p14-2-5-add-uuid-validation-on-path-parameters: backlog
   p14-2-6-implement-api-rate-limiting: backlog
   epic-p14-2-retrospective: optional

@@ -123,7 +123,7 @@ class TestDeliveryServiceInit:
 
     def test_init_without_db(self):
         """Test DeliveryService creates own db session if none provided."""
-        with patch('app.services.delivery_service.SessionLocal') as mock_session:
+        with patch('app.core.database.SessionLocal') as mock_session:
             service = DeliveryService()
             # Session created lazily, so _db is still None initially
             assert service._db is None

@@ -126,6 +126,8 @@ class Event(Base):
     frames = relationship("EventFrame", back_populates="event", cascade="all, delete-orphan")
     # Story P11-4.2: Per-frame embeddings for query-adaptive frame selection
     frame_embeddings = relationship("FrameEmbedding", back_populates="event", cascade="all, delete-orphan")
+    # Story P14-2.2: Relationship to webhook logs for CASCADE delete
+    webhook_logs = relationship("WebhookLog", back_populates="event", cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint('confidence >= 0 AND confidence <= 100', name='check_confidence_range'),

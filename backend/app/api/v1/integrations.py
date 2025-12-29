@@ -10,7 +10,7 @@ Endpoints for MQTT and other external integrations:
 """
 import logging
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.orm import Session
@@ -194,6 +194,22 @@ class PublishDiscoveryResponse(BaseModel):
                 "success": True,
                 "message": "Published discovery for 5 cameras",
                 "cameras_published": 5
+            }
+        }
+
+
+class TestMessageResponse(BaseModel):
+    """Response for sending test MQTT message."""
+    success: bool
+    message: str
+    topic: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "message": "Test message published successfully",
+                "topic": "argusai/test"
             }
         }
 
@@ -452,6 +468,74 @@ async def publish_discovery(db: Session = Depends(get_db)):
         message=f"Published discovery for {cameras_published} cameras",
         cameras_published=cameras_published
     )
+
+
+@router.post("/mqtt/test-message", response_model=TestMessageResponse)
+async def send_test_message(db: Session = Depends(get_db)):
+    """
+    Send a test message to MQTT broker.
+
+    Publishes a test event message to verify MQTT integration is working.
+    Useful for testing Home Assistant automations and confirming connectivity.
+
+    Requires MQTT to be connected.
+    """
+    mqtt_service = get_mqtt_service()
+
+    if not mqtt_service.is_connected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="MQTT not connected. Configure and enable MQTT first."
+        )
+
+    # Get topic prefix from config
+    config = db.query(MQTTConfig).first()
+    topic_prefix = config.topic_prefix if config else "argusai"
+    test_topic = f"{topic_prefix}/test"
+
+    # Create test message payload
+    test_payload = {
+        "event_type": "test",
+        "message": "This is a test message from ArgusAI",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source": "argusai_settings"
+    }
+
+    try:
+        success = await mqtt_service.publish(
+            topic=test_topic,
+            payload=test_payload,
+            qos=1,
+            retain=False  # Don't retain test messages
+        )
+
+        if success:
+            logger.info(
+                "Test message published to MQTT",
+                extra={
+                    "event_type": "mqtt_test_message",
+                    "topic": test_topic
+                }
+            )
+            return TestMessageResponse(
+                success=True,
+                message="Test message published successfully",
+                topic=test_topic
+            )
+        else:
+            return TestMessageResponse(
+                success=False,
+                message="Failed to publish test message",
+                topic=test_topic
+            )
+
+    except Exception as e:
+        logger.error(f"Failed to send test message: {e}")
+        return TestMessageResponse(
+            success=False,
+            message=f"Error: {str(e)}",
+            topic=test_topic
+        )
 
 
 # ============================================================================

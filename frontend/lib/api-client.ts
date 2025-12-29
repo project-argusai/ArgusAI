@@ -36,6 +36,7 @@ import type {
   MQTTTestRequest,
   MQTTTestResponse,
   MQTTPublishDiscoveryResponse,
+  MQTTTestMessageResponse,
 } from '@/types/settings';
 import type {
   IAlertRule,
@@ -1697,6 +1698,16 @@ export const apiClient = {
      */
     publishDiscovery: async (): Promise<MQTTPublishDiscoveryResponse> => {
       return apiFetch('/integrations/mqtt/publish-discovery', {
+        method: 'POST',
+      });
+    },
+
+    /**
+     * Send a test message to MQTT broker
+     * @returns Test message result with topic
+     */
+    sendTestMessage: async (): Promise<MQTTTestMessageResponse> => {
+      return apiFetch('/integrations/mqtt/test-message', {
         method: 'POST',
       });
     },

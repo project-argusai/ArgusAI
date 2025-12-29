@@ -251,3 +251,9 @@ export interface MQTTPublishDiscoveryResponse {
   message: string;
   cameras_published: number;
 }
+
+export interface MQTTTestMessageResponse {
+  success: boolean;
+  message: string;
+  topic?: string;
+}

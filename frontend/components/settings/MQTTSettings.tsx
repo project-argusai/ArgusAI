@@ -31,6 +31,7 @@ import {
   Eye,
   EyeOff,
   Info,
+  Bell,
 } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
@@ -87,6 +88,7 @@ export function MQTTSettings() {
   const [showPassword, setShowPassword] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [isSendingTestMessage, setIsSendingTestMessage] = useState(false);
 
   // Fetch MQTT configuration
   const configQuery = useQuery({
@@ -226,6 +228,29 @@ export function MQTTSettings() {
       });
     } finally {
       setIsPublishing(false);
+    }
+  };
+
+  // Send test message handler
+  const handleSendTestMessage = async () => {
+    setIsSendingTestMessage(true);
+    try {
+      const result = await apiClient.mqtt.sendTestMessage();
+      if (result.success) {
+        toast.success('Test message sent', {
+          description: `Published to ${result.topic}`,
+        });
+      } else {
+        toast.error('Send failed', {
+          description: result.message,
+        });
+      }
+    } catch (error) {
+      toast.error('Send failed', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsSendingTestMessage(false);
     }
   };
 
@@ -675,6 +700,35 @@ export function MQTTSettings() {
                       </Button>
                     </div>
                   )}
+
+                  {/* Send Test Message Button */}
+                  <div className="flex items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-medium">Send Test Alert</p>
+                      <p className="text-sm text-muted-foreground">
+                        Publish a test message to verify MQTT integration
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSendTestMessage}
+                      disabled={isSendingTestMessage || !statusQuery.data?.connected}
+                    >
+                      {isSendingTestMessage ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Bell className="mr-2 h-4 w-4" />
+                          Send Test
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Info Alert - Story P9-6.6: Only visible when MQTT enabled */}

@@ -120,6 +120,13 @@ class Settings(BaseSettings):
     FCM_PROJECT_ID: Optional[str] = None  # Firebase project ID
     FCM_CREDENTIALS_FILE: Optional[str] = None  # Path to service account JSON
 
+    # Rate Limiting Configuration (Story P14-2.6)
+    RATE_LIMIT_ENABLED: bool = True  # Enable/disable global rate limiting
+    RATE_LIMIT_DEFAULT: str = "100/minute"  # Default rate limit for all endpoints
+    RATE_LIMIT_READS: str = "100/minute"  # Rate limit for GET requests
+    RATE_LIMIT_WRITES: str = "20/minute"  # Rate limit for POST/PUT/DELETE requests
+    RATE_LIMIT_STORAGE_URI: Optional[str] = None  # Redis URI for distributed rate limiting (e.g., "redis://localhost:6379")
+
     @property
     def fcm_ready(self) -> bool:
         """Check if FCM is properly configured and ready to use."""

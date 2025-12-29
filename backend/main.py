@@ -19,6 +19,7 @@ from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.last_seen import LastSeenMiddleware
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
+from app.middleware.rate_limit import RateLimitMiddleware, limiter as global_limiter  # Story P14-2.6
 from app.api.v1.cameras import router as cameras_router, camera_service
 from app.api.v1.motion_events import router as motion_events_router
 from app.api.v1.ai import router as ai_router
@@ -737,7 +738,16 @@ Authorization: Bearer <your_token>
 ## Rate Limits
 
 - Authentication endpoints: 5 requests per 15 minutes per IP
-- General API: No rate limiting (intended for single-user deployment)
+- GET requests: 100 requests per minute per IP
+- POST/PUT/DELETE requests: 20 requests per minute per IP
+- API key authenticated requests: Use per-key limits (configurable)
+- Health/metrics endpoints: Exempt from rate limiting
+
+Rate limit headers are included in all responses:
+- `X-RateLimit-Limit`: Maximum requests allowed
+- `X-RateLimit-Remaining`: Requests remaining in window
+- `X-RateLimit-Reset`: Unix timestamp when limit resets
+- `Retry-After`: Seconds until rate limit resets (on 429 responses)
 
 ## Versioning
 
@@ -845,10 +855,11 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Add rate limiter state (Story 6.3)
+# Add rate limiter state (Story 6.3, P14-2.6)
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-app.state.limiter = limiter
+# Use global_limiter for all endpoints, auth limiter for auth-specific
+app.state.limiter = global_limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Configure CORS
@@ -893,6 +904,21 @@ app.add_middleware(RequestLoggingMiddleware)
 # Add authentication middleware (Story 6.3, AC: #6)
 # Note: Auth middleware runs after logging middleware (LIFO order)
 app.add_middleware(AuthMiddleware)
+
+# Add rate limiting middleware (Story P14-2.6)
+# Runs after auth to access request.state.api_key for API key rate limiting
+# Note: Middleware executes in reverse order (LIFO), so this runs AFTER auth
+if settings.RATE_LIMIT_ENABLED:
+    app.add_middleware(RateLimitMiddleware)
+    logger.info(
+        "Rate limiting middleware enabled",
+        extra={
+            "event_type": "rate_limit_enabled",
+            "default_limit": settings.RATE_LIMIT_DEFAULT,
+            "read_limit": settings.RATE_LIMIT_READS,
+            "write_limit": settings.RATE_LIMIT_WRITES,
+        }
+    )
 
 # Add device last_seen tracking middleware (Story P12-2.4)
 # Runs after auth to access request.state.user, updates device last_seen_at

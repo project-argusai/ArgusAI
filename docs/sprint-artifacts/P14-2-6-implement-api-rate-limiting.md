@@ -1,6 +1,6 @@
 # Story P14-2.6: Implement API Rate Limiting
 
-Status: drafted
+Status: done
 
 ## Story
 
@@ -197,7 +197,45 @@ Claude Opus 4.5
 
 ### Debug Log References
 
+None
+
 ### Completion Notes List
 
+**Implementation Complete:**
+- Created `backend/app/middleware/rate_limit.py` with:
+  - `RateLimitMiddleware` class for global rate limiting
+  - IP-based rate limiting for unauthenticated requests
+  - Integration with existing API key rate limiting
+  - Method-based limits (GET vs POST/PUT/DELETE)
+  - Exempt paths for health, metrics, docs, WebSocket
+  - Rate limit headers on all responses
+
+- Added rate limit configuration to `backend/app/core/config.py`:
+  - `RATE_LIMIT_ENABLED` - Toggle global rate limiting (default: True)
+  - `RATE_LIMIT_DEFAULT` - Default limit (100/minute)
+  - `RATE_LIMIT_READS` - GET request limit (100/minute)
+  - `RATE_LIMIT_WRITES` - POST/PUT/DELETE limit (20/minute)
+  - `RATE_LIMIT_STORAGE_URI` - Optional Redis URI for distributed rate limiting
+
+- Updated `backend/main.py`:
+  - Imported and configured global rate limiter
+  - Added RateLimitMiddleware to middleware stack
+  - Updated OpenAPI documentation with rate limit details
+
+- Created `backend/tests/test_middleware/test_rate_limit.py` with 22 tests:
+  - Helper function tests (exempt paths, method limits)
+  - Integration tests (health exempt, headers present)
+  - Configuration tests (default values, optional settings)
+  - Exempt paths tests
+
+**Note:** slowapi was already in requirements.txt from prior work.
+
 ### File List
+
+- backend/app/middleware/rate_limit.py (created)
+- backend/app/core/config.py (modified)
+- backend/main.py (modified)
+- backend/tests/test_middleware/__init__.py (created)
+- backend/tests/test_middleware/test_rate_limit.py (created)
+- docs/sprint-artifacts/P14-2-6-implement-api-rate-limiting.md (modified)
 

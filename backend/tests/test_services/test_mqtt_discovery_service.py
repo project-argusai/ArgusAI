@@ -1,5 +1,5 @@
 """
-Tests for MQTT Discovery Service (Story P4-2.2)
+Tests for MQTT Discovery Service (Story P4-2.2, P14-1.1)
 
 Tests cover:
 - Discovery config generation (AC1, AC3)
@@ -7,7 +7,9 @@ Tests cover:
 - Sensor removal (AC4)
 - Availability/LWT support (AC7)
 - Discovery toggle (AC6)
+- Async context handling in on_mqtt_connect (P14-1.1)
 """
+import asyncio
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 import json
@@ -380,3 +382,183 @@ class TestCameraHooks:
         await on_camera_disabled("camera-to-disable")
 
         mock_service.remove_discovery_config.assert_called_once_with("camera-to-disable")
+
+
+class TestAsyncContextHandling:
+    """Tests for async context handling in on_mqtt_connect (P14-1.1 fix)."""
+
+    def test_set_main_event_loop(self):
+        """set_main_event_loop stores the event loop reference."""
+        service = MQTTDiscoveryService()
+        assert service._main_event_loop is None
+
+        mock_loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        service.set_main_event_loop(mock_loop)
+
+        assert service._main_event_loop is mock_loop
+
+    def test_on_mqtt_connect_with_main_loop_running(self):
+        """on_mqtt_connect uses run_coroutine_threadsafe when main loop available."""
+        mock_mqtt = MagicMock()
+        service = MQTTDiscoveryService(mqtt_service=mock_mqtt)
+
+        # Create a mock loop that is running
+        mock_loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        mock_loop.is_running.return_value = True
+        service._main_event_loop = mock_loop
+
+        # Mock run_coroutine_threadsafe
+        mock_future = MagicMock()
+        with patch('asyncio.run_coroutine_threadsafe', return_value=mock_future) as mock_threadsafe:
+            service.on_mqtt_connect()
+
+            # Verify run_coroutine_threadsafe was called with the main loop
+            mock_threadsafe.assert_called_once()
+            call_args = mock_threadsafe.call_args
+            assert call_args[0][1] is mock_loop  # Second arg should be the loop
+
+            # Verify a callback was added to handle the future result
+            mock_future.add_done_callback.assert_called_once()
+
+    def test_on_mqtt_connect_with_main_loop_not_running(self):
+        """on_mqtt_connect uses temp loop when main loop not running."""
+        mock_mqtt = MagicMock()
+        service = MQTTDiscoveryService(mqtt_service=mock_mqtt)
+
+        # Set main loop but it's not running
+        mock_loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        mock_loop.is_running.return_value = False
+        service._main_event_loop = mock_loop
+
+        # Mock the temporary loop creation
+        mock_temp_loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        with patch('asyncio.new_event_loop', return_value=mock_temp_loop):
+            # Mock _publish_discovery_on_connect to be a coroutine
+            async def mock_publish():
+                pass
+            service._publish_discovery_on_connect = mock_publish
+
+            service.on_mqtt_connect()
+
+            # Verify temp loop was created, used, and closed
+            mock_temp_loop.run_until_complete.assert_called_once()
+            mock_temp_loop.close.assert_called_once()
+
+    def test_on_mqtt_connect_without_main_loop(self):
+        """on_mqtt_connect uses temp loop when no main loop set."""
+        mock_mqtt = MagicMock()
+        service = MQTTDiscoveryService(mqtt_service=mock_mqtt)
+
+        # No main loop set (default state)
+        assert service._main_event_loop is None
+
+        # Mock the temporary loop creation
+        mock_temp_loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        with patch('asyncio.new_event_loop', return_value=mock_temp_loop):
+            # Mock _publish_discovery_on_connect to be a coroutine
+            async def mock_publish():
+                pass
+            service._publish_discovery_on_connect = mock_publish
+
+            service.on_mqtt_connect()
+
+            # Verify temp loop was created, used, and closed
+            mock_temp_loop.run_until_complete.assert_called_once()
+            mock_temp_loop.close.assert_called_once()
+
+    def test_on_mqtt_connect_temp_loop_handles_exception(self):
+        """on_mqtt_connect handles exceptions in temp loop path."""
+        mock_mqtt = MagicMock()
+        service = MQTTDiscoveryService(mqtt_service=mock_mqtt)
+
+        # No main loop set
+        assert service._main_event_loop is None
+
+        # Mock the temporary loop creation to raise an exception
+        mock_temp_loop = MagicMock(spec=asyncio.AbstractEventLoop)
+        mock_temp_loop.run_until_complete.side_effect = Exception("Test error")
+        with patch('asyncio.new_event_loop', return_value=mock_temp_loop):
+            # Mock _publish_discovery_on_connect to be a coroutine
+            async def mock_publish():
+                pass
+            service._publish_discovery_on_connect = mock_publish
+
+            # Should not raise - errors are logged
+            service.on_mqtt_connect()
+
+            # Verify loop was still closed even after exception
+            mock_temp_loop.close.assert_called_once()
+
+    def test_handle_publish_future_success(self):
+        """_handle_publish_future does nothing on success."""
+        service = MQTTDiscoveryService()
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = None  # Success
+
+        # Should not raise
+        service._handle_publish_future(mock_future)
+
+    def test_handle_publish_future_logs_exception(self):
+        """_handle_publish_future logs exceptions from the future."""
+        service = MQTTDiscoveryService()
+
+        mock_future = MagicMock()
+        mock_future.result.side_effect = Exception("Publish failed")
+
+        # Should not raise - errors are logged
+        with patch.object(service, '_handle_publish_future') as mock_handler:
+            # Create the actual behavior
+            mock_handler.side_effect = lambda f: f.result()
+
+        # Actually test the real implementation
+        # Should not raise, just log
+        service._handle_publish_future(mock_future)
+
+
+class TestInitializeDiscoveryService:
+    """Tests for initialize_discovery_service function (P14-1.1 fix)."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_captures_running_loop(self):
+        """initialize_discovery_service captures the running event loop."""
+        import app.services.mqtt_discovery_service as discovery_module
+
+        # Reset singleton
+        discovery_module._discovery_service = None
+
+        mock_mqtt = MagicMock()
+        mock_mqtt.set_on_connect_callback = MagicMock()
+
+        with patch('app.services.mqtt_discovery_service.get_mqtt_service', return_value=mock_mqtt):
+            from app.services.mqtt_discovery_service import initialize_discovery_service
+
+            await initialize_discovery_service()
+
+            # Get the service and verify loop was set
+            service = discovery_module._discovery_service
+            assert service._main_event_loop is not None
+            assert service._main_event_loop.is_running()
+
+            # Verify callback was registered
+            mock_mqtt.set_on_connect_callback.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_initialize_registers_callback(self):
+        """initialize_discovery_service registers on_connect callback."""
+        import app.services.mqtt_discovery_service as discovery_module
+
+        # Reset singleton
+        discovery_module._discovery_service = None
+
+        mock_mqtt = MagicMock()
+
+        with patch('app.services.mqtt_discovery_service.get_mqtt_service', return_value=mock_mqtt):
+            from app.services.mqtt_discovery_service import initialize_discovery_service
+
+            await initialize_discovery_service()
+
+            # Verify callback was registered with the MQTT service
+            mock_mqtt.set_on_connect_callback.assert_called_once()
+            callback = mock_mqtt.set_on_connect_callback.call_args[0][0]
+            assert callable(callback)

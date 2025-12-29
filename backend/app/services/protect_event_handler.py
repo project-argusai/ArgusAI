@@ -50,7 +50,7 @@ import numpy as np
 from PIL import Image
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.models.camera import Camera
 from app.models.event import Event
 from app.services.snapshot_service import get_snapshot_service, SnapshotResult
@@ -258,8 +258,7 @@ class ProtectEventHandler:
                 return False
 
             # Look up camera in database (AC3)
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 camera = self._get_camera_by_protect_id(db, protect_camera_id)
 
                 # Check if camera is enabled for AI analysis (AC3, AC4)
@@ -510,9 +509,6 @@ class ProtectEventHandler:
                     return True
 
                 return False
-
-            finally:
-                db.close()
 
         except Exception as e:
             logger.warning(
@@ -1006,12 +1002,11 @@ class ProtectEventHandler:
         try:
             # Lazy import to avoid circular imports (same pattern as snapshot_service)
             from app.services.ai_service import ai_service
-            from app.core.database import SessionLocal
+            from app.core.database import get_db_session
 
             # Ensure AI service has API keys loaded from database
             # (The global ai_service singleton may not have keys loaded yet)
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 await ai_service.load_api_keys_from_db(db)
 
                 # Story P11-3: Build context-enhanced prompt for AI
@@ -1106,8 +1101,6 @@ class ProtectEventHandler:
                 self._formatted_timestamp = _format_timestamp_for_ai(
                     snapshot_result.timestamp, db
                 )
-            finally:
-                db.close()
 
             # Get camera's configured analysis mode
             # camera.analysis_mode may not exist yet (added in P3-3.1), so use getattr with default
@@ -1739,50 +1732,47 @@ class ProtectEventHandler:
             # Story P8-2.5: Load frame_sampling_strategy from settings (default: uniform)
             # Story P9-2.1: Load frame_extraction_offset_ms from settings (default: 2000)
             from app.models.system_setting import SystemSetting
-            from app.core.database import SessionLocal
             frame_count = 10  # Default
             sampling_strategy = "uniform"  # Default (Story P8-2.5 AC5.6)
             extraction_offset_ms = 2000  # Default 2 seconds (Story P9-2.1)
             try:
-                db = SessionLocal()
-                frame_count_setting = db.query(SystemSetting).filter(
-                    SystemSetting.key == 'settings_analysis_frame_count'
-                ).first()
-                if frame_count_setting and frame_count_setting.value:
-                    frame_count = int(frame_count_setting.value)
+                with get_db_session() as db:
+                    frame_count_setting = db.query(SystemSetting).filter(
+                        SystemSetting.key == 'settings_analysis_frame_count'
+                    ).first()
+                    if frame_count_setting and frame_count_setting.value:
+                        frame_count = int(frame_count_setting.value)
 
-                # Story P8-2.5: Load sampling strategy setting
-                sampling_strategy_setting = db.query(SystemSetting).filter(
-                    SystemSetting.key == 'settings_frame_sampling_strategy'
-                ).first()
-                if sampling_strategy_setting and sampling_strategy_setting.value:
-                    # Validate the value is one of the allowed strategies
-                    valid_strategies = ["uniform", "adaptive", "hybrid"]
-                    if sampling_strategy_setting.value in valid_strategies:
-                        sampling_strategy = sampling_strategy_setting.value
-                    else:
-                        logger.warning(
-                            f"Invalid sampling_strategy value '{sampling_strategy_setting.value}', using default 'uniform'"
-                        )
+                    # Story P8-2.5: Load sampling strategy setting
+                    sampling_strategy_setting = db.query(SystemSetting).filter(
+                        SystemSetting.key == 'settings_frame_sampling_strategy'
+                    ).first()
+                    if sampling_strategy_setting and sampling_strategy_setting.value:
+                        # Validate the value is one of the allowed strategies
+                        valid_strategies = ["uniform", "adaptive", "hybrid"]
+                        if sampling_strategy_setting.value in valid_strategies:
+                            sampling_strategy = sampling_strategy_setting.value
+                        else:
+                            logger.warning(
+                                f"Invalid sampling_strategy value '{sampling_strategy_setting.value}', using default 'uniform'"
+                            )
 
-                # Story P9-2.1: Load frame extraction offset setting
-                offset_setting = db.query(SystemSetting).filter(
-                    SystemSetting.key == 'settings_frame_extraction_offset_ms'
-                ).first()
-                if offset_setting and offset_setting.value:
-                    try:
-                        extraction_offset_ms = int(offset_setting.value)
-                        # Validate offset is within reasonable bounds (0-10 seconds)
-                        if extraction_offset_ms < 0:
-                            extraction_offset_ms = 0
-                        elif extraction_offset_ms > 10000:
-                            extraction_offset_ms = 10000
-                    except ValueError:
-                        logger.warning(
-                            f"Invalid offset value '{offset_setting.value}', using default 2000ms"
-                        )
-
-                db.close()
+                    # Story P9-2.1: Load frame extraction offset setting
+                    offset_setting = db.query(SystemSetting).filter(
+                        SystemSetting.key == 'settings_frame_extraction_offset_ms'
+                    ).first()
+                    if offset_setting and offset_setting.value:
+                        try:
+                            extraction_offset_ms = int(offset_setting.value)
+                            # Validate offset is within reasonable bounds (0-10 seconds)
+                            if extraction_offset_ms < 0:
+                                extraction_offset_ms = 0
+                            elif extraction_offset_ms > 10000:
+                                extraction_offset_ms = 10000
+                        except ValueError:
+                            logger.warning(
+                                f"Invalid offset value '{offset_setting.value}', using default 2000ms"
+                            )
             except Exception as e:
                 logger.warning(f"Failed to load analysis settings, using defaults: {e}")
 
@@ -1863,7 +1853,7 @@ class ProtectEventHandler:
                             first_frame_bgr = first_frame_rgb[:, :, ::-1]  # RGB to BGR
                         else:
                             first_frame_bgr = first_frame_rgb
-                        with SessionLocal() as ocr_db:
+                        with get_db_session() as ocr_db:
                             ocr_result = self._try_ocr_extraction(first_frame_bgr, ocr_db)
                     except Exception as ocr_err:
                         logger.warning(f"OCR extraction from first frame failed: {ocr_err}")
@@ -1988,7 +1978,7 @@ class ProtectEventHandler:
 
             # Story P9-3.2: Extract OCR from frame overlay if enabled
             ocr_result = None
-            with SessionLocal() as db:
+            with get_db_session() as db:
                 ocr_result = self._try_ocr_extraction(frame_bgr, db)
 
             # Story P2-4.1: Use doorbell-specific prompt for ring events (AC4)
@@ -3045,8 +3035,7 @@ class ProtectEventHandler:
 
             if video_path:
                 # Update event with video_path
-                db = SessionLocal()
-                try:
+                with get_db_session() as db:
                     event = db.query(Event).filter(Event.id == event_id).first()
                     if event:
                         event.video_path = str(video_path.name)  # Store just the filename
@@ -3059,8 +3048,6 @@ class ProtectEventHandler:
                                 "video_path": str(video_path)
                             }
                         )
-                finally:
-                    db.close()
             else:
                 logger.debug(
                     f"Video download returned None for event {event_id} (may be expected)",

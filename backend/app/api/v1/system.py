@@ -27,7 +27,7 @@ from app.schemas.system import (
 )
 from app.services.cleanup_service import get_cleanup_service
 from app.services.backup_service import get_backup_service, BackupResult, RestoreResult, BackupInfo, ValidationResult
-from app.core.database import get_db, SessionLocal
+from app.core.database import get_db
 from app.models.system_setting import SystemSetting
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 from app.core.config import settings
@@ -152,33 +152,36 @@ def get_retention_policy_from_db(db: Optional[Session] = None) -> int:
     Returns:
         Retention days (default 30 if not set)
     """
-    should_close = False
-    if db is None:
-        db = SessionLocal()
-        should_close = True
+    def _get_retention(db_session: Session) -> int:
+        """Inner function to get retention policy from a session."""
+        try:
+            setting = db_session.query(SystemSetting).filter(
+                SystemSetting.key == "data_retention_days"
+            ).first()
 
-    try:
-        setting = db.query(SystemSetting).filter(
-            SystemSetting.key == "data_retention_days"
-        ).first()
-
-        if setting and setting.value:
-            try:
-                return int(setting.value)
-            except ValueError:
-                logger.warning(f"Invalid retention policy value: {setting.value}, using default 30")
+            if setting and setting.value:
+                try:
+                    return int(setting.value)
+                except ValueError:
+                    logger.warning(f"Invalid retention policy value: {setting.value}, using default 30")
+                    return 30
+            else:
+                # Default: 30 days
+                logger.info("No retention policy set, using default 30 days")
                 return 30
-        else:
-            # Default: 30 days
-            logger.info("No retention policy set, using default 30 days")
+
+        except Exception as e:
+            logger.error(f"Error getting retention policy: {e}", exc_info=True)
             return 30
 
-    except Exception as e:
-        logger.error(f"Error getting retention policy: {e}", exc_info=True)
-        return 30
-    finally:
-        if should_close:
-            db.close()
+    if db is None:
+        # Create our own session with context manager for automatic cleanup
+        from app.core.database import get_db_session
+        with get_db_session() as db_session:
+            return _get_retention(db_session)
+    else:
+        # Use provided session - caller manages lifecycle
+        return _get_retention(db)
 
 
 def set_retention_policy_in_db(retention_days: int, db: Optional[Session] = None):
@@ -189,38 +192,40 @@ def set_retention_policy_in_db(retention_days: int, db: Optional[Session] = None
         retention_days: Number of days to retain events
         db: Optional database session (creates new session if not provided)
     """
-    should_close = False
-    if db is None:
-        db = SessionLocal()
-        should_close = True
+    def _set_retention(db_session: Session):
+        """Inner function to set retention policy with a session."""
+        try:
+            setting = db_session.query(SystemSetting).filter(
+                SystemSetting.key == "data_retention_days"
+            ).first()
 
-    try:
-        setting = db.query(SystemSetting).filter(
-            SystemSetting.key == "data_retention_days"
-        ).first()
+            if setting:
+                setting.value = str(retention_days)
+            else:
+                setting = SystemSetting(
+                    key="data_retention_days",
+                    value=str(retention_days)
+                )
+                db_session.add(setting)
 
-        if setting:
-            setting.value = str(retention_days)
-        else:
-            setting = SystemSetting(
-                key="data_retention_days",
-                value=str(retention_days)
+            db_session.commit()
+            logger.info(f"Retention policy updated: {retention_days} days")
+
+        except Exception as e:
+            logger.error(f"Error setting retention policy: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update retention policy"
             )
-            db.add(setting)
 
-        db.commit()
-        logger.info(f"Retention policy updated: {retention_days} days")
-
-    except Exception as e:
-        logger.error(f"Error setting retention policy: {e}", exc_info=True)
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update retention policy"
-        )
-    finally:
-        if should_close:
-            db.close()
+    if db is None:
+        # Create our own session with context manager for automatic cleanup
+        from app.core.database import get_db_session
+        with get_db_session() as db_session:
+            _set_retention(db_session)
+    else:
+        # Use provided session - caller manages lifecycle
+        _set_retention(db)
 
 
 def calculate_next_cleanup() -> Optional[str]:
@@ -1670,20 +1675,17 @@ async def restore_from_backup(
                 """Restart background tasks after restore"""
                 from app.api.v1.cameras import camera_service
                 from app.services.event_processor import initialize_event_processor
-                from app.core.database import SessionLocal
+                from app.core.database import get_db_session
                 from app.models.camera import Camera
 
                 try:
                     await initialize_event_processor()
 
                     # Restart enabled cameras
-                    db = SessionLocal()
-                    try:
+                    with get_db_session() as db:
                         enabled_cameras = db.query(Camera).filter(Camera.is_enabled == True).all()
                         for camera in enabled_cameras:
                             camera_service.start_camera(camera)
-                    finally:
-                        db.close()
                 except Exception as e:
                     logger.warning(f"Error restarting tasks: {e}")
 

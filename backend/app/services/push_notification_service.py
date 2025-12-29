@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.models.push_subscription import PushSubscription
 from app.models.notification_preference import NotificationPreference
 from app.utils.vapid import ensure_vapid_keys
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.core.metrics import record_push_notification_sent, update_push_subscription_count
 
 logger = logging.getLogger(__name__)
@@ -686,8 +686,14 @@ def get_push_notification_service(db: Optional[Session] = None) -> PushNotificat
 
     Returns:
         PushNotificationService instance
+
+    Note: When db is None, a new session is created. The caller is responsible
+    for closing this session when done with the service.
     """
     if db is None:
+        # Create a new session - caller is responsible for cleanup
+        # For automatic cleanup, use: with get_db_session() as db: service = PushNotificationService(db)
+        from app.core.database import SessionLocal
         db = SessionLocal()
 
     return PushNotificationService(db)
@@ -904,12 +910,8 @@ async def send_event_notification(
     Returns:
         List of NotificationResult for each subscription
     """
-    # Track whether we created the session (for cleanup)
-    session_created = db is None
-    if session_created:
-        db = SessionLocal()
-
     # Story P8-1.3: Enhanced logging for debugging notification flow
+    session_created = db is None
     logger.info(
         f"send_event_notification called",
         extra={
@@ -921,8 +923,9 @@ async def send_event_notification(
         }
     )
 
-    try:
-        service = PushNotificationService(db)
+    async def _send_notification(db_session: Session) -> List[NotificationResult]:
+        """Inner function to send notification with provided session."""
+        service = PushNotificationService(db_session)
 
         # Use camera_id for collapse tag, fallback to event_id
         collapse_tag = camera_id or event_id
@@ -970,6 +973,15 @@ async def send_event_notification(
 
         return results
 
+    try:
+        if db is None:
+            # Create our own session with context manager for automatic cleanup
+            with get_db_session() as db_session:
+                return await _send_notification(db_session)
+        else:
+            # Use provided session - caller manages lifecycle
+            return await _send_notification(db)
+
     except Exception as e:
         logger.error(
             f"Error sending event notification",
@@ -980,8 +992,3 @@ async def send_event_notification(
             }
         )
         return []
-    finally:
-        # Only close session if we created it
-        if session_created and db:
-            db.close()
-            logger.debug(f"Closed database session for event {event_id}")

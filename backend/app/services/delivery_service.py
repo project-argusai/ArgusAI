@@ -29,7 +29,7 @@ from typing import Optional, List, Dict, Any
 
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.models.activity_summary import ActivitySummary
 from app.models.system_setting import SystemSetting
 from app.models.system_notification import SystemNotification
@@ -95,8 +95,13 @@ class DeliveryService:
         )
 
     def _get_db(self) -> Session:
-        """Get database session, creating one if needed."""
+        """Get database session, creating one if needed.
+
+        Note: Uses SessionLocal directly for lazy initialization pattern.
+        The session is closed by _close_db() when the service is done.
+        """
         if self._db is None:
+            from app.core.database import SessionLocal
             self._db = SessionLocal()
             self._owns_db = True
         return self._db

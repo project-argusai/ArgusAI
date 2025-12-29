@@ -189,13 +189,14 @@ class TestEventProcessor:
         processor_valid = EventProcessor(worker_count=3)
         assert processor_valid.worker_count == 3
 
-    @patch('app.services.event_processor.SessionLocal')
+    @patch('app.services.event_processor.get_db_session')
     @patch('app.services.event_processor.AIService')
-    async def test_start_processor(self, mock_ai_service, mock_session, event_processor):
+    async def test_start_processor(self, mock_ai_service, mock_get_db_session, event_processor):
         """Test starting the event processor"""
-        # Mock database session
+        # Mock database session as context manager
         mock_db = MagicMock()
-        mock_session.return_value = mock_db
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
         mock_db.query.return_value.filter.return_value.all.return_value = []
 
         # Mock AI service
@@ -286,12 +287,13 @@ class TestEventProcessor:
         assert metrics["events_processed"]["failure"] == 2
         assert metrics["events_processed"]["total"] == 52
 
-    @patch('app.services.event_processor.SessionLocal')
-    async def test_store_event_with_retry_success(self, mock_session_local, event_processor):
+    @patch('app.services.event_processor.get_db_session')
+    async def test_store_event_with_retry_success(self, mock_get_db_session, event_processor):
         """Test storing event with successful database insertion"""
-        # Mock database session
+        # Mock database session as context manager
         mock_db = MagicMock()
-        mock_session_local.return_value = mock_db
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
 
         event_data = {
             "camera_id": "camera-123",
@@ -311,13 +313,14 @@ class TestEventProcessor:
         mock_db.add.assert_called_once()
         mock_db.commit.assert_called_once()
 
-    @patch('app.services.event_processor.SessionLocal')
-    async def test_store_event_with_retry_failure(self, mock_session_local, event_processor):
+    @patch('app.services.event_processor.get_db_session')
+    async def test_store_event_with_retry_failure(self, mock_get_db_session, event_processor):
         """Test storing event with all retries failing"""
-        # Mock database session that raises exception
+        # Mock database session as context manager that raises exception
         mock_db = MagicMock()
         mock_db.commit.side_effect = Exception("Database error")
-        mock_session_local.return_value = mock_db
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
 
         event_data = {
             "camera_id": "camera-123",
@@ -336,13 +339,14 @@ class TestEventProcessor:
         # Should be called 3 times (initial + 2 retries)
         assert mock_db.commit.call_count == 3
 
-    @patch('app.services.event_processor.SessionLocal')
-    async def test_store_event_with_retry_eventual_success(self, mock_session_local, event_processor):
+    @patch('app.services.event_processor.get_db_session')
+    async def test_store_event_with_retry_eventual_success(self, mock_get_db_session, event_processor):
         """Test storing event succeeds after retry"""
-        # Mock database session that fails first, then succeeds
+        # Mock database session as context manager that fails first, then succeeds
         mock_db = MagicMock()
         mock_db.commit.side_effect = [Exception("Transient error"), None]  # Fail, then succeed
-        mock_session_local.return_value = mock_db
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
 
         event_data = {
             "camera_id": "camera-123",
@@ -424,18 +428,25 @@ class TestEventProcessor:
 class TestEventProcessorIntegration:
     """Integration tests for EventProcessor with real asyncio"""
 
+    @patch('app.services.embedding_service.get_embedding_service')
     @patch('app.services.event_processor.get_cost_cap_service')
-    @patch('app.services.event_processor.SessionLocal')
-    async def test_full_pipeline_simulation(self, mock_session_local, mock_get_cost_cap):
+    @patch('app.services.event_processor.get_db_session')
+    async def test_full_pipeline_simulation(self, mock_get_db_session, mock_get_cost_cap, mock_get_embedding):
         """Test full pipeline with mocked services"""
-        # Mock database session for event storage
+        # Mock database session as context manager for event storage
         mock_db = MagicMock()
-        mock_session_local.return_value = mock_db
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
 
         # Mock cost cap service to allow analysis
         mock_cost_cap = MagicMock()
         mock_cost_cap.can_analyze.return_value = (True, None)
         mock_get_cost_cap.return_value = mock_cost_cap
+
+        # Mock embedding service to avoid loading real AI models
+        mock_embedding = MagicMock()
+        mock_embedding.generate_embedding = AsyncMock(return_value=[0.1] * 512)
+        mock_get_embedding.return_value = mock_embedding
 
         processor = EventProcessor(worker_count=2, queue_maxsize=5)
 
@@ -487,8 +498,26 @@ class TestEventProcessorIntegration:
 
         assert processor.running == False
 
-    async def test_performance_throughput(self):
+    @patch('app.services.embedding_service.get_embedding_service')
+    @patch('app.services.event_processor.get_cost_cap_service')
+    @patch('app.services.event_processor.get_db_session')
+    async def test_performance_throughput(self, mock_get_db_session, mock_get_cost_cap, mock_get_embedding):
         """Test processing throughput (10+ events/minute target)"""
+        # Mock database session as context manager
+        mock_db = MagicMock()
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
+
+        # Mock cost cap service to allow analysis
+        mock_cost_cap = MagicMock()
+        mock_cost_cap.can_analyze.return_value = (True, None)
+        mock_get_cost_cap.return_value = mock_cost_cap
+
+        # Mock embedding service to avoid loading real AI models
+        mock_embedding = MagicMock()
+        mock_embedding.generate_embedding = AsyncMock(return_value=[0.1] * 512)
+        mock_get_embedding.return_value = mock_embedding
+
         processor = EventProcessor(worker_count=3, queue_maxsize=50)
 
         # Mock fast services

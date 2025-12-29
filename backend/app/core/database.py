@@ -1,7 +1,10 @@
 """Database connection and session management"""
+from contextlib import contextmanager
+from typing import Generator
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
 
 # Configure engine based on database type
@@ -30,5 +33,35 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    finally:
+        db.close()
+
+
+@contextmanager
+def get_db_session() -> Generator[Session, None, None]:
+    """
+    Context manager for database sessions in non-request contexts.
+
+    Use this for background tasks, services, and middleware where
+    FastAPI dependency injection is not available.
+
+    Usage:
+        with get_db_session() as db:
+            result = db.query(Model).all()
+            db.commit()  # If modifications made
+
+    Automatically handles:
+    - Session creation
+    - Rollback on exception
+    - Session cleanup (close)
+
+    Story P14-2.1: Standardize database session management
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()

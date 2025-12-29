@@ -1,0 +1,211 @@
+<story-context id="P14-2-1" v="1.0">
+  <metadata>
+    <epicId>P14-2</epicId>
+    <storyId>P14-2.1</storyId>
+    <title>Standardize Database Session Management</title>
+    <status>drafted</status>
+    <generatedAt>2025-12-29</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/sprint-artifacts/P14-2-1-standardize-database-session-management.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>backend developer</asA>
+    <iWant>all database session creation to use a consistent context manager pattern</iWant>
+    <soThat>session lifecycle is properly managed and connection leaks are prevented</soThat>
+    <tasks>
+      <task id="1">Create context manager in database.py</task>
+      <task id="2">Refactor event_processor.py (10 instances)</task>
+      <task id="3">Refactor protect_event_handler.py (4 instances)</task>
+      <task id="4">Refactor protect_service.py (2 instances)</task>
+      <task id="5">Refactor remaining service files</task>
+      <task id="6">Refactor route and middleware files</task>
+      <task id="7">Run full test suite</task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="AC-1">A get_db_session() context manager is added to backend/app/core/database.py</criterion>
+    <criterion id="AC-2">All 43+ db = SessionLocal() instances in service files are converted to use the new context manager</criterion>
+    <criterion id="AC-3">The context manager properly rolls back transactions on exceptions</criterion>
+    <criterion id="AC-4">The context manager always closes the session in the finally block</criterion>
+    <criterion id="AC-5">All existing tests pass without modification</criterion>
+    <criterion id="AC-6">No database connection leaks under any code path</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc>
+        <path>docs/sprint-artifacts/tech-spec-epic-P14-2.md</path>
+        <title>Epic P14-2 Technical Specification</title>
+        <section>Story P14-2.1: Standardize Database Session Management</section>
+        <snippet>Defines context manager pattern for database sessions. Provides complete implementation with before/after examples and file-by-file change list.</snippet>
+      </doc>
+      <doc>
+        <path>docs/architecture/08-implementation-patterns.md</path>
+        <title>Implementation Patterns</title>
+        <section>Database Access Patterns</section>
+        <snippet>Standard patterns for database access including dependency injection and session management.</snippet>
+      </doc>
+    </docs>
+    <code>
+      <file>
+        <path>backend/app/core/database.py</path>
+        <kind>core</kind>
+        <symbol>SessionLocal, get_db</symbol>
+        <lines>1-35</lines>
+        <reason>Primary file to modify - add get_db_session() context manager alongside existing get_db() dependency</reason>
+      </file>
+      <file>
+        <path>backend/app/services/event_processor.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>218, 238, 566, 1398, 1856, 1896, 1958, 2091, 2211, 2362</lines>
+        <reason>10 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/protect_event_handler.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>261, 1013, 1747, 3048</lines>
+        <reason>4 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/protect_service.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>712, 840</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/push_notification_service.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>691, 910</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/digest_scheduler.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>207, 463</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/ai_service.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>2613</lines>
+        <reason>1 instance of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/audio_extractor.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>354, 487</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/reprocessing_service.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>303, 324</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/delivery_service.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>100</lines>
+        <reason>1 instance of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/services/summary_service.py</path>
+        <kind>service</kind>
+        <symbol>Various methods</symbol>
+        <lines>485</lines>
+        <reason>1 instance of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/system.py</path>
+        <kind>route</kind>
+        <symbol>Various endpoints</symbol>
+        <lines>157, 194, 1680</lines>
+        <reason>3 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/api/v1/events.py</path>
+        <kind>route</kind>
+        <symbol>Various endpoints</symbol>
+        <lines>160</lines>
+        <reason>1 instance of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/middleware/auth_middleware.py</path>
+        <kind>middleware</kind>
+        <symbol>Various methods</symbol>
+        <lines>152, 237</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/app/middleware/last_seen.py</path>
+        <kind>middleware</kind>
+        <symbol>Various methods</symbol>
+        <lines>103</lines>
+        <reason>1 instance of db = SessionLocal() to refactor</reason>
+      </file>
+      <file>
+        <path>backend/main.py</path>
+        <kind>entrypoint</kind>
+        <symbol>startup handlers</symbol>
+        <lines>118, 177</lines>
+        <reason>2 instances of db = SessionLocal() to refactor</reason>
+      </file>
+    </code>
+    <dependencies>
+      <python>
+        <package name="sqlalchemy" version=">=2.0.36" />
+        <package name="pytest" version="7.4.3" />
+      </python>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint>Must maintain backward compatibility with existing get_db() dependency injection pattern</constraint>
+    <constraint>Context manager must work in both sync and async code paths</constraint>
+    <constraint>Do not modify test files - they use their own session handling</constraint>
+    <constraint>Must handle both commit and rollback scenarios correctly</constraint>
+    <constraint>Session must always be closed even if exception occurs</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface>
+      <name>get_db_session</name>
+      <kind>context manager</kind>
+      <signature>@contextmanager def get_db_session() -> Generator[Session, None, None]</signature>
+      <path>backend/app/core/database.py</path>
+    </interface>
+    <interface>
+      <name>get_db</name>
+      <kind>FastAPI dependency</kind>
+      <signature>def get_db() -> Generator[Session, None, None]</signature>
+      <path>backend/app/core/database.py</path>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>Backend uses pytest with fixtures. Tests are located in backend/tests/. Run tests with: cd backend && pytest tests/ -v. Coverage reports: pytest tests/ --cov=app --cov-report=html</standards>
+    <locations>
+      <location>backend/tests/test_api/</location>
+      <location>backend/tests/test_services/</location>
+      <location>backend/tests/test_integration/</location>
+    </locations>
+    <ideas>
+      <idea ac="1">test_get_db_session_creates_session - Verify context manager creates valid session</idea>
+      <idea ac="3">test_get_db_session_rollback_on_exception - Verify rollback occurs when exception raised inside context</idea>
+      <idea ac="4">test_get_db_session_closes_session - Verify session is closed after context exits</idea>
+      <idea ac="5">Run full test suite to verify no regressions</idea>
+      <idea ac="6">test_no_connection_leaks - Create sessions, force exceptions, verify cleanup</idea>
+    </ideas>
+  </tests>
+</story-context>

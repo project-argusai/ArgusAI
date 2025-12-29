@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core.database import SessionLocal
+from app.core.database import get_db_session
 from app.models.device import Device
 
 logger = logging.getLogger(__name__)
@@ -100,8 +100,7 @@ class LastSeenMiddleware(BaseHTTPMiddleware):
         Uses a separate database session for isolation.
         """
         try:
-            db = SessionLocal()
-            try:
+            with get_db_session() as db:
                 device = db.query(Device).filter(
                     Device.device_id == device_id,
                     Device.user_id == user_id
@@ -118,8 +117,6 @@ class LastSeenMiddleware(BaseHTTPMiddleware):
                             "user_id": user_id,
                         }
                     )
-            finally:
-                db.close()
 
         except Exception as e:
             # Don't let tracking failures affect the request

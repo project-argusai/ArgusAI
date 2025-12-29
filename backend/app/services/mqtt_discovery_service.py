@@ -63,6 +63,23 @@ class MQTTDiscoveryService:
         """
         self._mqtt_service = mqtt_service
         self._published_cameras: set = set()
+        self._main_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_main_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Store reference to main event loop for cross-thread scheduling.
+
+        Called during initialization to enable proper async scheduling from
+        MQTT callbacks which run in a separate thread.
+
+        Args:
+            loop: The main asyncio event loop (typically from FastAPI)
+        """
+        self._main_event_loop = loop
+        logger.debug(
+            "Main event loop stored for MQTT discovery service",
+            extra={"event_type": "mqtt_discovery_loop_set"}
+        )
 
     @property
     def mqtt_service(self) -> MQTTService:
@@ -711,22 +728,60 @@ class MQTTDiscoveryService:
 
         Called by MQTTService when connection is established.
         Triggers discovery publishing for all cameras.
+
+        Note: This callback runs in paho-mqtt's network thread, not the main
+        asyncio event loop. We use run_coroutine_threadsafe() to schedule
+        async work on the main loop safely.
+
+        Fixed in P14-1.1: Replaced asyncio.run() with run_coroutine_threadsafe()
+        to avoid RuntimeError when called from a thread with an existing event loop.
         """
         logger.info(
             "MQTT connected, publishing discovery configs",
             extra={"event_type": "mqtt_discovery_connect_trigger"}
         )
 
-        # Schedule async publish in event loop
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(self._publish_discovery_on_connect())
-            else:
+        # Schedule async publish - handle different execution contexts
+        if self._main_event_loop is not None and self._main_event_loop.is_running():
+            # Preferred path: Schedule on main event loop from MQTT callback thread
+            # This is thread-safe and won't conflict with the main event loop
+            future = asyncio.run_coroutine_threadsafe(
+                self._publish_discovery_on_connect(),
+                self._main_event_loop
+            )
+            # Log any errors from the future (non-blocking)
+            future.add_done_callback(self._handle_publish_future)
+            logger.debug(
+                "Scheduled discovery publish on main event loop",
+                extra={"event_type": "mqtt_discovery_scheduled_threadsafe"}
+            )
+        else:
+            # Fallback: No main loop available (rare case - sync context or test)
+            # Create a temporary event loop in this thread
+            logger.debug(
+                "No main event loop available, creating temporary loop",
+                extra={"event_type": "mqtt_discovery_temp_loop"}
+            )
+            loop = asyncio.new_event_loop()
+            try:
                 loop.run_until_complete(self._publish_discovery_on_connect())
-        except RuntimeError:
-            # No event loop, try to create one
-            asyncio.run(self._publish_discovery_on_connect())
+            except Exception as e:
+                logger.error(
+                    f"Error in discovery publish (temp loop): {e}",
+                    extra={"event_type": "mqtt_discovery_temp_loop_error", "error": str(e)}
+                )
+            finally:
+                loop.close()
+
+    def _handle_publish_future(self, future: asyncio.Future) -> None:
+        """Handle completion of threadsafe discovery publish."""
+        try:
+            future.result()  # Raises exception if the coroutine failed
+        except Exception as e:
+            logger.error(
+                f"Error in discovery publish future: {e}",
+                extra={"event_type": "mqtt_discovery_future_error", "error": str(e)}
+            )
 
     async def _publish_discovery_on_connect(self) -> None:
         """Internal async handler for on_connect callback."""
@@ -809,9 +864,24 @@ async def initialize_discovery_service() -> None:
     Initialize discovery service and register with MQTT service.
 
     Called during app startup after MQTT service is initialized.
+
+    Note: Must be called from async context (FastAPI lifespan) to capture
+    the running event loop for cross-thread scheduling.
     """
     discovery = get_discovery_service()
     mqtt = get_mqtt_service()
+
+    # Capture main event loop for cross-thread scheduling (P14-1.1 fix)
+    # This allows on_mqtt_connect callback (running in paho-mqtt's thread)
+    # to schedule async work on the main event loop safely
+    try:
+        main_loop = asyncio.get_running_loop()
+        discovery.set_main_event_loop(main_loop)
+    except RuntimeError:
+        logger.warning(
+            "Could not capture main event loop - MQTT reconnect may not work correctly",
+            extra={"event_type": "mqtt_discovery_no_loop"}
+        )
 
     # Register on_connect callback for discovery publishing (AC5)
     mqtt.set_on_connect_callback(discovery.on_mqtt_connect)

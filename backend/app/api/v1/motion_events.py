@@ -291,7 +291,7 @@ def get_motion_event(
         )
 
 
-@router.delete("/{event_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_motion_event(
     event_id: str,
     db: Session = Depends(get_db)
@@ -324,7 +324,8 @@ def delete_motion_event(
 
         logger.info(f"Deleted motion event {event_id}")
 
-        return {"deleted": True, "event_id": event_id}
+        # Story P14-2.4: Return 204 No Content (no body)
+        return None
 
     except HTTPException:
         raise

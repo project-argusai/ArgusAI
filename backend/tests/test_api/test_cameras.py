@@ -308,11 +308,11 @@ class TestCameraAPI:
         })
         camera_id = create_response.json()["id"]
 
-        # Delete camera
+        # Delete camera - Story P14-2.4: Returns 204 No Content
         response = client.delete(f"/api/v1/cameras/{camera_id}")
 
-        assert response.status_code == 200
-        assert response.json()["deleted"] is True
+        assert response.status_code == 204
+        assert response.text == ""  # 204 has no body
 
         # Verify deleted
         get_response = client.get(f"/api/v1/cameras/{camera_id}")

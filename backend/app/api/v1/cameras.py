@@ -504,7 +504,7 @@ async def update_camera(
         )
 
 
-@router.delete("/{camera_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_camera(
     camera_id: str,
     db: Session = Depends(get_db)
@@ -547,7 +547,8 @@ async def delete_camera(
 
         logger.info(f"Camera deleted: {camera_id} ({camera.name})")
 
-        return {"deleted": True, "camera_id": camera_id}
+        # Story P14-2.4: Return 204 No Content (no body)
+        return None
 
     except HTTPException:
         raise

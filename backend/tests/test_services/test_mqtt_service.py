@@ -24,6 +24,14 @@ from app.services.mqtt_service import (
 from app.models.mqtt_config import MQTTConfig
 
 
+@pytest.fixture(autouse=True)
+def reset_mqtt_singleton():
+    """Reset MQTTService singleton before each test."""
+    MQTTService._reset_instance()
+    yield
+    MQTTService._reset_instance()
+
+
 class TestMQTTServiceInit:
     """Tests for MQTT service initialization."""
 
@@ -39,9 +47,8 @@ class TestMQTTServiceInit:
 
     def test_get_mqtt_service_returns_singleton(self):
         """get_mqtt_service returns the same instance."""
-        # Clear singleton for test
-        import app.services.mqtt_service as mqtt_module
-        mqtt_module._mqtt_service = None
+        # Clear singleton for test using @singleton decorator reset
+        MQTTService._reset_instance()
 
         service1 = get_mqtt_service()
         service2 = get_mqtt_service()

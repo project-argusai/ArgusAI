@@ -14,6 +14,7 @@ Sampling Strategies (P8-2.4):
 - hybrid: Extract more candidates uniformly, then filter adaptively
 
 Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
+Migrated to @singleton: Story P14-5.3
 """
 import io
 import logging
@@ -24,6 +25,8 @@ import av
 import cv2
 import numpy as np
 from PIL import Image
+
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ FRAME_BLUR_THRESHOLD = 100  # Laplacian variance threshold for blur detection
 FRAME_EMPTY_STD_THRESHOLD = 10  # Std deviation threshold for empty/single-color frames
 
 
+@singleton
 class FrameExtractor:
     """
     Service for extracting frames from video clips.
@@ -1229,28 +1233,25 @@ class FrameExtractor:
             return ""
 
 
-# Singleton instance
-_frame_extractor: Optional[FrameExtractor] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_frame_extractor() -> FrameExtractor:
     """
     Get the singleton FrameExtractor instance.
 
-    Creates the instance on first call.
-
     Returns:
         FrameExtractor singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should use
+          FrameExtractor() directly, which returns the singleton instance.
     """
-    global _frame_extractor
-    if _frame_extractor is None:
-        _frame_extractor = FrameExtractor()
-    return _frame_extractor
+    return FrameExtractor()
 
 
 def reset_frame_extractor() -> None:
     """
     Reset the singleton instance (useful for testing).
+
+    Note: This is a backward-compatible wrapper. New code should use
+          FrameExtractor._reset_instance() directly.
     """
-    global _frame_extractor
-    _frame_extractor = None
+    FrameExtractor._reset_instance()

@@ -9,6 +9,7 @@ Provides functionality to:
 - Transcribe audio to text using OpenAI Whisper API (Story P3-5.2)
 
 Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
+Migrated to @singleton: Story P14-5.3
 """
 import asyncio
 from datetime import datetime, timezone
@@ -24,6 +25,8 @@ from typing import Optional, Tuple
 import av
 import numpy as np
 import openai
+
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,7 @@ WHISPER_COST_PER_MINUTE = 0.006  # $0.006 per minute
 WHISPER_TIMEOUT_SECONDS = 30  # Max timeout for transcription
 
 
+@singleton
 class AudioExtractor:
     """
     Service for extracting audio tracks from video clips and transcribing speech.
@@ -721,28 +725,25 @@ class AudioExtractor:
             return None
 
 
-# Singleton instance
-_audio_extractor: Optional[AudioExtractor] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_audio_extractor() -> AudioExtractor:
     """
     Get the singleton AudioExtractor instance.
 
-    Creates the instance on first call.
-
     Returns:
         AudioExtractor singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should use
+          AudioExtractor() directly, which returns the singleton instance.
     """
-    global _audio_extractor
-    if _audio_extractor is None:
-        _audio_extractor = AudioExtractor()
-    return _audio_extractor
+    return AudioExtractor()
 
 
 def reset_audio_extractor() -> None:
     """
     Reset the singleton instance (useful for testing).
+
+    Note: This is a backward-compatible wrapper. New code should use
+          AudioExtractor._reset_instance() directly.
     """
-    global _audio_extractor
-    _audio_extractor = None
+    AudioExtractor._reset_instance()

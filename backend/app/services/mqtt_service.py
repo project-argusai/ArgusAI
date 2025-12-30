@@ -13,6 +13,8 @@ Provides MQTT client management with:
 Uses paho-mqtt 2.0+ with CallbackAPIVersion.VERSION2.
 Connects using MQTT 5.0 protocol for message expiry support,
 with graceful fallback to MQTT 3.1.1 if broker doesn't support v5.
+
+Migrated to @singleton: Story P14-5.3
 """
 import asyncio
 import json
@@ -28,6 +30,7 @@ from paho.mqtt.properties import Properties
 from paho.mqtt.packettypes import PacketTypes
 
 from app.core.database import SessionLocal
+from app.core.decorators import singleton
 from app.models.mqtt_config import MQTTConfig
 from app.core.metrics import (
     update_mqtt_connection_status,
@@ -48,6 +51,7 @@ CONNECTION_TIMEOUT = 10.0
 KEEPALIVE_SECONDS = 60
 
 
+@singleton
 class MQTTService:
     """
     MQTT connection manager with auto-reconnect (Story P4-2.1).
@@ -1274,35 +1278,32 @@ class MQTTService:
         return success
 
 
-# Global singleton instance
-_mqtt_service: Optional[MQTTService] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_mqtt_service() -> MQTTService:
     """
     Get the global MQTT service instance.
 
     Returns:
         MQTTService singleton instance.
+
+    Note: This is a backward-compatible wrapper. New code should use
+          MQTTService() directly, which returns the singleton instance.
     """
-    global _mqtt_service
-    if _mqtt_service is None:
-        _mqtt_service = MQTTService()
-    return _mqtt_service
+    return MQTTService()
 
 
 async def initialize_mqtt_service() -> None:
     """Initialize MQTT service on app startup."""
-    service = get_mqtt_service()
+    service = MQTTService()
     await service.initialize()
 
 
 async def shutdown_mqtt_service() -> None:
     """Shutdown MQTT service on app shutdown."""
-    global _mqtt_service
-    if _mqtt_service:
-        await _mqtt_service.disconnect()
-        _mqtt_service = None
+    instance = MQTTService._get_instance()
+    if instance:
+        await instance.disconnect()
+        MQTTService._reset_instance()
 
 
 def serialize_event_for_mqtt(

@@ -10,12 +10,15 @@ temporal coverage (minimum 500ms spacing). This improves AI analysis quality
 by avoiding redundant frames while still capturing key moments.
 
 Architecture Reference: docs/sprint-artifacts/tech-spec-epic-P8-2.md
+Migrated to @singleton: Story P14-5.3
 """
 import logging
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import cv2
 import numpy as np
+
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,7 @@ SSIM_SIMILARITY_THRESHOLD = 0.95  # Detailed check for borderline cases
 MIN_TEMPORAL_SPACING_MS = 500.0  # Minimum spacing between selected frames
 
 
+@singleton
 class AdaptiveSampler:
     """
     Service for content-aware frame selection.
@@ -458,28 +462,25 @@ class AdaptiveSampler:
         return selected
 
 
-# Singleton instance
-_adaptive_sampler: Optional[AdaptiveSampler] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_adaptive_sampler() -> AdaptiveSampler:
     """
     Get the singleton AdaptiveSampler instance.
 
-    Creates the instance on first call.
-
     Returns:
         AdaptiveSampler singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should use
+          AdaptiveSampler() directly, which returns the singleton instance.
     """
-    global _adaptive_sampler
-    if _adaptive_sampler is None:
-        _adaptive_sampler = AdaptiveSampler()
-    return _adaptive_sampler
+    return AdaptiveSampler()
 
 
 def reset_adaptive_sampler() -> None:
     """
     Reset the singleton instance (useful for testing).
+
+    Note: This is a backward-compatible wrapper. New code should use
+          AdaptiveSampler._reset_instance() directly.
     """
-    global _adaptive_sampler
-    _adaptive_sampler = None
+    AdaptiveSampler._reset_instance()

@@ -904,7 +904,7 @@ development_status:
   epic-p14-5: in_progress  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-5.md
   p14-5-1-create-singleton-decorator: done
   p14-5-2-create-exponential-backoff-utility: done
-  p14-5-3-migrate-services-to-singleton-decorator: backlog  # Lower priority, incremental
+  p14-5-3-migrate-services-to-singleton-decorator: done  # PR #318 - 7 services migrated
   p14-5-4-migrate-services-to-backoff-utility: backlog  # Lower priority, incremental
   p14-5-5-fix-backref-vs-back-populates-inconsistency: done
   p14-5-6-add-check-constraints-on-float-columns: backlog  # Requires Alembic migration

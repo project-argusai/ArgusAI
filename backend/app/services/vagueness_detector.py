@@ -12,10 +12,13 @@ Usage:
     result = detector.is_vague("It appears to be something moving.")
     if result.is_vague:
         print(f"Vague: {result.reason}")
+
+Migrated to @singleton: Story P14-5.3
 """
 from dataclasses import dataclass
 from typing import Optional
 
+from app.core.decorators import singleton
 from app.services.description_quality import detect_vague_description
 
 
@@ -26,6 +29,7 @@ class VaguenessResult:
     reason: Optional[str]
 
 
+@singleton
 class VaguenessDetector:
     """
     Vagueness detector wrapper class.
@@ -48,13 +52,12 @@ class VaguenessDetector:
         return VaguenessResult(is_vague=is_vague, reason=reason)
 
 
-# Singleton instance for convenience
-_detector: Optional[VaguenessDetector] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_vagueness_detector() -> VaguenessDetector:
-    """Get or create the vagueness detector singleton."""
-    global _detector
-    if _detector is None:
-        _detector = VaguenessDetector()
-    return _detector
+    """
+    Get or create the vagueness detector singleton.
+
+    Note: This is a backward-compatible wrapper. New code should use
+          VaguenessDetector() directly, which returns the singleton instance.
+    """
+    return VaguenessDetector()

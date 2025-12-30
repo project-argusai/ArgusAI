@@ -26,6 +26,8 @@ Correlation Criteria (AC2):
 - Same or similar smart_detection_type (person→person, vehicle→vehicle)
 - Different cameras (exclude same camera)
 - Same controller (for stricter correlation, future enhancement)
+
+Migrated to @singleton: Story P14-5.3
 """
 
 import asyncio
@@ -41,6 +43,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
+from app.core.decorators import singleton
 
 if TYPE_CHECKING:
     from app.models.event import Event
@@ -68,6 +71,7 @@ class BufferedEvent:
     protect_controller_id: Optional[str] = None
 
 
+@singleton
 class CorrelationService:
     """
     Multi-camera event correlation service (Story P2-4.3).
@@ -506,28 +510,28 @@ class CorrelationService:
         return count
 
 
-# Global singleton instance
-_correlation_service: Optional[CorrelationService] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_correlation_service() -> CorrelationService:
     """
     Get the global CorrelationService singleton instance.
 
     Returns:
         CorrelationService instance
+
+    Note: This is a backward-compatible wrapper. New code should use
+          CorrelationService() directly, which returns the singleton instance.
     """
-    global _correlation_service
-    if _correlation_service is None:
-        _correlation_service = CorrelationService()
-    return _correlation_service
+    return CorrelationService()
 
 
 def reset_correlation_service() -> None:
     """
     Reset the correlation service singleton (for testing).
+
+    Note: This is a backward-compatible wrapper. New code should use
+          CorrelationService._reset_instance() directly.
     """
-    global _correlation_service
-    if _correlation_service is not None:
-        _correlation_service.clear_buffer()
-    _correlation_service = None
+    instance = CorrelationService._get_instance()
+    if instance is not None:
+        instance.clear_buffer()
+    CorrelationService._reset_instance()

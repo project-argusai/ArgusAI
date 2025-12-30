@@ -16,6 +16,8 @@ Vehicle Classes (COCO):
     - motorcycle (class 4)
     - bus (class 6)
     - truck (class 8)
+
+Migrated to @singleton: Story P14-5.3
 """
 import asyncio
 import base64
@@ -29,6 +31,8 @@ from typing import Optional
 import cv2
 import numpy as np
 from PIL import Image
+
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +101,7 @@ class VehicleDetection:
     vehicle_type: str  # "car", "truck", "bus", "motorcycle"
 
 
+@singleton
 class VehicleDetectionService:
     """
     Detect vehicles in images using OpenCV's DNN.
@@ -379,29 +384,18 @@ class VehicleDetectionService:
         return self._use_fallback
 
 
-# Global singleton instance
-_vehicle_detection_service: Optional[VehicleDetectionService] = None
-
-
+# Backward compatible getter (delegates to @singleton decorator)
 def get_vehicle_detection_service() -> VehicleDetectionService:
     """
     Get the global VehicleDetectionService instance.
 
-    Creates the instance on first call (lazy initialization).
-
     Returns:
         VehicleDetectionService singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should use
+          VehicleDetectionService() directly, which returns the singleton instance.
     """
-    global _vehicle_detection_service
-
-    if _vehicle_detection_service is None:
-        _vehicle_detection_service = VehicleDetectionService()
-        logger.info(
-            "Global VehicleDetectionService instance created",
-            extra={"event_type": "vehicle_detection_service_singleton_created"}
-        )
-
-    return _vehicle_detection_service
+    return VehicleDetectionService()
 
 
 def reset_vehicle_detection_service() -> None:
@@ -409,6 +403,8 @@ def reset_vehicle_detection_service() -> None:
     Reset the global VehicleDetectionService instance.
 
     Useful for testing to ensure a fresh instance.
+
+    Note: This is a backward-compatible wrapper. New code should use
+          VehicleDetectionService._reset_instance() directly.
     """
-    global _vehicle_detection_service
-    _vehicle_detection_service = None
+    VehicleDetectionService._reset_instance()

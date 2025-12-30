@@ -16,6 +16,14 @@ from app.services.adaptive_sampler import (
 )
 
 
+@pytest.fixture(autouse=True)
+def reset_sampler_singleton():
+    """Reset AdaptiveSampler singleton before each test."""
+    AdaptiveSampler._reset_instance()
+    yield
+    AdaptiveSampler._reset_instance()
+
+
 class TestAdaptiveSamplerInit:
     """Tests for AdaptiveSampler initialization."""
 

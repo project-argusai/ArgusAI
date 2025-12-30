@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import aiohttp
 from uiprotect import ProtectApiClient
 from uiprotect.exceptions import BadRequest, NotAuthorized, NvrError
+from uiprotect.websocket import WebsocketState
 
 from app.core.database import get_db_session
 from app.services.websocket_manager import get_websocket_manager
@@ -45,6 +46,15 @@ CAMERA_STATUS_DEBOUNCE_SECONDS = 5
 
 # Camera discovery cache TTL in seconds (Story P2-2.1 AC4)
 CAMERA_CACHE_TTL_SECONDS = 60
+
+# WebSocket receive timeout in seconds - triggers reconnect if no messages received
+WS_RECEIVE_TIMEOUT_SECONDS = 60
+
+# WebSocket connection timeout in seconds
+WS_CONNECTION_TIMEOUT_SECONDS = 30
+
+# Maximum time without any WebSocket message before forcing reconnect (seconds)
+WS_ACTIVITY_TIMEOUT_SECONDS = 300  # 5 minutes
 
 
 @dataclass
@@ -113,6 +123,12 @@ class ProtectService:
         self._camera_status_broadcast_times: Dict[str, datetime] = {}
         # Track last known camera status to detect changes: camera_id -> is_online (Story P2-2.4)
         self._last_camera_status: Dict[str, bool] = {}
+        # Track WebSocket state subscription unsubscribe callbacks: controller_id -> unsub_callback
+        self._ws_state_unsubs: Dict[str, Any] = {}
+        # Track last WebSocket message time for activity monitoring: controller_id -> datetime
+        self._last_ws_message_time: Dict[str, datetime] = {}
+        # Track WebSocket disconnection events for reconnection: controller_id -> bool
+        self._ws_disconnected: Dict[str, bool] = {}
 
     async def test_connection(
         self,
@@ -155,13 +171,15 @@ class ProtectService:
 
         client = None
         try:
-            # Create client with SSL verification setting
+            # Create client with SSL verification setting and WebSocket timeouts
             client = ProtectApiClient(
                 host=host,
                 port=port,
                 username=username,
                 password=password,
-                verify_ssl=verify_ssl
+                verify_ssl=verify_ssl,
+                ws_timeout=WS_CONNECTION_TIMEOUT_SECONDS,
+                ws_receive_timeout=WS_RECEIVE_TIMEOUT_SECONDS
             )
 
             # Attempt login and update with timeout
@@ -361,13 +379,15 @@ class ProtectService:
         )
 
         try:
-            # Create client with decrypted password
+            # Create client with decrypted password and WebSocket timeouts
             client = ProtectApiClient(
                 host=controller.host,
                 port=controller.port,
                 username=controller.username,
                 password=controller.get_decrypted_password(),
-                verify_ssl=controller.verify_ssl
+                verify_ssl=controller.verify_ssl,
+                ws_timeout=WS_CONNECTION_TIMEOUT_SECONDS,
+                ws_receive_timeout=WS_RECEIVE_TIMEOUT_SECONDS
             )
 
             # Connect with timeout
@@ -375,6 +395,10 @@ class ProtectService:
                 client.update(),
                 timeout=CONNECTION_TIMEOUT
             )
+
+            # Initialize WebSocket activity tracking
+            self._last_ws_message_time[controller_id] = datetime.now(timezone.utc)
+            self._ws_disconnected[controller_id] = False
 
             # Store the connected client (AC9)
             self._connections[controller_id] = client
@@ -495,6 +519,19 @@ class ProtectService:
             except Exception:
                 pass  # Ignore errors during cleanup
 
+        # Clean up WebSocket state subscription
+        if controller_id in self._ws_state_unsubs:
+            unsub = self._ws_state_unsubs.pop(controller_id)
+            if unsub:
+                try:
+                    unsub()
+                except Exception:
+                    pass
+
+        # Clean up tracking state
+        self._ws_disconnected.pop(controller_id, None)
+        self._last_ws_message_time.pop(controller_id, None)
+
         # Update database state (AC5)
         await self._update_controller_state(
             controller_id,
@@ -589,8 +626,36 @@ class ProtectService:
                     )
                     break
 
+                # Subscribe to WebSocket state changes to detect disconnection
+                def state_callback(state: WebsocketState):
+                    if state == WebsocketState.DISCONNECTED:
+                        logger.warning(
+                            "WebSocket state changed to DISCONNECTED",
+                            extra={
+                                "event_type": "protect_ws_state_disconnected",
+                                "controller_id": controller_id
+                            }
+                        )
+                        self._ws_disconnected[controller_id] = True
+                    elif state == WebsocketState.CONNECTED:
+                        logger.info(
+                            "WebSocket state changed to CONNECTED",
+                            extra={
+                                "event_type": "protect_ws_state_connected",
+                                "controller_id": controller_id
+                            }
+                        )
+                        self._ws_disconnected[controller_id] = False
+                        self._last_ws_message_time[controller_id] = datetime.now(timezone.utc)
+
+                state_unsub = client.subscribe_websocket_state(state_callback)
+                self._ws_state_unsubs[controller_id] = state_unsub
+
                 # Subscribe to WebSocket events (Story P2-2.4: camera status changes, Story P2-3.1: motion events)
                 def event_callback(msg):
+                    # Update last message time for activity tracking
+                    self._last_ws_message_time[controller_id] = datetime.now(timezone.utc)
+
                     # Handle camera status changes (Story P2-2.4 AC6)
                     asyncio.create_task(
                         self._handle_websocket_event(controller_id, msg)
@@ -612,10 +677,41 @@ class ProtectService:
                         if controller_id not in self._connections:
                             break
 
+                        # Check if WebSocket reported disconnection
+                        if self._ws_disconnected.get(controller_id, False):
+                            logger.warning(
+                                "WebSocket disconnection detected, triggering reconnect",
+                                extra={
+                                    "event_type": "protect_ws_disconnect_detected",
+                                    "controller_id": controller_id
+                                }
+                            )
+                            raise ConnectionError("WebSocket disconnected")
+
+                        # Check for activity timeout (no messages for too long)
+                        last_msg_time = self._last_ws_message_time.get(controller_id)
+                        if last_msg_time:
+                            idle_seconds = (datetime.now(timezone.utc) - last_msg_time).total_seconds()
+                            if idle_seconds > WS_ACTIVITY_TIMEOUT_SECONDS:
+                                logger.warning(
+                                    f"WebSocket idle for {idle_seconds:.0f}s, triggering reconnect",
+                                    extra={
+                                        "event_type": "protect_ws_activity_timeout",
+                                        "controller_id": controller_id,
+                                        "idle_seconds": idle_seconds
+                                    }
+                                )
+                                raise ConnectionError("WebSocket activity timeout")
+
                 finally:
                     # Unsubscribe from events
                     if unsub:
                         unsub()
+                    # Unsubscribe from state changes
+                    if controller_id in self._ws_state_unsubs:
+                        state_unsub = self._ws_state_unsubs.pop(controller_id)
+                        if state_unsub:
+                            state_unsub()
 
             except asyncio.CancelledError:
                 logger.info(
@@ -630,11 +726,12 @@ class ProtectService:
             except Exception as e:
                 # Connection lost - attempt reconnect with backoff (AC3, AC4)
                 logger.warning(
-                    "WebSocket connection lost, will reconnect",
+                    f"WebSocket connection lost: {e}, will reconnect",
                     extra={
                         "event_type": "protect_listener_error",
                         "controller_id": controller_id,
-                        "error_type": type(e).__name__
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
                     }
                 )
 
@@ -653,6 +750,10 @@ class ProtectService:
                         await old_client.close_session()
                     except Exception:
                         pass
+
+                # Clean up tracking state
+                self._ws_disconnected.pop(controller_id, None)
+                self._last_ws_message_time.pop(controller_id, None)
 
                 # Attempt reconnect with exponential backoff
                 if not self._shutdown_event.is_set():
@@ -722,13 +823,15 @@ class ProtectService:
                         )
                         break
 
-                # Create new client
+                # Create new client with WebSocket timeouts
                 client = ProtectApiClient(
                     host=fresh_controller.host,
                     port=fresh_controller.port,
                     username=fresh_controller.username,
                     password=fresh_controller.get_decrypted_password(),
-                    verify_ssl=fresh_controller.verify_ssl
+                    verify_ssl=fresh_controller.verify_ssl,
+                    ws_timeout=WS_CONNECTION_TIMEOUT_SECONDS,
+                    ws_receive_timeout=WS_RECEIVE_TIMEOUT_SECONDS
                 )
 
                 # Connect with timeout
@@ -736,6 +839,10 @@ class ProtectService:
                     client.update(),
                     timeout=CONNECTION_TIMEOUT
                 )
+
+                # Reset WebSocket activity tracking
+                self._last_ws_message_time[controller_id] = datetime.now(timezone.utc)
+                self._ws_disconnected[controller_id] = False
 
                 # Success - store client and update state
                 self._connections[controller_id] = client

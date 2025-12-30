@@ -166,15 +166,15 @@ class TestFCMPayload:
         assert payload.priority == "high"  # Default
         assert payload.data == {}  # Default empty
 
-    def test_priority_validation_valid(self):
+    @pytest.mark.parametrize("priority", ["high", "normal"])
+    def test_priority_validation_valid(self, priority):
         """Test valid priority values."""
-        for priority in ["high", "normal"]:
-            payload = FCMPayload(
-                title="Test",
-                body="Body",
-                priority=priority,
-            )
-            assert payload.priority == priority
+        payload = FCMPayload(
+            title="Test",
+            body="Body",
+            priority=priority,
+        )
+        assert payload.priority == priority
 
     def test_priority_validation_invalid(self):
         """Test invalid priority value."""
@@ -185,25 +185,25 @@ class TestFCMPayload:
                 priority="low",  # Invalid
             )
 
-    def test_color_validation_valid(self):
+    @pytest.mark.parametrize("color", ["#FFF", "#FFFFFF", "#abc", "#aabbcc"])
+    def test_color_validation_valid(self, color):
         """Test valid color formats."""
-        for color in ["#FFF", "#FFFFFF", "#abc", "#aabbcc"]:
-            payload = FCMPayload(
+        payload = FCMPayload(
+            title="Test",
+            body="Body",
+            color=color,
+        )
+        assert payload.color == color
+
+    @pytest.mark.parametrize("invalid_color", ["FFF", "FFFFFF", "#FFFFFFF", "#FF"])
+    def test_color_validation_invalid(self, invalid_color):
+        """Test invalid color formats."""
+        with pytest.raises(ValueError):
+            FCMPayload(
                 title="Test",
                 body="Body",
-                color=color,
+                color=invalid_color,
             )
-            assert payload.color == color
-
-    def test_color_validation_invalid(self):
-        """Test invalid color formats."""
-        for invalid_color in ["FFF", "FFFFFF", "#FFFFFFF", "#FF"]:
-            with pytest.raises(ValueError):
-                FCMPayload(
-                    title="Test",
-                    body="Body",
-                    color=invalid_color,
-                )
 
     def test_data_payload(self):
         """Test data payload for background processing."""
@@ -632,27 +632,24 @@ class TestFormatEventForFcm:
         assert len(payload.body) == 100
         assert payload.body.endswith("...")
 
-    def test_detection_type_labels(self):
+    @pytest.mark.parametrize("detection_type,expected_label", [
+        ("person", "Person Detected"),
+        ("vehicle", "Vehicle Detected"),
+        ("package", "Package Detected"),
+        ("animal", "Animal Detected"),
+        ("ring", "Doorbell Ring"),
+        ("motion", "Motion Detected"),
+    ])
+    def test_detection_type_labels(self, detection_type, expected_label):
         """Test various detection types."""
-        detection_types = {
-            "person": "Person Detected",
-            "vehicle": "Vehicle Detected",
-            "package": "Package Detected",
-            "animal": "Animal Detected",
-            "ring": "Doorbell Ring",
-            "motion": "Motion Detected",
-        }
-
-        for detection_type, expected_label in detection_types.items():
-            payload = format_event_for_fcm(
-                event_id="evt-123",
-                camera_id="cam-456",
-                camera_name="Front Door",
-                description="Detection",
-                smart_detection_type=detection_type,
-            )
-
-            assert expected_label in payload.title
+        payload = format_event_for_fcm(
+            event_id="evt-123",
+            camera_id="cam-456",
+            camera_name="Front Door",
+            description="Detection",
+            smart_detection_type=detection_type,
+        )
+        assert expected_label in payload.title
 
     def test_data_payload_values_are_strings(self):
         """Test all data payload values are strings (FCM requirement)."""

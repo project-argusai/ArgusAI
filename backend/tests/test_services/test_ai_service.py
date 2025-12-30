@@ -162,23 +162,20 @@ class TestOpenAIProvider:
         assert result.error is not None
         assert "Rate limit" in result.error or "Exception" in result.error
 
-    def test_object_extraction(self):
+    @pytest.mark.parametrize("description,expected_objects", [
+        ("A person wearing a red shirt", ['person']),
+        ("A delivery truck is parked outside", ['vehicle']),
+        ("A package was left at the door", ['package']),
+        ("A dog is running in the yard", ['animal']),
+        ("A person with a package near a parked car", ['person', 'vehicle', 'package']),
+        ("Empty parking lot", ['unknown']),
+    ])
+    def test_object_extraction(self, description, expected_objects):
         """Test extracting object types from descriptions"""
         provider = OpenAIProvider("sk-test-key")
-
-        test_cases = [
-            ("A person wearing a red shirt", ['person']),
-            ("A delivery truck is parked outside", ['vehicle']),
-            ("A package was left at the door", ['package']),
-            ("A dog is running in the yard", ['animal']),
-            ("A person with a package near a parked car", ['person', 'vehicle', 'package']),
-            ("Empty parking lot", ['unknown']),
-        ]
-
-        for description, expected_objects in test_cases:
-            objects = provider._extract_objects(description)
-            for expected in expected_objects:
-                assert expected in objects, f"Expected {expected} in {objects} for '{description}'"
+        objects = provider._extract_objects(description)
+        for expected in expected_objects:
+            assert expected in objects, f"Expected {expected} in {objects} for '{description}'"
 
 
 class TestClaudeProvider:
@@ -311,22 +308,19 @@ class TestGrokProvider:
         provider = GrokProvider("xai-test-key")
         assert provider.model == "grok-2-vision-1212"
 
-    def test_object_extraction(self):
+    @pytest.mark.parametrize("description,expected_objects", [
+        ("A person is standing at the door", ['person']),
+        ("A car pulls into the driveway", ['vehicle']),
+        ("A package has been delivered", ['package']),
+        ("A cat is sitting on the porch", ['animal']),
+        ("Empty scene with nothing notable", ['unknown']),
+    ])
+    def test_object_extraction(self, description, expected_objects):
         """Test extracting object types from Grok descriptions"""
         provider = GrokProvider("xai-test-key")
-
-        test_cases = [
-            ("A person is standing at the door", ['person']),
-            ("A car pulls into the driveway", ['vehicle']),
-            ("A package has been delivered", ['package']),
-            ("A cat is sitting on the porch", ['animal']),
-            ("Empty scene with nothing notable", ['unknown']),
-        ]
-
-        for description, expected_objects in test_cases:
-            objects = provider._extract_objects(description)
-            for expected in expected_objects:
-                assert expected in objects, f"Expected {expected} in {objects} for '{description}'"
+        objects = provider._extract_objects(description)
+        for expected in expected_objects:
+            assert expected in objects, f"Expected {expected} in {objects} for '{description}'"
 
 
 class TestGrokRetryLogic:
@@ -1414,27 +1408,40 @@ class TestMultiImagePromptBuilder:
 
     def test_build_multi_image_prompt_works_all_providers(self):
         """Test prompt works with all 4 providers"""
-        providers = [
-            OpenAIProvider("sk-test-key"),
-            GrokProvider("xai-test-key"),
-            ClaudeProvider("sk-ant-test-key"),
-            GeminiProvider("test-key"),
-        ]
+        # Test with one provider as representative, others tested via parametrized test
+        provider = OpenAIProvider("sk-test-key")
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Test Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=["person"],
+            num_images=3
+        )
+        assert "chronological order" in prompt.lower()
+        assert "3 frames" in prompt
+        assert '"Test Camera" camera' in prompt
+        assert "10:00 AM" in prompt
 
-        for provider in providers:
-            prompt = provider._build_multi_image_prompt(
-                camera_name="Test Camera",
-                timestamp="2025-12-06T10:00:00",
-                detected_objects=["person"],
-                num_images=3
-            )
-
-            # All providers should include temporal context
-            assert "chronological order" in prompt.lower()
-            assert "3 frames" in prompt
-            # P9-3.1: Updated context format
-            assert '"Test Camera" camera' in prompt
-            assert "10:00 AM" in prompt  # Human-readable time format
+    @pytest.mark.parametrize("provider_class,api_key", [
+        (OpenAIProvider, "sk-test-key"),
+        (GrokProvider, "xai-test-key"),
+        (ClaudeProvider, "sk-ant-test-key"),
+        (GeminiProvider, "test-key"),
+    ])
+    def test_multi_image_prompt_all_providers(self, provider_class, api_key):
+        """Test multi-image prompt works with each provider"""
+        provider = provider_class(api_key)
+        prompt = provider._build_multi_image_prompt(
+            camera_name="Test Camera",
+            timestamp="2025-12-06T10:00:00",
+            detected_objects=["person"],
+            num_images=3
+        )
+        # All providers should include temporal context
+        assert "chronological order" in prompt.lower()
+        assert "3 frames" in prompt
+        # P9-3.1: Updated context format
+        assert '"Test Camera" camera' in prompt
+        assert "10:00 AM" in prompt  # Human-readable time format
 
 
 class TestOpenAIMultiImageProvider:
@@ -2299,14 +2306,17 @@ class TestAIServiceCapabilityMethods:
         # Should have all four providers
         assert set(all_caps.keys()) == {"openai", "grok", "claude", "gemini"}
 
-        # Each should have configured flag
-        for provider, caps in all_caps.items():
-            assert "configured" in caps
-            assert "video" in caps
-            assert "max_video_duration" in caps
-            assert "max_video_size_mb" in caps
-            assert "supported_formats" in caps
-            assert "max_images" in caps
+    @pytest.mark.parametrize("provider", ["openai", "grok", "claude", "gemini"])
+    def test_get_all_capabilities_provider_structure(self, ai_service_instance, provider):
+        """Test each provider has required capability fields"""
+        all_caps = ai_service_instance.get_all_capabilities()
+        caps = all_caps[provider]
+        assert "configured" in caps
+        assert "video" in caps
+        assert "max_video_duration" in caps
+        assert "max_video_size_mb" in caps
+        assert "supported_formats" in caps
+        assert "max_images" in caps
 
     def test_get_all_capabilities_configured_flags(self, ai_service_instance):
         """Test get_all_capabilities shows correct configured status"""

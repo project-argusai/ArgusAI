@@ -42,20 +42,20 @@ class TestMQTTPayloadSchemas:
         assert data["source_type"] == "rtsp"
         assert "last_updated" in data
 
-    def test_camera_status_payload_valid_statuses(self):
+    @pytest.mark.parametrize("status", ["online", "offline", "unavailable"])
+    def test_camera_status_payload_valid_statuses(self, status):
         """Test only valid status values are accepted."""
-        # Valid statuses
-        for status in ["online", "offline", "unavailable"]:
-            payload = CameraStatusPayload(
-                camera_id="test",
-                camera_name="Test",
-                status=status,
-                source_type="rtsp",
-                last_updated=datetime.now(timezone.utc)
-            )
-            assert payload.status == status
+        payload = CameraStatusPayload(
+            camera_id="test",
+            camera_name="Test",
+            status=status,
+            source_type="rtsp",
+            last_updated=datetime.now(timezone.utc)
+        )
+        assert payload.status == status
 
-        # Invalid status should raise validation error
+    def test_camera_status_payload_invalid_status_raises_error(self):
+        """Test invalid status value raises validation error."""
         with pytest.raises(ValueError):
             CameraStatusPayload(
                 camera_id="test",
@@ -107,14 +107,14 @@ class TestMQTTPayloadSchemas:
         assert data["state"] == "ON"
         assert data["last_event_at"] is not None
 
-    def test_camera_activity_payload_valid_states(self):
+    @pytest.mark.parametrize("state", ["ON", "OFF"])
+    def test_camera_activity_payload_valid_states(self, state):
         """Test only valid state values are accepted."""
-        for state in ["ON", "OFF"]:
-            payload = CameraActivityPayload(
-                camera_id="test",
-                state=state
-            )
-            assert payload.state == state
+        payload = CameraActivityPayload(
+            camera_id="test",
+            state=state
+        )
+        assert payload.state == state
 
     def test_last_event_payload_serialization(self):
         """Test LastEventPayload JSON serialization."""

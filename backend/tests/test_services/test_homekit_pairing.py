@@ -26,66 +26,61 @@ from app.core.logging_config import SanitizingFilter
 class TestPINCodeValidation:
     """Tests for PIN code validation (Story P5-1.2 AC1)."""
 
-    def test_is_valid_pincode_accepts_valid_format(self):
+    @pytest.mark.parametrize("code", [
+        "031-45-154",
+        "789-12-345",
+        "000-11-222",  # All-same in one segment is OK
+        "999-88-777",
+    ])
+    def test_is_valid_pincode_accepts_valid_format(self, code):
         """AC1: Valid PIN codes in XXX-XX-XXX format are accepted."""
-        valid_codes = [
-            "031-45-154",
-            "789-12-345",
-            "000-11-222",  # All-same in one segment is OK
-            "999-88-777",
-        ]
-        for code in valid_codes:
-            assert is_valid_pincode(code), f"Should accept {code}"
+        assert is_valid_pincode(code), f"Should accept {code}"
 
-    def test_is_valid_pincode_rejects_all_same_digits(self):
+    @pytest.mark.parametrize("code", [
+        "000-00-000",
+        "111-11-111",
+        "222-22-222",
+        "333-33-333",
+        "444-44-444",
+        "555-55-555",
+        "666-66-666",
+        "777-77-777",
+        "888-88-888",
+        "999-99-999",
+    ])
+    def test_is_valid_pincode_rejects_all_same_digits(self, code):
         """AC1: PIN codes with all-same digits are rejected."""
-        all_same_codes = [
-            "000-00-000",
-            "111-11-111",
-            "222-22-222",
-            "333-33-333",
-            "444-44-444",
-            "555-55-555",
-            "666-66-666",
-            "777-77-777",
-            "888-88-888",
-            "999-99-999",
-        ]
-        for code in all_same_codes:
-            assert not is_valid_pincode(code), f"Should reject all-same digits: {code}"
+        assert not is_valid_pincode(code), f"Should reject all-same digits: {code}"
 
-    def test_is_valid_pincode_rejects_sequential(self):
+    @pytest.mark.parametrize("code", [
+        "123-45-678",
+        "012-34-567",
+        "234-56-789",
+    ])
+    def test_is_valid_pincode_rejects_sequential(self, code):
         """AC1: Sequential PIN codes are rejected."""
-        sequential_codes = [
-            "123-45-678",
-            "012-34-567",
-            "234-56-789",
-        ]
-        for code in sequential_codes:
-            assert not is_valid_pincode(code), f"Should reject sequential: {code}"
+        assert not is_valid_pincode(code), f"Should reject sequential: {code}"
 
-    def test_is_valid_pincode_rejects_common_patterns(self):
+    @pytest.mark.parametrize("code", [
+        "121-21-212",
+        "123-12-312",
+    ])
+    def test_is_valid_pincode_rejects_common_patterns(self, code):
         """AC1: Common/predictable patterns are rejected."""
-        common_patterns = [
-            "121-21-212",
-            "123-12-312",
-        ]
-        for code in common_patterns:
-            assert not is_valid_pincode(code), f"Should reject common pattern: {code}"
+        assert not is_valid_pincode(code), f"Should reject common pattern: {code}"
 
-    def test_is_valid_pincode_rejects_invalid_format(self):
+    @pytest.mark.parametrize("code", [
+        "12345678",       # No dashes
+        "123-456-78",     # Wrong segment lengths
+        "1234-5-678",     # Wrong segment lengths
+        "123-45-67",      # Too short
+        "123-45-6789",    # Too long
+        "abc-12-345",     # Non-numeric
+        "123-ab-345",     # Non-numeric middle
+    ])
+    def test_is_valid_pincode_rejects_invalid_format(self, code):
         """AC1: Invalid format PIN codes are rejected."""
-        invalid_formats = [
-            "12345678",       # No dashes
-            "123-456-78",     # Wrong segment lengths
-            "1234-5-678",     # Wrong segment lengths
-            "123-45-67",      # Too short
-            "123-45-6789",    # Too long
-            "abc-12-345",     # Non-numeric
-            "123-ab-345",     # Non-numeric middle
-        ]
-        for code in invalid_formats:
-            assert not is_valid_pincode(code), f"Should reject invalid format: {code}"
+        assert not is_valid_pincode(code), f"Should reject invalid format: {code}"
 
 
 class TestGeneratePINCode:
@@ -151,19 +146,18 @@ class TestSetupURIGeneration:
         uri = generate_setup_uri("031-45-154", setup_id, category=2)
         assert uri.endswith(setup_id), f"URI should end with {setup_id}, got: {uri}"
 
-    def test_generate_setup_uri_roundtrip(self):
+    @pytest.mark.parametrize("setup_code,setup_id,category", [
+        ("031-45-154", "ABCD", 2),
+        ("789-12-345", "XY9Z", 2),
+        ("000-11-222", "1234", 2),
+    ])
+    def test_generate_setup_uri_roundtrip(self, setup_code, setup_id, category):
         """AC2: Setup URI can be parsed back to original values."""
-        test_cases = [
-            ("031-45-154", "ABCD", 2),
-            ("789-12-345", "XY9Z", 2),
-            ("000-11-222", "1234", 2),
-        ]
-        for setup_code, setup_id, category in test_cases:
-            uri = generate_setup_uri(setup_code, setup_id, category)
-            parsed = parse_setup_uri(uri)
-            assert parsed["setup_code"] == setup_code, f"Setup code mismatch for {uri}"
-            assert parsed["setup_id"] == setup_id, f"Setup ID mismatch for {uri}"
-            assert parsed["category"] == category, f"Category mismatch for {uri}"
+        uri = generate_setup_uri(setup_code, setup_id, category)
+        parsed = parse_setup_uri(uri)
+        assert parsed["setup_code"] == setup_code, f"Setup code mismatch for {uri}"
+        assert parsed["setup_id"] == setup_id, f"Setup ID mismatch for {uri}"
+        assert parsed["category"] == category, f"Category mismatch for {uri}"
 
     def test_generate_setup_uri_invalid_setup_code_format(self):
         """AC2: Invalid setup_code format raises ValueError."""

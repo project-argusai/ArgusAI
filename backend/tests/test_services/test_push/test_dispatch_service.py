@@ -572,40 +572,38 @@ class TestDispatchEvent:
             assert notification.body.endswith("...")
 
     @pytest.mark.asyncio
-    async def test_dispatch_event_detection_type_labels(self, mock_db):
+    @pytest.mark.parametrize("detection_type,expected_title", [
+        ("person", "Front Door: Person Detected"),
+        ("vehicle", "Front Door: Vehicle Detected"),
+        ("package", "Front Door: Package Detected"),
+        ("animal", "Front Door: Animal Detected"),
+        ("ring", "Front Door: Doorbell Ring"),
+        ("motion", "Front Door: Motion Detected"),
+        ("unknown", "Front Door: Motion Detected"),
+        (None, "Front Door: Motion Detected"),
+    ])
+    async def test_dispatch_event_detection_type_labels(self, mock_db, detection_type, expected_title):
         """Test detection type labels are applied correctly."""
         service = PushDispatchService(db=mock_db)
 
-        test_cases = [
-            ("person", "Front Door: Person Detected"),
-            ("vehicle", "Front Door: Vehicle Detected"),
-            ("package", "Front Door: Package Detected"),
-            ("animal", "Front Door: Animal Detected"),
-            ("ring", "Front Door: Doorbell Ring"),
-            ("motion", "Front Door: Motion Detected"),
-            ("unknown", "Front Door: Motion Detected"),
-            (None, "Front Door: Motion Detected"),
-        ]
+        with patch.object(
+            service, "dispatch", new_callable=AsyncMock
+        ) as mock_dispatch:
+            mock_dispatch.return_value = DispatchResult(user_id="user-123")
 
-        for detection_type, expected_title in test_cases:
-            with patch.object(
-                service, "dispatch", new_callable=AsyncMock
-            ) as mock_dispatch:
-                mock_dispatch.return_value = DispatchResult(user_id="user-123")
+            await service.dispatch_event(
+                user_id="user-123",
+                event_id="evt-456",
+                camera_id="cam-789",
+                camera_name="Front Door",
+                description="Event",
+                smart_detection_type=detection_type,
+            )
 
-                await service.dispatch_event(
-                    user_id="user-123",
-                    event_id="evt-456",
-                    camera_id="cam-789",
-                    camera_name="Front Door",
-                    description="Event",
-                    smart_detection_type=detection_type,
-                )
-
-                notification = mock_dispatch.call_args.kwargs["notification"]
-                assert notification.title == expected_title, (
-                    f"Expected '{expected_title}' for detection_type='{detection_type}'"
-                )
+            notification = mock_dispatch.call_args.kwargs["notification"]
+            assert notification.title == expected_title, (
+                f"Expected '{expected_title}' for detection_type='{detection_type}'"
+            )
 
 
 # =============================================================================

@@ -92,24 +92,20 @@ class TestTunnelServiceTokenValidation:
         service = TunnelService()
         assert service._validate_token("abc123") is False
 
-    def test_validate_token_with_shell_chars(self):
+    @pytest.mark.parametrize("token", [
+        "abc;rm -rf /",
+        "token|cat /etc/passwd",
+        "token`whoami`",
+        "token$(id)",
+        "token && echo pwned",
+        "token' OR '1'='1",
+        'token" OR "1"="1',
+        "token\necho pwned",
+    ])
+    def test_validate_token_with_shell_chars(self, token):
         """Test validation fails for token with shell metacharacters."""
         service = TunnelService()
-
-        # Test various dangerous characters
-        dangerous_tokens = [
-            "abc;rm -rf /",
-            "token|cat /etc/passwd",
-            "token`whoami`",
-            "token$(id)",
-            "token && echo pwned",
-            "token' OR '1'='1",
-            'token" OR "1"="1',
-            "token\necho pwned",
-        ]
-
-        for token in dangerous_tokens:
-            assert service._validate_token(token) is False, f"Should reject: {token}"
+        assert service._validate_token(token) is False, f"Should reject: {token}"
 
     def test_validate_valid_token(self):
         """Test validation passes for valid token."""

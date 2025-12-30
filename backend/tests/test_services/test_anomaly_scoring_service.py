@@ -282,19 +282,30 @@ class TestWeightedCombination:
     @pytest.mark.asyncio
     async def test_score_bounded(self, anomaly_service, sample_patterns):
         """Scores should always be between 0.0 and 1.0."""
-        # Test various edge cases
-        test_cases = [
-            (datetime(2024, 1, 15, 3, 0, tzinfo=timezone.utc), ["bear", "wolf", "lion"]),  # Max anomaly
-            (datetime(2024, 1, 12, 8, 0, tzinfo=timezone.utc), ["person"]),  # Min anomaly
-            (datetime(2024, 1, 14, 3, 0, tzinfo=timezone.utc), []),  # Mixed
-        ]
-        for timestamp, objects in test_cases:
-            result = await anomaly_service.calculate_anomaly_score(
-                patterns=sample_patterns,
-                event_timestamp=timestamp,
-                objects_detected=objects,
-            )
-            assert 0.0 <= result.total <= 1.0, f"Score {result.total} out of bounds"
+        # Test edge case that combines multiple factors
+        result = await anomaly_service.calculate_anomaly_score(
+            patterns=sample_patterns,
+            event_timestamp=datetime(2024, 1, 15, 3, 0, tzinfo=timezone.utc),
+            objects_detected=["bear", "wolf", "lion"],
+        )
+        assert 0.0 <= result.total <= 1.0, f"Score {result.total} out of bounds"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("timestamp,objects", [
+        (datetime(2024, 1, 15, 3, 0, tzinfo=timezone.utc), ["bear", "wolf", "lion"]),  # Max anomaly
+        (datetime(2024, 1, 12, 8, 0, tzinfo=timezone.utc), ["person"]),  # Min anomaly
+        (datetime(2024, 1, 14, 3, 0, tzinfo=timezone.utc), []),  # Mixed
+        (datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc), ["vehicle"]),  # Midday
+        (datetime(2024, 1, 12, 0, 0, tzinfo=timezone.utc), ["dog", "cat"]),  # Midnight
+    ])
+    async def test_score_edge_cases(self, anomaly_service, sample_patterns, timestamp, objects):
+        """Test various edge cases produce valid scores."""
+        result = await anomaly_service.calculate_anomaly_score(
+            patterns=sample_patterns,
+            event_timestamp=timestamp,
+            objects_detected=objects,
+        )
+        assert 0.0 <= result.total <= 1.0, f"Score {result.total} out of bounds for {objects}"
 
 
 class TestEventScoring:

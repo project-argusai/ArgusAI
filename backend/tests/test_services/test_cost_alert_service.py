@@ -413,13 +413,15 @@ class TestCostAlertService:
     # Alert Key Configuration Tests
     # =========================================================================
 
-    def test_alert_keys_configured_correctly(self):
+    @pytest.mark.parametrize("key", [
+        "daily_50",
+        "daily_80",
+        "daily_100",
+        "monthly_50",
+        "monthly_80",
+        "monthly_100",
+    ])
+    def test_alert_keys_configured_correctly(self, key):
         """Test ALERT_KEYS has all required keys."""
-        expected_keys = [
-            "daily_50", "daily_80", "daily_100",
-            "monthly_50", "monthly_80", "monthly_100"
-        ]
-
-        for key in expected_keys:
-            assert key in ALERT_KEYS
-            assert ALERT_KEYS[key].startswith("cost_alert_")
+        assert key in ALERT_KEYS
+        assert ALERT_KEYS[key].startswith("cost_alert_")

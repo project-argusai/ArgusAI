@@ -57,21 +57,18 @@ class TestVaguePhraseDetection:
             is_vague, reason = detect_vague_description(phrase)
             assert is_vague is True, f"Failed to detect vague phrase in: {phrase}"
 
-    def test_motion_detected_with_subject_not_vague(self):
+    @pytest.mark.parametrize("desc", [
+        "Motion detected: person walking toward the house with package in hand",
+        "Motion detected. A vehicle appears in the driveway area with headlights on.",
+        "Motion detected with delivery driver placing package at door",
+        "Motion detected - animal crossing the yard looks like a cat",
+    ])
+    def test_motion_detected_with_subject_not_vague(self, desc):
         """AC1: 'motion detected' followed by specific subject should NOT be vague"""
-        # These should NOT be flagged as vague (have specific subjects)
-        specific_descriptions = [
-            "Motion detected: person walking toward the house with package in hand",
-            "Motion detected. A vehicle appears in the driveway area with headlights on.",
-            "Motion detected with delivery driver placing package at door",
-            "Motion detected - animal crossing the yard looks like a cat",
-        ]
-        for desc in specific_descriptions:
-            is_vague, reason = detect_vague_description(desc)
-            # Should pass (reason may be set due to word count or other vague phrases)
-            # The key test is that "motion detected" alone doesn't trigger vagueness
-            if reason and "motion detected" in reason.lower():
-                pytest.fail(f"'motion detected' should not trigger when followed by subject: {desc}")
+        is_vague, reason = detect_vague_description(desc)
+        # The key test is that "motion detected" alone doesn't trigger vagueness
+        if reason and "motion detected" in reason.lower():
+            pytest.fail(f"'motion detected' should not trigger when followed by subject: {desc}")
 
 
 class TestShortDescriptionDetection:
@@ -83,22 +80,21 @@ class TestShortDescriptionDetection:
         assert is_vague is True
         assert "empty" in reason.lower()
 
-    def test_very_short_description(self):
+    @pytest.mark.parametrize("desc", [
+        "Motion happened here.",
+        "Person walking today.",
+        "A person moved.",
+        "Activity in yard now.",
+        "Motion at door area.",
+        "Three words here only.",
+        "Five total words here now.",
+    ])
+    def test_very_short_description(self, desc):
         """Descriptions under minimum word count should be flagged"""
-        short_descriptions = [
-            "Motion happened here.",
-            "Person walking today.",
-            "A person moved.",
-            "Activity in yard now.",
-            "Motion at door area.",
-            "Three words here only.",
-            "Five total words here now.",
-        ]
-        for desc in short_descriptions:
-            is_vague, reason = detect_vague_description(desc)
-            assert is_vague is True, f"Short description should be flagged: {desc}"
-            # Reason should mention "short" or "words" or "generic" (if it matches generic pattern)
-            assert "short" in reason.lower() or "words" in reason.lower() or "generic" in reason.lower(), f"Unexpected reason: {reason}"
+        is_vague, reason = detect_vague_description(desc)
+        assert is_vague is True, f"Short description should be flagged: {desc}"
+        # Reason should mention "short" or "words" or "generic" (if it matches generic pattern)
+        assert "short" in reason.lower() or "words" in reason.lower() or "generic" in reason.lower(), f"Unexpected reason: {reason}"
 
     def test_exact_minimum_word_count(self):
         """Description with exactly MIN_WORD_COUNT words should NOT be flagged for length"""

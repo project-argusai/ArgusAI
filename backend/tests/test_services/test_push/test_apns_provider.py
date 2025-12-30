@@ -200,17 +200,17 @@ class TestAPNSPayload:
 
         assert result["aps"]["content-available"] == 1
 
-    def test_interruption_level_validation(self):
-        """Test interruption level validation."""
-        # Valid values
-        for level in ["passive", "active", "time-sensitive", "critical"]:
-            payload = APNSPayload(
-                alert=APNSAlert(title="Test", body="Body"),
-                interruption_level=level,
-            )
-            assert payload.interruption_level == level
+    @pytest.mark.parametrize("level", ["passive", "active", "time-sensitive", "critical"])
+    def test_interruption_level_validation_valid(self, level):
+        """Test valid interruption level values."""
+        payload = APNSPayload(
+            alert=APNSAlert(title="Test", body="Body"),
+            interruption_level=level,
+        )
+        assert payload.interruption_level == level
 
-        # Invalid value
+    def test_interruption_level_validation_invalid(self):
+        """Test invalid interruption level raises error."""
         with pytest.raises(ValueError):
             APNSPayload(
                 alert=APNSAlert(title="Test", body="Body"),

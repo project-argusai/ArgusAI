@@ -494,15 +494,14 @@ class TestEdgeCases:
         assert sent_message["data"]["nested"]["level1"]["level2"] == [1, 2, 3]
 
     @pytest.mark.asyncio
-    async def test_broadcast_preserves_message_type(self, ws_manager, mock_websocket):
+    @pytest.mark.parametrize("msg_type", ["NEW_EVENT", "ALERT_TRIGGERED", "CAMERA_STATUS", "SYSTEM"])
+    async def test_broadcast_preserves_message_type(self, ws_manager, mock_websocket, msg_type):
         """Test broadcast preserves original message type."""
         await ws_manager.connect(mock_websocket)
-
-        for msg_type in ["NEW_EVENT", "ALERT_TRIGGERED", "CAMERA_STATUS", "SYSTEM"]:
-            await ws_manager.broadcast({"type": msg_type})
-            call_args = mock_websocket.send_text.call_args
-            sent_message = json.loads(call_args[0][0])
-            assert sent_message["type"] == msg_type
+        await ws_manager.broadcast({"type": msg_type})
+        call_args = mock_websocket.send_text.call_args
+        sent_message = json.loads(call_args[0][0])
+        assert sent_message["type"] == msg_type
 
     @pytest.mark.asyncio
     async def test_same_websocket_connect_twice(self, ws_manager, mock_websocket):

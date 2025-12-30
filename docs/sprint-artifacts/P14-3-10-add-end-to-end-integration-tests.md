@@ -1,6 +1,6 @@
 # Story P14-3.10: Add End-to-End Integration Tests
 
-Status: drafted
+Status: done
 
 ## Story
 
@@ -92,4 +92,26 @@ Claude Opus 4.5
 
 ### Completion Notes List
 
+**Completed:** 2025-12-29
+**Definition of Done:** All acceptance criteria met, code reviewed, tests passing
+
+**PR #305 merged** - All E2E integration tests implemented:
+- conftest.py: 335 lines - E2E fixtures with mock services (AI, webhook, WebSocket)
+- test_event_pipeline.py: 224 lines - Event CRUD, filtering, pagination tests
+- test_alert_flow.py: 344 lines - Alert rules, notifications, webhook logs tests
+
+**Test Results:** 19 passed
+
+**Implementation Notes:**
+- Created test_e2e/ directory structure with pytest e2e marker
+- E2E tests use module-level database fixtures with function-level cleanup
+- Mock services provided for AI, webhook, and WebSocket integrations
+- Tests cover event pipeline, alert rules, notifications, and webhook logs
+
 ### File List
+
+- backend/tests/test_e2e/__init__.py
+- backend/tests/test_e2e/conftest.py
+- backend/tests/test_e2e/test_event_pipeline.py
+- backend/tests/test_e2e/test_alert_flow.py
+- backend/pytest.ini (e2e marker registered)

@@ -872,8 +872,8 @@ development_status:
   p14-3-6-add-unit-tests-for-api-key-service: done
   p14-3-7-increase-test-parametrization: done
   p14-3-8-consolidate-test-fixture-definitions: done
-  p14-3-9-add-missing-api-route-tests: in-progress
-  p14-3-10-add-end-to-end-integration-tests: drafted
+  p14-3-9-add-missing-api-route-tests: done
+  p14-3-10-add-end-to-end-integration-tests: done
   epic-p14-3-retrospective: optional
 
   # Epic P14-4: Frontend Code Quality

@@ -82,6 +82,21 @@ RETRY_WEBHOOK = RetryConfig(
     retryable_exceptions=(ConnectionError, TimeoutError, OSError),
 )
 
+RETRY_SNAPSHOT = RetryConfig(
+    max_attempts=2,
+    base_delay=0.5,
+    max_delay=0.5,
+    jitter=False,
+    retryable_exceptions=(asyncio.TimeoutError, ConnectionError, OSError),
+)
+
+RETRY_DB_OPERATION = RetryConfig(
+    max_attempts=4,
+    base_delay=1.0,
+    max_delay=8.0,
+    retryable_exceptions=(Exception,),  # DB errors vary by driver
+)
+
 
 def calculate_delay(
     attempt: int,

@@ -13,6 +13,9 @@ from app.core.retry import (
     RETRY_STANDARD,
     RETRY_PERSISTENT,
     RETRY_AI_PROVIDER,
+    RETRY_WEBHOOK,
+    RETRY_SNAPSHOT,
+    RETRY_DB_OPERATION,
     calculate_delay,
     retry_async,
     retry_sync,
@@ -78,6 +81,31 @@ class TestPreConfiguredStrategies:
         assert RETRY_AI_PROVIDER.max_attempts == 3
         assert ConnectionError in RETRY_AI_PROVIDER.retryable_exceptions
         assert TimeoutError in RETRY_AI_PROVIDER.retryable_exceptions
+
+    def test_retry_webhook(self):
+        """RETRY_WEBHOOK should have webhook settings."""
+        assert RETRY_WEBHOOK.max_attempts == 4
+        assert RETRY_WEBHOOK.base_delay == 1.0
+        assert RETRY_WEBHOOK.max_delay == 30.0
+        assert ConnectionError in RETRY_WEBHOOK.retryable_exceptions
+        assert TimeoutError in RETRY_WEBHOOK.retryable_exceptions
+
+    def test_retry_snapshot(self):
+        """RETRY_SNAPSHOT should have snapshot settings (Story P14-5.4)."""
+        assert RETRY_SNAPSHOT.max_attempts == 2
+        assert RETRY_SNAPSHOT.base_delay == 0.5
+        assert RETRY_SNAPSHOT.max_delay == 0.5
+        assert RETRY_SNAPSHOT.jitter is False
+        assert asyncio.TimeoutError in RETRY_SNAPSHOT.retryable_exceptions
+        assert ConnectionError in RETRY_SNAPSHOT.retryable_exceptions
+
+    def test_retry_db_operation(self):
+        """RETRY_DB_OPERATION should have database operation settings (Story P14-5.4)."""
+        assert RETRY_DB_OPERATION.max_attempts == 4
+        assert RETRY_DB_OPERATION.base_delay == 1.0
+        assert RETRY_DB_OPERATION.max_delay == 8.0
+        # Should retry on general exceptions for DB flexibility
+        assert Exception in RETRY_DB_OPERATION.retryable_exceptions
 
 
 class TestCalculateDelay:

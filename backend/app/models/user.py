@@ -29,8 +29,9 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(60), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    last_login = Column(DateTime, nullable=True)
+    # Story P14-5.7: Add timezone=True for consistent UTC handling
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_login = Column(DateTime(timezone=True), nullable=True)
 
     # Relationship to Device (Story P11-2.4)
     devices = relationship("Device", back_populates="user", cascade="all, delete-orphan")

@@ -54,17 +54,17 @@ class ActivitySummary(Base):
     )
 
     period_start = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         index=True,
-        doc="Start of summarized time period"
+        doc="Start of summarized time period (UTC)"
     )
 
     period_end = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         index=True,
-        doc="End of summarized time period"
+        doc="End of summarized time period (UTC)"
     )
 
     event_count = Column(
@@ -81,10 +81,10 @@ class ActivitySummary(Base):
     )
 
     generated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
-        doc="When summary was generated"
+        doc="When summary was generated (UTC)"
     )
 
     ai_cost = Column(

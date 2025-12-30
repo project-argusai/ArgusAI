@@ -908,7 +908,7 @@ development_status:
   p14-5-4-migrate-services-to-backoff-utility: done  # Enhanced with new retry configs
   p14-5-5-fix-backref-vs-back-populates-inconsistency: done
   p14-5-6-add-check-constraints-on-float-columns: done  # GH #322, PR #323
-  p14-5-7-fix-timestamp-timezone-handling: backlog  # Requires Alembic migration
+  p14-5-7-fix-timestamp-timezone-handling: done  # GH #324
   p14-5-8-standardize-api-response-format: backlog  # Documentation task
   p14-5-9-add-notification-model-relationships: done
   p14-5-10-improve-json-parse-error-handling: done

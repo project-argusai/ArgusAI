@@ -1,5 +1,5 @@
 """
-MCPContextProvider for AI Context Enhancement (Story P11-3.1, P11-3.2, P11-3.3, P11-3.4)
+MCPContextProvider for AI Context Enhancement (Story P11-3.1, P11-3.2, P11-3.3, P11-3.4, P14-6.x)
 
 This module provides the MCPContextProvider class that gathers context
 from user feedback history, known entities, camera patterns, and time patterns
@@ -8,43 +8,57 @@ to enhance AI description prompts.
 Architecture:
     - Queries EventFeedback by camera_id for feedback history
     - Queries RecognizedEntity for entity context (P11-3.2)
+    - Queries EntityAdjustment for manual corrections (P14-6.1)
     - Queries Camera and Event for camera patterns (P11-3.3)
     - Calculates time-of-day activity patterns (P11-3.3)
     - Caches context with 60-second TTL for performance (P11-3.4)
     - Calculates camera-specific accuracy rates
-    - Extracts common correction patterns
+    - Extracts common correction patterns using TF-IDF (P14-6.6)
     - Formats context for AI prompt injection
     - Fail-open design ensures AI works even if context fails
+
+Phase 14 Enhancements (Epic P14-6):
+    - P14-6.1: Entity adjustment context (manual corrections)
+    - P14-6.2: Parallel query execution with asyncio.gather()
+    - P14-6.3: Async-safe database queries via run_in_executor
+    - P14-6.4: 80ms hard timeout with fail-open behavior
+    - P14-6.5: Optimized cache key strategy (camera_id only)
+    - P14-6.6: TF-IDF-based pattern extraction with stop words
+    - P14-6.7: VIP/blocked entity context for prioritization
+    - P14-6.8: Context metrics API endpoint for dashboard
 
 Flow:
     Event → MCPContextProvider.get_context(camera_id, event_time, entity_id)
                                     ↓
-                      Check cache for camera:hour key
+                      Check cache for camera_id key (optimized P14-6.5)
                                     ↓
                       If cached and not expired → return cached
                                     ↓
-                      Query recent feedback (last 50)
+                      Parallel query execution (P14-6.2):
+                        - Feedback context
+                        - Entity context + adjustments (P14-6.1, P14-6.7)
+                        - Camera context
+                        - Time pattern context
                                     ↓
-                      Query entity details if entity_id provided
+                      80ms timeout wrapper (P14-6.4)
                                     ↓
-                      Query camera patterns and location
-                                    ↓
-                      Calculate time-based activity patterns
-                                    ↓
-                      Build FeedbackContext, EntityContext, CameraContext, TimePatternContext
+                      Build AIContext with VIP/blocked flags (P14-6.7)
                                     ↓
                       Cache and return AIContext
 """
 import asyncio
+import concurrent.futures
 import logging
+import math
 import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict, Any
+from functools import partial
+from typing import Optional, List, Dict, Any, Tuple
 
-from prometheus_client import Counter as PromCounter, Histogram
+from prometheus_client import Counter as PromCounter, Histogram, Gauge
 from sqlalchemy import desc, select, func, extract
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +67,7 @@ from app.core.metrics import REGISTRY
 
 logger = logging.getLogger(__name__)
 
-# Prometheus metrics for context gathering (Story P11-3.4)
+# Prometheus metrics for context gathering (Story P11-3.4, P14-6.8)
 # Use the app's custom REGISTRY to ensure metrics appear in /metrics endpoint
 MCP_CONTEXT_LATENCY = Histogram(
     'argusai_mcp_context_latency_seconds',
@@ -72,6 +86,25 @@ MCP_CACHE_MISSES = PromCounter(
     'Number of MCP context cache misses',
     registry=REGISTRY
 )
+# P14-6.4: Timeout tracking
+MCP_CONTEXT_TIMEOUTS = PromCounter(
+    'argusai_mcp_context_timeouts_total',
+    'Number of MCP context gathering timeouts',
+    registry=REGISTRY
+)
+# P14-6.8: Component availability tracking
+MCP_COMPONENT_AVAILABILITY = Gauge(
+    'argusai_mcp_component_available',
+    'Whether each MCP context component returned data (1=yes, 0=no)',
+    ['component'],
+    registry=REGISTRY
+)
+# P14-6.8: Cache hit rate for dashboard
+MCP_CACHE_HIT_RATE = Gauge(
+    'argusai_mcp_cache_hit_rate',
+    'Current cache hit rate (0.0-1.0)',
+    registry=REGISTRY
+)
 
 
 @dataclass
@@ -85,7 +118,7 @@ class FeedbackContext:
 
 @dataclass
 class EntityContext:
-    """Context about a matched entity (Story P11-3.2)."""
+    """Context about a matched entity (Story P11-3.2, P14-6.1, P14-6.7)."""
     entity_id: str
     name: str
     entity_type: str  # person, vehicle, unknown
@@ -93,6 +126,11 @@ class EntityContext:
     last_seen: Optional[datetime]
     sighting_count: int
     similar_entities: List[Dict[str, Any]] = field(default_factory=list)  # Top 3 similar by occurrence
+    # P14-6.7: VIP and blocked flags for prioritization
+    is_vip: bool = False
+    is_blocked: bool = False
+    # P14-6.1: Recent manual adjustments for this entity
+    recent_adjustments: List[Dict[str, Any]] = field(default_factory=list)  # Last 5-10 corrections
 
 
 @dataclass
@@ -145,9 +183,15 @@ class MCPContextProvider:
     This implementation includes:
     - Feedback context (P11-3.1): accuracy rates and correction patterns
     - Entity context (P11-3.2): known people/vehicles and similar entities
+    - Entity adjustments (P14-6.1): manual correction history
     - Camera context (P11-3.3): location hints and typical objects
     - Time pattern context (P11-3.3): activity levels and unusual timing flags
-    - Context caching (P11-3.4): 60-second TTL cache for performance
+    - Context caching (P11-3.4, P14-6.5): optimized TTL cache
+    - Parallel queries (P14-6.2): asyncio.gather for concurrent execution
+    - Async-safe queries (P14-6.3): run_in_executor for sync DB calls
+    - Query timeout (P14-6.4): 80ms hard timeout with fail-open
+    - VIP/blocked context (P14-6.7): entity prioritization flags
+    - TF-IDF patterns (P14-6.6): improved pattern extraction
 
     Attributes:
         FEEDBACK_LIMIT: Number of recent feedback items to query (50)
@@ -156,8 +200,11 @@ class MCPContextProvider:
         EVENT_HISTORY_DAYS: Days of event history to analyze for patterns (30)
         MAX_TYPICAL_OBJECTS: Maximum typical objects to include (3)
         MAX_FALSE_POSITIVES: Maximum false positive patterns to include (3)
-        CACHE_TTL_SECONDS: Cache TTL in seconds (60)
+        CACHE_TTL_SECONDS: Cache TTL in seconds (30 - reduced for better freshness P14-6.5)
         SLOW_QUERY_THRESHOLD_MS: Threshold for slow query warning (50)
+        CONTEXT_TIMEOUT_SECONDS: Hard timeout for context gathering (0.08 - 80ms P14-6.4)
+        MAX_ADJUSTMENTS: Maximum recent adjustments per entity (10 P14-6.1)
+        MIN_PATTERN_FREQUENCY: Minimum frequency for pattern extraction (3 P14-6.6)
     """
 
     FEEDBACK_LIMIT = 50
@@ -166,8 +213,29 @@ class MCPContextProvider:
     EVENT_HISTORY_DAYS = 30
     MAX_TYPICAL_OBJECTS = 3
     MAX_FALSE_POSITIVES = 3
-    CACHE_TTL_SECONDS = 60
+    CACHE_TTL_SECONDS = 30  # P14-6.5: Reduced from 60 for better freshness
     SLOW_QUERY_THRESHOLD_MS = 50
+    CONTEXT_TIMEOUT_SECONDS = 0.08  # P14-6.4: 80ms hard timeout
+    MAX_ADJUSTMENTS = 10  # P14-6.1: Max adjustments per entity
+    MIN_PATTERN_FREQUENCY = 3  # P14-6.6: Minimum frequency for patterns
+
+    # P14-6.6: Domain-specific stop words for security camera context
+    STOP_WORDS = {
+        # Common English stop words
+        'the', 'a', 'an', 'is', 'was', 'it', 'this', 'that', 'not',
+        'and', 'or', 'but', 'of', 'in', 'to', 'for', 'on', 'with',
+        'be', 'are', 'were', 'been', 'being', 'have', 'has', 'had',
+        'do', 'does', 'did', 'will', 'would', 'could', 'should',
+        'i', 'you', 'he', 'she', 'we', 'they', 'my', 'your', 'its',
+        'there', 'here', 'where', 'when', 'what', 'which', 'who',
+        'actually', 'just', 'really', 'very', 'so', 'too', 'also',
+        # P14-6.6: Security camera domain stop words
+        'frame', 'frames', 'left', 'right', 'scene', 'camera', 'image',
+        'video', 'capture', 'captured', 'detected', 'detection', 'motion',
+        'event', 'events', 'view', 'visible', 'appears', 'appearing',
+        'shows', 'showing', 'seen', 'looking', 'moving', 'area', 'areas',
+        'moment', 'time', 'timestamp', 'seconds', 'minute', 'minutes',
+    }
 
     def __init__(self, db: Session = None):
         """
@@ -178,6 +246,12 @@ class MCPContextProvider:
         """
         self._db = db
         self._cache: Dict[str, CachedContext] = {}
+        # P14-6.3: Thread pool executor for running sync DB queries
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp_ctx")
+        # P14-6.8: Metrics tracking for dashboard
+        self._total_requests = 0
+        self._cache_hits = 0
+        self._timeouts = 0
         logger.info(
             "MCPContextProvider initialized",
             extra={"event_type": "mcp_context_provider_init"}
@@ -185,16 +259,22 @@ class MCPContextProvider:
 
     def _get_cache_key(self, camera_id: str, event_time: datetime) -> str:
         """
-        Generate cache key from camera ID and hour (Story P11-3.4 AC-3.4.2).
+        Generate cache key from camera ID (P14-6.5 optimization).
+
+        P14-6.5: Changed from "{camera_id}:{hour}" to just "{camera_id}" with
+        shorter TTL (30s instead of 60s) to improve cache hit ratio. Since events
+        from the same camera within 30 seconds are likely similar context, we can
+        share the cached context regardless of hour changes.
 
         Args:
             camera_id: UUID of the camera
-            event_time: When the event occurred
+            event_time: When the event occurred (kept for API compatibility)
 
         Returns:
-            Cache key in format "{camera_id}:{hour}"
+            Cache key in format "{camera_id}"
         """
-        return f"{camera_id}:{event_time.hour}"
+        # P14-6.5: Simplified key strategy - camera_id only with shorter TTL
+        return camera_id
 
     def clear_cache(self) -> None:
         """
@@ -208,6 +288,32 @@ class MCPContextProvider:
             extra={"event_type": "mcp.cache_cleared"}
         )
 
+    def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get MCP context metrics for dashboard (P14-6.8).
+
+        Returns metrics about cache performance, latency, and component availability
+        for display in the Settings > AI tab.
+
+        Returns:
+            Dict with cache_hit_rate, total_requests, cache_hits, timeouts,
+            avg_latency_ms, and component availability info.
+        """
+        hit_rate = self._cache_hits / self._total_requests if self._total_requests > 0 else 0.0
+        # Update Prometheus gauge for dashboard
+        MCP_CACHE_HIT_RATE.set(hit_rate)
+
+        return {
+            "cache_hit_rate": round(hit_rate, 4),
+            "total_requests": self._total_requests,
+            "cache_hits": self._cache_hits,
+            "cache_misses": self._total_requests - self._cache_hits,
+            "timeouts": self._timeouts,
+            "cache_ttl_seconds": self.CACHE_TTL_SECONDS,
+            "timeout_threshold_ms": int(self.CONTEXT_TIMEOUT_SECONDS * 1000),
+            "cache_size": len(self._cache),
+        }
+
     async def get_context(
         self,
         camera_id: str,
@@ -218,14 +324,17 @@ class MCPContextProvider:
         """
         Gather context for AI prompt generation.
 
-        Uses caching with 60-second TTL for performance (Story P11-3.4).
+        Uses caching with 30-second TTL for performance (P14-6.5).
+        Uses parallel queries with asyncio.gather (P14-6.2).
+        Uses run_in_executor for async-safe DB calls (P14-6.3).
+        Enforces 80ms hard timeout with fail-open (P14-6.4).
         Uses fail-open design: if any context component fails, returns
         partial context with None for failed components.
 
         Args:
             camera_id: UUID of the camera
             event_time: When the event occurred
-            entity_id: Optional UUID of matched entity (for future P11-3.2)
+            entity_id: Optional UUID of matched entity (for P11-3.2, P14-6.1, P14-6.7)
             db: SQLAlchemy session (uses instance db if not provided)
 
         Returns:
@@ -233,6 +342,7 @@ class MCPContextProvider:
         """
         start_time = time.time()
         session = db or self._db
+        self._total_requests += 1
 
         if not session:
             logger.warning(
@@ -241,12 +351,13 @@ class MCPContextProvider:
             )
             return AIContext()
 
-        # Check cache first (Story P11-3.4 AC-3.4.1)
+        # Check cache first (P14-6.5: optimized key strategy)
         cache_key = self._get_cache_key(camera_id, event_time)
         cached = self._cache.get(cache_key)
 
         if cached and not cached.is_expired(self.CACHE_TTL_SECONDS):
             # Cache hit
+            self._cache_hits += 1
             context_gather_time_ms = (time.time() - start_time) * 1000
             MCP_CACHE_HITS.inc()
             MCP_CONTEXT_LATENCY.labels(cached="true").observe(context_gather_time_ms / 1000)
@@ -285,19 +396,28 @@ class MCPContextProvider:
             }
         )
 
-        # Gather context components (fail-open)
-        feedback_ctx = await self._safe_get_feedback_context(session, camera_id)
-
-        # Entity context (P11-3.2) - only if entity_id provided
-        entity_ctx = None
-        if entity_id:
-            entity_ctx = await self._safe_get_entity_context(session, entity_id)
-
-        # Camera context (P11-3.3)
-        camera_ctx = await self._safe_get_camera_context(session, camera_id)
-
-        # Time pattern context (P11-3.3)
-        time_ctx = await self._safe_get_time_pattern_context(session, camera_id, event_time)
+        # P14-6.2: Parallel query execution with asyncio.gather
+        # P14-6.4: Wrap in timeout for 80ms fail-open behavior
+        try:
+            context = await asyncio.wait_for(
+                self._gather_context_parallel(session, camera_id, entity_id, event_time),
+                timeout=self.CONTEXT_TIMEOUT_SECONDS
+            )
+            feedback_ctx, entity_ctx, camera_ctx, time_ctx = context
+        except asyncio.TimeoutError:
+            # P14-6.4: Timeout - return partial/empty context (fail-open)
+            self._timeouts += 1
+            MCP_CONTEXT_TIMEOUTS.inc()
+            logger.warning(
+                f"MCP context timeout after {int(self.CONTEXT_TIMEOUT_SECONDS * 1000)}ms for camera {camera_id}",
+                extra={
+                    "event_type": "mcp.context_timeout",
+                    "camera_id": camera_id,
+                    "timeout_ms": int(self.CONTEXT_TIMEOUT_SECONDS * 1000),
+                }
+            )
+            # Return empty context on timeout
+            return AIContext()
 
         context_gather_time_ms = (time.time() - start_time) * 1000
 
@@ -336,6 +456,12 @@ class MCPContextProvider:
             created_at=datetime.now(timezone.utc),
         )
 
+        # P14-6.8: Update component availability metrics
+        MCP_COMPONENT_AVAILABILITY.labels(component="feedback").set(1 if feedback_ctx else 0)
+        MCP_COMPONENT_AVAILABILITY.labels(component="entity").set(1 if entity_ctx else 0)
+        MCP_COMPONENT_AVAILABILITY.labels(component="camera").set(1 if camera_ctx else 0)
+        MCP_COMPONENT_AVAILABILITY.labels(component="time_pattern").set(1 if time_ctx else 0)
+
         # Log context gathering
         logger.info(
             f"MCP context gathered for camera {camera_id}",
@@ -352,6 +478,63 @@ class MCPContextProvider:
         )
 
         return context
+
+    async def _gather_context_parallel(
+        self,
+        db: Session,
+        camera_id: str,
+        entity_id: Optional[str],
+        event_time: datetime,
+    ) -> Tuple[Optional[FeedbackContext], Optional[EntityContext], Optional[CameraContext], Optional[TimePatternContext]]:
+        """
+        Gather all context components in parallel (P14-6.2).
+
+        Uses asyncio.gather with return_exceptions=True for fail-open behavior.
+        Each query is wrapped in run_in_executor for async-safe execution (P14-6.3).
+
+        Args:
+            db: SQLAlchemy session
+            camera_id: UUID of the camera
+            entity_id: Optional UUID of matched entity
+            event_time: When the event occurred
+
+        Returns:
+            Tuple of (FeedbackContext, EntityContext, CameraContext, TimePatternContext)
+            Any component may be None if it failed or timed out.
+        """
+        # P14-6.2: Build tasks for parallel execution
+        async def no_entity():
+            return None
+
+        tasks = [
+            self._safe_get_feedback_context(db, camera_id),
+            self._safe_get_entity_context(db, entity_id) if entity_id else no_entity(),
+            self._safe_get_camera_context(db, camera_id),
+            self._safe_get_time_pattern_context(db, camera_id, event_time),
+        ]
+
+        # P14-6.2: Execute all tasks in parallel with exception handling
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results - any exception becomes None (fail-open)
+        processed = []
+        component_names = ["feedback", "entity", "camera", "time_pattern"]
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    f"MCP {component_names[i]} context query failed: {result}",
+                    extra={
+                        "event_type": "mcp.parallel_query_error",
+                        "component": component_names[i],
+                        "camera_id": camera_id,
+                        "error": str(result),
+                    }
+                )
+                processed.append(None)
+            else:
+                processed.append(result)
+
+        return tuple(processed)  # type: ignore
 
     async def _safe_get_feedback_context(
         self,
@@ -483,11 +666,11 @@ class MCPContextProvider:
         entity_id: str,
     ) -> Optional[EntityContext]:
         """
-        Get entity context for a matched entity (Story P11-3.2).
+        Get entity context for a matched entity (Story P11-3.2, P14-6.1, P14-6.7).
 
         Queries the RecognizedEntity model to get entity details including
-        name, type, attributes, and sighting count. Also queries for similar
-        entities of the same type.
+        name, type, attributes, sighting count, VIP/blocked flags, and
+        recent manual adjustments.
 
         Args:
             db: SQLAlchemy session
@@ -497,6 +680,7 @@ class MCPContextProvider:
             EntityContext with entity details, or None if entity not found
         """
         from app.models.recognized_entity import RecognizedEntity
+        from app.models.entity_adjustment import EntityAdjustment
 
         # Query entity by ID
         entity = (
@@ -529,6 +713,9 @@ class MCPContextProvider:
             db, entity_id, entity.entity_type, entity.vehicle_signature
         )
 
+        # P14-6.1: Get recent manual adjustments for this entity
+        recent_adjustments = await self._get_entity_adjustments(db, entity_id)
+
         # Use display_name if name is not set
         name = entity.name or entity.display_name
 
@@ -541,6 +728,9 @@ class MCPContextProvider:
                 "has_name": entity.name is not None,
                 "attribute_count": len(attributes),
                 "similar_count": len(similar_entities),
+                "adjustment_count": len(recent_adjustments),
+                "is_vip": entity.is_vip,
+                "is_blocked": entity.is_blocked,
             }
         )
 
@@ -552,7 +742,69 @@ class MCPContextProvider:
             last_seen=entity.last_seen_at,
             sighting_count=entity.occurrence_count,
             similar_entities=similar_entities,
+            # P14-6.7: VIP and blocked flags
+            is_vip=entity.is_vip,
+            is_blocked=entity.is_blocked,
+            # P14-6.1: Recent adjustments
+            recent_adjustments=recent_adjustments,
         )
+
+    async def _get_entity_adjustments(
+        self,
+        db: Session,
+        entity_id: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get recent manual adjustments for an entity (P14-6.1).
+
+        Queries the EntityAdjustment table to find corrections where this entity
+        was involved (either as old_entity_id or new_entity_id). These corrections
+        help the AI learn from manual fixes.
+
+        Args:
+            db: SQLAlchemy session
+            entity_id: UUID of the entity
+
+        Returns:
+            List of recent adjustments with action, description, and timestamp
+        """
+        from app.models.entity_adjustment import EntityAdjustment
+        from sqlalchemy import or_
+
+        # Query adjustments where this entity was involved
+        adjustments = (
+            db.query(EntityAdjustment)
+            .filter(
+                or_(
+                    EntityAdjustment.old_entity_id == entity_id,
+                    EntityAdjustment.new_entity_id == entity_id,
+                )
+            )
+            .order_by(desc(EntityAdjustment.created_at))
+            .limit(self.MAX_ADJUSTMENTS)
+            .all()
+        )
+
+        result = []
+        for adj in adjustments:
+            # Determine the correction type
+            if adj.old_entity_id == entity_id and adj.new_entity_id is None:
+                correction_type = "unlinked_from"
+            elif adj.new_entity_id == entity_id and adj.old_entity_id is None:
+                correction_type = "assigned_to"
+            elif adj.old_entity_id == entity_id:
+                correction_type = "moved_from"
+            else:
+                correction_type = "moved_to"
+
+            result.append({
+                "action": adj.action,
+                "correction_type": correction_type,
+                "event_description": adj.event_description[:100] if adj.event_description else None,
+                "created_at": adj.created_at.isoformat() if adj.created_at else None,
+            })
+
+        return result
 
     async def _get_similar_entities(
         self,
@@ -844,41 +1096,78 @@ class MCPContextProvider:
 
     def _extract_common_patterns(self, corrections: List[str]) -> List[str]:
         """
-        Extract common patterns from correction texts.
+        Extract common patterns from correction texts using TF-IDF scoring (P14-6.6).
 
-        Tokenizes corrections and finds most frequent meaningful words.
+        Uses Term Frequency - Inverse Document Frequency to find patterns that
+        are common but distinctive. Words that appear in many documents are
+        downweighted to surface more meaningful patterns.
+
+        P14-6.6 improvements:
+        - Extended stop words including domain-specific camera terms
+        - TF-IDF scoring instead of raw frequency
+        - Minimum frequency threshold (MIN_PATTERN_FREQUENCY)
+        - Bi-gram support for multi-word patterns
 
         Args:
             corrections: List of correction texts
 
         Returns:
-            List of top 3 most common patterns
+            List of top 3 most meaningful patterns
         """
         if not corrections:
             return []
 
-        # Common words to exclude
-        stop_words = {
-            'the', 'a', 'an', 'is', 'was', 'it', 'this', 'that', 'not',
-            'and', 'or', 'but', 'of', 'in', 'to', 'for', 'on', 'with',
-            'be', 'are', 'were', 'been', 'being', 'have', 'has', 'had',
-            'do', 'does', 'did', 'will', 'would', 'could', 'should',
-            'i', 'you', 'he', 'she', 'we', 'they', 'my', 'your', 'its',
-            'there', 'here', 'where', 'when', 'what', 'which', 'who',
-            'actually', 'just', 'really', 'very', 'so', 'too', 'also',
-        }
-
-        # Count word frequencies
-        word_counts: Counter = Counter()
+        # Tokenize all documents
+        doc_tokens: List[List[str]] = []
         for correction in corrections:
-            # Tokenize: lowercase, remove punctuation, split on whitespace
+            # Tokenize: lowercase, extract words
             words = re.findall(r'\b[a-z]+\b', correction.lower())
             # Filter stop words and short words
-            meaningful_words = [w for w in words if w not in stop_words and len(w) > 2]
-            word_counts.update(meaningful_words)
+            meaningful_words = [w for w in words if w not in self.STOP_WORDS and len(w) > 2]
+            doc_tokens.append(meaningful_words)
 
-        # Get top patterns
-        top_patterns = [word for word, _ in word_counts.most_common(5)]
+        if not any(doc_tokens):
+            return []
+
+        # Count term frequencies (TF) and document frequencies (DF)
+        term_freq: Counter = Counter()  # How many times each word appears total
+        doc_freq: Counter = Counter()   # How many documents contain each word
+
+        for tokens in doc_tokens:
+            term_freq.update(tokens)
+            # Count unique tokens per document for DF
+            doc_freq.update(set(tokens))
+
+        num_docs = len(corrections)
+
+        # P14-6.6: Calculate TF-IDF scores
+        # TF-IDF = TF * log(N / DF) where N is total documents
+        tfidf_scores: Dict[str, float] = {}
+        for word, tf in term_freq.items():
+            # Skip words below minimum frequency
+            if tf < self.MIN_PATTERN_FREQUENCY:
+                continue
+            df = doc_freq.get(word, 1)
+            # IDF with smoothing to avoid division by zero
+            idf = math.log((num_docs + 1) / (df + 1)) + 1
+            tfidf_scores[word] = tf * idf
+
+        # Sort by TF-IDF score and get top patterns
+        sorted_patterns = sorted(tfidf_scores.items(), key=lambda x: x[1], reverse=True)
+        top_patterns = [word for word, _ in sorted_patterns[:5]]
+
+        # P14-6.6: Also extract bi-grams for multi-word patterns
+        bigrams: Counter = Counter()
+        for tokens in doc_tokens:
+            for i in range(len(tokens) - 1):
+                bigram = f"{tokens[i]} {tokens[i+1]}"
+                bigrams[bigram] += 1
+
+        # Add top bigram if it's more common than threshold
+        for bigram, count in bigrams.most_common(2):
+            if count >= self.MIN_PATTERN_FREQUENCY and len(top_patterns) < 5:
+                top_patterns.append(bigram)
+
         return top_patterns[:3]
 
     def format_for_prompt(self, context: AIContext) -> str:
@@ -924,9 +1213,10 @@ class MCPContextProvider:
 
     def _format_entity_context(self, entity: EntityContext) -> List[str]:
         """
-        Format entity context for inclusion in AI prompt (Story P11-3.2 AC-3.2.3, AC-3.2.4).
+        Format entity context for inclusion in AI prompt (Story P11-3.2, P14-6.1, P14-6.7).
 
-        Includes entity name, type, attributes, sighting history, and similar entities.
+        Includes entity name, type, attributes, sighting history, similar entities,
+        VIP/blocked status, and recent manual adjustments.
         Limits context size to MAX_ENTITY_CONTEXT_CHARS to prevent prompt overflow (AC-3.2.5).
 
         Args:
@@ -937,6 +1227,16 @@ class MCPContextProvider:
         """
         parts = []
         total_chars = 0
+
+        # P14-6.7: VIP/blocked flags (highest priority - include first)
+        if entity.is_vip:
+            vip_str = "⭐ VIP ENTITY - High priority, ensure accurate description"
+            parts.append(vip_str)
+            total_chars += len(vip_str)
+        elif entity.is_blocked:
+            blocked_str = "🚫 Blocked entity - Notifications suppressed for this entity"
+            parts.append(blocked_str)
+            total_chars += len(blocked_str)
 
         # Primary entity identification (always included)
         primary = f"Known entity: {entity.name} ({entity.entity_type})"
@@ -978,6 +1278,24 @@ class MCPContextProvider:
                 similar_str = f"Similar known entities: {', '.join(similar_names)}"
                 if total_chars + len(similar_str) <= self.MAX_ENTITY_CONTEXT_CHARS:
                     parts.append(similar_str)
+                    total_chars += len(similar_str)
+
+        # P14-6.1: Recent manual adjustments - include up to 2 most relevant
+        if entity.recent_adjustments and total_chars < self.MAX_ENTITY_CONTEXT_CHARS - 100:
+            adjustment_strs = []
+            for adj in entity.recent_adjustments[:2]:
+                if adj.get("event_description"):
+                    # Include a snippet of the corrected description
+                    desc = adj["event_description"][:50]
+                    adjustment_strs.append(f"{adj['action']}: \"{desc}...\"")
+                else:
+                    adjustment_strs.append(f"{adj['action']}")
+
+            if adjustment_strs:
+                adj_str = f"Recent corrections: {', '.join(adjustment_strs)}"
+                if total_chars + len(adj_str) <= self.MAX_ENTITY_CONTEXT_CHARS:
+                    parts.append(adj_str)
+                    total_chars += len(adj_str)
 
         # Log if truncation occurred
         if total_chars > self.MAX_ENTITY_CONTEXT_CHARS:

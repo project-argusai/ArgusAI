@@ -232,11 +232,22 @@ class TestPatternExtraction:
         assert patterns == []
 
     def test_extract_patterns_single_correction(self, provider):
-        """Test pattern extraction with single correction."""
+        """Test pattern extraction with single correction (P14-6.6).
+
+        With TF-IDF scoring and minimum frequency threshold of 3, single
+        corrections won't produce patterns. Need multiple instances of
+        the same word.
+        """
+        # Single correction with terms appearing once - no patterns (below MIN_PATTERN_FREQUENCY)
         corrections = ["That's a cat, not a dog"]
         patterns = provider._extract_common_patterns(corrections)
-        assert len(patterns) <= 3
-        assert "cat" in patterns or "dog" in patterns
+        # P14-6.6: With MIN_PATTERN_FREQUENCY=3, single occurrences produce no patterns
+        assert len(patterns) == 0
+
+        # Multiple corrections with repeated term should produce patterns
+        corrections = ["cat in the yard", "cat on the porch", "another cat sighting"]
+        patterns = provider._extract_common_patterns(corrections)
+        assert "cat" in patterns
 
     def test_extract_patterns_repeated_words(self, provider):
         """Test pattern extraction with repeated words."""
@@ -1630,24 +1641,25 @@ class TestContextCaching:
         return str(uuid.uuid4())
 
     def test_cache_key_generation(self, provider, camera_id):
-        """Test cache key is generated from camera_id and hour (AC-3.4.2)."""
+        """Test cache key is generated from camera_id only (P14-6.5 optimization)."""
         event_time = datetime(2024, 1, 15, 14, 30, 0, tzinfo=timezone.utc)
 
         cache_key = provider._get_cache_key(camera_id, event_time)
 
-        assert cache_key == f"{camera_id}:14"
+        # P14-6.5: Cache key is now just camera_id (not camera_id:hour)
+        assert cache_key == camera_id
 
     def test_cache_key_different_hours(self, provider, camera_id):
-        """Test cache keys are different for different hours."""
+        """Test cache keys are same for different hours (P14-6.5 optimization)."""
         event_time_1 = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
         event_time_2 = datetime(2024, 1, 15, 15, 0, 0, tzinfo=timezone.utc)
 
         key_1 = provider._get_cache_key(camera_id, event_time_1)
         key_2 = provider._get_cache_key(camera_id, event_time_2)
 
-        assert key_1 != key_2
-        assert key_1 == f"{camera_id}:10"
-        assert key_2 == f"{camera_id}:15"
+        # P14-6.5: Cache key is now camera_id only, so same key for all hours
+        assert key_1 == key_2
+        assert key_1 == camera_id
 
     @pytest.mark.asyncio
     async def test_cache_stores_context(self, provider, camera_id):

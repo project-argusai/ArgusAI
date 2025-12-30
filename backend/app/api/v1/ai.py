@@ -5,6 +5,7 @@ Provides:
 - GET /ai/usage - Usage statistics and cost tracking
 - GET /ai/capabilities - Provider capability information (Story P3-4.1)
 - POST /ai/refine-prompt - AI-assisted prompt refinement (Story P8-3.3)
+- GET /ai/context-metrics - MCP context system metrics (Story P14-6.8)
 """
 from datetime import datetime
 from typing import Optional
@@ -20,6 +21,7 @@ from app.schemas.ai import (
     PromptRefinementResponse
 )
 from app.services.ai_service import ai_service, AIService
+from app.services.mcp_context import get_mcp_context_provider
 from app.models.event_feedback import EventFeedback
 from app.models.event import Event
 
@@ -441,3 +443,51 @@ def _parse_refinement_response(response_text: str) -> dict:
         "suggested_prompt": suggested_prompt,
         "changes_summary": changes_summary
     }
+
+
+@router.get("/context-metrics")
+async def get_context_metrics():
+    """
+    Get MCP context system metrics for dashboard (Story P14-6.8).
+
+    Returns metrics about the MCP context provider performance:
+    - Cache hit rate
+    - Total requests and cache statistics
+    - Timeout count
+    - Cache TTL and size
+
+    Example:
+        GET /api/v1/ai/context-metrics
+
+    Response:
+        {
+            "cache_hit_rate": 0.75,
+            "total_requests": 1000,
+            "cache_hits": 750,
+            "cache_misses": 250,
+            "timeouts": 2,
+            "cache_ttl_seconds": 30,
+            "timeout_threshold_ms": 80,
+            "cache_size": 5
+        }
+    """
+    try:
+        provider = get_mcp_context_provider()
+        metrics = provider.get_metrics()
+
+        logger.info(
+            "MCP context metrics requested",
+            extra={
+                "cache_hit_rate": metrics.get("cache_hit_rate", 0),
+                "total_requests": metrics.get("total_requests", 0),
+                "timeouts": metrics.get("timeouts", 0)
+            }
+        )
+
+        return metrics
+    except Exception as e:
+        logger.error(f"Failed to get context metrics: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve context metrics: {str(e)}"
+        )

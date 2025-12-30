@@ -992,7 +992,7 @@ development_status:
   # Priority: P2
   # Focus: Entity modal scrolling, virtual scrolling, event navigation
   # FRs Covered: FR23-FR27
-  epic-p15-1: backlog
+  epic-p15-1: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-1.md
   p15-1-1-entity-modal-scrolling-fix: backlog
   p15-1-2-virtual-scrolling-for-large-event-lists: backlog
   p15-1-3-event-click-opens-event-detail-modal: backlog
@@ -1004,7 +1004,7 @@ development_status:
   # Priority: P2
   # Focus: Multi-user support, session management, RBAC
   # FRs Covered: FR1-FR22
-  epic-p15-2: backlog
+  epic-p15-2: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-2.md
   p15-2-1-user-model-and-database-schema: backlog
   p15-2-2-session-model-and-tracking: backlog
   p15-2-3-user-crud-api-endpoints: backlog
@@ -1021,7 +1021,7 @@ development_status:
   # Priority: P3
   # Focus: Consistent save patterns, unsaved changes warnings
   # FRs Covered: FR28-FR32
-  epic-p15-3: backlog
+  epic-p15-3: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-3.md
   p15-3-1-audit-settings-save-patterns: backlog
   p15-3-2-settings-form-state-management-hook: backlog
   p15-3-3-unsaved-changes-indicator: backlog
@@ -1033,7 +1033,7 @@ development_status:
   # Priority: P3
   # Focus: Multiple entities per event, multi-select assignment
   # FRs Covered: FR33-FR37
-  epic-p15-4: backlog
+  epic-p15-4: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-4.md
   p15-4-1-backend-multi-entity-support: backlog
   p15-4-2-multi-entity-display-on-event-cards: backlog
   p15-4-3-entity-detail-multi-event-query: backlog
@@ -1045,7 +1045,7 @@ development_status:
   # Priority: P3
   # Focus: Bounding boxes, color-coded labels, annotation toggle
   # FRs Covered: FR38-FR44
-  epic-p15-5: backlog
+  epic-p15-5: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-5.md
   p15-5-1-ai-bounding-box-response-schema: backlog
   p15-5-2-frame-annotation-service: backlog
   p15-5-3-store-annotated-frames: backlog

@@ -1,6 +1,6 @@
 # Story 14-5.6: Add Check Constraints on Float Columns
 
-Status: in-progress
+Status: done
 
 ## Story
 

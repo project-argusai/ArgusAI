@@ -949,8 +949,8 @@ development_status:
   # Priority: P3-P4
   # Focus: Query validation, concurrency tests, mock quality
   # Backlog: IMP-049, IMP-052, IMP-054
-  epic-p14-8: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-8.md
-  p14-8-1-add-query-parameter-validation: backlog
-  p14-8-2-add-concurrency-tests: backlog
-  p14-8-3-improve-mock-quality: backlog
+  epic-p14-8: done  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-8.md
+  p14-8-1-add-query-parameter-validation: done
+  p14-8-2-add-concurrency-tests: done
+  p14-8-3-improve-mock-quality: done
   epic-p14-8-retrospective: optional

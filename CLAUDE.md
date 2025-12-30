@@ -277,3 +277,65 @@ GET  /api/v1/summaries/daily               # Get daily activity digest
 POST /api/v1/events/{id}/feedback          # Submit feedback on description
 GET  /api/v1/integrations/mqtt/status      # MQTT connection status
 ```
+
+## AI Agent UI Testing (Playwright MCP)
+
+Claude Code has browser automation capabilities via the Playwright MCP server for full E2E UI testing.
+
+### Access URL
+- **Cloudflare Tunnel**: `https://agent.argusai.cc` (valid SSL certificate)
+- Local access requires SSL cert bypass which Docker containers don't support
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `browser_navigate` | Navigate to a URL |
+| `browser_snapshot` | Get accessibility tree (best for AI interaction) |
+| `browser_take_screenshot` | Capture visual screenshot |
+| `browser_click` | Click elements by ref |
+| `browser_type` | Type into input fields |
+| `browser_fill_form` | Fill multiple form fields at once |
+| `browser_wait_for` | Wait for text/element/time |
+| `browser_evaluate` | Execute JavaScript on page |
+| `browser_press_key` | Press keyboard keys |
+| `browser_select_option` | Select dropdown options |
+
+### Usage Examples
+
+```
+# Navigate to the app
+browser_navigate: {"url": "https://agent.argusai.cc"}
+
+# Get page state for AI interaction
+browser_snapshot: {}
+
+# Take a screenshot
+browser_take_screenshot: {"filename": "test-result.png"}
+
+# Fill login form (refs come from snapshot)
+browser_fill_form: {"fields": [
+  {"name": "Username", "type": "textbox", "ref": "e19", "value": "admin"},
+  {"name": "Password", "type": "textbox", "ref": "e23", "value": "password"}
+]}
+
+# Click a button
+browser_click: {"element": "Sign in button", "ref": "e28"}
+```
+
+### Testing Workflow
+
+1. Navigate to page with `browser_navigate`
+2. Get accessibility tree with `browser_snapshot` (returns element refs)
+3. Interact using refs from snapshot (`browser_click`, `browser_type`, `browser_fill_form`)
+4. Verify results with `browser_snapshot` or `browser_take_screenshot`
+5. Repeat for multi-step flows
+
+### Capabilities
+
+- Full E2E test scenarios
+- Form filling and submission
+- Navigation through multi-step workflows
+- Visual regression testing via screenshots
+- Console log and network request inspection
+- JavaScript execution for complex interactions

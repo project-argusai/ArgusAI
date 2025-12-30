@@ -817,13 +817,14 @@ def test_get_package_deliveries_today_with_data(test_camera):
     """Test getting package deliveries with carrier breakdown"""
     db = TestingSessionLocal()
     try:
-        now = datetime.now(timezone.utc)
+        # Use a time that's definitely today (noon UTC) to avoid midnight edge cases
+        today_noon = datetime.now(timezone.utc).replace(hour=12, minute=0, second=0, microsecond=0)
 
         # Create package events with carriers
         event1 = Event(
             id="pkg-event-1",
             camera_id=test_camera.id,
-            timestamp=now - timedelta(hours=1),
+            timestamp=today_noon - timedelta(minutes=10),
             description="FedEx delivery",
             confidence=85,
             objects_detected=json.dumps(["package"]),
@@ -834,7 +835,7 @@ def test_get_package_deliveries_today_with_data(test_camera):
         event2 = Event(
             id="pkg-event-2",
             camera_id=test_camera.id,
-            timestamp=now - timedelta(hours=2),
+            timestamp=today_noon - timedelta(minutes=20),
             description="Amazon delivery",
             confidence=80,
             objects_detected=json.dumps(["package", "person"]),
@@ -845,7 +846,7 @@ def test_get_package_deliveries_today_with_data(test_camera):
         event3 = Event(
             id="pkg-event-3",
             camera_id=test_camera.id,
-            timestamp=now - timedelta(hours=3),
+            timestamp=today_noon - timedelta(minutes=30),
             description="Unknown carrier package",
             confidence=75,
             objects_detected=json.dumps(["package"]),

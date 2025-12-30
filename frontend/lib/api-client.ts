@@ -83,10 +83,6 @@ import type {
   IDiscoveryResponse,
   IDiscoveryStatusResponse,
   IDeviceDetailsResponse,
-  IDiscoveredDevice,
-  IDiscoveredCameraDetails,
-  IStreamProfile,
-  IDeviceInfo,
   ITestConnectionResponse,
 } from '@/types/discovery';
 import type {
@@ -201,7 +197,6 @@ async function apiFetch<T>(
     };
 
     const token = getAuthToken();
-    console.log('[API] Request to:', endpoint, 'Token present:', !!token);
     if (token) {
       (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
     }

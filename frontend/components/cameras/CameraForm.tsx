@@ -5,7 +5,7 @@
 'use client';
 'use no memo'; // React Hook Form's watch() API is incompatible with React Compiler memoization
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
@@ -260,16 +260,6 @@ export function CameraForm({
     setZones(updatedZones);
     form.setValue('detection_zones', updatedZones);
   };
-
-  // Debug form state
-  React.useEffect(() => {
-    console.log('Form state:', {
-      isValid: form.formState.isValid,
-      isDirty: form.formState.isDirty,
-      errors: form.formState.errors,
-      values: form.getValues(),
-    });
-  }, [form.formState, form]);
 
   return (
     <Form {...form}>

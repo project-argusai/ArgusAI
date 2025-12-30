@@ -10,8 +10,8 @@
  * - Testing exponential backoff reconnection
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act, waitFor } from '@testing-library/react'
-import { useWebSocket, ConnectionStatus, CameraStatusChangeData } from '@/lib/hooks/useWebSocket'
+import { renderHook, act } from '@testing-library/react'
+import { useWebSocket, CameraStatusChangeData } from '@/lib/hooks/useWebSocket'
 
 // Mock WebSocket
 class MockWebSocket {

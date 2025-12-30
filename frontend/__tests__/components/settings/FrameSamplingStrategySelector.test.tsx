@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { FrameSamplingStrategySelector, type FrameSamplingStrategy } from '@/components/settings/FrameSamplingStrategySelector';
+import { FrameSamplingStrategySelector } from '@/components/settings/FrameSamplingStrategySelector';
 
 describe('FrameSamplingStrategySelector', () => {
   const mockOnChange = vi.fn();

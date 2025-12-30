@@ -23,7 +23,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  BarChart3,
 } from 'lucide-react';
 import { toast } from 'sonner';
 

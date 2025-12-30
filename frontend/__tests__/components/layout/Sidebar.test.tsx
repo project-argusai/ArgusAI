@@ -162,7 +162,7 @@ describe('Sidebar', () => {
   describe('active state', () => {
     it('highlights Dashboard when on home page', () => {
       mockUsePathname.mockReturnValue('/')
-      const { container } = render(<Sidebar />)
+      render(<Sidebar />)
 
       // Dashboard link should have active styling (bg-blue-600)
       const dashboardLink = screen.getByRole('link', { name: /dashboard/i })

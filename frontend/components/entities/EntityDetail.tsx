@@ -19,7 +19,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useEntity, useEntityEvents } from '@/hooks/useEntities';
+import { useEntity } from '@/hooks/useEntities';
 import { EntityNameEdit } from './EntityNameEdit';
 import { EntityEventList } from './EntityEventList';
 import { EntityAlertRules } from './EntityAlertRules';

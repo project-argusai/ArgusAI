@@ -79,7 +79,7 @@ export const EventCard = memo(function EventCard({
 
   // Story P9-4.4: Handle entity selection confirmation
   const handleEntitySelect = useCallback(
-    async (entityId: string, entityName: string | null) => {
+    async (entityId: string, _entityName: string | null) => {
       try {
         const result = await assignEventMutation.mutateAsync({
           eventId: event.id,

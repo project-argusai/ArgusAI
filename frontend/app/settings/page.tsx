@@ -236,10 +236,9 @@ export default function SettingsPage() {
     toast.info('Changes cancelled');
   };
 
-  const handleExportData = async (format: 'json' | 'csv') => {
-    // TODO: Implement data export API endpoint
+  const handleExportData = async (_format: 'json' | 'csv') => {
+    // TODO: Implement data export API endpoint (tracked in backlog)
     toast.error(`Data export not yet implemented`);
-    console.log('Export format requested:', format);
   };
 
   const handleDeleteAllData = () => {

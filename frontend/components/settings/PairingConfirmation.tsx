@@ -10,10 +10,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
-import { Smartphone, Check, X, Loader2, RefreshCw } from 'lucide-react';
+import { Smartphone, Check, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { apiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';

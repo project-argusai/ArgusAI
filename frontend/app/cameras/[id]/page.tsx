@@ -39,15 +39,12 @@ export default function EditCameraPage({ params }: EditCameraPageProps) {
    * Handle form submission
    */
   const handleSubmit = async (data: CameraFormValues) => {
-    console.log('handleSubmit called with data:', data);
     if (!camera) return;
 
     setIsSubmitting(true);
 
     try {
-      console.log('Sending PUT request to update camera...');
       await apiClient.cameras.update(camera.id, data);
-      console.log('Camera updated successfully');
       showSuccess('Camera updated successfully! Changes have been saved.');
       // Stay on the edit page - don't redirect
       // User can manually go back using the "Back to Cameras" button

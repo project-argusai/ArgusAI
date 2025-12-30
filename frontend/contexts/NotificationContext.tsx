@@ -159,9 +159,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     autoConnect: true,
     onNotification: handleNewNotification,
     onStatusChange: setConnectionStatus,
-    onAlert: (data) => {
+    onAlert: () => {
       // ALERT_TRIGGERED messages are legacy - refetch to get new notifications
-      console.log('Alert triggered:', data);
       refetch();
     },
   });

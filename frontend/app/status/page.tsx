@@ -97,8 +97,7 @@ export default function StatusPage() {
   };
 
   const handleDownloadLogs = async () => {
-    // TODO: Implement log download API endpoint
-    console.log('Log download not yet implemented');
+    // TODO: Implement log download API endpoint (tracked in backlog)
   };
 
   const getStatusIcon = (status: string) => {

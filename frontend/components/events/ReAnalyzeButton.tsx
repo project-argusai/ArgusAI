@@ -19,7 +19,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ReAnalyzeModal } from './ReAnalyzeModal';
-import type { IEvent, AnalysisMode } from '@/types/event';
+import type { IEvent } from '@/types/event';
 
 interface ReAnalyzeButtonProps {
   /** Event to re-analyze */

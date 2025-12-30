@@ -14,7 +14,6 @@ import { User, Car, HelpCircle, Bell, Check } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { EntityAlertModal } from './EntityAlertModal';
 import type { IEntity } from '@/types/entity';

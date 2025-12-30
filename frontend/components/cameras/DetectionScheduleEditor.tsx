@@ -200,11 +200,6 @@ export function DetectionScheduleEditor({ form }: DetectionScheduleEditorProps) 
     return [{ start_time: '09:00', end_time: '17:00' }];
   };
 
-  // Check if any range is overnight
-  const hasOvernightRange = schedule?.enabled && schedule.time_ranges?.some(
-    (range: ITimeRange) => range.start_time > range.end_time
-  );
-
   return (
     <div className="space-y-6 border rounded-lg p-6 bg-muted/20">
       <div>

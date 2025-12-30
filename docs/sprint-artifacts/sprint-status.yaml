@@ -880,15 +880,17 @@ development_status:
   # Priority: P2-P3
   # Focus: Test fixtures, unused imports, React patterns
   # Backlog: TD-006, TD-007, TD-008, TD-009, TD-010, IMP-040, IMP-041, IMP-042
-  epic-p14-4: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-4.md
-  p14-4-1-remove-debug-console-log: backlog
-  p14-4-2-fix-test-type-mismatches: backlog
-  p14-4-3-fix-failing-tunnel-settings-test: backlog
-  p14-4-4-create-shared-test-fixtures-factory: backlog
-  p14-4-5-clean-up-unused-test-imports: backlog
-  p14-4-6-clean-up-unused-component-imports: backlog
-  p14-4-7-fix-setstate-in-useeffect-anti-patterns: backlog
-  p14-4-8-extract-sorticon-component: backlog
+  # Status: COMPLETE 2025-12-29
+  # Notes: P14-4.2 & P14-4.3 already passing, P14-4.7 & P14-4.8 skipped (valid patterns/no duplication)
+  epic-p14-4: done  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P14-4.md
+  p14-4-1-remove-debug-console-log: done
+  p14-4-2-fix-test-type-mismatches: done  # Already passing
+  p14-4-3-fix-failing-tunnel-settings-test: done  # Already passing
+  p14-4-4-create-shared-test-fixtures-factory: done
+  p14-4-5-clean-up-unused-test-imports: done
+  p14-4-6-clean-up-unused-component-imports: done
+  p14-4-7-fix-setstate-in-useeffect-anti-patterns: done  # Skipped - valid React patterns
+  p14-4-8-extract-sorticon-component: done  # Skipped - no duplication exists
   epic-p14-4-retrospective: optional
 
   # Epic P14-5: Code Standardization

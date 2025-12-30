@@ -2,6 +2,12 @@
 Tests for FrameStorageService
 
 Story P8-2.1: Store All Analysis Frames During Event Processing
+
+NOTE: Uses shared fixtures from conftest.py:
+    - db_session: In-memory SQLite database session
+    - sample_camera: Test camera instance
+    - sample_event: Test event instance
+    - make_camera, make_event: Factory functions for custom instances
 """
 import io
 import os
@@ -14,13 +20,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from PIL import Image
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
-from app.core.database import Base
 from app.models.event import Event
 from app.models.event_frame import EventFrame
-from app.models.camera import Camera
 from app.services.frame_storage_service import (
     FrameStorageService,
     get_frame_storage_service,
@@ -28,6 +30,8 @@ from app.services.frame_storage_service import (
     FRAME_JPEG_QUALITY,
     FRAME_MAX_WIDTH,
 )
+# Import factory functions for creating custom test objects
+from tests.conftest import make_camera, make_event
 
 
 @pytest.fixture
@@ -38,47 +42,7 @@ def temp_dir():
     shutil.rmtree(temp_path, ignore_errors=True)
 
 
-@pytest.fixture
-def db_session():
-    """Create an in-memory SQLite database for testing."""
-    engine = create_engine("sqlite:///:memory:", echo=False)
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
-
-
-@pytest.fixture
-def sample_camera(db_session):
-    """Create a sample camera for testing."""
-    camera = Camera(
-        id=str(uuid.uuid4()),
-        name="Test Camera",
-        type="rtsp",
-        rtsp_url="rtsp://test.local/stream",
-        source_type="rtsp"
-    )
-    db_session.add(camera)
-    db_session.commit()
-    return camera
-
-
-@pytest.fixture
-def sample_event(db_session, sample_camera):
-    """Create a sample event for testing."""
-    event = Event(
-        id=str(uuid.uuid4()),
-        camera_id=sample_camera.id,
-        timestamp=datetime.now(timezone.utc),
-        description="Test event",
-        confidence=85,
-        objects_detected='["person"]',
-        source_type="protect"
-    )
-    db_session.add(event)
-    db_session.commit()
-    return event
+# sample_camera and sample_event are now provided by global conftest.py
 
 
 @pytest.fixture
@@ -346,18 +310,12 @@ class TestEventDeletionCascade:
 
     def test_event_deletion_cascades_to_frames(self, db_session, sample_camera):
         """AC1.4: Test deleting event removes EventFrame DB records."""
-        # Create event
-        event = Event(
-            id=str(uuid.uuid4()),
+        # Create event using factory function
+        event = make_event(
+            db_session=db_session,
             camera_id=sample_camera.id,
-            timestamp=datetime.now(timezone.utc),
-            description="Test event",
-            confidence=85,
-            objects_detected='["person"]',
-            source_type="protect"
+            description="Test event for cascade deletion"
         )
-        db_session.add(event)
-        db_session.commit()
 
         # Create frame records
         for i in range(3):
@@ -422,18 +380,13 @@ class TestRetentionCleanupFrames:
         mock_frame_service = FrameStorageService(session_factory=lambda: db_session)
         mock_frame_service.base_dir = Path(temp_dir) / "frames"
 
-        # Create old event (31 days ago)
-        old_event = Event(
-            id=str(uuid.uuid4()),
+        # Create old event (31 days ago) using factory function
+        old_event = make_event(
+            db_session=db_session,
             camera_id=sample_camera.id,
             timestamp=datetime.now(timezone.utc) - timedelta(days=31),
-            description="Old event",
-            confidence=85,
-            objects_detected='["person"]',
-            source_type="protect"
+            description="Old event for cleanup test"
         )
-        db_session.add(old_event)
-        db_session.commit()
 
         # Create frame directory and files manually
         frame_dir = mock_frame_service._get_event_frame_dir(old_event.id)

@@ -1,15 +1,21 @@
 /**
- * EntityDetail component - modal/dialog showing entity info and events (Story P4-3.6, P9-4.2)
+ * EntityDetail component - modal/dialog showing entity info and events (Story P4-3.6, P9-4.2, P15-1)
  * AC6: Click entity opens detail view
  * AC7: Shows occurrence history with thumbnails and timestamps
  * AC14: Shows thumbnail from most recent event
  * P9-4.2: Shows paginated event list
+ * P15-1.1: Modal scrolling fix for long event lists
+ * P15-1.3: Event click opens event detail modal
+ * P15-1.4: Back navigation preserves entity modal state
  */
 
 'use client';
 
+import { useState, useCallback, useRef } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { User, Car, HelpCircle, Trash2 } from 'lucide-react';
+import { EventDetailModal } from '@/components/events/EventDetailModal';
+import type { IEvent } from '@/types/event';
 import {
   Dialog,
   DialogContent,
@@ -71,8 +77,43 @@ export function EntityDetail({
 }: EntityDetailProps) {
   const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
 
+  // P15-1.3: State for nested event detail modal
+  const [selectedEvent, setSelectedEvent] = useState<IEvent | null>(null);
+  const [isEventDetailOpen, setIsEventDetailOpen] = useState(false);
+
+  // P15-1.4: Preserve scroll position when navigating back
+  const scrollPositionRef = useRef<number>(0);
+
   // Fetch full entity detail with recent events
   const { data: entityDetail, isLoading } = useEntity(entity?.id ?? null, 20);
+
+  // P15-1.3: Handle event click from EntityEventList
+  const handleEventClick = useCallback((eventId: string, event?: IEvent) => {
+    // Store scroll position before opening event detail
+    const scrollContainer = document.querySelector('[data-entity-events-scroll]');
+    if (scrollContainer) {
+      scrollPositionRef.current = scrollContainer.scrollTop;
+    }
+
+    if (event) {
+      setSelectedEvent(event);
+      setIsEventDetailOpen(true);
+    }
+  }, []);
+
+  // P15-1.4: Handle closing event detail modal
+  const handleEventDetailClose = useCallback(() => {
+    setIsEventDetailOpen(false);
+    setSelectedEvent(null);
+
+    // Restore scroll position after closing
+    requestAnimationFrame(() => {
+      const scrollContainer = document.querySelector('[data-entity-events-scroll]');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = scrollPositionRef.current;
+      }
+    });
+  }, []);
 
   // Get thumbnail from most recent event
   const mostRecentEvent = entityDetail?.recent_events?.[0];
@@ -201,7 +242,10 @@ export function EntityDetail({
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="events" className="flex-1 min-h-0 overflow-hidden mt-3">
-                  <EntityEventList entityId={entityDetail.id} />
+                  <EntityEventList
+                    entityId={entityDetail.id}
+                    onEventClick={handleEventClick}
+                  />
                 </TabsContent>
                 <TabsContent value="alerts" className="flex-1 min-h-0 overflow-auto mt-3">
                   <EntityAlertRules entityId={entityDetail.id} />
@@ -211,6 +255,13 @@ export function EntityDetail({
           </div>
         )}
       </DialogContent>
+
+      {/* P15-1.3: Nested Event Detail Modal */}
+      <EventDetailModal
+        event={selectedEvent}
+        open={isEventDetailOpen}
+        onClose={handleEventDetailClose}
+      />
     </Dialog>
   );
 }

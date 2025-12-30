@@ -992,12 +992,13 @@ development_status:
   # Priority: P2
   # Focus: Entity modal scrolling, virtual scrolling, event navigation
   # FRs Covered: FR23-FR27
-  epic-p15-1: contexted  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-1.md
-  p15-1-1-entity-modal-scrolling-fix: backlog
-  p15-1-2-virtual-scrolling-for-large-event-lists: backlog
-  p15-1-3-event-click-opens-event-detail-modal: backlog
-  p15-1-4-back-navigation-from-event-detail: backlog
-  p15-1-5-event-count-and-scroll-indicator: backlog
+  # Status: COMPLETE 2025-12-30
+  epic-p15-1: done  # Tech spec: docs/sprint-artifacts/tech-spec-epic-P15-1.md
+  p15-1-1-entity-modal-scrolling-fix: done
+  p15-1-2-virtual-scrolling-for-large-event-lists: done
+  p15-1-3-event-click-opens-event-detail-modal: done
+  p15-1-4-back-navigation-from-event-detail: done
+  p15-1-5-event-count-and-scroll-indicator: done
   epic-p15-1-retrospective: optional
 
   # Epic P15-2: Authentication & User Management

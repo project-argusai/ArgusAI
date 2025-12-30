@@ -44,9 +44,10 @@ class HomeKitConfig(Base):
     port = Column(Integer, default=51826, nullable=False)
     motion_reset_seconds = Column(Integer, default=30, nullable=False)
     max_motion_duration = Column(Integer, default=300, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Story P14-5.7: Add timezone=True for consistent UTC handling
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
-        DateTime,
+        DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False
@@ -149,7 +150,8 @@ class HomeKitAccessory(Base):
     accessory_aid = Column(Integer, nullable=True)  # HAP accessory ID, assigned when added to bridge
     accessory_type = Column(String(32), default="motion", nullable=False)  # camera, motion, occupancy, doorbell
     enabled = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Story P14-5.7: Add timezone=True for consistent UTC handling
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships
     config = relationship("HomeKitConfig", back_populates="accessories")

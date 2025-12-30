@@ -1,6 +1,8 @@
 """System settings model for configuration key-value storage"""
+from datetime import datetime, timezone
+
 from sqlalchemy import Column, String, DateTime
-from sqlalchemy.sql import func
+
 from app.core.database import Base
 
 
@@ -18,7 +20,12 @@ class SystemSetting(Base):
 
     key = Column(String(100), primary_key=True, nullable=False)
     value = Column(String(2000), nullable=False)  # JSON or encrypted: prefix for sensitive data
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    # Story P14-5.7: Use Python UTC default instead of server_default for consistent timezone handling
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc)
+    )
 
     def __repr__(self):
         # Don't expose value in repr for security

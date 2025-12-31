@@ -1,6 +1,7 @@
 /**
  * Cost Cap Settings Component
  * Story P3-7.3: Implement Daily/Monthly Cost Caps
+ * Story P15-3.5: Add UnsavedIndicator and navigation warning
  *
  * Provides UI for:
  * - Configuring daily and monthly AI cost caps
@@ -24,6 +25,8 @@ import {
 } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
+import { UnsavedIndicator } from './UnsavedIndicator';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -145,6 +148,9 @@ export function CostCapSettings() {
     }
   };
 
+  // Navigation warning when there are unsaved changes
+  useUnsavedChangesWarning({ isDirty: hasChanges });
+
   // Loading state
   if (isLoading) {
     return (
@@ -186,6 +192,7 @@ export function CostCapSettings() {
         <div className="flex items-center gap-2">
           <Shield className="h-5 w-5 text-blue-500" />
           <CardTitle className="text-base">Cost Caps</CardTitle>
+          <UnsavedIndicator isDirty={hasChanges} />
         </div>
         <CardDescription>
           Set spending limits to control AI analysis costs

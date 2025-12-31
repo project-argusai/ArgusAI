@@ -1,5 +1,5 @@
 /**
- * Anomaly Detection Settings Component (Story P4-7.3)
+ * Anomaly Detection Settings Component (Story P4-7.3, P15-3.5)
  *
  * Provides UI for configuring anomaly detection thresholds:
  * - Low/Medium threshold slider (default: 0.3)
@@ -7,12 +7,14 @@
  * - Enable/disable anomaly scoring
  *
  * Settings are persisted via the system settings API.
+ *
+ * Updated for P15-3.5 to use useSettingsForm hook and UnsavedIndicator.
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
-import { toast } from 'sonner';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Activity, Info, Loader2 } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,6 +24,9 @@ import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { apiClient } from '@/lib/api-client';
+import { useSettingsForm } from '@/hooks/useSettingsForm';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
+import { UnsavedIndicator } from './UnsavedIndicator';
 
 interface AnomalySettingsProps {
   className?: string;
@@ -40,80 +45,68 @@ const DEFAULT_CONFIG: AnomalyConfig = {
 };
 
 export function AnomalySettings({ className }: AnomalySettingsProps) {
-  const [config, setConfig] = useState<AnomalyConfig>(DEFAULT_CONFIG);
+  // Fetch settings with TanStack Query
+  const settingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: () => apiClient.settings.get(),
+  });
+
+  // Derive initial config from query
   const [initialConfig, setInitialConfig] = useState<AnomalyConfig>(DEFAULT_CONFIG);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
 
-  // Load current settings on mount
   useEffect(() => {
-    loadSettings();
-  }, []);
-
-  const loadSettings = async () => {
-    try {
-      setIsLoading(true);
-      const settings = await apiClient.settings.get();
+    if (settingsQuery.data) {
       const loaded: AnomalyConfig = {
-        anomaly_enabled: settings.anomaly_enabled ?? DEFAULT_CONFIG.anomaly_enabled,
-        anomaly_low_threshold: settings.anomaly_low_threshold ?? DEFAULT_CONFIG.anomaly_low_threshold,
-        anomaly_high_threshold: settings.anomaly_high_threshold ?? DEFAULT_CONFIG.anomaly_high_threshold,
+        anomaly_enabled: settingsQuery.data.anomaly_enabled ?? DEFAULT_CONFIG.anomaly_enabled,
+        anomaly_low_threshold: settingsQuery.data.anomaly_low_threshold ?? DEFAULT_CONFIG.anomaly_low_threshold,
+        anomaly_high_threshold: settingsQuery.data.anomaly_high_threshold ?? DEFAULT_CONFIG.anomaly_high_threshold,
       };
-      setConfig(loaded);
       setInitialConfig(loaded);
-    } catch (error) {
-      console.error('Failed to load anomaly settings:', error);
-      // Use defaults on error
-      setConfig(DEFAULT_CONFIG);
-      setInitialConfig(DEFAULT_CONFIG);
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [settingsQuery.data]);
 
-  const handleSave = async () => {
-    try {
-      setIsSaving(true);
-      await apiClient.settings.update({
-        anomaly_enabled: config.anomaly_enabled,
-        anomaly_low_threshold: config.anomaly_low_threshold,
-        anomaly_high_threshold: config.anomaly_high_threshold,
-      });
-      setInitialConfig(config);
-      toast.success('Anomaly detection settings saved');
-    } catch (error) {
-      console.error('Failed to save anomaly settings:', error);
-      toast.error('Failed to save settings');
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  // Use the settings form hook
+  const {
+    formData: config,
+    updateField,
+    isDirty,
+    save,
+    reset,
+    isSaving,
+    isLoading,
+  } = useSettingsForm({
+    initialData: initialConfig,
+    saveFn: (data) => apiClient.settings.update({
+      anomaly_enabled: data.anomaly_enabled,
+      anomaly_low_threshold: data.anomaly_low_threshold,
+      anomaly_high_threshold: data.anomaly_high_threshold,
+    }),
+    queryKey: ['settings'],
+    successMessage: 'Anomaly detection settings saved',
+    isLoading: settingsQuery.isLoading,
+  });
 
-  const handleReset = () => {
-    setConfig(DEFAULT_CONFIG);
-  };
+  // Navigation warning when dirty
+  useUnsavedChangesWarning({ isDirty });
 
-  const isDirty =
-    config.anomaly_enabled !== initialConfig.anomaly_enabled ||
-    config.anomaly_low_threshold !== initialConfig.anomaly_low_threshold ||
-    config.anomaly_high_threshold !== initialConfig.anomaly_high_threshold;
+  const handleResetToDefaults = () => {
+    updateField('anomaly_enabled', DEFAULT_CONFIG.anomaly_enabled);
+    updateField('anomaly_low_threshold', DEFAULT_CONFIG.anomaly_low_threshold);
+    updateField('anomaly_high_threshold', DEFAULT_CONFIG.anomaly_high_threshold);
+  };
 
   // Ensure low < high threshold
   const handleLowThresholdChange = (value: number) => {
-    setConfig((prev) => ({
-      ...prev,
-      anomaly_low_threshold: Math.min(value, prev.anomaly_high_threshold - 0.05),
-    }));
+    const newValue = Math.min(value, config.anomaly_high_threshold - 0.05);
+    updateField('anomaly_low_threshold', newValue);
   };
 
   const handleHighThresholdChange = (value: number) => {
-    setConfig((prev) => ({
-      ...prev,
-      anomaly_high_threshold: Math.max(value, prev.anomaly_low_threshold + 0.05),
-    }));
+    const newValue = Math.max(value, config.anomaly_low_threshold + 0.05);
+    updateField('anomaly_high_threshold', newValue);
   };
 
-  if (isLoading) {
+  if (isLoading || settingsQuery.isLoading) {
     return (
       <Card className={className}>
         <CardContent className="flex items-center justify-center py-8">
@@ -129,6 +122,7 @@ export function AnomalySettings({ className }: AnomalySettingsProps) {
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-blue-500" />
           <CardTitle>Anomaly Detection</CardTitle>
+          <UnsavedIndicator isDirty={isDirty} />
         </div>
         <CardDescription>
           Configure how unusual activity is detected and classified based on baseline patterns
@@ -148,9 +142,7 @@ export function AnomalySettings({ className }: AnomalySettingsProps) {
           <Switch
             id="anomaly-enabled"
             checked={config.anomaly_enabled}
-            onCheckedChange={(checked) =>
-              setConfig((prev) => ({ ...prev, anomaly_enabled: checked }))
-            }
+            onCheckedChange={(checked) => updateField('anomaly_enabled', checked)}
           />
         </div>
 
@@ -285,17 +277,29 @@ export function AnomalySettings({ className }: AnomalySettingsProps) {
 
         {/* Actions */}
         <div className="flex justify-between pt-4 border-t">
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleResetToDefaults}
+              disabled={isSaving}
+            >
+              Reset to Defaults
+            </Button>
+            {isDirty && (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={reset}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
           <Button
             type="button"
-            variant="outline"
-            onClick={handleReset}
-            disabled={isSaving}
-          >
-            Reset to Defaults
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSave}
+            onClick={save}
             disabled={!isDirty || isSaving}
           >
             {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

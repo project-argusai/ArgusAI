@@ -1,5 +1,5 @@
 /**
- * MQTT Settings Component (Story P4-2.4, P5-6.2, P8-3.1)
+ * MQTT Settings Component (Story P4-2.4, P5-6.2, P8-3.1, P15-3.5)
  *
  * Features:
  * - MQTT broker configuration form (AC 2, 6, 7, 9)
@@ -9,6 +9,7 @@
  * - Publish discovery button (AC 10)
  * - Birth/Will message configuration (P5-6.2)
  * - Conditional visibility of form fields based on enabled state (P8-3.1)
+ * - Unsaved changes indicator and navigation warning (P15-3.5)
  */
 
 'use client';
@@ -35,6 +36,8 @@ import {
 } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
+import { UnsavedIndicator } from './UnsavedIndicator';
 import type { MQTTConfigUpdate } from '@/types/settings';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -127,6 +130,9 @@ export function MQTTSettings() {
   });
 
   const { formState: { errors, isDirty } } = form;
+
+  // Navigation warning when form is dirty
+  useUnsavedChangesWarning({ isDirty });
 
   // Update form when config loads
   useEffect(() => {
@@ -319,6 +325,7 @@ export function MQTTSettings() {
             <CardTitle className="flex items-center gap-2">
               <Network className="h-5 w-5" />
               MQTT / Home Assistant
+              <UnsavedIndicator isDirty={isDirty} />
             </CardTitle>
             <CardDescription>
               Connect to your MQTT broker for Home Assistant integration
@@ -747,7 +754,17 @@ export function MQTTSettings() {
 
           {/* Save Button (AC 5) - Story P9-6.6: Only visible when MQTT enabled or form is dirty */}
           {(form.watch('enabled') || isDirty) && (
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
+              {isDirty && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => form.reset()}
+                  disabled={saveMutation.isPending}
+                >
+                  Cancel
+                </Button>
+              )}
               <Button
                 type="button"
                 onClick={form.handleSubmit(handleSave)}

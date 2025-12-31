@@ -107,7 +107,7 @@ class TestParseConfidenceResponse:
     def test_parse_valid_json_response(self, provider):
         """AC2: Should extract description and confidence from JSON"""
         response = '{"description": "A person walked to the door", "confidence": 85}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert description == "A person walked to the door"
         assert confidence == 85
@@ -115,7 +115,7 @@ class TestParseConfidenceResponse:
     def test_parse_json_with_high_confidence(self, provider):
         """AC2: Should handle high confidence scores"""
         response = '{"description": "Clear view of delivery truck", "confidence": 95}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 95
         assert "delivery truck" in description
@@ -123,7 +123,7 @@ class TestParseConfidenceResponse:
     def test_parse_json_with_low_confidence(self, provider):
         """AC3: Should extract low confidence (< 50)"""
         response = '{"description": "Something moving in shadows", "confidence": 25}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 25
         assert confidence < 50
@@ -131,7 +131,7 @@ class TestParseConfidenceResponse:
     def test_parse_json_embedded_in_text(self, provider):
         """AC2: Should extract JSON embedded in text"""
         response = 'Here is my analysis:\n{"description": "A car arrived", "confidence": 78}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert description == "A car arrived"
         assert confidence == 78
@@ -139,7 +139,7 @@ class TestParseConfidenceResponse:
     def test_parse_plain_text_with_confidence_pattern(self, provider):
         """AC4: Should fallback to pattern matching for plain text"""
         response = "A person is at the door. I am 85% confident in this description."
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 85
         # Plain text fallback returns original response as description
@@ -148,14 +148,14 @@ class TestParseConfidenceResponse:
     def test_parse_confidence_colon_pattern(self, provider):
         """AC4: Should match 'confidence: 85' pattern"""
         response = "Someone walking on sidewalk. Confidence: 75"
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 75
 
     def test_parse_missing_confidence_returns_none(self, provider):
         """AC4: Missing confidence should return None, not fail"""
         response = "A person approached the front door and rang the doorbell."
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence is None
         assert "person approached" in description
@@ -163,7 +163,7 @@ class TestParseConfidenceResponse:
     def test_parse_invalid_confidence_range_returns_none(self, provider):
         """AC4: Confidence outside 0-100 should return None"""
         response = '{"description": "Test", "confidence": 150}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         # Invalid range, should return None
         assert confidence is None
@@ -171,28 +171,28 @@ class TestParseConfidenceResponse:
     def test_parse_negative_confidence_returns_none(self, provider):
         """AC4: Negative confidence should return None"""
         response = '{"description": "Test", "confidence": -10}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence is None
 
     def test_parse_boundary_confidence_zero(self, provider):
         """AC2: Should accept confidence of 0"""
         response = '{"description": "Cannot see anything", "confidence": 0}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 0
 
     def test_parse_boundary_confidence_hundred(self, provider):
         """AC2: Should accept confidence of 100"""
         response = '{"description": "Crystal clear view of person", "confidence": 100}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 100
 
     def test_parse_float_confidence_truncated(self, provider):
         """AC2: Float confidence should be truncated to int"""
         response = '{"description": "Test", "confidence": 85.7}'
-        description, confidence = provider._parse_confidence_response(response)
+        description, confidence, _ = provider._parse_confidence_response(response)
 
         assert confidence == 85
         assert isinstance(confidence, int)

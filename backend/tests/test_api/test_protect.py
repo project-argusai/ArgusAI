@@ -3886,6 +3886,7 @@ class TestDoorbellRingEventStorage:
             error: str = None
             ai_confidence: int = 85
             cost_estimate: float = 0.001
+            bounding_boxes: list = None  # Story P15-5.1
 
             def __post_init__(self):
                 if self.objects_detected is None:

@@ -127,6 +127,7 @@ class TestVaguenessDetectionInPipeline:
         mock_ai_result.objects_detected = ["unknown"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 85  # High AI confidence
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)
@@ -165,6 +166,7 @@ class TestVaguenessDetectionInPipeline:
         mock_ai_result.objects_detected = ["person", "package"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 92
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)
@@ -200,6 +202,7 @@ class TestVaguenessDetectionInPipeline:
         mock_ai_result.objects_detected = ["person"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 35  # Below 50 threshold
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)
@@ -238,6 +241,7 @@ class TestVaguenessDetectionErrorHandling:
         mock_ai_result.objects_detected = ["person"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 75
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)
@@ -282,6 +286,7 @@ class TestVagueReasonTracking:
         mock_ai_result.objects_detected = ["person"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 80
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)
@@ -315,6 +320,7 @@ class TestVagueReasonTracking:
         mock_ai_result.objects_detected = ["person"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 80
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)
@@ -347,6 +353,7 @@ class TestVagueReasonTracking:
         mock_ai_result.objects_detected = ["unknown"]
         mock_ai_result.provider = "openai"
         mock_ai_result.ai_confidence = 80
+        mock_ai_result.bounding_boxes = None  # Story P15-5.1
 
         mock_snapshot = MagicMock()
         mock_snapshot.timestamp = datetime.now(timezone.utc)

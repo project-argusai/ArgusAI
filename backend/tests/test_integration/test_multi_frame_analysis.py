@@ -124,7 +124,8 @@ def mock_ai_result():
         response_time_ms=250,
         error=None,
         ai_confidence=85,
-        cost_estimate=0.001
+        cost_estimate=0.001,
+        bounding_boxes=None  # Story P15-5.1: Added for AI visual annotations
     )
 
 
@@ -140,7 +141,8 @@ def mock_multi_frame_ai_result():
         response_time_ms=450,
         error=None,
         ai_confidence=92,
-        cost_estimate=0.003
+        cost_estimate=0.003,
+        bounding_boxes=None  # Story P15-5.1: Added for AI visual annotations
     )
 
 

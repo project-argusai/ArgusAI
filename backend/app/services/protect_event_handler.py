@@ -217,6 +217,26 @@ class ProtectEventHandler:
             # Only process Camera or Doorbell events
             model_type = type(new_obj).__name__
             if model_type not in ('Camera', 'Doorbell'):
+                # DEBUG: Log Event type objects to understand their structure
+                if model_type == 'Event':
+                    event_type = getattr(new_obj, 'type', None)
+                    event_camera = getattr(new_obj, 'camera', None)
+                    event_camera_id = getattr(new_obj, 'camera_id', None)
+                    event_smart = getattr(new_obj, 'smart_detect_types', None)
+                    event_start = getattr(new_obj, 'start', None)
+                    event_end = getattr(new_obj, 'end', None)
+                    logger.info(
+                        f"Protect Event object received: type={event_type}, smart_types={event_smart}",
+                        extra={
+                            "event_type": "protect_native_event_debug",
+                            "model_type": model_type,
+                            "protect_event_type": str(event_type) if event_type else None,
+                            "camera_id": str(event_camera_id) if event_camera_id else None,
+                            "smart_detect_types": str(event_smart) if event_smart else None,
+                            "start": str(event_start) if event_start else None,
+                            "end": str(event_end) if event_end else None,
+                        }
+                    )
                 return False
 
             # Extract protect_camera_id

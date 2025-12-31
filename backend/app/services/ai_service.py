@@ -2594,6 +2594,10 @@ class AIService:
                 self.annotations_enabled = keys['enable_ai_annotations'].lower() == 'true'
             else:
                 self.annotations_enabled = False
+            # Also update the global singleton so prompt builders can access it
+            global ai_service
+            if ai_service is not self:
+                ai_service.annotations_enabled = self.annotations_enabled
             logger.info(f"AI annotations: {'enabled' if self.annotations_enabled else 'disabled'}")
 
             # Story P4-5.4: Load camera-specific prompt overrides

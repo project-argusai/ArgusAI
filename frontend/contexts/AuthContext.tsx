@@ -75,13 +75,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       const response = await apiClient.auth.login({ username, password });
+      console.log('API login response:', response);
+      console.log('response.must_change_password:', response.must_change_password);
+      console.log('response.user.must_change_password:', response.user.must_change_password);
       // Store token for Authorization header (backup for cookie issues)
       if (response.access_token) {
         setAuthToken(response.access_token);
       }
       setUser(response.user);
+      const mustChangePassword = response.must_change_password || response.user.must_change_password;
+      console.log('Returning mustChangePassword:', mustChangePassword);
       return {
-        mustChangePassword: response.must_change_password || response.user.must_change_password,
+        mustChangePassword,
       };
     } catch (error) {
       console.error('Login failed:', error);

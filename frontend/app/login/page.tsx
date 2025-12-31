@@ -73,10 +73,14 @@ export default function LoginPage() {
 
     try {
       const result = await login(data.username, data.password);
+      console.log('Login result:', result);
+      console.log('mustChangePassword:', result.mustChangePassword);
       // Check if user needs to change password (P15-2.6)
       if (result.mustChangePassword) {
+        console.log('Redirecting to /change-password');
         router.push('/change-password');
       } else {
+        console.log('Redirecting to', returnUrl);
         router.push(returnUrl);
       }
     } catch (err) {

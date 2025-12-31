@@ -57,7 +57,7 @@ The video player modal provides:
 - **Download**: Save the video as an MP4 file
 
 :::tip
-Enable **Store Motion Videos** in Settings > Analysis Settings to capture video clips from your Protect cameras.
+Enable **Store Motion Videos** in Settings > General tab to capture video clips from your Protect cameras.
 :::
 
 ## Filtering Events

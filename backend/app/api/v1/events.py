@@ -72,9 +72,9 @@ def _get_annotated_thumbnail_path(event) -> Optional[str]:
     """
     Get annotated thumbnail path for an event (Story P15-5.1).
 
-    Returns path to _annotated version of thumbnail if:
+    Returns API URL path to _annotated version of thumbnail if:
     1. Event has has_annotations=True
-    2. Original thumbnail_path exists
+    2. Annotated thumbnail file exists on disk
 
     Returns None if no annotation available.
     """
@@ -85,15 +85,19 @@ def _get_annotated_thumbnail_path(event) -> Optional[str]:
     if not thumbnail_path:
         return None
 
+    # Normalize path (strip /api/v1/thumbnails/ prefix if present)
+    relative_path = _normalize_thumbnail_path(thumbnail_path)
+
     # Generate annotated path from original (frame.jpg -> frame_annotated.jpg)
     import os
-    base, ext = os.path.splitext(thumbnail_path)
-    annotated_path = f"{base}_annotated{ext}"
+    base, ext = os.path.splitext(relative_path)
+    annotated_relative_path = f"{base}_annotated{ext}"
 
-    # Check if annotated file exists
-    full_path = os.path.join(THUMBNAIL_DIR, annotated_path)
+    # Check if annotated file exists on disk
+    full_path = os.path.join(THUMBNAIL_DIR, annotated_relative_path)
     if os.path.exists(full_path):
-        return annotated_path
+        # Return as API URL path for frontend use
+        return f"/api/v1/thumbnails/{annotated_relative_path}"
 
     return None
 

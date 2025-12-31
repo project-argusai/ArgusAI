@@ -39,7 +39,7 @@ type LoginFormData = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { login, user, isAuthenticated, isLoading: authLoading } = useAuth();
 
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,12 +48,17 @@ export default function LoginPage() {
   // Get return URL from query params
   const returnUrl = searchParams.get('returnUrl') || '/';
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated (but not if password change required)
   useEffect(() => {
-    if (isAuthenticated && !authLoading) {
-      router.push(returnUrl);
+    if (isAuthenticated && !authLoading && !isSubmitting) {
+      // If user needs password change, redirect to change-password page
+      if (user?.must_change_password) {
+        router.push('/change-password');
+      } else {
+        router.push(returnUrl);
+      }
     }
-  }, [isAuthenticated, authLoading, router, returnUrl]);
+  }, [isAuthenticated, authLoading, user, router, returnUrl, isSubmitting]);
 
   const {
     register,

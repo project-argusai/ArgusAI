@@ -1,7 +1,7 @@
 """Add multi-user auth tables (Story P15-2.1, P15-2.2)
 
 Revision ID: g1a2b3c4d5e6
-Revises: f9c5d7e8a1b2
+Revises: 059
 Create Date: 2025-12-30 10:00:00.000000
 
 Story P15-2.1: User model and database schema
@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 
 # revision identifiers, used by Alembic.
 revision = 'g1a2b3c4d5e6'
-down_revision = 'f9c5d7e8a1b2'
+down_revision = '059'
 branch_labels = None
 depends_on = None
 
@@ -52,8 +52,10 @@ def upgrade() -> None:
     # Note: For SQLite, we need to handle existing NULL values properly
 
     # Add email column (nullable for backwards compatibility)
-    op.add_column('users', sa.Column('email', sa.String(255), nullable=True, unique=True))
-    op.create_index('idx_users_email', 'users', ['email'])
+    # Note: SQLite doesn't support adding column with unique constraint, so we add
+    # a unique index separately
+    op.add_column('users', sa.Column('email', sa.String(255), nullable=True))
+    op.create_index('idx_users_email', 'users', ['email'], unique=True)
 
     # Add role column with default 'admin' for existing users
     op.add_column('users', sa.Column('role', sa.String(20), nullable=False, server_default='admin'))
@@ -83,7 +85,7 @@ def downgrade() -> None:
     op.drop_column('users', 'must_change_password')
     op.drop_index('idx_users_role', table_name='users')
     op.drop_column('users', 'role')
-    op.drop_index('idx_users_email', table_name='users')
+    op.drop_index('idx_users_email', table_name='users')  # unique index
     op.drop_column('users', 'email')
 
     # Drop sessions table and indexes

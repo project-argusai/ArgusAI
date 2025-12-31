@@ -78,7 +78,11 @@ class Session(Base):
 
     def is_expired(self) -> bool:
         """Check if session has expired"""
-        return datetime.now(timezone.utc) > self.expires_at
+        # Handle both naive and aware datetimes (SQLite stores naive)
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > expires_at
 
     def update_activity(self) -> None:
         """Update last_active_at to current time"""

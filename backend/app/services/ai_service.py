@@ -424,7 +424,9 @@ class AIProviderBase(ABC):
 
         # Story P3-6.1, P15-5.1: Add confidence/bounding box instruction
         # Use bounding box instruction when annotations are enabled
+        logger.debug(f"P15-5 Debug: ai_service exists={ai_service is not None}, annotations_enabled={getattr(ai_service, 'annotations_enabled', 'N/A') if ai_service else 'N/A'}")
         if ai_service and ai_service.annotations_enabled:
+            logger.info("P15-5: Using BOUNDING_BOX_INSTRUCTION for AI prompt")
             prompt += BOUNDING_BOX_INSTRUCTION
         else:
             prompt += CONFIDENCE_INSTRUCTION

@@ -1884,6 +1884,33 @@ async def reanalyze_event(
         if frame_count_used:
             event.frame_count_used = frame_count_used
 
+        # Story P15-5.1: Store bounding boxes from AI result
+        if hasattr(result, 'bounding_boxes') and result.bounding_boxes:
+            event.bounding_boxes = json.dumps(result.bounding_boxes)
+            event.has_annotations = True
+
+            # Generate annotated thumbnail
+            if event.thumbnail_path:
+                try:
+                    from app.services.frame_annotation_service import get_frame_annotation_service
+                    annotation_service = get_frame_annotation_service()
+
+                    # Get full path to thumbnail
+                    thumb_path = _normalize_thumbnail_path(event.thumbnail_path)
+                    thumbnail_full_path = os.path.join(THUMBNAIL_DIR, thumb_path)
+
+                    if os.path.exists(thumbnail_full_path):
+                        annotated_path = annotation_service.annotate_frame(
+                            thumbnail_full_path,
+                            result.bounding_boxes
+                        )
+                        if annotated_path:
+                            logger.info(f"Generated annotated thumbnail: {annotated_path}")
+                except Exception as ann_err:
+                    logger.warning(f"Failed to generate annotated thumbnail: {ann_err}")
+        else:
+            event.has_annotations = False
+
         db.commit()
         db.refresh(event)
 

@@ -695,41 +695,59 @@ class ProtectEventHandler:
                     return False
 
                 # Filter based on camera's smart_detection_types configuration
-                allowed_types = camera.smart_detection_types or []
-                matching_types = self._filter_event_types(event_types, allowed_types)
+                smart_detection_types = self._load_smart_detection_types(camera)
+                matching_types = []
+
+                for evt_type in event_types:
+                    # Map event type to filter type (e.g., "smart_detect_person" -> "person")
+                    filter_type = EVENT_TYPE_MAPPING.get(evt_type)
+                    if not filter_type:
+                        continue
+
+                    # Check if event should be processed based on camera config
+                    if self._should_process_event(filter_type, smart_detection_types, camera.name):
+                        matching_types.append(evt_type)
 
                 if not matching_types:
                     logger.debug(
-                        f"Native event types {event_types} not in camera filter {allowed_types} - discarding",
+                        f"Native event types {event_types} not in camera filter {smart_detection_types} - discarding",
                         extra={
                             "event_type": "protect_native_event_filtered",
                             "camera_id": camera.id,
                             "camera_name": camera.name,
                             "detected_types": event_types,
-                            "allowed_types": allowed_types,
+                            "allowed_types": smart_detection_types,
                         }
                     )
                     return False
 
-                # Check deduplication cooldown
-                primary_type = matching_types[0] if matching_types else "unknown"
-                if self._is_duplicate(camera.id, primary_type, camera.motion_cooldown):
+                # Check deduplication cooldown using existing method
+                if self._is_duplicate_event(camera.id, camera.name):
                     logger.debug(
-                        f"Native event deduplicated for camera '{camera.name}' ({primary_type})",
+                        f"Native event deduplicated for camera '{camera.name}'",
                         extra={
                             "event_type": "protect_native_event_deduplicated",
                             "camera_id": camera.id,
                             "camera_name": camera.name,
-                            "event_subtype": primary_type,
                         }
                     )
                     return False
+
+                # Update tracking timestamp
+                self._last_event_times[camera.id] = datetime.now(timezone.utc)
 
                 # Determine if this is a doorbell ring
                 is_doorbell_ring = event_type == ProtectEventType.RING
 
                 # Get timestamp
                 event_timestamp = event_start or datetime.now(timezone.utc)
+
+                # Generate event ID for clip filename
+                generated_event_id = str(uuid.uuid4())
+
+                # Get primary filter type for AI
+                primary_event_type = matching_types[0] if matching_types else "motion"
+                filter_type = EVENT_TYPE_MAPPING.get(primary_event_type, "motion")
 
                 logger.info(
                     f"Processing native event from camera '{camera.name}': {matching_types}",
@@ -739,21 +757,121 @@ class ProtectEventHandler:
                         "camera_id": camera.id,
                         "camera_name": camera.name,
                         "detected_types": matching_types,
+                        "filter_type": filter_type,
                         "is_doorbell_ring": is_doorbell_ring,
                         "protect_event_id": str(protect_event_id) if protect_event_id else None,
                     }
                 )
 
-                # Process the event (get snapshot, AI analysis, save to DB)
-                await self._process_event(
+                # Attempt clip download
+                clip_path, fallback_reason = await self._download_clip_for_event(
                     controller_id=controller_id,
-                    db=db,
-                    camera=camera,
-                    event_types=matching_types,
-                    is_doorbell_ring=is_doorbell_ring,
-                    event_timestamp=event_timestamp,
-                    protect_event_id=str(protect_event_id) if protect_event_id else None,
+                    protect_camera_id=camera.protect_camera_id,
+                    camera_id=camera.id,
+                    camera_name=camera.name,
+                    event_id=generated_event_id,
+                    event_timestamp=event_timestamp
                 )
+
+                # Retrieve snapshot for AI processing
+                snapshot_result = await self._retrieve_snapshot(
+                    controller_id,
+                    camera.protect_camera_id,
+                    camera.id,
+                    camera.name,
+                    primary_event_type
+                )
+
+                if not snapshot_result:
+                    # Clean up clip if snapshot failed
+                    if clip_path:
+                        try:
+                            clip_service = get_clip_service()
+                            clip_service.cleanup_clip(generated_event_id)
+                        except Exception:
+                            pass
+                    return False
+
+                # For doorbell rings, broadcast immediately
+                if is_doorbell_ring:
+                    await self._broadcast_doorbell_ring(
+                        camera_id=camera.id,
+                        camera_name=camera.name,
+                        thumbnail_url=snapshot_result.thumbnail_path,
+                        timestamp=snapshot_result.timestamp
+                    )
+                    self._trigger_homekit_doorbell(camera.id, generated_event_id)
+
+                # Track processing time
+                pipeline_start = time.time()
+
+                # Submit to AI pipeline
+                ai_result = await self._submit_to_ai_pipeline(
+                    snapshot_result,
+                    camera,
+                    filter_type,
+                    is_doorbell_ring=is_doorbell_ring,
+                    clip_path=clip_path
+                )
+
+                # Cleanup clip after AI processing
+                if clip_path:
+                    try:
+                        clip_service = get_clip_service()
+                        clip_service.cleanup_clip(generated_event_id)
+                    except Exception as e:
+                        logger.warning(f"Clip cleanup error: {e}")
+
+                if not ai_result or not ai_result.success:
+                    # Store event without AI description
+                    stored_event = await self._store_event_without_ai(
+                        db,
+                        snapshot_result,
+                        camera,
+                        filter_type,
+                        str(protect_event_id) if protect_event_id else None,
+                        is_doorbell_ring=is_doorbell_ring,
+                        event_id_override=generated_event_id
+                    )
+                    if stored_event:
+                        await self._broadcast_event_created(stored_event, camera)
+                        asyncio.create_task(self._process_correlation(stored_event))
+                        await self._publish_event_to_mqtt(stored_event, camera, None)
+                        return True
+                    return False
+
+                # Store event with AI result
+                stored_event = await self._store_protect_event(
+                    db,
+                    ai_result,
+                    snapshot_result,
+                    camera,
+                    filter_type,
+                    str(protect_event_id) if protect_event_id else None,
+                    is_doorbell_ring=is_doorbell_ring,
+                    fallback_reason=fallback_reason,
+                    event_id_override=generated_event_id
+                )
+
+                if not stored_event:
+                    return False
+
+                # Log processing time
+                processing_time_ms = int((time.time() - pipeline_start) * 1000)
+                if processing_time_ms > 2000:
+                    logger.warning(
+                        f"Processing time {processing_time_ms}ms exceeds 2s target for camera '{camera.name}'",
+                        extra={
+                            "event_type": "protect_latency_warning",
+                            "camera_id": camera.id,
+                            "processing_time_ms": processing_time_ms
+                        }
+                    )
+
+                # Broadcast and publish event
+                await self._broadcast_event_created(stored_event, camera)
+                asyncio.create_task(self._process_correlation(stored_event))
+                await self._publish_event_to_mqtt(stored_event, camera, ai_result)
 
                 return True
 

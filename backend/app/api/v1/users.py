@@ -1,10 +1,12 @@
-"""User management API endpoints (Story P15-2.3)
+"""User management API endpoints (Story P15-2.3, P16-1.2)
 
 Admin-only endpoints for managing user accounts.
 
 Permission Matrix:
 - All endpoints require admin role
 - Regular users can only manage their own profile via /auth endpoints
+
+Story P16-1.2: Added invited_by/invited_at tracking for user creation.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -55,11 +57,13 @@ async def create_user(
     service = UserService(db)
 
     try:
+        # Story P16-1.2: Track who created this user
         user, temp_password = service.create_user(
             username=user_data.username,
             role=user_data.role,
             email=user_data.email,
             send_email=user_data.send_email,
+            invited_by=current_user.id,
         )
     except ValueError as e:
         raise HTTPException(
@@ -75,6 +79,8 @@ async def create_user(
         temporary_password=temp_password if not user_data.send_email else None,
         password_expires_at=user.password_expires_at,
         created_at=user.created_at,
+        invited_by=user.invited_by,
+        invited_at=user.invited_at,
     )
 
 
@@ -105,6 +111,8 @@ async def list_users(
             must_change_password=user.must_change_password,
             created_at=user.created_at,
             last_login=user.last_login,
+            invited_by=user.invited_by,
+            invited_at=user.invited_at,
         )
         for user in users
     ]
@@ -144,6 +152,8 @@ async def get_user(
         must_change_password=user.must_change_password,
         created_at=user.created_at,
         last_login=user.last_login,
+        invited_by=user.invited_by,
+        invited_at=user.invited_at,
     )
 
 
@@ -195,6 +205,8 @@ async def update_user(
         must_change_password=user.must_change_password,
         created_at=user.created_at,
         last_login=user.last_login,
+        invited_by=user.invited_by,
+        invited_at=user.invited_at,
     )
 
 

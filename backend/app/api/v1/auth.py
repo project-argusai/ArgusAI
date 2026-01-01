@@ -371,11 +371,14 @@ async def change_password(
         )
 
     # Update password using UserService
+    # Story P16-1.6: Pass request info for audit logging
     user_service = UserService(db)
     user_service.change_password(
         user=user,
         new_password=password_data.new_password,
-        clear_must_change=True  # Always clear the flag after successful change
+        clear_must_change=True,  # Always clear the flag after successful change
+        ip_address=get_remote_address(request),
+        user_agent=request.headers.get("User-Agent", ""),
     )
 
     logger.info(

@@ -1,6 +1,7 @@
-"""User management service (Story P15-2.3, P15-2.5, P16-1.2)
+"""User management service (Story P15-2.3, P15-2.5, P16-1.2, P16-1.6)
 
 Provides user CRUD operations, invitation flow, and password reset functionality.
+Includes audit logging for all user management actions (P16-1.6).
 """
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Tuple
@@ -11,6 +12,7 @@ import logging
 
 from app.models.user import User, UserRole
 from app.utils.auth import hash_password
+from app.services.user_audit_service import UserAuditService
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ GENERATED_PASSWORD_LENGTH = 16
 
 class UserService:
     """
-    Service for managing users (Story P15-2.3, P15-2.5)
+    Service for managing users (Story P15-2.3, P15-2.5, P16-1.6)
 
     Responsibilities:
     - Create users with temporary passwords (invitation flow)
@@ -31,10 +33,12 @@ class UserService:
     - Reset passwords
     - Enable/disable accounts
     - Delete users
+    - Log all actions to audit trail (P16-1.6)
     """
 
     def __init__(self, db: DBSession):
         self.db = db
+        self.audit_service = UserAuditService(db)
 
     def create_user(
         self,
@@ -43,6 +47,8 @@ class UserService:
         email: Optional[str] = None,
         send_email: bool = False,
         invited_by: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> Tuple[User, str]:
         """
         Create a new user with temporary password.
@@ -53,6 +59,8 @@ class UserService:
             email: Optional email address
             send_email: Whether to send invitation email (future feature)
             invited_by: User ID of the admin who created this user (Story P16-1.2)
+            ip_address: Request IP address for audit logging (P16-1.6)
+            user_agent: Request User-Agent for audit logging (P16-1.6)
 
         Returns:
             Tuple of (User, temporary_password)
@@ -104,6 +112,17 @@ class UserService:
             }
         )
 
+        # Story P16-1.6: Log user creation to audit trail
+        self.audit_service.log_create_user(
+            actor_id=invited_by,
+            target_user_id=user.id,
+            username=username,
+            role=role,
+            email=email,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
         # TODO: If send_email and email is configured, send invitation email
         # For now, we just return the password for display
 
@@ -126,7 +145,10 @@ class UserService:
         user_id: str,
         email: Optional[str] = None,
         role: Optional[str] = None,
-        is_active: Optional[bool] = None
+        is_active: Optional[bool] = None,
+        actor_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> Optional[User]:
         """
         Update user details.
@@ -136,6 +158,9 @@ class UserService:
             email: New email address
             role: New role (admin, operator, viewer)
             is_active: New active status
+            actor_id: ID of user performing the update (P16-1.6)
+            ip_address: Request IP address for audit logging (P16-1.6)
+            user_agent: Request User-Agent for audit logging (P16-1.6)
 
         Returns:
             Updated User or None if not found
@@ -143,6 +168,10 @@ class UserService:
         user = self.get_user(user_id)
         if not user:
             return None
+
+        # Track changes for audit logging (P16-1.6)
+        old_role = user.role.value if user.role else None
+        old_is_active = user.is_active
 
         if email is not None:
             user.email = email
@@ -176,9 +205,57 @@ class UserService:
             }
         )
 
+        # Story P16-1.6: Log user update to audit trail
+        changes = {}
+        if email is not None:
+            changes["email"] = email
+        if role is not None and role != old_role:
+            changes["old_role"] = old_role
+            changes["new_role"] = role
+            # Also log as separate change_role action for role changes
+            self.audit_service.log_change_role(
+                actor_id=actor_id,
+                target_user_id=user_id,
+                old_role=old_role,
+                new_role=role,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+        if is_active is not None and is_active != old_is_active:
+            if is_active:
+                self.audit_service.log_enable_user(
+                    actor_id=actor_id,
+                    target_user_id=user_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+            else:
+                self.audit_service.log_disable_user(
+                    actor_id=actor_id,
+                    target_user_id=user_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                )
+
+        # Log general update if there are non-role, non-active changes
+        if changes:
+            self.audit_service.log_update_user(
+                actor_id=actor_id,
+                target_user_id=user_id,
+                changes=changes,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+
         return user
 
-    def delete_user(self, user_id: str) -> bool:
+    def delete_user(
+        self,
+        user_id: str,
+        actor_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> bool:
         """
         Delete a user.
 
@@ -186,6 +263,9 @@ class UserService:
 
         Args:
             user_id: User ID to delete
+            actor_id: ID of user performing the deletion (P16-1.6)
+            ip_address: Request IP address for audit logging (P16-1.6)
+            user_agent: Request User-Agent for audit logging (P16-1.6)
 
         Returns:
             True if deleted, False if not found
@@ -195,6 +275,17 @@ class UserService:
             return False
 
         username = user.username
+
+        # Story P16-1.6: Log deletion before actually deleting
+        # (so we have the user info still available)
+        self.audit_service.log_delete_user(
+            actor_id=actor_id,
+            target_user_id=user_id,
+            username=username,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
         self.db.delete(user)
         self.db.commit()
 
@@ -209,12 +300,21 @@ class UserService:
 
         return True
 
-    def reset_password(self, user_id: str) -> Tuple[Optional[str], Optional[datetime]]:
+    def reset_password(
+        self,
+        user_id: str,
+        actor_id: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[datetime]]:
         """
         Reset user password to a temporary password.
 
         Args:
             user_id: User ID
+            actor_id: ID of admin performing the reset (P16-1.6)
+            ip_address: Request IP address for audit logging (P16-1.6)
+            user_agent: Request User-Agent for audit logging (P16-1.6)
 
         Returns:
             Tuple of (temp_password, expires_at) or (None, None) if user not found
@@ -250,13 +350,23 @@ class UserService:
             }
         )
 
+        # Story P16-1.6: Log password reset to audit trail
+        self.audit_service.log_reset_password(
+            actor_id=actor_id,
+            target_user_id=user_id,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
         return temp_password, expires_at
 
     def change_password(
         self,
         user: User,
         new_password: str,
-        clear_must_change: bool = True
+        clear_must_change: bool = True,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ) -> None:
         """
         Change user's password.
@@ -265,6 +375,8 @@ class UserService:
             user: User object
             new_password: New password (already validated)
             clear_must_change: Whether to clear must_change_password flag
+            ip_address: Request IP address for audit logging (P16-1.6)
+            user_agent: Request User-Agent for audit logging (P16-1.6)
         """
         user.password_hash = hash_password(new_password)
 
@@ -282,6 +394,13 @@ class UserService:
                 "user_id": user.id,
                 "username": user.username,
             }
+        )
+
+        # Story P16-1.6: Log password change to audit trail
+        self.audit_service.log_change_password(
+            user_id=user.id,
+            ip_address=ip_address,
+            user_agent=user_agent,
         )
 
     def _generate_password(self) -> str:

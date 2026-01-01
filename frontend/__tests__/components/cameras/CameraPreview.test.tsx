@@ -15,6 +15,12 @@ vi.mock('next/link', () => ({
   ),
 }));
 
+// Mock LiveStreamModal to avoid WebSocket complexity
+vi.mock('@/components/streaming/LiveStreamModal', () => ({
+  LiveStreamModal: ({ open, cameraName }: { open: boolean; cameraName: string }) =>
+    open ? <div data-testid="live-stream-modal">Modal: {cameraName}</div> : null,
+}));
+
 /**
  * Factory function for creating mock camera data
  */
@@ -105,6 +111,46 @@ describe('CameraPreview', () => {
       const camera = createMockCamera({ source_type: 'protect' });
       render(<CameraPreview camera={camera} onDelete={mockOnDelete} />);
       expect(screen.getByText('Configure')).toBeInTheDocument();
+    });
+
+    it('renders Live View button for Protect cameras (AC: P16-2.4)', () => {
+      const camera = createMockCamera({ source_type: 'protect' });
+      render(<CameraPreview camera={camera} onDelete={mockOnDelete} />);
+      expect(screen.getByText('Live View')).toBeInTheDocument();
+    });
+
+    it('does NOT render Live View button for RTSP cameras (AC: P16-2.4)', () => {
+      const camera = createMockCamera({ source_type: 'rtsp' });
+      render(<CameraPreview camera={camera} onDelete={mockOnDelete} />);
+      expect(screen.queryByText('Live View')).not.toBeInTheDocument();
+    });
+
+    it('does NOT render Live View button for USB cameras (AC: P16-2.4)', () => {
+      const camera = createMockCamera({ source_type: 'usb', type: 'usb' });
+      render(<CameraPreview camera={camera} onDelete={mockOnDelete} />);
+      expect(screen.queryByText('Live View')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Live View Modal (AC: P16-2.4)', () => {
+    it('opens LiveStreamModal when Live View button is clicked', async () => {
+      const camera = createMockCamera({
+        id: 'protect-cam-1',
+        name: 'Front Door',
+        source_type: 'protect',
+      });
+      const { user } = render(<CameraPreview camera={camera} onDelete={mockOnDelete} />);
+
+      // Modal should not be visible initially
+      expect(screen.queryByTestId('live-stream-modal')).not.toBeInTheDocument();
+
+      // Click Live View button
+      const liveViewButton = screen.getByRole('button', { name: /live view/i });
+      await user.click(liveViewButton);
+
+      // Modal should now be visible with camera name
+      expect(screen.getByTestId('live-stream-modal')).toBeInTheDocument();
+      expect(screen.getByText('Modal: Front Door')).toBeInTheDocument();
     });
   });
 

@@ -1,4 +1,4 @@
-"""User management service (Story P15-2.3, P15-2.5)
+"""User management service (Story P15-2.3, P15-2.5, P16-1.2)
 
 Provides user CRUD operations, invitation flow, and password reset functionality.
 """
@@ -41,7 +41,8 @@ class UserService:
         username: str,
         role: str = "viewer",
         email: Optional[str] = None,
-        send_email: bool = False
+        send_email: bool = False,
+        invited_by: Optional[str] = None,
     ) -> Tuple[User, str]:
         """
         Create a new user with temporary password.
@@ -51,6 +52,7 @@ class UserService:
             role: User role (admin, operator, viewer)
             email: Optional email address
             send_email: Whether to send invitation email (future feature)
+            invited_by: User ID of the admin who created this user (Story P16-1.2)
 
         Returns:
             Tuple of (User, temporary_password)
@@ -66,6 +68,7 @@ class UserService:
         password_expires_at = datetime.now(timezone.utc) + timedelta(hours=TEMP_PASSWORD_EXPIRY_HOURS)
 
         # Create user with must_change_password flag
+        # Story P16-1.2: Track who created this user and when
         user = User(
             username=username,
             email=email,
@@ -74,6 +77,8 @@ class UserService:
             is_active=True,
             must_change_password=True,
             password_expires_at=password_expires_at,
+            invited_by=invited_by,
+            invited_at=datetime.now(timezone.utc) if invited_by else None,
         )
 
         try:

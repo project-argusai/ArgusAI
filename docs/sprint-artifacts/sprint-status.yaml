@@ -1120,7 +1120,7 @@ development_status:
   # GitHub: #336
   # FRs Covered: FR16-FR22
   epic-p16-2: backlog
-  p16-2-1-research-and-design-streaming-approach: backlog
+  p16-2-1-research-and-design-streaming-approach: done
   p16-2-2-implement-backend-stream-proxy-service: backlog
   p16-2-3-create-livestreamplayer-frontend-component: backlog
   p16-2-4-add-live-view-button-to-camera-cards: backlog

@@ -1108,8 +1108,8 @@ development_status:
   p16-1-1-extend-user-model-for-multi-user-support: done
   p16-1-2-create-user-management-api-endpoints: done
   p16-1-3-implement-role-based-authorization-middleware: done
-  p16-1-4-create-user-management-ui-page: backlog
-  p16-1-5-force-password-change-on-first-login: backlog
+  p16-1-4-create-user-management-ui-page: done
+  p16-1-5-force-password-change-on-first-login: done
   p16-1-6-user-audit-logging: backlog
   p16-1-7-email-invitation-flow: backlog
   epic-p16-1-retrospective: optional

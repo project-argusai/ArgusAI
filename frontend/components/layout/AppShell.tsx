@@ -1,9 +1,10 @@
 /**
- * App Shell - Protected layout wrapper (Story 6.3)
+ * App Shell - Protected layout wrapper (Story 6.3, P16-1.5)
  * FF-005: Mobile navigation uses top bar only (hamburger menu in Header)
  *
  * Handles authentication and conditionally renders:
  * - Login page: No header/sidebar, full screen
+ * - Change password page: Protected but no layout (P16-1.5)
  * - Protected pages: Full layout with auth check
  *
  * Updated for Story P4-1.5: Added PWA install prompt and update banner
@@ -27,13 +28,22 @@ interface AppShellProps {
 // Public routes that don't require authentication
 const PUBLIC_ROUTES = ['/login'];
 
+// Routes that require auth but no layout (P16-1.5)
+const AUTH_NO_LAYOUT_ROUTES = ['/change-password'];
+
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const isPublicRoute = PUBLIC_ROUTES.some(route => pathname?.startsWith(route));
+  const isAuthNoLayoutRoute = AUTH_NO_LAYOUT_ROUTES.some(route => pathname?.startsWith(route));
 
   // Public routes: render without layout
   if (isPublicRoute) {
     return <>{children}</>;
+  }
+
+  // Story P16-1.5: Auth required but no layout (change-password page)
+  if (isAuthNoLayoutRoute) {
+    return <ProtectedRoute>{children}</ProtectedRoute>;
   }
 
   // Protected routes: wrap with auth check and full layout

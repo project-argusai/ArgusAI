@@ -1147,10 +1147,10 @@ development_status:
   # Focus: Confirmation dialog for entity assignment re-classification
   # GitHub: #337
   # FRs Covered: FR30-FR35
-  epic-p16-4: contexted
+  epic-p16-4: done
   p16-4-1-create-entity-assignment-confirmation-dialog: done
   p16-4-2-add-dont-show-again-preference: done
-  p16-4-3-display-re-classification-status: backlog
+  p16-4-3-display-re-classification-status: done
   epic-p16-4-retrospective: optional
 
   # Epic P16-5: Active Sessions Management

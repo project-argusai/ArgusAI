@@ -1123,7 +1123,7 @@ development_status:
   p16-2-1-research-and-design-streaming-approach: done
   p16-2-2-implement-backend-stream-proxy-service: done
   p16-2-3-create-livestreamplayer-frontend-component: done
-  p16-2-4-add-live-view-button-to-camera-cards: backlog
+  p16-2-4-add-live-view-button-to-camera-cards: done
   p16-2-5-implement-concurrent-stream-limiting: backlog
   epic-p16-2-retrospective: optional
 

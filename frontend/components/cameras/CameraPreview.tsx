@@ -7,12 +7,13 @@
 
 'use client';
 
-import { memo } from 'react';
+import { memo, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Edit, Trash2, Shield, Camera, Usb, Settings } from 'lucide-react';
+import { Edit, Trash2, Shield, Camera, Usb, Settings, Video } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CameraStatus } from './CameraStatus';
+import { LiveStreamModal } from '@/components/streaming/LiveStreamModal';
 import type { ICamera, CameraSourceType } from '@/types/camera';
 import { format } from 'date-fns';
 
@@ -68,14 +69,26 @@ function arePropsEqual(
  * Camera preview card
  * Shows camera name, source type badge, status, and action buttons
  * Memoized to prevent unnecessary re-renders when parent updates
+ * Story P16-2.4: Added Live View button for Protect cameras
  */
 export const CameraPreview = memo(function CameraPreview({ camera, onDelete }: CameraPreviewProps) {
+  const [isLiveViewOpen, setIsLiveViewOpen] = useState(false);
+
   const sourceType = (camera.source_type || camera.type || 'rtsp') as CameraSourceType;
   const sourceConfig = SOURCE_CONFIG[sourceType] || SOURCE_CONFIG.rtsp;
   const SourceIcon = sourceConfig.icon;
   const isProtect = sourceType === 'protect';
 
+  const handleLiveViewClick = useCallback(() => {
+    setIsLiveViewOpen(true);
+  }, []);
+
+  const handleLiveViewClose = useCallback((open: boolean) => {
+    setIsLiveViewOpen(open);
+  }, []);
+
   return (
+    <>
     <Card className="hover:shadow-lg transition-shadow">
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
@@ -137,18 +150,29 @@ export const CameraPreview = memo(function CameraPreview({ camera, onDelete }: C
         {/* Action buttons */}
         <div className="flex gap-2 pt-2">
           {isProtect ? (
-            // Protect cameras: Configure link instead of Edit
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="flex-1"
-            >
-              <Link href="/settings?tab=protect">
-                <Settings className="h-4 w-4 mr-2" />
-                Configure
-              </Link>
-            </Button>
+            // Protect cameras: Configure link + Live View button
+            <>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="flex-1"
+              >
+                <Link href="/settings?tab=protect">
+                  <Settings className="h-4 w-4 mr-2" />
+                  Configure
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLiveViewClick}
+                className="flex-1"
+              >
+                <Video className="h-4 w-4 mr-2" />
+                Live View
+              </Button>
+            </>
           ) : (
             // RTSP/USB cameras: Edit link
             <Button
@@ -174,5 +198,16 @@ export const CameraPreview = memo(function CameraPreview({ camera, onDelete }: C
         </div>
       </CardContent>
     </Card>
+
+    {/* Live View Modal - Only rendered for Protect cameras */}
+    {isProtect && (
+      <LiveStreamModal
+        open={isLiveViewOpen}
+        onOpenChange={handleLiveViewClose}
+        cameraId={camera.id}
+        cameraName={camera.name}
+      />
+    )}
+    </>
   );
 }, arePropsEqual);

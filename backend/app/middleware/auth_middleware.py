@@ -78,6 +78,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         '/api/v1/mobile/auth/refresh',   # Mobile refreshes tokens
     )
 
+    # Path suffixes that don't require authentication (WebSocket endpoints)
+    EXCLUDED_SUFFIXES: tuple = (
+        '/stream',  # Camera WebSocket streaming (P16-2)
+    )
+
     COOKIE_NAME = "access_token"
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
@@ -196,6 +201,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         for prefix in self.EXCLUDED_PREFIXES:
             if path.startswith(prefix):
+                return True
+
+        # Check suffixes (for WebSocket endpoints like /api/v1/cameras/{id}/stream)
+        # Use path without query string
+        path_only = path.split('?')[0] if '?' in path else path
+        for suffix in self.EXCLUDED_SUFFIXES:
+            if path_only.endswith(suffix):
                 return True
 
         # Event frames are public (used in img tags)

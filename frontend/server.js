@@ -100,7 +100,7 @@ server.on('upgrade', (req, socket, head) => {
     return;
   }
 
-  console.log(`WebSocket upgrade: ${pathname} -> ${backendHost}:${backendPort}`);
+  console.log(`WebSocket upgrade: ${pathname} -> ${backendHost}:${backendPort} (type: ${typeof backendPort})`);
 
   // CRITICAL: Block socket writes IMMEDIATELY to prevent Next.js from
   // sending its 101 response before our backend connection completes.
@@ -129,7 +129,9 @@ server.on('upgrade', (req, socket, head) => {
   };
 
   // Create raw TCP connection to backend
+  console.log(`Connecting to backend ${backendHost}:${backendPort}...`);
   const backendSocket = net.connect(backendPort, backendHost, () => {
+    console.log(`Backend connection established`);
     // Build the HTTP upgrade request to send to backend
     // Filter out compression headers to avoid frame issues
     let httpRequest = `${req.method} ${req.url} HTTP/1.1\r\n`;
@@ -172,8 +174,14 @@ server.on('upgrade', (req, socket, head) => {
   backendSocket.on('close', () => socket.destroy());
   socket.on('error', () => backendSocket.destroy());
   backendSocket.on('error', (err) => {
-    console.error('WebSocket proxy error:', err.message);
+    console.error(`WebSocket proxy error: ${err.message} (code: ${err.code})`);
     socket.destroy();
+  });
+
+  // Log connection timeout
+  backendSocket.setTimeout(5000, () => {
+    console.error('Backend connection timeout');
+    backendSocket.destroy();
   });
 });
 

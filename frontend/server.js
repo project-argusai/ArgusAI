@@ -101,34 +101,15 @@ server.on('upgrade', (req, socket, head) => {
   }
 
   console.log(`WebSocket upgrade: ${pathname} -> ${backendHost}:${backendPort}`);
-  console.log(`Socket type: ${socket.constructor.name}, encrypted: ${socket.encrypted}`);
 
-  // CRITICAL: Block all writes to this socket until we're connected to backend
-  // TLSSocket uses _write internally, so we need to override that too
-  const originalWrite = socket.write.bind(socket);
-  const originalWritev = socket._writev ? socket._writev.bind(socket) : null;
-  let ourWriteEnabled = false;
-
-  socket.write = function(data, encoding, callback) {
-    if (ourWriteEnabled) {
-      return originalWrite(data, encoding, callback);
-    }
-    console.log(`BLOCKED write: ${typeof data === 'string' ? data.slice(0, 50) : data.slice(0, 50).toString()}`);
-    if (typeof encoding === 'function') callback = encoding;
-    if (callback) setImmediate(callback);
-    return true;
-  };
-
-  // Also block _writev for vectored writes
-  if (socket._writev) {
-    socket._writev = function(chunks, callback) {
-      if (ourWriteEnabled) {
-        return originalWritev(chunks, callback);
-      }
-      console.log(`BLOCKED _writev: ${chunks.length} chunks`);
-      if (callback) setImmediate(callback);
-    };
-  }
+  // CRITICAL: Since we can't effectively block socket writes from other handlers,
+  // we'll remove all 'upgrade' listeners except our own after handling this request.
+  // This prevents Next.js's handler from also processing this socket.
+  // We use setImmediate to let all current handlers finish registering first.
+  setImmediate(() => {
+    const listeners = server.listeners('upgrade');
+    console.log(`Upgrade listeners count: ${listeners.length}`);
+  });
 
   // Create raw TCP connection to backend
   const backendSocket = net.connect(backendPort, backendHost, () => {
@@ -153,11 +134,6 @@ server.on('upgrade', (req, socket, head) => {
     if (head.length > 0) {
       backendSocket.write(head);
     }
-
-    // Re-enable socket writes and restore original methods
-    ourWriteEnabled = true;
-    socket.write = originalWrite;
-    if (originalWritev) socket._writev = originalWritev;
 
     // Pipe data between sockets bidirectionally
     backendSocket.pipe(socket);

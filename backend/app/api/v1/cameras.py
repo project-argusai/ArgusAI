@@ -2342,27 +2342,36 @@ async def stream_camera(
           - {"type": "pong"}
           - {"type": "error", "message": "..."}
     """
-    logger.info(f"WebSocket stream_camera endpoint reached: camera_id={camera_id}, quality={quality}")
     from app.core.database import SessionLocal
+
+    # Accept WebSocket connection FIRST (must accept before close to avoid 403)
+    await websocket.accept()
 
     # Get camera from database
     db = SessionLocal()
     try:
         camera = db.query(Camera).filter(Camera.id == camera_id).first()
         if not camera:
+            await websocket.send_json({
+                "type": "error",
+                "code": "CAMERA_NOT_FOUND",
+                "message": "Camera not found"
+            })
             await websocket.close(code=4004, reason="Camera not found")
             return
 
         # Build RTSP URL
         rtsp_url = _build_rtsp_url_for_stream(camera)
         if not rtsp_url:
+            await websocket.send_json({
+                "type": "error",
+                "code": "NO_RTSP_URL",
+                "message": "Camera has no stream URL configured"
+            })
             await websocket.close(code=4400, reason="Camera has no RTSP URL")
             return
     finally:
         db.close()
-
-    # Accept WebSocket connection
-    await websocket.accept()
 
     # Validate initial quality
     try:

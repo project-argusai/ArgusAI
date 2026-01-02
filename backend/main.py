@@ -1082,29 +1082,6 @@ async def prometheus_metrics():
     )
 
 
-# Debug ASGI middleware to trace WebSocket requests
-class WebSocketDebugMiddleware:
-    """Debug middleware that runs at the ASGI level to trace WebSocket requests."""
-
-    def __init__(self, asgi_app):
-        self.app = asgi_app
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] == "websocket":
-            path = scope.get("path", "unknown")
-            logger.info(f"[WS_TRACE] WebSocket request: {path}")
-        elif scope["type"] == "http":
-            path = scope.get("path", "unknown")
-            method = scope.get("method", "unknown")
-            logger.debug(f"[HTTP_TRACE] HTTP request: {method} {path}")
-
-        await self.app(scope, receive, send)
-
-
-# Wrap app with debug middleware (executes first, before all other middlewares)
-app = WebSocketDebugMiddleware(app)
-
-
 if __name__ == "__main__":
     import uvicorn
     import ssl

@@ -72,6 +72,7 @@ app.prepare().then(() => {
     // Skip WebSocket upgrade requests - they're handled by the 'upgrade' event
     // This prevents Next.js rewrites from also processing WebSocket connections
     if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+      console.log(`HTTP handler skipping WebSocket request: ${req.url}`);
       return;  // Will be handled by 'upgrade' event handler
     }
     try {

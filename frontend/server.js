@@ -121,11 +121,24 @@ app.prepare().then(() => {
           backendSocket.write(head);
         }
 
-        // Debug: log first data from backend
-        backendSocket.once('data', (chunk) => {
-          console.log(`WebSocket proxy: backend first data ${chunk.length} bytes`);
-          console.log(`WebSocket proxy: starts with: ${chunk.slice(0, Math.min(100, chunk.length)).toString('utf8').replace(/\r\n/g, '\\r\\n')}`);
-        });
+        // Debug: log first few chunks from backend
+        let chunkCount = 0;
+        const dataHandler = (chunk) => {
+          chunkCount++;
+          if (chunkCount <= 3) {
+            console.log(`WebSocket proxy: backend chunk #${chunkCount}: ${chunk.length} bytes`);
+            // Log first 20 bytes as hex to see frame headers
+            const hexBytes = chunk.slice(0, Math.min(20, chunk.length)).toString('hex');
+            console.log(`WebSocket proxy: hex: ${hexBytes}`);
+            if (chunkCount === 1) {
+              console.log(`WebSocket proxy: starts with: ${chunk.slice(0, Math.min(100, chunk.length)).toString('utf8').replace(/\r\n/g, '\\r\\n')}`);
+            }
+          }
+          if (chunkCount >= 3) {
+            backendSocket.removeListener('data', dataHandler);
+          }
+        };
+        backendSocket.on('data', dataHandler);
 
         // Pipe data between sockets bidirectionally
         backendSocket.pipe(socket);

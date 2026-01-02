@@ -2247,6 +2247,7 @@ def _build_rtsp_url_for_stream(camera: Camera, db: "Session" = None) -> str:
     if camera.source_type == "protect" and camera.protect_controller_id and camera.protect_camera_id:
         from app.models.protect_controller import ProtectController
         from app.core.database import SessionLocal
+        from app.services.protect_service import get_protect_service
 
         # Use provided session or create new one
         close_db = False
@@ -2264,12 +2265,35 @@ def _build_rtsp_url_for_stream(camera: Camera, db: "Session" = None) -> str:
                 username = quote(controller.username, safe='')
                 password = quote(controller.get_decrypted_password(), safe='') if controller.password else ""
 
-                # Build RTSPS URL: rtsps://<user>:<pass>@<host>:7441/<camera_id>
+                # Get RTSP alias from uiprotect (required for RTSPS streams)
+                # The protect_camera_id is the internal ID, but RTSP requires the alias
+                protect_service = get_protect_service()
+                rtsp_alias = None
+
+                # Try to get RTSP alias from cached client
+                client = protect_service._clients.get(str(camera.protect_controller_id))
+                if client and hasattr(client, 'bootstrap') and client.bootstrap:
+                    for cam in client.bootstrap.cameras.values():
+                        if str(cam.id) == camera.protect_camera_id:
+                            # Use channel 0 (high quality) for streaming
+                            if hasattr(cam, 'channels') and len(cam.channels) > 0:
+                                rtsp_alias = cam.channels[0].rtsp_alias
+                            break
+
+                if not rtsp_alias:
+                    # Fallback to camera ID (may not work for RTSPS)
+                    logger.warning(
+                        f"Could not get RTSP alias for camera {camera.name}, using camera ID",
+                        extra={"camera_id": camera.id, "protect_camera_id": camera.protect_camera_id}
+                    )
+                    rtsp_alias = camera.protect_camera_id
+
+                # Build RTSPS URL: rtsps://<user>:<pass>@<host>:7441/<rtsp_alias>
                 creds = username
                 if password:
                     creds += f":{password}"
 
-                return f"rtsps://{creds}@{controller.host}:7441/{camera.protect_camera_id}"
+                return f"rtsps://{creds}@{controller.host}:7441/{rtsp_alias}"
         finally:
             if close_db:
                 db.close()

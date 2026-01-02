@@ -104,6 +104,10 @@ app.prepare().then(() => {
       });
 
       proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+        // Debug: log response headers
+        console.log('Backend response headers:', proxyRes.headers);
+        console.log('proxyHead length:', proxyHead.length);
+
         // Send the upgrade response back to client
         // Filter out compression headers to ensure client doesn't expect compressed frames
         socket.write('HTTP/1.1 101 Switching Protocols\r\n');
@@ -121,6 +125,13 @@ app.prepare().then(() => {
         if (head.length > 0) {
           proxySocket.write(head);
         }
+
+        // Debug: log first few bytes of each frame
+        proxySocket.on('data', (data) => {
+          if (data.length > 0) {
+            console.log(`Backend -> Client: ${data.length} bytes, first: 0x${data[0].toString(16).padStart(2, '0')} (RSV bits: ${((data[0] >> 4) & 0x7).toString(2).padStart(3, '0')})`);
+          }
+        });
 
         // Pipe data between sockets (raw, no frame manipulation)
         proxySocket.pipe(socket);

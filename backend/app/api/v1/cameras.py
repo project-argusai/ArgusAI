@@ -2342,6 +2342,7 @@ async def stream_camera(
           - {"type": "pong"}
           - {"type": "error", "message": "..."}
     """
+    logger.info(f"WebSocket stream_camera endpoint reached: camera_id={camera_id}, quality={quality}")
     from app.core.database import SessionLocal
 
     # Get camera from database

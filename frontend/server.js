@@ -69,6 +69,11 @@ const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   const server = createServer(httpsOptions, async (req, res) => {
+    // Skip WebSocket upgrade requests - they're handled by the 'upgrade' event
+    // This prevents Next.js rewrites from also processing WebSocket connections
+    if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+      return;  // Will be handled by 'upgrade' event handler
+    }
     try {
       const parsedUrl = parse(req.url, true);
       await handle(req, res, parsedUrl);

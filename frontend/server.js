@@ -84,9 +84,15 @@ app.prepare().then(() => {
     // For WebSocket proxy paths, don't let Next.js see the request at all
     // The 'upgrade' event will handle it
     if (isProxiedWebSocket) {
+      console.log(`HTTP: Skipping WebSocket path ${pathname}`);
       // Don't respond - let the upgrade event handle it
       // The socket will be handled by server.on('upgrade', ...)
       return;
+    }
+
+    // Log API requests
+    if (pathname.startsWith('/api/')) {
+      console.log(`HTTP: Handling ${req.method} ${pathname}`);
     }
 
     try {

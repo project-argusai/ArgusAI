@@ -8,6 +8,8 @@ import { useState, memo, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { Video, ChevronDown, ChevronUp, Images, UserPlus, ArrowRightLeft, User, Car } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
 import type { IEvent, SmartDetectionType } from '@/types/event';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,6 +21,7 @@ import { AIProviderBadge } from './AIProviderBadge';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { ReAnalyzeButton } from './ReAnalyzeButton';
 import { ReanalyzedIndicator } from './ReanalyzedIndicator';
+import { ReclassifyingIndicator } from './ReclassifyingIndicator';
 import { FeedbackButtons } from './FeedbackButtons';
 import { AnomalyBadge } from './AnomalyBadge';
 import { FrameGalleryModal } from './FrameGalleryModal';
@@ -73,13 +76,17 @@ export const EventCard = memo(function EventCard({
   const [entityModalOpen, setEntityModalOpen] = useState(false);
   // Story P10-4.2: Entity create modal state (from EntitySelectModal)
   const [entityCreateOpen, setEntityCreateOpen] = useState(false);
+  // Story P16-4.3: Re-classification state
+  const [isReclassifying, setIsReclassifying] = useState(false);
 
   // Story P9-4.4: Mutation hook for assigning events to entities
   const assignEventMutation = useAssignEventToEntity();
+  const queryClient = useQueryClient();
 
   // Story P9-4.4: Handle entity selection confirmation
+  // Story P16-4.3: Triggers re-classification after successful assignment
   const handleEntitySelect = useCallback(
-    async (entityId: string, _entityName: string | null) => {
+    async (entityId: string, entityName: string | null) => {
       try {
         const result = await assignEventMutation.mutateAsync({
           eventId: event.id,
@@ -87,13 +94,44 @@ export const EventCard = memo(function EventCard({
         });
         toast.success(result.message);
         setEntityModalOpen(false);
+
+        // Story P16-4.3: Trigger re-classification after successful assignment
+        // AC1: Show loading indicator
+        setIsReclassifying(true);
+
+        try {
+          // Trigger re-analysis with single_frame mode (lowest cost)
+          const updatedEvent = await apiClient.events.reanalyze(event.id, 'single_frame');
+
+          // AC2: Show success toast and update event
+          toast.success('Event re-classified successfully', {
+            description: entityName
+              ? `Updated description with "${entityName}" context`
+              : 'Updated description with entity context',
+          });
+
+          // Invalidate event queries to refresh with new description
+          queryClient.invalidateQueries({ queryKey: ['events'] });
+          queryClient.invalidateQueries({ queryKey: ['event', event.id] });
+
+          // Call onReanalyze callback if provided
+          onReanalyze?.(updatedEvent);
+        } catch (reclassifyError) {
+          // AC3: Show error toast but keep entity assignment
+          console.error('Re-classification failed:', reclassifyError);
+          toast.error('Re-classification failed', {
+            description: 'Entity was assigned but description could not be updated',
+          });
+        } finally {
+          setIsReclassifying(false);
+        }
       } catch (error) {
         toast.error(
           error instanceof Error ? error.message : 'Failed to assign event'
         );
       }
     },
-    [event.id, assignEventMutation]
+    [event.id, assignEventMutation, queryClient, onReanalyze]
   );
 
   // Story P10-4.2: Handle "Create New" from EntitySelectModal
@@ -302,10 +340,13 @@ export const EventCard = memo(function EventCard({
           )}
 
           {/* Story P9-4.4: Entity badge and assign button (AC-4.4.1, AC-4.4.2, AC-4.4.6) */}
+          {/* Story P16-4.3: Re-classification indicator */}
           <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-2">
+              {/* Story P16-4.3: Show re-classifying indicator (AC1) */}
+              <ReclassifyingIndicator isActive={isReclassifying} />
               {/* Entity badge - shows linked entity name */}
-              {hasEntity && (
+              {hasEntity && !isReclassifying && (
                 <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                   {event.objects_detected?.includes('person') ? (
                     <User className="h-3 w-3" />

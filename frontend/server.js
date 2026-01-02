@@ -168,14 +168,32 @@ server.on('upgrade', (req, socket, head) => {
       console.log(`Discarded ${pendingWrites.length} queued writes from Next.js`);
     }
 
-    // Log first data from backend
-    backendSocket.once('data', (data) => {
-      console.log('First data from backend:', data.toString().substring(0, 200));
+    // Log data flow for debugging
+    let backendDataCount = 0;
+    let clientDataCount = 0;
+
+    backendSocket.on('data', (data) => {
+      backendDataCount++;
+      if (backendDataCount <= 3) {
+        console.log(`Backend -> Client [${backendDataCount}]: ${data.length} bytes`);
+        if (backendDataCount === 1) {
+          console.log('First response:', data.toString().substring(0, 200));
+        }
+      }
+    });
+
+    socket.on('data', (data) => {
+      clientDataCount++;
+      if (clientDataCount <= 3) {
+        console.log(`Client -> Backend [${clientDataCount}]: ${data.length} bytes`);
+      }
     });
 
     // Pipe data between sockets bidirectionally
     backendSocket.pipe(socket);
     socket.pipe(backendSocket);
+
+    console.log('Pipe established, socket writable:', socket.writable, 'backendSocket writable:', backendSocket.writable);
   });
 
   // Handle cleanup

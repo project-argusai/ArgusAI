@@ -48,15 +48,27 @@ export function useEntity(entityId: string | null, _eventLimit?: number) {
 }
 
 /**
- * Hook to update an entity's name
+ * Entity update data for useUpdateEntity hook (Story P16-3.2)
+ */
+export interface UpdateEntityData {
+  entityId: string;
+  name?: string | null;
+  entity_type?: 'person' | 'vehicle' | 'unknown';
+  is_vip?: boolean;
+  is_blocked?: boolean;
+  notes?: string | null;
+}
+
+/**
+ * Hook to update an entity's properties (Story P16-3.2)
  * @returns Mutation for updating entity
  */
 export function useUpdateEntity() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ entityId, name }: { entityId: string; name: string | null }) =>
-      apiClient.entities.update(entityId, { name }),
+    mutationFn: ({ entityId, ...data }: UpdateEntityData) =>
+      apiClient.entities.update(entityId, data),
     onSuccess: (updatedEntity) => {
       // Invalidate entity list
       queryClient.invalidateQueries({ queryKey: ['entities'] });

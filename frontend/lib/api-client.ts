@@ -2139,6 +2139,10 @@ export const apiClient = {
       id: string;
       entity_type: string;
       name: string | null;
+      notes: string | null;
+      is_vip: boolean;
+      is_blocked: boolean;
+      thumbnail_path: string | null;
       first_seen_at: string;
       last_seen_at: string;
       occurrence_count: number;
@@ -2165,10 +2169,16 @@ export const apiClient = {
     update: async (id: string, data: {
       name?: string | null;
       entity_type?: 'person' | 'vehicle' | 'unknown';
+      is_vip?: boolean;
+      is_blocked?: boolean;
+      notes?: string | null;
     }): Promise<{
       id: string;
       entity_type: string;
       name: string | null;
+      notes: string | null;
+      is_vip: boolean;
+      is_blocked: boolean;
       first_seen_at: string;
       last_seen_at: string;
       occurrence_count: number;

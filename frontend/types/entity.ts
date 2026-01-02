@@ -40,6 +40,9 @@ export interface IEventSummaryForEntity {
  * Returned by GET /api/v1/context/entities/{id}
  */
 export interface IEntityDetail extends IEntity {
+  notes: string | null;
+  is_vip: boolean;
+  is_blocked: boolean;
   created_at: string;
   updated_at: string;
   recent_events: IEventSummaryForEntity[];
@@ -65,8 +68,12 @@ export interface IEntityQueryParams {
 }
 
 /**
- * Request body for updating an entity
+ * Request body for updating an entity (Story P16-3.1)
  */
 export interface IEntityUpdateRequest {
-  name: string | null;
+  name?: string | null;
+  entity_type?: EntityType;
+  is_vip?: boolean;
+  is_blocked?: boolean;
+  notes?: string | null;
 }

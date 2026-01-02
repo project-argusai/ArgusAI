@@ -7,10 +7,10 @@
 
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Search, User, Car, HelpCircle, Check, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { EntityAssignConfirmDialog } from './EntityAssignConfirmDialog';
+import { EntityAssignConfirmDialog, SKIP_ENTITY_ASSIGN_WARNING_KEY } from './EntityAssignConfirmDialog';
 import {
   Dialog,
   DialogContent,
@@ -78,6 +78,18 @@ export function EntitySelectModal({
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   // Story P16-4.1: State for confirmation dialog
   const [showConfirmation, setShowConfirmation] = useState(false);
+  // Story P16-4.2: State to track if user has opted out of confirmation dialog
+  const [skipWarning, setSkipWarning] = useState(false);
+
+  // Story P16-4.2: Check localStorage for "Don't show again" preference on mount
+  useEffect(() => {
+    try {
+      const savedPreference = localStorage.getItem(SKIP_ENTITY_ASSIGN_WARNING_KEY);
+      setSkipWarning(savedPreference === 'true');
+    } catch {
+      // localStorage might not be available
+    }
+  }, []);
 
   // Fetch entities with search filter (debounced via react-query)
   const { data: entitiesData, isLoading: isLoadingEntities } = useEntities({
@@ -101,11 +113,12 @@ export function EntitySelectModal({
     setSelectedEntityId((prev) => (prev === entityId ? null : entityId));
   }, []);
 
-  // Handle confirm button - Story P16-4.1: Show confirmation dialog if enabled
+  // Handle confirm button - Story P16-4.1/P16-4.2: Show confirmation dialog if enabled and not skipped
   const handleConfirm = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (selectedEntity) {
-      if (showConfirmDialog) {
+      // Story P16-4.2: Skip dialog if user has opted out via "Don't show again"
+      if (showConfirmDialog && !skipWarning) {
         // Show confirmation dialog before assignment
         setShowConfirmation(true);
       } else {
@@ -113,7 +126,7 @@ export function EntitySelectModal({
         onSelect(selectedEntity.id, selectedEntity.name);
       }
     }
-  }, [selectedEntity, onSelect, showConfirmDialog]);
+  }, [selectedEntity, onSelect, showConfirmDialog, skipWarning]);
 
   // Story P16-4.1: Handle confirmation dialog confirm
   const handleConfirmDialogConfirm = useCallback(() => {

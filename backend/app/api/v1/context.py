@@ -15,7 +15,7 @@ import base64
 import logging
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
@@ -534,14 +534,19 @@ class EntityCreateRequest(BaseModel):
 
 
 class EntityUpdateRequest(BaseModel):
-    """Request model for updating an entity."""
+    """Request model for updating an entity (Story P16-3.1)."""
     name: Optional[str] = Field(
         default=None,
         max_length=255,
         description="New name for the entity"
     )
+    entity_type: Optional[Literal["person", "vehicle", "unknown"]] = Field(
+        default=None,
+        description="Entity type (person, vehicle, or unknown)"
+    )
     notes: Optional[str] = Field(
         default=None,
+        max_length=2000,
         description="Notes about this entity"
     )
     is_vip: Optional[bool] = Field(
@@ -1143,17 +1148,19 @@ async def update_entity(
     entity_service: EntityService = Depends(get_entity_service),
 ):
     """
-    Update an entity's name, notes, or status.
+    Update an entity's metadata.
 
     Story P4-3.3: Recurring Visitor Detection (AC9)
     Story P7-4.1: Design Entities Data Model (AC4)
+    Story P16-3.1: Create Entity Update API Endpoint
 
-    Allows users to update entity properties including name, notes,
-    VIP status, and blocked status.
+    Allows users to update entity properties including name, entity_type, notes,
+    VIP status, and blocked status. Partial updates are supported - only provided
+    fields are updated.
 
     Args:
         entity_id: UUID of the entity
-        request: Update request with new values
+        request: Update request with new values (all fields optional)
         db: Database session
         entity_service: Entity service instance
 
@@ -1162,11 +1169,13 @@ async def update_entity(
 
     Raises:
         404: If entity not found
+        422: If entity_type is invalid
     """
     entity = await entity_service.update_entity(
         db=db,
         entity_id=entity_id,
         name=request.name,
+        entity_type=request.entity_type,
         notes=request.notes,
         is_vip=request.is_vip,
         is_blocked=request.is_blocked,

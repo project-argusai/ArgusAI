@@ -1135,7 +1135,7 @@ development_status:
   # GitHub: #338
   # FRs Covered: FR23-FR29
   epic-p16-3: contexted
-  p16-3-1-create-entity-update-api-endpoint: in-progress
+  p16-3-1-create-entity-update-api-endpoint: done
   p16-3-2-create-entityeditmodal-component: backlog
   p16-3-3-add-edit-button-to-entity-card: backlog
   p16-3-4-add-edit-button-to-entity-detail-modal: backlog

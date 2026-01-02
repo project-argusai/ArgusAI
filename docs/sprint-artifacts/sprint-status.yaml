@@ -1119,12 +1119,12 @@ development_status:
   # Focus: Live video feeds from UniFi Protect cameras
   # GitHub: #336
   # FRs Covered: FR16-FR22
-  epic-p16-2: backlog
+  epic-p16-2: done
   p16-2-1-research-and-design-streaming-approach: done
   p16-2-2-implement-backend-stream-proxy-service: done
   p16-2-3-create-livestreamplayer-frontend-component: done
   p16-2-4-add-live-view-button-to-camera-cards: done
-  p16-2-5-implement-concurrent-stream-limiting: backlog
+  p16-2-5-implement-concurrent-stream-limiting: done  # Pre-implemented in P16-2.2/P16-2.3
   epic-p16-2-retrospective: optional
 
   # Epic P16-3: Entity Metadata Editing

@@ -2271,13 +2271,20 @@ def _build_rtsp_url_for_stream(camera: Camera, db: "Session" = None) -> str:
                 rtsp_alias = None
 
                 # Try to get RTSP alias from cached connection
-                client = protect_service._connections.get(str(camera.protect_controller_id))
+                controller_id_str = str(camera.protect_controller_id)
+                client = protect_service._connections.get(controller_id_str)
+                logger.debug(
+                    f"Looking up RTSP alias: controller_id={controller_id_str}, "
+                    f"connections={list(protect_service._connections.keys())}, "
+                    f"client={client is not None}"
+                )
                 if client and hasattr(client, 'bootstrap') and client.bootstrap:
                     for cam in client.bootstrap.cameras.values():
                         if str(cam.id) == camera.protect_camera_id:
                             # Use channel 0 (high quality) for streaming
                             if hasattr(cam, 'channels') and len(cam.channels) > 0:
                                 rtsp_alias = cam.channels[0].rtsp_alias
+                                logger.info(f"Found RTSP alias: {rtsp_alias} for camera {camera.name}")
                             break
 
                 if not rtsp_alias:

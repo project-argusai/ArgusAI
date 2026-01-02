@@ -1168,18 +1168,22 @@ class EntityService:
         db: Session,
         entity_id: str,
         name: Optional[str] = None,
+        entity_type: Optional[str] = None,
         notes: Optional[str] = None,
         is_vip: Optional[bool] = None,
         is_blocked: Optional[bool] = None,
     ) -> Optional[dict]:
         """
-        Update an entity's name, notes, VIP status, or blocked status.
+        Update an entity's metadata.
+
+        Story P16-3.1: Create Entity Update API Endpoint
 
         Args:
             db: SQLAlchemy database session
             entity_id: UUID of the entity
-            name: New name for the entity (None to clear)
-            notes: New notes for the entity (None to clear)
+            name: New name for the entity (None to keep unchanged)
+            entity_type: Entity type (person, vehicle, unknown) (None to keep unchanged)
+            notes: New notes for the entity (None to keep unchanged)
             is_vip: VIP status (None to keep unchanged)
             is_blocked: Blocked status (None to keep unchanged)
 
@@ -1198,6 +1202,8 @@ class EntityService:
         # Update provided fields
         if name is not None:
             entity.name = name
+        if entity_type is not None:
+            entity.entity_type = entity_type
         if notes is not None:
             entity.notes = notes
         if is_vip is not None:

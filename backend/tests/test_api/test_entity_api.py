@@ -154,7 +154,7 @@ class TestGetEntityAPI:
 
 
 class TestUpdateEntityAPI:
-    """Tests for PUT /api/v1/context/entities/{id} endpoint (AC9)."""
+    """Tests for PUT /api/v1/context/entities/{id} endpoint (AC9, P16-3.1)."""
 
     def test_update_entity_name(self, client, mock_entity_service):
         """AC9: PUT /api/v1/context/entities/{id} allows naming entity."""
@@ -175,6 +175,121 @@ class TestUpdateEntityAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Mail Carrier"
+
+    def test_update_entity_type(self, client, mock_entity_service):
+        """P16-3.1 AC1: Update entity_type field."""
+        mock_entity_service.update_entity.return_value = {
+            "id": "test-entity-001",
+            "entity_type": "vehicle",
+            "name": None,
+            "first_seen_at": datetime.now(timezone.utc) - timedelta(days=7),
+            "last_seen_at": datetime.now(timezone.utc),
+            "occurrence_count": 3,
+        }
+
+        response = client.put(
+            "/api/v1/context/entities/test-entity-001",
+            json={"entity_type": "vehicle"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["entity_type"] == "vehicle"
+        # Verify service was called with entity_type
+        mock_entity_service.update_entity.assert_called_once()
+        call_kwargs = mock_entity_service.update_entity.call_args[1]
+        assert call_kwargs["entity_type"] == "vehicle"
+
+    def test_update_entity_type_all_valid_values(self, client, mock_entity_service):
+        """P16-3.1 AC5: entity_type must be person, vehicle, or unknown."""
+        for entity_type in ["person", "vehicle", "unknown"]:
+            mock_entity_service.update_entity.return_value = {
+                "id": "test-entity-001",
+                "entity_type": entity_type,
+                "name": None,
+                "first_seen_at": datetime.now(timezone.utc),
+                "last_seen_at": datetime.now(timezone.utc),
+                "occurrence_count": 1,
+            }
+
+            response = client.put(
+                "/api/v1/context/entities/test-entity-001",
+                json={"entity_type": entity_type}
+            )
+
+            assert response.status_code == 200, f"Failed for entity_type={entity_type}"
+            data = response.json()
+            assert data["entity_type"] == entity_type
+
+    def test_update_entity_type_invalid_returns_422(self, client, mock_entity_service):
+        """P16-3.1 AC3: Invalid entity_type returns 422 validation error."""
+        response = client.put(
+            "/api/v1/context/entities/test-entity-001",
+            json={"entity_type": "invalid"}
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_update_entity_notes_max_length(self, client, mock_entity_service):
+        """P16-3.1 AC7: notes max length is 2000 characters."""
+        # Test with notes at max length (should succeed)
+        notes_at_limit = "x" * 2000
+        mock_entity_service.update_entity.return_value = {
+            "id": "test-entity-001",
+            "entity_type": "person",
+            "name": None,
+            "notes": notes_at_limit,
+            "first_seen_at": datetime.now(timezone.utc),
+            "last_seen_at": datetime.now(timezone.utc),
+            "occurrence_count": 1,
+        }
+
+        response = client.put(
+            "/api/v1/context/entities/test-entity-001",
+            json={"notes": notes_at_limit}
+        )
+
+        assert response.status_code == 200
+
+    def test_update_entity_notes_exceeds_max_length(self, client, mock_entity_service):
+        """P16-3.1 AC7: notes exceeding 2000 characters returns 422."""
+        notes_over_limit = "x" * 2001
+
+        response = client.put(
+            "/api/v1/context/entities/test-entity-001",
+            json={"notes": notes_over_limit}
+        )
+
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+    def test_update_entity_partial_update(self, client, mock_entity_service):
+        """P16-3.1 AC2: Partial updates only change specified fields."""
+        mock_entity_service.update_entity.return_value = {
+            "id": "test-entity-001",
+            "entity_type": "person",
+            "name": "Original Name",
+            "is_vip": True,
+            "is_blocked": False,
+            "first_seen_at": datetime.now(timezone.utc),
+            "last_seen_at": datetime.now(timezone.utc),
+            "occurrence_count": 1,
+        }
+
+        response = client.put(
+            "/api/v1/context/entities/test-entity-001",
+            json={"is_vip": True}
+        )
+
+        assert response.status_code == 200
+        # Verify only is_vip was passed to service
+        call_kwargs = mock_entity_service.update_entity.call_args[1]
+        assert call_kwargs["is_vip"] is True
+        assert call_kwargs["name"] is None  # Not provided, should be None
+        assert call_kwargs["entity_type"] is None  # Not provided
 
     def test_update_entity_not_found(self, client, mock_entity_service):
         """Test 404 when entity not found."""

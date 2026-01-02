@@ -29,7 +29,6 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 // Backend URL for WebSocket proxying
 const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const wsBackendUrl = backendUrl.replace(/^https?:/, 'ws:');
 
 // SSL certificate paths from environment variables
 const certFile = process.env.SSL_CERT_FILE;
@@ -61,7 +60,7 @@ const httpsOptions = {
 
 // Create WebSocket proxy for backend streaming endpoints (Story P16-2)
 const wsProxy = createProxyServer({
-  target: wsBackendUrl,
+  target: backendUrl,
   ws: true,
   changeOrigin: true,
 });
@@ -97,7 +96,7 @@ app.prepare().then(() => {
     // Proxy WebSocket connections for camera streams and other WS endpoints
     if ((pathname.startsWith('/api/v1/cameras/') && pathname.endsWith('/stream')) ||
         pathname === '/ws' || pathname.startsWith('/ws/')) {
-      console.log(`WebSocket upgrade: ${pathname} -> ${wsBackendUrl}${pathname}`);
+      console.log(`WebSocket upgrade: ${pathname} -> ${backendUrl}${pathname}`);
       wsProxy.ws(req, socket, head);
     } else {
       // Let Next.js handle other WebSocket connections (e.g., HMR in dev mode)
@@ -113,6 +112,6 @@ app.prepare().then(() => {
     .listen(port, hostname, () => {
       console.log(`> Ready on https://${hostname}:${port}`);
       console.log(`> SSL Certificate: ${certFile}`);
-      console.log(`> Backend WebSocket proxy: ${wsBackendUrl}`);
+      console.log(`> Backend WebSocket proxy: ${backendUrl}`);
     });
 });

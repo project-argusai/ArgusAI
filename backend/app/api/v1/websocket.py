@@ -8,8 +8,10 @@ Features:
 - Auto-accept connections
 - Heartbeat/ping-pong to keep connections alive
 - Graceful disconnect handling
+- Camera stream proxy (alternative path for Cloudflare Tunnel compatibility)
 """
 import asyncio
+import json
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -91,3 +93,27 @@ async def send_heartbeat(websocket: WebSocket):
                 break
     except asyncio.CancelledError:
         pass
+
+
+# Alternative camera stream endpoint under /ws path for Cloudflare Tunnel compatibility
+# This is a proxy to the main camera stream endpoint at /api/v1/cameras/{id}/stream
+@router.websocket("/ws/stream/{camera_id}")
+async def stream_camera_ws(
+    websocket: WebSocket,
+    camera_id: str,
+    quality: str = "medium"
+):
+    """
+    Alternative WebSocket endpoint for live camera streaming.
+
+    This endpoint uses the /ws path prefix which has better compatibility
+    with Cloudflare Tunnel. It delegates to the main stream_camera endpoint.
+
+    Args:
+        websocket: WebSocket connection
+        camera_id: UUID of camera
+        quality: Stream quality (low, medium, high)
+    """
+    # Import here to avoid circular imports
+    from app.api.v1.cameras import stream_camera
+    await stream_camera(websocket, camera_id, quality)

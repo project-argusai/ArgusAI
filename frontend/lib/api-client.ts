@@ -394,9 +394,11 @@ export const apiClient = {
      */
     getStreamWebSocketUrl: (cameraId: string, quality?: StreamQuality): string => {
       const wsProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const baseUrl = API_BASE_URL.replace(/^https?:/, wsProtocol);
+      const host = typeof window !== 'undefined' ? window.location.host : 'localhost:3000';
       const params = quality ? `?quality=${quality}` : '';
-      return `${baseUrl}${API_V1_PREFIX}/cameras/${encodeURIComponent(cameraId)}/stream${params}`;
+      // Use /ws/stream path for better Cloudflare Tunnel compatibility
+      // The /ws path prefix works reliably through Cloudflare Tunnel
+      return `${wsProtocol}//${host}/ws/stream/${encodeURIComponent(cameraId)}${params}`;
     },
 
     /**

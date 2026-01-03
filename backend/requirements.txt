@@ -31,6 +31,7 @@ slowapi>=0.1.9
 openai>=1.54.0
 anthropic>=0.39.0
 google-generativeai>=0.8.0
+litellm>=1.50.0  # Unified LLM gateway SDK with fallbacks and cost tracking
 pillow>=10.0.0
 pytesseract>=0.3.10  # OCR for frame overlay text extraction (optional, requires tesseract binary)
 

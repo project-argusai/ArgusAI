@@ -2465,6 +2465,9 @@ class AIService:
         self.camera_prompts: Dict[str, str] = {}  # Camera-specific prompt overrides
         # Story P15-5.1: AI annotations (bounding boxes)
         self.annotations_enabled: bool = False  # Enable bounding box detection
+        # LiteLLM Integration: Unified provider with automatic fallback and cost tracking
+        self.use_litellm: bool = False  # Feature flag to use LiteLLM instead of legacy providers
+        self.litellm_provider = None  # LiteLLMProvider instance
 
     def _estimate_image_tokens(self, provider: str, num_images: int, resolution: str = "default") -> int:
         """
@@ -2580,6 +2583,7 @@ class AIService:
                     'settings_ab_test_enabled',  # Story P4-5.4: A/B test toggle
                     'settings_ab_test_prompt',  # Story P4-5.4: Experiment prompt
                     'enable_ai_annotations',  # Story P15-5.1: Enable bounding box annotations
+                    'use_litellm',  # LiteLLM Integration: Use unified provider
                 ])
             ).all()
 
@@ -2612,6 +2616,13 @@ class AIService:
             if ai_service is not self:
                 ai_service.annotations_enabled = self.annotations_enabled
             logger.info(f"AI annotations: {'enabled' if self.annotations_enabled else 'disabled'}")
+
+            # LiteLLM Integration: Load use_litellm setting
+            if 'use_litellm' in keys:
+                self.use_litellm = keys['use_litellm'].lower() == 'true'
+            else:
+                self.use_litellm = False
+            logger.info(f"LiteLLM mode: {'enabled' if self.use_litellm else 'disabled'}")
 
             # Story P4-5.4: Load camera-specific prompt overrides
             from app.models.camera import Camera
@@ -2662,6 +2673,26 @@ class AIService:
             )
 
             logger.info(f"AI providers configured: {len(self.providers)} providers loaded")
+
+            # LiteLLM Integration: Configure LiteLLM provider if enabled
+            if self.use_litellm:
+                try:
+                    from app.services.litellm_provider import configure_litellm_provider
+                    self.litellm_provider = configure_litellm_provider(
+                        openai_key=openai_key,
+                        grok_key=grok_key,
+                        claude_key=claude_key,
+                        gemini_key=gemini_key,
+                        claude_model=claude_model,
+                    )
+                    if self.litellm_provider.is_configured():
+                        logger.info(f"LiteLLM provider configured with: {self.litellm_provider.get_configured_providers()}")
+                    else:
+                        logger.warning("LiteLLM enabled but no providers configured, falling back to legacy")
+                        self.use_litellm = False
+                except Exception as e:
+                    logger.error(f"Failed to configure LiteLLM, falling back to legacy: {e}")
+                    self.use_litellm = False
 
             # Store database session for usage tracking
             self.db = db
@@ -3071,9 +3102,23 @@ class AIService:
                 "event_type": "ai_multi_image_start",
                 "num_images": len(images_base64),
                 "camera_name": camera_name,
+                "use_litellm": self.use_litellm,
             }
         )
 
+        # LiteLLM Integration: Use LiteLLM if enabled
+        if self.use_litellm and self.litellm_provider:
+            return await self._describe_images_litellm(
+                images_base64=images_base64,
+                camera_name=camera_name,
+                timestamp=timestamp,
+                detected_objects=detected_objects,
+                custom_prompt=effective_prompt,
+                audio_transcription=audio_transcription,
+                ocr_result=ocr_result,
+            )
+
+        # Legacy provider fallback path
         # Get provider order from database settings or use default (Story P2-5.2)
         provider_order = self._get_provider_order()
         last_error = None
@@ -3507,6 +3552,159 @@ class AIService:
 
         logger.debug(f"Preprocessed image: {len(image_base64)} chars base64, {size_mb:.2f}MB")
         return image_base64
+
+    async def _describe_images_litellm(
+        self,
+        images_base64: List[str],
+        camera_name: str,
+        timestamp: str,
+        detected_objects: List[str],
+        custom_prompt: Optional[str] = None,
+        audio_transcription: Optional[str] = None,
+        ocr_result: Optional[OCRResult] = None,
+    ) -> AIResult:
+        """
+        Generate description using LiteLLM unified provider.
+
+        Uses LiteLLM Router with automatic fallback through configured providers.
+        Converts LiteLLMResult to AIResult for compatibility.
+
+        Args:
+            images_base64: List of base64-encoded images
+            camera_name: Camera name for context
+            timestamp: ISO 8601 timestamp
+            detected_objects: Detected object types
+            custom_prompt: Optional custom prompt
+            audio_transcription: Optional doorbell audio transcription
+            ocr_result: Optional OCR extraction from frame overlay
+
+        Returns:
+            AIResult with description and metadata
+        """
+        # Build system prompt
+        system_prompt = (
+            "You are describing video surveillance events for home security and accessibility. "
+            "Provide detailed, accurate descriptions."
+        )
+
+        # Build user prompt using existing method for consistency
+        # Create a temporary provider-like object to use the prompt building logic
+        from app.services.ocr_service import OCRResult as OCRResultType
+
+        # Build context prompt
+        context = "\n" + build_context_prompt(camera_name, timestamp, ocr_result)
+        if detected_objects:
+            context += f" Motion detected: {', '.join(detected_objects)}."
+
+        # Use multi-frame system prompt for multiple images
+        if len(images_base64) > 1:
+            base_prompt = MULTI_FRAME_SYSTEM_PROMPT.format(num_frames=len(images_base64))
+            if custom_prompt:
+                base_prompt += f"\n\nAdditional instructions: {custom_prompt}"
+        else:
+            # Single image - use custom prompt or default
+            base_prompt = custom_prompt if custom_prompt else (
+                "Describe what you see in this image. Include: "
+                "WHO (people, their appearance, clothing), "
+                "WHAT (objects, vehicles, packages), "
+                "WHERE (location in frame), "
+                "and ACTIONS (what is happening). "
+                "Be specific and detailed.\n\n"
+                "If you see a delivery person or truck, identify the carrier:\n"
+                "- FedEx (purple/orange colors, FedEx logo)\n"
+                "- UPS (brown uniform, brown truck)\n"
+                "- USPS (blue uniform, postal logo, mail truck)\n"
+                "- Amazon (blue vest, Amazon logo, Amazon van)\n"
+                "- DHL (yellow/red colors, DHL logo)\n"
+                "Include the carrier name in your description."
+            )
+
+        user_prompt = base_prompt + context
+
+        # Add audio transcription if available
+        if audio_transcription and audio_transcription.strip():
+            user_prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
+
+        # Add confidence/bounding box instruction
+        if self.annotations_enabled:
+            user_prompt += BOUNDING_BOX_INSTRUCTION
+        else:
+            user_prompt += CONFIDENCE_INSTRUCTION
+
+        # Call LiteLLM
+        result = await self.litellm_provider.describe_images(
+            images_base64=images_base64,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+        # Convert LiteLLMResult to AIResult
+        ai_result = AIResult(
+            description=result.description,
+            confidence=result.confidence,
+            objects_detected=result.objects_detected,
+            provider=result.provider,
+            tokens_used=result.tokens_used,
+            response_time_ms=result.response_time_ms,
+            cost_estimate=result.cost_estimate,
+            success=result.success,
+            error=result.error,
+            ai_confidence=result.ai_confidence,
+            bounding_boxes=result.bounding_boxes,
+        )
+
+        # Track usage in database if successful
+        if result.success:
+            await self._track_litellm_usage(
+                result=result,
+                camera_name=camera_name,
+                num_images=len(images_base64),
+            )
+
+        return ai_result
+
+    async def _track_litellm_usage(
+        self,
+        result,
+        camera_name: str,
+        num_images: int,
+    ) -> None:
+        """
+        Track LiteLLM API usage in database.
+
+        Args:
+            result: LiteLLMResult from API call
+            camera_name: Camera name for context
+            num_images: Number of images analyzed
+        """
+        try:
+            from app.core.database import get_db_session
+
+            with get_db_session() as db:
+                usage = AIUsage(
+                    provider=result.provider,
+                    model=result.model if hasattr(result, 'model') else "unknown",
+                    tokens_used=result.tokens_used,
+                    response_time_ms=result.response_time_ms,
+                    success=result.success,
+                    cost_estimate=result.cost_estimate,
+                    analysis_mode="litellm_multi_frame" if num_images > 1 else "litellm_single",
+                    num_images=num_images,
+                )
+                db.add(usage)
+                db.commit()
+
+                logger.debug(
+                    f"LiteLLM usage tracked: {result.provider}, {result.tokens_used} tokens, ${result.cost_estimate:.6f}",
+                    extra={
+                        "event_type": "litellm_usage_tracked",
+                        "provider": result.provider,
+                        "tokens": result.tokens_used,
+                        "cost": result.cost_estimate,
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"Failed to track LiteLLM usage: {e}")
 
     def _preprocess_image_bytes(self, image_bytes: bytes) -> str:
         """

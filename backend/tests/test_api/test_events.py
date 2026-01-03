@@ -877,13 +877,15 @@ def test_get_package_deliveries_today_excludes_yesterday(test_camera):
     """Test that only today's deliveries are included"""
     db = TestingSessionLocal()
     try:
-        now = datetime.now(timezone.utc)
+        # Calculate today's start the same way the API does to avoid timezone edge cases
+        # (e.g., test running at 00:30 UTC where now-1h is yesterday)
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-        # Today's package
+        # Today's package - use today_start + 6 hours to be safely within today
         event_today = Event(
             id="pkg-today",
             camera_id=test_camera.id,
-            timestamp=now - timedelta(hours=1),
+            timestamp=today_start + timedelta(hours=6),
             description="Today's package",
             confidence=85,
             objects_detected=json.dumps(["package"]),
@@ -891,11 +893,11 @@ def test_get_package_deliveries_today_excludes_yesterday(test_camera):
             delivery_carrier="ups",
             alert_triggered=False
         )
-        # Yesterday's package
+        # Yesterday's package - clearly yesterday
         event_yesterday = Event(
             id="pkg-yesterday",
             camera_id=test_camera.id,
-            timestamp=now - timedelta(days=1, hours=5),
+            timestamp=today_start - timedelta(hours=5),
             description="Yesterday's package",
             confidence=85,
             objects_detected=json.dumps(["package"]),

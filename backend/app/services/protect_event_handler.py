@@ -61,6 +61,7 @@ from app.services.frame_extractor import get_frame_extractor
 from app.services.frame_storage_service import get_frame_storage_service
 from app.services.video_storage_service import get_video_storage_service
 from app.services.context_prompt_service import get_context_prompt_service
+from app.services.push_notification_service import send_event_notification
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIResult
@@ -2743,6 +2744,41 @@ class ProtectEventHandler:
                 }
             )
 
+            # Story P4-1 (BUGFIX): Send push notifications for new events
+            # Wire push notification service into event pipeline
+            try:
+                await send_event_notification(
+                    event_id=event.id,
+                    camera_name=camera.name,
+                    description=event.description,
+                    thumbnail_url=f"/api/v1/thumbnails/{event.thumbnail_path}" if event.thumbnail_path else None,
+                    camera_id=camera.id,
+                    smart_detection_type=event.smart_detection_type,
+                    anomaly_score=event.anomaly_score,
+                    db=db
+                )
+                logger.info(
+                    f"Push notification sent for event {event.id}",
+                    extra={
+                        "event_type": "push_notification_sent",
+                        "event_id": event.id,
+                        "camera_id": camera.id,
+                        "camera_name": camera.name
+                    }
+                )
+            except Exception as push_error:
+                # Don't fail event if push notification fails (fail-open design)
+                logger.warning(
+                    f"Failed to send push notification for event {event.id}: {push_error}",
+                    extra={
+                        "event_type": "push_notification_error",
+                        "event_id": event.id,
+                        "camera_id": camera.id,
+                        "error_type": type(push_error).__name__,
+                        "error_message": str(push_error)
+                    }
+                )
+
             return event
 
         except Exception as e:
@@ -2873,6 +2909,39 @@ class ProtectEventHandler:
                     "description_retry_needed": event.description_retry_needed
                 }
             )
+
+            # Story P4-1 (BUGFIX): Send push notifications for events without AI description
+            # Even if AI fails, still notify user of detected events
+            try:
+                await send_event_notification(
+                    event_id=event.id,
+                    camera_name=camera.name,
+                    description=event.description,
+                    thumbnail_url=f"/api/v1/thumbnails/{event.thumbnail_path}" if event.thumbnail_path else None,
+                    camera_id=camera.id,
+                    smart_detection_type=event.smart_detection_type,
+                    db=db
+                )
+                logger.info(
+                    f"Push notification sent for no-AI event {event.id}",
+                    extra={
+                        "event_type": "push_notification_sent_no_ai",
+                        "event_id": event.id,
+                        "camera_id": camera.id
+                    }
+                )
+            except Exception as push_error:
+                # Don't fail event if push notification fails (fail-open design)
+                logger.warning(
+                    f"Failed to send push notification for no-AI event {event.id}: {push_error}",
+                    extra={
+                        "event_type": "push_notification_error",
+                        "event_id": event.id,
+                        "camera_id": camera.id,
+                        "error_type": type(push_error).__name__,
+                        "error_message": str(push_error)
+                    }
+                )
 
             return event
 

@@ -314,6 +314,23 @@ export default function EventsPage() {
   ) ?? [];
   const totalEvents = data?.pages[0]?.total_count ?? 0;
 
+  // Handle ?selected={id} query param to auto-open event detail modal
+  // (used when redirecting from /events/{id} or deep links)
+  useEffect(() => {
+    const selectedId = searchParams.get('selected');
+    if (selectedId && allEvents.length > 0 && !selectedEvent) {
+      const event = allEvents.find(e => e.id === selectedId);
+      if (event) {
+        setSelectedEvent(event);
+        // Clear the query param after opening
+        const newParams = new URLSearchParams(searchParams.toString());
+        newParams.delete('selected');
+        const newUrl = newParams.toString() ? `${pathname}?${newParams}` : pathname;
+        router.replace(newUrl, { scroll: false });
+      }
+    }
+  }, [searchParams, allEvents, selectedEvent, pathname, router]);
+
   return (
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

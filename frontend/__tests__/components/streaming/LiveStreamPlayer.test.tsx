@@ -346,9 +346,10 @@ describe('LiveStreamPlayer', () => {
         <LiveStreamPlayer cameraId="camera-1" cameraName="Front Door" />
       );
 
-      // Wait for WebSocket to be created
+      // Wait for WebSocket to be created AND opened (mock opens after 5ms)
       await waitFor(() => {
         expect(mockWsInstance).not.toBeNull();
+        expect(mockWsInstance?.readyState).toBe(MockWebSocket.OPEN);
       });
 
       // Simulate limit reached close event
@@ -370,9 +371,10 @@ describe('LiveStreamPlayer', () => {
         <LiveStreamPlayer cameraId="camera-1" cameraName="Front Door" />
       );
 
-      // Wait for WebSocket to be created
+      // Wait for WebSocket to be created AND opened (mock opens after 5ms)
       await waitFor(() => {
         expect(mockWsInstance).not.toBeNull();
+        expect(mockWsInstance?.readyState).toBe(MockWebSocket.OPEN);
       });
 
       // Simulate camera not found close event
@@ -394,9 +396,10 @@ describe('LiveStreamPlayer', () => {
         <LiveStreamPlayer cameraId="camera-1" cameraName="Front Door" />
       );
 
-      // Wait for WebSocket to be created
+      // Wait for WebSocket to be created AND opened (mock opens after 5ms)
       await waitFor(() => {
         expect(mockWsInstance).not.toBeNull();
+        expect(mockWsInstance?.readyState).toBe(MockWebSocket.OPEN);
       });
 
       // Simulate stream unavailable close event
@@ -417,9 +420,10 @@ describe('LiveStreamPlayer', () => {
         <LiveStreamPlayer cameraId="camera-1" cameraName="Front Door" />
       );
 
-      // Wait for WebSocket to be created
+      // Wait for WebSocket to be created AND opened (mock opens after 5ms)
       await waitFor(() => {
         expect(mockWsInstance).not.toBeNull();
+        expect(mockWsInstance?.readyState).toBe(MockWebSocket.OPEN);
       });
 
       // Simulate limit reached close event

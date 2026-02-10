@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { ChevronUp, AlertCircle, Loader2, Filter, RefreshCw, Trash2, X, CheckSquare, Download } from 'lucide-react';
 import { EventCard } from '@/components/events/EventCard';
@@ -316,20 +316,29 @@ export default function EventsPage() {
 
   // Handle ?selected={id} query param to auto-open event detail modal
   // (used when redirecting from /events/{id} or deep links)
+  // Use a ref to track if we've already processed this param to avoid loops
+  const processedSelectedRef = useRef<string | null>(null);
+  
   useEffect(() => {
     const selectedId = searchParams.get('selected');
-    if (selectedId && allEvents.length > 0 && !selectedEvent) {
+    // Only process if we haven't already processed this ID
+    if (selectedId && selectedId !== processedSelectedRef.current && allEvents.length > 0) {
       const event = allEvents.find(e => e.id === selectedId);
       if (event) {
+        processedSelectedRef.current = selectedId;
         setSelectedEvent(event);
-        // Clear the query param after opening
-        const newParams = new URLSearchParams(searchParams.toString());
+        // Clear the query param after opening (use window.history to avoid re-render)
+        const newParams = new URLSearchParams(window.location.search);
         newParams.delete('selected');
         const newUrl = newParams.toString() ? `${pathname}?${newParams}` : pathname;
-        router.replace(newUrl, { scroll: false });
+        window.history.replaceState(null, '', newUrl);
       }
     }
-  }, [searchParams, allEvents, selectedEvent, pathname, router]);
+    // Reset ref when modal closes
+    if (!selectedEvent) {
+      processedSelectedRef.current = null;
+    }
+  }, [searchParams, allEvents, selectedEvent, pathname]);
 
   return (
     <div className="min-h-screen">

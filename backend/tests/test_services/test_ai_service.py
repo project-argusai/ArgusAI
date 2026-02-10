@@ -19,6 +19,8 @@ from app.services.ai_service import (
     AIProvider as AIProviderEnum,
     build_context_prompt,
     get_time_of_day_category,
+    get_night_vision_hint,
+    get_location_delivery_hint,
 )
 from app.models.system_setting import SystemSetting
 
@@ -3151,6 +3153,41 @@ class TestContextPromptBuilding:
         assert 'Context: This footage is from the "Side Gate" camera' in result
         assert "10:00 PM" in result
         assert "(night)" in result
+        # Issue #386: Night vision hint should be included
+        assert "Night Vision Mode" in result
+        assert "grayscale" in result
+
+    def test_get_night_vision_hint_returns_hint_for_night(self):
+        """Test night vision hint is returned for night time (Issue #386)"""
+        hint = get_night_vision_hint("night")
+        assert hint is not None
+        assert "Night Vision Mode" in hint
+        assert "grayscale" in hint
+        assert "DO NOT describe specific colors" in hint
+
+    def test_get_night_vision_hint_returns_none_for_daytime(self):
+        """Test night vision hint is None for daytime (Issue #386)"""
+        assert get_night_vision_hint("morning") is None
+        assert get_night_vision_hint("afternoon") is None
+        assert get_night_vision_hint("evening") is None
+
+    def test_build_context_prompt_morning_no_night_hint(self):
+        """Test morning context does NOT include night vision hint (Issue #386)"""
+        result = build_context_prompt("Front Door", "2025-12-22T07:15:00+00:00")
+        assert "(morning)" in result
+        assert "Night Vision Mode" not in result
+
+    def test_build_context_prompt_afternoon_no_night_hint(self):
+        """Test afternoon context does NOT include night vision hint (Issue #386)"""
+        result = build_context_prompt("Front Door", "2025-12-22T14:00:00+00:00")
+        assert "(afternoon)" in result
+        assert "Night Vision Mode" not in result
+
+    def test_build_context_prompt_evening_no_night_hint(self):
+        """Test evening context does NOT include night vision hint (Issue #386)"""
+        result = build_context_prompt("Front Door", "2025-12-22T18:30:00+00:00")
+        assert "(evening)" in result
+        assert "Night Vision Mode" not in result
 
     def test_build_context_prompt_late_night(self):
         """Test context prompt for late night (early morning hours) (AC-3.1.3)"""

@@ -276,6 +276,30 @@ def get_location_delivery_hint(camera_name: str) -> Optional[str]:
     return None
 
 
+def get_night_vision_hint(time_category: str) -> Optional[str]:
+    """Get night vision / IR footage hint for AI prompts (Issue #386).
+
+    When cameras switch to IR/night vision mode at night, footage becomes
+    grayscale. The AI may incorrectly identify vehicle/object colors.
+    This hint instructs the AI to avoid or caveat color descriptions.
+
+    Args:
+        time_category: Time of day category from get_time_of_day_category()
+                      ("morning", "afternoon", "evening", "night")
+
+    Returns:
+        Night vision hint string, or None for daytime footage
+    """
+    if time_category == "night":
+        return (
+            "IMPORTANT - Night Vision Mode: This footage is likely captured in infrared/night vision mode, "
+            "which produces grayscale images. DO NOT describe specific colors of vehicles, clothing, or objects. "
+            "Instead, describe shapes, sizes, and types (e.g., 'SUV', 'sedan', 'pickup truck') without color assertions. "
+            "If you must reference appearance, say 'appears light/dark-toned' rather than specific colors like 'silver', 'white', or 'black'."
+        )
+    return None
+
+
 def build_context_prompt(
     camera_name: str,
     timestamp: str,
@@ -338,6 +362,11 @@ def build_context_prompt(
         location_hint = get_location_delivery_hint(effective_camera_name)
         if location_hint:
             context += f"\n\n{location_hint}"
+
+        # Issue #386: Add night vision hint for nighttime footage
+        night_hint = get_night_vision_hint(time_category)
+        if night_hint:
+            context += f"\n\n{night_hint}"
 
         return context
 

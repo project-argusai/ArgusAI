@@ -104,13 +104,24 @@ IMPORTANT - Use dynamic descriptions, NOT static ones:
 - GOOD: "A car pulled into the driveway and parked. The driver exited and walked toward the house."
 - BAD: "A car is parked in the driveway. A person is standing nearby."
 
+**DELIVERY CLASSIFICATION - Be conservative:**
+Only classify as a "delivery" or "package delivery" if you see CLEAR evidence:
+- Identifiable delivery uniform/vehicle (FedEx purple/orange, UPS brown, USPS blue, Amazon blue vest, DHL yellow/red)
+- OR: Person places a recognizable package (cardboard box, padded mailer) and immediately leaves WITHOUT entering the home
+- OR: Delivery truck/van visible in frame
+
+Do NOT classify as a delivery if:
+- Person enters the home after approaching (they are a resident)
+- Person is carrying grocery bags, backpacks, purses, or personal items (not deliveries)
+- No visible package is placed down
+- Person lingers, waits, or rings doorbell repeatedly (may be a visitor, not a drop-off)
+
 If you see a delivery person or truck, identify the carrier:
 - FedEx (purple/orange colors, FedEx logo)
 - UPS (brown uniform, brown truck)
 - USPS (blue uniform, postal logo, mail truck)
 - Amazon (blue vest, Amazon logo, Amazon van)
 - DHL (yellow/red colors, DHL logo)
-Include the carrier name in your description.
 
 Be specific about the narrative - this is video showing motion over time, not a static photograph. Describe the complete sequence of what happened."""
 
@@ -252,7 +263,16 @@ def get_location_delivery_hint(camera_name: str) -> Optional[str]:
             "Any activity is from residents, guests, or animals."
         )
 
-    # Front door and driveway are normal delivery zones - no special hint needed
+    # Issue #385: Front door and driveway CAN receive deliveries, but still need guidance
+    # to reduce false positives from residents carrying items
+    if any(loc in name_lower for loc in ['front door', 'frontdoor', 'front entry', 'driveway', 'front porch']):
+        return (
+            "Note: Be conservative with delivery classification. A person carrying items who ENTERS the home "
+            "is a resident, not a delivery. Only classify as delivery if: (1) you see a delivery uniform/vehicle, "
+            "OR (2) a package is placed down AND the person leaves without entering."
+        )
+
+    # Generic cameras - no specific hint
     return None
 
 
@@ -378,12 +398,13 @@ class AIProviderBase(ABC):
             "WHERE (location in frame), "
             "and ACTIONS (what is happening). "
             "Be specific and detailed.\n\n"
-            "If you see a delivery person or truck, identify the carrier:\n"
-            "- FedEx (purple/orange colors, FedEx logo)\n"
-            "- UPS (brown uniform, brown truck)\n"
-            "- USPS (blue uniform, postal logo, mail truck)\n"
-            "- Amazon (blue vest, Amazon logo, Amazon van)\n"
-            "- DHL (yellow/red colors, DHL logo)\n"
+            "DELIVERY CLASSIFICATION - Be conservative:\n"
+            "Only classify as a delivery if you see: identifiable delivery uniform/vehicle, "
+            "OR a person placing a cardboard box/package and immediately leaving WITHOUT entering.\n"
+            "Do NOT classify as delivery if: person enters the home (resident), carries personal items "
+            "(groceries, bags, backpacks), or no package is visibly placed down.\n\n"
+            "If you DO see a clear delivery, identify the carrier:\n"
+            "- FedEx (purple/orange), UPS (brown), USPS (blue), Amazon (blue vest), DHL (yellow/red)\n"
             "Include the carrier name in your description."
         )
 

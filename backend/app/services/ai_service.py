@@ -216,6 +216,46 @@ def get_time_of_day_category(hour: int) -> str:
         return "night"
 
 
+def get_location_delivery_hint(camera_name: str) -> Optional[str]:
+    """Get location-specific delivery classification hints (Issue #384).
+
+    Provides context to the AI about expected delivery patterns based on
+    camera location. Back doors, side doors, and backyards rarely receive
+    package deliveries - activity there is usually residents.
+
+    Args:
+        camera_name: Name of the camera (e.g., "Back Door", "Front Door")
+
+    Returns:
+        Location-specific hint string, or None for front-facing locations
+    """
+    name_lower = camera_name.lower()
+
+    # Back door / side door / garage - deliveries are rare
+    if any(loc in name_lower for loc in ['back door', 'backdoor', 'back entry', 'rear door', 'rear entry']):
+        return (
+            "IMPORTANT: This is a back door camera. Package deliveries almost never occur at back doors. "
+            "If you see someone carrying items (bags, boxes, packages), they are most likely a resident "
+            "entering/exiting with groceries, trash, or personal belongings - NOT a delivery. "
+            "Only classify as a delivery if you see clear delivery uniform/vehicle (FedEx, UPS, Amazon, etc.)."
+        )
+
+    if any(loc in name_lower for loc in ['side door', 'sidedoor', 'side entry', 'garage']):
+        return (
+            "Note: This is a side door/garage camera. Deliveries are uncommon here. "
+            "People carrying items are likely residents unless wearing clear delivery uniforms."
+        )
+
+    if any(loc in name_lower for loc in ['backyard', 'back yard', 'patio', 'deck']):
+        return (
+            "Note: This is a backyard camera. Deliveries do not occur in backyards. "
+            "Any activity is from residents, guests, or animals."
+        )
+
+    # Front door and driveway are normal delivery zones - no special hint needed
+    return None
+
+
 def build_context_prompt(
     camera_name: str,
     timestamp: str,
@@ -272,12 +312,26 @@ def build_context_prompt(
         if ocr_result and ocr_result.timestamp:
             logger.debug(f"OCR timestamp '{ocr_result.timestamp}' found (using DB timestamp for reliability)")
 
-        return f'Context: This footage is from the "{effective_camera_name}" camera at {time_str} on {date_str} ({time_category}).'
+        context = f'Context: This footage is from the "{effective_camera_name}" camera at {time_str} on {date_str} ({time_category}).'
+
+        # Issue #384: Add location-specific delivery classification hints
+        location_hint = get_location_delivery_hint(effective_camera_name)
+        if location_hint:
+            context += f"\n\n{location_hint}"
+
+        return context
 
     except (ValueError, AttributeError) as e:
         # Fallback to simple format if parsing fails
         logger.warning(f"Failed to parse timestamp '{timestamp}': {e}")
-        return f'Context: This footage is from the "{effective_camera_name}" camera at {timestamp}.'
+        context = f'Context: This footage is from the "{effective_camera_name}" camera at {timestamp}.'
+
+        # Issue #384: Add location-specific delivery classification hints
+        location_hint = get_location_delivery_hint(effective_camera_name)
+        if location_hint:
+            context += f"\n\n{location_hint}"
+
+        return context
 
 
 class AIProvider(Enum):

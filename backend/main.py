@@ -400,6 +400,9 @@ async def lifespan(app: FastAPI):
     # Connect to Protect controllers on startup (Story P2-1.4, AC1)
     from app.models.protect_controller import ProtectController
     protect_service = get_protect_service()
+    
+    # Reset stale connection states from previous crashes (Issue #382)
+    await protect_service.reset_stale_connection_states()
 
     db = next(get_db())
     try:

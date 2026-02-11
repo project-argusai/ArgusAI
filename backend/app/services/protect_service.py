@@ -130,6 +130,46 @@ class ProtectService:
         # Track WebSocket disconnection events for reconnection: controller_id -> bool
         self._ws_disconnected: Dict[str, bool] = {}
 
+    async def reset_stale_connection_states(self) -> int:
+        """
+        Reset stale connection states on service startup (Issue #382).
+        
+        When the service crashes or restarts, controllers may be marked as
+        connected in the database but have no active connection. This method
+        resets all controllers to disconnected state so the startup routine
+        can establish fresh connections.
+        
+        Returns:
+            Number of controllers reset
+        """
+        from app.models.protect_controller import ProtectController
+        
+        reset_count = 0
+        with get_db_session() as db:
+            # Find controllers marked as connected
+            stale_controllers = db.query(ProtectController).filter(
+                ProtectController.is_connected == True
+            ).all()
+            
+            for controller in stale_controllers:
+                controller.is_connected = False
+                # Keep last_error for debugging, but add context
+                if controller.last_error:
+                    controller.last_error = f"[Stale after restart] {controller.last_error}"
+                reset_count += 1
+                
+            if reset_count > 0:
+                db.commit()
+                logger.info(
+                    f"Reset {reset_count} stale controller connection states",
+                    extra={
+                        "event_type": "protect_stale_state_reset",
+                        "reset_count": reset_count
+                    }
+                )
+        
+        return reset_count
+
     async def test_connection(
         self,
         host: str,
@@ -871,20 +911,22 @@ class ProtectService:
                 raise
 
             except Exception as e:
+                error_detail = str(e) if str(e) else type(e).__name__
                 logger.warning(
-                    f"Reconnect attempt {attempt + 1} failed",
+                    f"Reconnect attempt {attempt + 1} failed: {error_detail}",
                     extra={
                         "event_type": "protect_reconnect_failed",
                         "controller_id": controller_id,
                         "attempt": attempt + 1,
-                        "error_type": type(e).__name__
+                        "error_type": type(e).__name__,
+                        "error_message": error_detail
                     }
                 )
 
                 await self._update_controller_state(
                     controller_id,
                     is_connected=False,
-                    last_error=f"Reconnect failed: {type(e).__name__}"
+                    last_error=f"Reconnect failed: {type(e).__name__}: {error_detail}"
                 )
 
             attempt += 1

@@ -97,7 +97,8 @@ class WebhookService:
         self,
         db: Session,
         http_client: Optional[httpx.AsyncClient] = None,
-        allow_http: bool = False  # Set True for development/testing
+        allow_http: bool = False,  # Set True for development/testing
+        allow_private_ips: bool = False  # Set True for LAN webhooks (e.g., OpenClaw)
     ):
         """
         Initialize WebhookService.
@@ -106,10 +107,12 @@ class WebhookService:
             db: SQLAlchemy database session for logging
             http_client: Optional httpx AsyncClient (created if not provided)
             allow_http: Allow http:// URLs (disable for production)
+            allow_private_ips: Allow private/LAN IP addresses (for internal webhooks)
         """
         self.db = db
         self.http_client = http_client
         self.allow_http = allow_http
+        self.allow_private_ips = allow_private_ips
         self._rate_limit_cache: Dict[str, List[float]] = {}  # rule_id -> timestamps
 
     def _is_private_ip(self, ip_str: str) -> bool:
@@ -165,12 +168,13 @@ class WebhookService:
         if hostname in blocked_hosts:
             raise WebhookValidationError(f"Blocked hostname: {hostname}")
 
-        # Resolve and check IP for SSRF
-        resolved_ip = self._resolve_hostname(hostname)
-        if resolved_ip and self._is_private_ip(resolved_ip):
-            raise WebhookValidationError(
-                f"URL resolves to private IP address: {resolved_ip}"
-            )
+        # Resolve and check IP for SSRF (skip if allow_private_ips is set)
+        if not self.allow_private_ips:
+            resolved_ip = self._resolve_hostname(hostname)
+            if resolved_ip and self._is_private_ip(resolved_ip):
+                raise WebhookValidationError(
+                    f"URL resolves to private IP address: {resolved_ip}"
+                )
 
     def check_rate_limit(self, rule_id: str) -> None:
         """

@@ -16,6 +16,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from pywebpush import webpush, WebPushException
 from py_vapid import Vapid
@@ -545,6 +546,16 @@ class PushNotificationService:
         # Using Vapid.from_pem() is more reliable than passing raw key string
         vapid_instance = Vapid.from_pem(private_key.encode('utf-8'))
 
+        # Build VAPID claims with proper 'aud' (audience) claim
+        # The 'aud' must match the push service endpoint's origin
+        # Fix for issue #373: VAPID mismatch causing push delivery failures
+        parsed_endpoint = urlparse(subscription.endpoint)
+        endpoint_origin = f"{parsed_endpoint.scheme}://{parsed_endpoint.netloc}"
+        vapid_claims = {
+            "sub": VAPID_CLAIMS_EMAIL,
+            "aud": endpoint_origin,
+        }
+
         while retries <= MAX_RETRIES:
             try:
                 # Send notification using pywebpush
@@ -556,7 +567,7 @@ class PushNotificationService:
                     return webpush(
                         subscription_info=subscription_info,
                         data=payload_json,
-                        vapid_claims={"sub": VAPID_CLAIMS_EMAIL},
+                        vapid_claims=vapid_claims,
                         vapid_private_key=vapid_instance,  # Pass the Vapid instance
                     )
 

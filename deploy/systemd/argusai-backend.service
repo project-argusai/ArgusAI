@@ -1,0 +1,50 @@
+# ArgusAI Backend Service
+# Copy to /etc/systemd/system/argusai-backend.service
+# Then: sudo systemctl daemon-reload && sudo systemctl enable argusai-backend
+
+[Unit]
+Description=ArgusAI - Backend API
+Documentation=https://github.com/project-argusai/ArgusAI
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=argusai
+Group=argusai
+WorkingDirectory=/opt/argusai/backend
+Environment="PATH=/opt/argusai/backend/venv/bin"
+# Optional: Pre-start port check (uncomment to enable)
+# ExecStartPre=/opt/argusai/backend/venv/bin/python /opt/argusai/backend/scripts/check_port.py 8000 --wait 15
+ExecStart=/opt/argusai/backend/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 10
+
+# Restart behavior - Issue #383
+Restart=always
+RestartSec=5
+
+# Process management - prevent port binding issues on restart
+# KillMode=mixed ensures child processes are killed when main process stops
+KillMode=mixed
+# Give uvicorn time to gracefully shutdown and release the port
+TimeoutStopSec=15
+# Allow time for startup (database connections, model loading)
+TimeoutStartSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=argusai-backend
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/argusai/backend/data /opt/argusai/backend/logs /var/log/argusai
+
+# Resource limits (adjust as needed)
+# LimitNOFILE=65535
+# MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target

@@ -1188,9 +1188,14 @@ User=$USER
 Group=$USER
 WorkingDirectory=$BACKEND_DIR
 Environment="PATH=$BACKEND_DIR/venv/bin"
-ExecStart=$BACKEND_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+ExecStart=$BACKEND_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 10
 Restart=always
-RestartSec=10
+RestartSec=5
+
+# Process management - prevent port binding issues on restart (Issue #383)
+KillMode=mixed
+TimeoutStopSec=15
+TimeoutStartSec=30
 
 # Logging
 StandardOutput=journal
@@ -1200,6 +1205,9 @@ SyslogIdentifier=argusai-backend
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=$BACKEND_DIR/data $BACKEND_DIR/logs
 
 [Install]
 WantedBy=multi-user.target
@@ -1233,7 +1241,12 @@ Environment="NODE_ENV=production"
 $ssl_env_section
 ExecStart=/usr/bin/npm run $frontend_start_cmd
 Restart=always
-RestartSec=10
+RestartSec=5
+
+# Process management - prevent port binding issues on restart (Issue #383)
+KillMode=mixed
+TimeoutStopSec=15
+TimeoutStartSec=30
 
 # Logging
 StandardOutput=journal
@@ -1243,6 +1256,8 @@ SyslogIdentifier=argusai-frontend
 # Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
 
 [Install]
 WantedBy=multi-user.target

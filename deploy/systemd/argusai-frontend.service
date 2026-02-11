@@ -1,0 +1,43 @@
+# ArgusAI Frontend Service
+# Copy to /etc/systemd/system/argusai-frontend.service
+# Then: sudo systemctl daemon-reload && sudo systemctl enable argusai-frontend
+
+[Unit]
+Description=ArgusAI - Frontend
+Documentation=https://github.com/project-argusai/ArgusAI
+After=network.target argusai-backend.service
+Wants=argusai-backend.service
+
+[Service]
+Type=simple
+User=argusai
+Group=argusai
+WorkingDirectory=/opt/argusai/frontend
+Environment="NODE_ENV=production"
+# Uncomment for HTTPS:
+# Environment="SSL_CERT_FILE=/opt/argusai/certs/cert.pem"
+# Environment="SSL_KEY_FILE=/opt/argusai/certs/key.pem"
+ExecStart=/usr/bin/npm run start
+
+# Restart behavior - Issue #383
+Restart=always
+RestartSec=5
+
+# Process management - prevent port binding issues on restart
+KillMode=mixed
+TimeoutStopSec=15
+TimeoutStartSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=argusai-frontend
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target

@@ -1122,10 +1122,12 @@ class AlertEngine:
             return False
 
         # Use WebhookService for execution with security features
+        # allow_private_ips=True enables LAN webhooks (e.g., OpenClaw, Home Assistant)
         webhook_service = WebhookService(
             db=self.db,
             http_client=self.http_client,
-            allow_http=True  # Allow http for local development
+            allow_http=True,  # Allow http for local development
+            allow_private_ips=True  # Allow LAN/private IPs for internal integrations
         )
 
         result = await webhook_service.execute_rule_webhook(event, rule)

@@ -75,6 +75,18 @@ class TestURLValidation:
             with pytest.raises(WebhookValidationError, match="private IP"):
                 service.validate_url("http://internal.example.com/webhook")
 
+    def test_private_ip_allowed_when_flag_set(self):
+        """Private IP addresses should be allowed when allow_private_ips=True."""
+        db = MagicMock()
+        service = WebhookService(db, allow_http=True, allow_private_ips=True)
+
+        # Mock DNS resolution to return private IPs - should NOT raise
+        with patch.object(service, '_resolve_hostname', return_value='192.168.1.1'):
+            service.validate_url("http://internal.example.com/webhook")  # Should pass
+
+        with patch.object(service, '_resolve_hostname', return_value='10.0.1.32'):
+            service.validate_url("https://10.0.1.32:18789/hooks/test")  # Should pass
+
     def test_invalid_scheme_blocked(self):
         """Non-http/https schemes should be blocked."""
         db = MagicMock()

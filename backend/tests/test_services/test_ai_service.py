@@ -306,9 +306,9 @@ class TestGrokProvider:
         assert "v1" in str(provider.client.base_url)
 
     def test_grok_uses_correct_model(self):
-        """Test that GrokProvider uses grok-2-vision-1212 model (AC2)"""
+        """Test that GrokProvider uses the current grok-4 multimodal model (AC2)."""
         provider = GrokProvider("xai-test-key")
-        assert provider.model == "grok-2-vision-1212"
+        assert provider.model == "grok-4"
 
     @pytest.mark.parametrize("description,expected_objects", [
         ("A person is standing at the door", ['person']),

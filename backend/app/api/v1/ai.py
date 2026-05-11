@@ -366,7 +366,7 @@ async def _call_provider_for_refinement(provider, provider_enum, meta_prompt: st
     elif provider_enum == AIProvider.GROK:
         # Grok uses OpenAI-compatible API
         response = await provider.client.chat.completions.create(
-            model="grok-2-vision-1212",
+            model="grok-4",
             messages=[
                 {"role": "system", "content": "You are an expert at writing effective AI prompts for image description tasks."},
                 {"role": "user", "content": meta_prompt}

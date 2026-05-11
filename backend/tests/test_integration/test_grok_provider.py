@@ -112,8 +112,8 @@ class TestGrokProviderConfiguration:
         assert grok_provider.client.base_url.host == "api.x.ai"
 
     def test_grok_uses_correct_model(self, grok_provider):
-        """Test Grok uses grok-2-vision-1212 model"""
-        assert grok_provider.model == "grok-2-vision-1212"
+        """Test Grok uses the current grok-4 multimodal model."""
+        assert grok_provider.model == "grok-4"
 
     def test_grok_provider_instantiation(self):
         """Test Grok provider can be instantiated"""

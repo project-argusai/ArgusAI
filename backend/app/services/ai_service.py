@@ -2282,9 +2282,12 @@ class GrokProvider(AIProviderBase):
             api_key=api_key,
             base_url="https://api.x.ai/v1"
         )
-        self.model = "grok-2-vision-1212"
-        self.cost_per_1k_input_tokens = 0.00010  # Approximate (similar to GPT-4o mini)
-        self.cost_per_1k_output_tokens = 0.00040
+        # `grok-4` is xAI's current flagship and is multimodal (text + vision).
+        # The previous `grok-2-vision-1212` (Dec 2024 vision-only release) is
+        # retired in xAI's current pricing/availability tiers.
+        self.model = "grok-4"
+        self.cost_per_1k_input_tokens = 0.003   # $3 per 1M input tokens
+        self.cost_per_1k_output_tokens = 0.015  # $15 per 1M output tokens
 
     async def generate_multi_image_description(
         self,

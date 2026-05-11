@@ -331,7 +331,7 @@ class TestLiteLLMProviderDetection:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Test"
-        mock_response.model = "xai/grok-2-vision"
+        mock_response.model = "xai/grok-4"
         mock_response.usage = MagicMock()
         mock_response.usage.total_tokens = 50
 

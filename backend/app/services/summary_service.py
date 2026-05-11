@@ -596,7 +596,7 @@ Timeline:
         )
 
         response = await client.chat.completions.create(
-            model="grok-2-vision-1212",
+            model="grok-4",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}

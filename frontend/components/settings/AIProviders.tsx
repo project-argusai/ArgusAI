@@ -93,8 +93,8 @@ const PROVIDER_DATA: Record<
   },
   grok: {
     name: 'xAI Grok',
-    description: "Grok Vision - xAI's vision-capable model",
-    model: 'grok-2-vision-1212',
+    description: "Grok 4 - xAI's flagship multimodal (text + vision) model",
+    model: 'grok-4',
     icon: <Sparkles className="h-5 w-5" />,
   },
   anthropic: {

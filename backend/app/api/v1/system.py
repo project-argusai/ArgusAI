@@ -732,7 +732,7 @@ async def _test_anthropic_key(api_key: str) -> tuple[bool, str]:
         # Make a minimal message request to test the key
         # Using count_tokens is not available, so we make a small completion
         response = client.messages.create(
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1,
             messages=[{"role": "user", "content": "test"}]
         )

@@ -704,7 +704,7 @@ export default function SettingsPage() {
                 <AIProviders
                   configuredProviders={configuredProviders}
                   providerOrder={providerOrder}
-                  claudeModel={form.watch('claude_model') || 'claude-3-haiku-20240307'}
+                  claudeModel={form.watch('claude_model') || 'claude-haiku-4-5-20251001'}
                   onProviderConfigured={(provider) => {
                     setConfiguredProviders((prev) => new Set([...prev, provider]));
                   }}

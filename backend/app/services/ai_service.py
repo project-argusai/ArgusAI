@@ -1256,16 +1256,23 @@ class OpenAIProvider(AIProviderBase):
 class ClaudeProvider(AIProviderBase):
     """Anthropic Claude vision provider with model selection"""
 
-    # Pricing per 1K tokens for each model (as of Jan 2025)
+    # Pricing per 1K tokens for each model. Newest first; legacy IDs kept
+    # so historical events priced under those models still report correct cost.
     MODEL_PRICING = {
-        "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
-        "claude-3-5-haiku-20241022": {"input": 0.001, "output": 0.005},
-        "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
+        # Claude 4.x family (current as of 2026)
+        "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
+        "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
+        "claude-opus-4-7": {"input": 0.015, "output": 0.075},
+        # Older 4.0 releases
         "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
         "claude-opus-4-20250514": {"input": 0.015, "output": 0.075},
+        # Legacy 3.x family
+        "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
+        "claude-3-5-haiku-20241022": {"input": 0.001, "output": 0.005},
+        "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
     }
 
-    DEFAULT_MODEL = "claude-3-haiku-20240307"
+    DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
     def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)

@@ -67,23 +67,30 @@ export interface SystemSettings {
   frame_extraction_offset_ms?: number;  // Milliseconds to skip from clip start (0-10000, default: 2000)
 
   // Claude Model Selection
-  claude_model?: ClaudeModel;  // Selected Claude model (default: claude-3-haiku-20240307)
+  claude_model?: ClaudeModel;  // Selected Claude model (default: claude-haiku-4-5-20251001)
 }
 
-// Claude model options
+// Claude model options. Newest first; legacy IDs kept at the bottom for
+// backwards compatibility with stored settings.
 export type ClaudeModel =
-  | 'claude-3-haiku-20240307'
-  | 'claude-3-5-haiku-20241022'
-  | 'claude-3-5-sonnet-20241022'
+  | 'claude-haiku-4-5-20251001'
+  | 'claude-sonnet-4-6'
+  | 'claude-opus-4-7'
   | 'claude-sonnet-4-20250514'
-  | 'claude-opus-4-20250514';
+  | 'claude-opus-4-20250514'
+  | 'claude-3-5-sonnet-20241022'
+  | 'claude-3-5-haiku-20241022'
+  | 'claude-3-haiku-20240307';
 
 export const CLAUDE_MODELS: { value: ClaudeModel; label: string; description: string }[] = [
-  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku', description: 'Fastest, lowest cost ($0.25/$1.25 per 1M tokens)' },
-  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku', description: 'Faster, low cost ($1/$5 per 1M tokens)' },
-  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet', description: 'Balanced ($3/$15 per 1M tokens)' },
-  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', description: 'Advanced ($3/$15 per 1M tokens)' },
-  { value: 'claude-opus-4-20250514', label: 'Claude Opus 4', description: 'Most capable ($15/$75 per 1M tokens)' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', description: 'Newest fast vision model — best price/quality for short scene descriptions ($1/$5 per 1M tokens)' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', description: 'Balanced quality and cost ($3/$15 per 1M tokens)' },
+  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7', description: 'Most capable — reserve for hard cases ($15/$75 per 1M tokens)' },
+  { value: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4 (legacy)', description: 'Older Sonnet 4 release ($3/$15 per 1M tokens)' },
+  { value: 'claude-opus-4-20250514', label: 'Claude Opus 4 (legacy)', description: 'Older Opus 4 release ($15/$75 per 1M tokens)' },
+  { value: 'claude-3-5-sonnet-20241022', label: 'Claude 3.5 Sonnet (legacy)', description: 'Legacy ($3/$15 per 1M tokens)' },
+  { value: 'claude-3-5-haiku-20241022', label: 'Claude 3.5 Haiku (legacy)', description: 'Legacy ($1/$5 per 1M tokens)' },
+  { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (legacy)', description: 'Legacy fast/cheap ($0.25/$1.25 per 1M tokens)' },
 ];
 
 export interface StorageStats {

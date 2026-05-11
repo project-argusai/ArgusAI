@@ -158,15 +158,19 @@ class SystemSettings(BaseModel):
     primary_api_key: str = Field(default="")  # Encrypted in storage
     fallback_model: Optional[Literal["gpt-4o-mini", "claude-3-haiku", "gemini-flash"]] = Field(default=None)
 
-    # Claude Model Selection
+    # Claude Model Selection. Newest first; legacy IDs accepted for
+    # backwards-compatibility with stored settings.
     claude_model: Literal[
-        "claude-3-haiku-20240307",
-        "claude-3-5-haiku-20241022",
-        "claude-3-5-sonnet-20241022",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
         "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514"
+        "claude-opus-4-20250514",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-haiku-20240307",
     ] = Field(
-        default="claude-3-haiku-20240307",
+        default="claude-haiku-4-5-20251001",
         description="Anthropic Claude model to use. Haiku is fastest/cheapest, Opus is most capable."
     )
 
@@ -276,13 +280,16 @@ class SystemSettingsUpdate(BaseModel):
     primary_api_key: Optional[str] = None
     fallback_model: Optional[Literal["gpt-4o-mini", "claude-3-haiku", "gemini-flash"]] = None
 
-    # Claude Model Selection
+    # Claude Model Selection. Must match the union in SystemSettings (above).
     claude_model: Optional[Literal[
-        "claude-3-haiku-20240307",
-        "claude-3-5-haiku-20241022",
-        "claude-3-5-sonnet-20241022",
+        "claude-haiku-4-5-20251001",
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
         "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514"
+        "claude-opus-4-20250514",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-haiku-20240307",
     ]] = Field(None, description="Anthropic Claude model to use")
 
     description_prompt: Optional[str] = None

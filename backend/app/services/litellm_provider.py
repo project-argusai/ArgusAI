@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 MODEL_MAPPINGS = {
     "openai": "openai/gpt-4o-mini",
     "grok": "xai/grok-2-vision-1212",
-    "claude": "anthropic/claude-3-haiku-20240307",
+    "claude": "anthropic/claude-haiku-4-5-20251001",
     "gemini": "gemini/gemini-2.5-flash",
 }
 

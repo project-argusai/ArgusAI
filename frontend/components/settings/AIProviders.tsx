@@ -99,8 +99,8 @@ const PROVIDER_DATA: Record<
   },
   anthropic: {
     name: 'Anthropic Claude',
-    description: 'Claude 3 Haiku - Efficient and accurate',
-    model: 'claude-3-haiku',
+    description: 'Claude Haiku 4.5 - Latest fast vision model',
+    model: 'claude-haiku-4-5-20251001',
     icon: <Brain className="h-5 w-5" />,
   },
   google: {
@@ -219,7 +219,7 @@ interface AIProvidersProps {
 export function AIProviders({
   configuredProviders,
   providerOrder: initialOrder,
-  claudeModel = 'claude-3-haiku-20240307',
+  claudeModel = 'claude-haiku-4-5-20251001',
   onProviderConfigured,
   onProviderRemoved,
   onProviderOrderChanged,

@@ -533,8 +533,11 @@ class TestStoreEventWithoutAI:
             assert "video_native:" in call_kwargs['fallback_reason']
             assert "multi_frame:" in call_kwargs['fallback_reason']
 
-            mock_db.add.assert_called_once()
-            mock_db.commit.assert_called_once()
+            # P4-3.3/P4-3.4: function also persists EventEmbedding / RecognizedEntity / EntityEvent
+            # via the embedding+entity pipeline, so add/commit fire more than once. AC3 only requires
+            # the Event itself to be added and committed.
+            mock_db.add.assert_any_call(mock_event)
+            assert mock_db.commit.called
 
 
 # =============================================================================

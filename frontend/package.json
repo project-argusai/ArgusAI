@@ -54,7 +54,8 @@
   },
   "overrides": {
     "lodash": "^4.17.23",
-    "undici": "^7.18.2"
+    "undici": "^7.18.2",
+    "postcss": "^8.5.10"
   },
   "devDependencies": {
     "@axe-core/react": "^4.11.0",

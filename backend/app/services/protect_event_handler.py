@@ -62,7 +62,11 @@ from app.services.frame_storage_service import get_frame_storage_service
 from app.services.video_storage_service import get_video_storage_service
 from app.services.context_prompt_service import get_context_prompt_service
 from app.services.push_notification_service import send_event_notification
-from app.services.protect_event_filter import ProtectEventFilter, protect_event_filter, EVENT_COOLDOWN_SECONDS
+from app.services.protect_event_filter import (
+    ProtectEventFilter,
+    get_protect_event_filter,
+    EVENT_COOLDOWN_SECONDS,
+)
 from app.services.protect_ai_pipeline import ProtectAIPipeline, protect_ai_pipeline
 from app.services.protect_media_service import ProtectMediaService, protect_media_service, MediaBundle
 from app.services.protect_event_storage_service import ProtectEventStorageService, protect_event_storage_service
@@ -162,7 +166,7 @@ class ProtectEventHandler:
     def __init__(self):
         """Initialize event handler with empty event tracking."""
         # Use the dedicated ProtectEventFilter for filtering + deduplication (Phase 4)
-        self.event_filter: ProtectEventFilter = protect_event_filter
+        self.event_filter: ProtectEventFilter = get_protect_event_filter()
 
         # AI analysis pipeline for Protect events (Phase 4)
         self.ai_pipeline: ProtectAIPipeline = protect_ai_pipeline

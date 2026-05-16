@@ -9,11 +9,15 @@ Handles:
 - Deduplication using per-camera cooldown window
 
 Extracted from ProtectEventHandler during Phase 4 of the decomposition.
+
+Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import Dict, List
+
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,7 @@ logger = logging.getLogger(__name__)
 EVENT_COOLDOWN_SECONDS = 60
 
 
+@singleton
 class ProtectEventFilter:
     """
     Filters and deduplicates UniFi Protect events.
@@ -116,5 +121,25 @@ class ProtectEventFilter:
         self._last_event_times.pop(camera_id, None)
 
 
-# Module-level singleton for convenience (stateless except for the cooldown dict)
-protect_event_filter = ProtectEventFilter()
+# Backward compatible getter (delegates to @singleton decorator)
+def get_protect_event_filter() -> "ProtectEventFilter":
+    """
+    Get the global ProtectEventFilter instance.
+
+    Returns:
+        ProtectEventFilter singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should prefer
+          ProtectEventFilter() directly (the @singleton decorator guarantees
+          the same instance).
+    """
+    return ProtectEventFilter()
+
+
+def reset_protect_event_filter() -> None:
+    """
+    Reset the global ProtectEventFilter instance.
+
+    Useful for testing to clear deduplication state.
+    """
+    ProtectEventFilter._reset_instance()

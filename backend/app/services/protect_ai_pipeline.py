@@ -10,6 +10,8 @@ Responsibilities:
 - Context-enhanced prompts (MCP)
 
 Extracted from ProtectEventHandler during Phase 4 decomposition.
+
+Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
 """
 
 import logging
@@ -19,6 +21,7 @@ from typing import Optional, List, Any, TYPE_CHECKING
 
 from app.services.snapshot_service import SnapshotResult
 from app.models.camera import Camera
+from app.core.decorators import singleton
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIResult
@@ -26,6 +29,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class ProtectAIPipeline:
     """
     Service responsible for running AI analysis on Protect event snapshots/clips.
@@ -263,5 +267,10 @@ class ProtectAIPipeline:
         return self._last_audio_transcription
 
 
-# Singleton
-protect_ai_pipeline = ProtectAIPipeline()
+# Backward compatible getter (delegates to @singleton decorator)
+def get_protect_ai_pipeline() -> "ProtectAIPipeline":
+    return ProtectAIPipeline()
+
+
+def reset_protect_ai_pipeline() -> None:
+    ProtectAIPipeline._reset_instance()

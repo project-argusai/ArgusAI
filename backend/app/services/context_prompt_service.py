@@ -697,10 +697,5 @@ def reset_context_prompt_service() -> None:
 
 
 def reset_context_prompt_service() -> None:
-    """
-    Reset the global ContextEnhancedPromptService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _context_prompt_service
-    _context_prompt_service = None
+    """Reset the global ContextEnhancedPromptService instance (for testing)."""
+    ContextEnhancedPromptService._reset_instance()

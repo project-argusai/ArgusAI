@@ -23,12 +23,15 @@ Flow (Text - Story P11-4.1):
     User Query → EmbeddingService.encode_text() → Query Embedding
                                                         ↓
                             Compare with Frame Embeddings (cosine similarity)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import base64
 import io
 import json
 import logging
+from app.core.decorators import singleton
 import time
 from typing import Optional
 
@@ -38,6 +41,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class EmbeddingService:
     """
     Generate image embeddings using CLIP ViT-B/32 model.
@@ -612,29 +616,20 @@ class EmbeddingService:
         return count
 
 
-# Global singleton instance
-_embedding_service: Optional[EmbeddingService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_embedding_service() -> EmbeddingService:
     """
     Get the global EmbeddingService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        EmbeddingService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer EmbeddingService() directly.
     """
-    global _embedding_service
+    return EmbeddingService()
 
-    if _embedding_service is None:
-        _embedding_service = EmbeddingService()
-        logger.info(
-            "Global EmbeddingService instance created",
-            extra={"event_type": "embedding_service_singleton_created"}
-        )
 
-    return _embedding_service
+def reset_embedding_service() -> None:
+    """Reset the global EmbeddingService instance (for testing)."""
+    EmbeddingService._reset_instance()
 
 
 async def initialize_embedding_service() -> EmbeddingService:

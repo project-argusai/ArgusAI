@@ -2228,6 +2228,6 @@ async def initialize_homekit_service(cameras: List[Any]) -> bool:
 
 async def shutdown_homekit_service() -> None:
     """Stop the HomeKit service."""
-    global _homekit_service
-    if _homekit_service:
-        await _homekit_service.stop()
+    service = HomekitService._get_instance()
+    if service:
+        await service.stop()

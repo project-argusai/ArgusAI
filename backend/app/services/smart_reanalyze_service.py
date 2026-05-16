@@ -380,24 +380,3 @@ def get_smart_reanalyze_service() -> SmartReanalyzeService:
 def reset_smart_reanalyze_service() -> None:
     """Reset the global SmartReanalyzeService instance (for testing)."""
     SmartReanalyzeService._reset_instance()
-    """
-    global _smart_reanalyze_service
-
-    if _smart_reanalyze_service is None:
-        _smart_reanalyze_service = SmartReanalyzeService()
-        logger.info(
-            "Global SmartReanalyzeService instance created",
-            extra={"event_type": "smart_reanalyze_service_singleton_created"}
-        )
-
-    return _smart_reanalyze_service
-
-
-def reset_smart_reanalyze_service() -> None:
-    """
-    Reset the global SmartReanalyzeService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _smart_reanalyze_service
-    _smart_reanalyze_service = None

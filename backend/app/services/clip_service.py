@@ -749,16 +749,11 @@ def get_clip_service() -> ClipService:
 def reset_clip_service() -> None:
     """Reset the global ClipService instance (for testing)."""
     ClipService._reset_instance()
-    return _clip_service
 
 
 def reset_clip_service() -> None:
-    """
-    Reset the singleton instance (useful for testing).
-
-    Stops the scheduler if running before resetting.
-    """
-    global _clip_service
-    if _clip_service is not None:
-        _clip_service._stop_scheduler()
-    _clip_service = None
+    """Reset the global ClipService instance (for testing)."""
+    service = ClipService._get_instance()
+    if service:
+        service._stop_scheduler()
+    ClipService._reset_instance()

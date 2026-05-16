@@ -15,10 +15,13 @@ Privacy:
     - Only processes faces when face_recognition_enabled is true
     - Face data stored locally only
     - Users can delete all face embeddings via API
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import json
 import logging
+from app.core.decorators import singleton
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -34,6 +37,7 @@ from app.services.embedding_service import EmbeddingService, get_embedding_servi
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class FaceEmbeddingService:
     """
     Generate and store face-specific embeddings.
@@ -331,26 +335,17 @@ class FaceEmbeddingService:
         return self.MODEL_VERSION
 
 
-# Global singleton instance
-_face_embedding_service: Optional[FaceEmbeddingService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_face_embedding_service() -> FaceEmbeddingService:
     """
     Get the global FaceEmbeddingService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        FaceEmbeddingService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer FaceEmbeddingService() directly.
     """
-    global _face_embedding_service
+    return FaceEmbeddingService()
 
-    if _face_embedding_service is None:
-        _face_embedding_service = FaceEmbeddingService()
-        logger.info(
-            "Global FaceEmbeddingService instance created",
-            extra={"event_type": "face_embedding_service_singleton_created"}
-        )
 
-    return _face_embedding_service
+def reset_face_embedding_service() -> None:
+    """Reset the global FaceEmbeddingService instance (for testing)."""
+    FaceEmbeddingService._reset_instance()

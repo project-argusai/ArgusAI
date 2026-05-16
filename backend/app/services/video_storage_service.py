@@ -351,8 +351,5 @@ def reset_video_storage_service() -> None:
 
 
 def reset_video_storage_service() -> None:
-    """
-    Reset the singleton instance (useful for testing).
-    """
-    global _video_storage_service
-    _video_storage_service = None
+    """Reset the global VideoStorageService instance (for testing)."""
+    VideoStorageService._reset_instance()

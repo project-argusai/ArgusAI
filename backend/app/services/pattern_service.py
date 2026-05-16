@@ -672,9 +672,6 @@ def get_pattern_service() -> PatternService:
 def reset_pattern_service() -> None:
     """Reset the global PatternService instance (for testing)."""
     PatternService._reset_instance()
-            "Global PatternService instance created",
-            extra={"event_type": "pattern_service_singleton_created"}
-        )
 
     return _pattern_service
 
@@ -685,5 +682,4 @@ def reset_pattern_service() -> None:
 
     Useful for testing to ensure a fresh instance.
     """
-    global _pattern_service
-    _pattern_service = None
+    PatternService._reset_instance()

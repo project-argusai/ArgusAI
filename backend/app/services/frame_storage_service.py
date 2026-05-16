@@ -413,8 +413,5 @@ def reset_frame_storage_service() -> None:
 
 
 def reset_frame_storage_service() -> None:
-    """
-    Reset the singleton instance (useful for testing).
-    """
-    global _frame_storage_service
-    _frame_storage_service = None
+    """Reset the global FrameStorageService instance (for testing)."""
+    FrameStorageService._reset_instance()

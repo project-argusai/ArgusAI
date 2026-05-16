@@ -1134,10 +1134,5 @@ def reset_vehicle_matching_service() -> None:
 
 
 def reset_vehicle_matching_service() -> None:
-    """
-    Reset the global VehicleMatchingService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _vehicle_matching_service
-    _vehicle_matching_service = None
+    """Reset the global VehicleMatchingService instance (for testing)."""
+    VehicleMatchingService._reset_instance()

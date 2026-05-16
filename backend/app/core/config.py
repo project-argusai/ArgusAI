@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from typing import List, Optional
 from pathlib import Path
-import secrets
+from cryptography.fernet import Fernet
 import os
 
 
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # Security
     ENCRYPTION_KEY: str  # Required - no default for security
-    JWT_SECRET_KEY: str = secrets.token_urlsafe(32)  # Auto-generate if not set
+    JWT_SECRET_KEY: str  # Required - no default (was previously auto-generated, which was dangerous)
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
 
@@ -92,6 +92,43 @@ class Settings(BaseSettings):
         if v not in valid_versions:
             raise ValueError(f"SSL_MIN_VERSION must be one of {valid_versions}")
         return v
+
+    # Security key validation (Story for Phase A - Issue #421)
+    @field_validator('JWT_SECRET_KEY', 'ENCRYPTION_KEY', mode='after')
+    @classmethod
+    def validate_required_secrets(cls, v: str, info) -> str:
+        """Ensure critical security keys are provided and non-empty."""
+        field_name = info.field_name
+        if not v or not str(v).strip():
+            raise ValueError(
+                f"{field_name} is required and cannot be empty. "
+                "Generate a secure value with: "
+                "python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' "
+                "(for ENCRYPTION_KEY) or 'openssl rand -hex 32' (for JWT_SECRET_KEY)"
+            )
+        return v
+
+    @field_validator('ENCRYPTION_KEY', mode='after')
+    @classmethod
+    def validate_encryption_key_format(cls, v: str) -> str:
+        """Validate that ENCRYPTION_KEY is a valid Fernet key."""
+        try:
+            Fernet(v.encode() if isinstance(v, str) else v)
+        except Exception as e:
+            raise ValueError(
+                f"ENCRYPTION_KEY is not a valid Fernet key: {e}. "
+                "Generate a new one with: "
+                "python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            )
+        return v
+
+    @property
+    def secrets_ready(self) -> bool:
+        """Check if critical secrets (JWT + Encryption) are properly configured."""
+        return bool(
+            getattr(self, 'JWT_SECRET_KEY', None)
+            and getattr(self, 'ENCRYPTION_KEY', None)
+        )
 
     @property
     def ssl_ready(self) -> bool:

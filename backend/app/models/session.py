@@ -54,6 +54,13 @@ class Session(Base):
     )
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
+    # Refresh token support (Phase A - Web Auth Refresh)
+    refresh_token_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hash of refresh token
+    refresh_token_family = Column(String(36), nullable=True, index=True)
+    refresh_expires_at = Column(DateTime(timezone=True), nullable=True)
+    refresh_revoked_at = Column(DateTime(timezone=True), nullable=True)
+    refresh_revoked_reason = Column(String(50), nullable=True)
+
     # Relationship to User
     user = relationship("User", back_populates="sessions")
 
@@ -61,6 +68,8 @@ class Session(Base):
     __table_args__ = (
         Index('idx_sessions_user_expires', 'user_id', 'expires_at'),
         Index('idx_sessions_user_created', 'user_id', 'created_at'),
+        Index('idx_sessions_refresh_hash', 'refresh_token_hash'),
+        Index('idx_sessions_refresh_family', 'refresh_token_family'),
     )
 
     @classmethod
@@ -87,6 +96,39 @@ class Session(Base):
     def update_activity(self) -> None:
         """Update last_active_at to current time"""
         self.last_active_at = datetime.now(timezone.utc)
+
+    # === Refresh Token Helpers (Phase A - Web Auth Refresh) ===
+
+    @property
+    def has_refresh_token(self) -> bool:
+        return self.refresh_token_hash is not None
+
+    @property
+    def is_refresh_valid(self) -> bool:
+        """Check if the current refresh token is still valid."""
+        if not self.has_refresh_token:
+            return False
+        if self.refresh_revoked_at:
+            return False
+        if self.refresh_expires_at is None:
+            return False
+        expires = self.refresh_expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) < expires
+
+    def revoke_refresh(self, reason: str = "rotation") -> None:
+        """Revoke the current refresh token."""
+        self.refresh_revoked_at = datetime.now(timezone.utc)
+        self.refresh_revoked_reason = reason
+
+    def set_refresh_token(self, refresh_token: str, family: str, expires_at: datetime) -> None:
+        """Set a new refresh token on this session (hashed)."""
+        self.refresh_token_hash = Session.hash_token(refresh_token)
+        self.refresh_token_family = family
+        self.refresh_expires_at = expires_at
+        self.refresh_revoked_at = None
+        self.refresh_revoked_reason = None
 
     def __repr__(self):
         return f"<Session(id={self.id}, user_id={self.user_id}, device={self.device_info})>"

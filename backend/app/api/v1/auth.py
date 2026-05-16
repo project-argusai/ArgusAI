@@ -213,17 +213,17 @@ async def login(
     user.last_login = datetime.now(timezone.utc)
     db.commit()
 
-    # Create JWT token
+    # Create short-lived JWT access token
     access_token = create_access_token(user.id, user.username)
 
-    # Create server-side session (Story P15-2.7)
+    # Create server-side session + refresh token (Phase A - Web Auth Refresh)
     session_service = SessionService(db)
-    session_service.create_session(user, access_token, request)
+    _, refresh_token = session_service.create_web_session_with_refresh(
+        user, access_token, request
+    )
 
-    # Set HTTP-only cookie
+    # Set HTTP-only cookie for the short-lived access token
     # Cookie settings configurable via COOKIE_SECURE and COOKIE_SAMESITE env vars
-    # For HTTPS: COOKIE_SECURE=true, COOKIE_SAMESITE=none
-    # For HTTP:  COOKIE_SECURE=false, COOKIE_SAMESITE=lax
     response.set_cookie(
         key=COOKIE_NAME,
         value=access_token,
@@ -247,6 +247,7 @@ async def login(
 
     return LoginResponse(
         access_token=access_token,
+        refresh_token=refresh_token,  # New in Phase A - Web Refresh flow
         token_type="bearer",
         user=UserResponse(
             id=user.id,

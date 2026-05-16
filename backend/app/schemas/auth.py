@@ -12,7 +12,8 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     """Login response with user info"""
-    access_token: str = Field(..., description="JWT access token")
+    access_token: str = Field(..., description="JWT access token (short-lived)")
+    refresh_token: Optional[str] = Field(None, description="Opaque refresh token (long-lived, use for /auth/refresh)")
     token_type: str = Field(default="bearer", description="Token type")
     user: "UserResponse" = Field(..., description="User information")
     must_change_password: bool = Field(default=False, description="Requires password change")

@@ -98,3 +98,19 @@ def validate_password_strength(password: str) -> tuple[bool, str]:
         return False, "Password must contain at least one special character"
 
     return True, ""
+
+
+# === Refresh Token Utilities (Phase A - Web Auth Refresh) ===
+
+REFRESH_TOKEN_LENGTH = 64  # bytes (128 hex chars) - same as mobile
+
+
+def generate_refresh_token() -> str:
+    """
+    Generate a cryptographically secure opaque refresh token.
+
+    Returns:
+        Hex string (128 characters)
+    """
+    import secrets
+    return secrets.token_hex(REFRESH_TOKEN_LENGTH)

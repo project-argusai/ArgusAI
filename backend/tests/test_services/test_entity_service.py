@@ -97,7 +97,14 @@ class TestEntityServiceInit:
 
 
 class TestEntityServiceSingleton:
-    """Tests for EntityService singleton pattern."""
+    """Tests for EntityService singleton pattern (via @singleton decorator).
+
+    After migration to #450, EntityService uses the official @singleton decorator
+    from app.core.decorators. This means:
+    - EntityService() always returns the same instance
+    - get_entity_service() is a thin backward-compatible wrapper
+    - reset_entity_service() and EntityService._reset_instance() both work
+    """
 
     def setup_method(self):
         """Reset singleton before each test."""
@@ -108,17 +115,49 @@ class TestEntityServiceSingleton:
         reset_entity_service()
 
     def test_get_entity_service_returns_singleton(self):
-        """Test that get_entity_service returns same instance."""
+        """get_entity_service() returns the same instance on repeated calls."""
         service1 = get_entity_service()
         service2 = get_entity_service()
         assert service1 is service2
 
+    def test_direct_instantiation_returns_singleton(self):
+        """After @singleton migration, EntityService() directly returns the singleton."""
+        service1 = EntityService()
+        service2 = EntityService()
+        assert service1 is service2
+
+    def test_getter_and_direct_are_identical(self):
+        """get_entity_service() and EntityService() return the exact same object."""
+        via_getter = get_entity_service()
+        via_direct = EntityService()
+        assert via_getter is via_direct
+
     def test_reset_entity_service_clears_singleton(self):
-        """Test that reset_entity_service clears the singleton."""
+        """reset_entity_service() produces a fresh instance on next access."""
         service1 = get_entity_service()
         reset_entity_service()
         service2 = get_entity_service()
         assert service1 is not service2
+
+    def test_decorator_reset_instance_works(self):
+        """The underlying decorator method EntityService._reset_instance() also works."""
+        service1 = EntityService()
+        EntityService._reset_instance()
+        service2 = EntityService()
+        assert service1 is not service2
+
+    def test_reset_clears_internal_state(self):
+        """After reset, the new instance has clean cache (no stale embeddings)."""
+        service1 = get_entity_service()
+        service1._entity_cache = {"old-entity": [0.1, 0.2, 0.3]}
+        service1._cache_loaded = True
+
+        reset_entity_service()
+
+        fresh = get_entity_service()
+        assert fresh is not service1
+        assert fresh._entity_cache == {}
+        assert fresh._cache_loaded is False
 
 
 class TestEntityServiceCaching:

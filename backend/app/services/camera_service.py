@@ -3,6 +3,9 @@ Camera capture service with thread management and reconnection logic
 
 Handles RTSP and USB camera capture in background threads with automatic
 reconnection on stream dropout.
+
+Migrated to @singleton decorator (core.decorators) as the core service reference
+example for #450 (Lightweight DI Container).
 """
 import cv2
 import threading
@@ -12,6 +15,7 @@ import asyncio
 from typing import Dict, Optional, Any
 from datetime import datetime, timezone
 import numpy as np
+from app.core.decorators import singleton
 
 try:
     import av
@@ -29,6 +33,7 @@ from app.services.camera_capture_worker import CameraCaptureWorker
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class CameraService:
     """
     Manages camera capture workers and handles connection lifecycle.
@@ -240,18 +245,21 @@ class CameraService:
         return status
 
 
-# Singleton instance
-_camera_service: Optional[CameraService] = None
-
-
+# Backward compatible thin getter (now delegates to @singleton decorator)
 def get_camera_service() -> CameraService:
     """
     Get the global CameraService instance.
 
-    Returns:
-        CameraService singleton instance.
+    Note: This is now a thin backward-compatible wrapper.
+          New code can simply use CameraService() directly.
     """
-    global _camera_service
-    if _camera_service is None:
-        _camera_service = CameraService()
-    return _camera_service
+    return CameraService()
+
+
+def reset_camera_service() -> None:
+    """
+    Reset the global CameraService instance.
+
+    Useful for testing (clears all camera capture workers, threads, etc.).
+    """
+    CameraService._reset_instance()

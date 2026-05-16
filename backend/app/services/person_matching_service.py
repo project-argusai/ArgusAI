@@ -16,9 +16,12 @@ Privacy:
     - All face data stored locally only
     - User controls via face_recognition_enabled setting
     - New persons start unnamed (user names them later)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging
+from app.core.decorators import singleton
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -44,6 +47,7 @@ class PersonMatchResult:
     bounding_box: dict
 
 
+@singleton
 class PersonMatchingService:
     """
     Match face embeddings to known persons.
@@ -673,34 +677,20 @@ class PersonMatchingService:
         }
 
 
-# Global singleton instance
-_person_matching_service: Optional[PersonMatchingService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_person_matching_service() -> PersonMatchingService:
     """
     Get the global PersonMatchingService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        PersonMatchingService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer PersonMatchingService() directly.
     """
-    global _person_matching_service
-
-    if _person_matching_service is None:
-        _person_matching_service = PersonMatchingService()
-        logger.info(
-            "Global PersonMatchingService instance created",
-            extra={"event_type": "person_matching_service_singleton_created"}
-        )
-
-    return _person_matching_service
+    return PersonMatchingService()
 
 
 def reset_person_matching_service() -> None:
-    """
-    Reset the global PersonMatchingService instance.
+    """Reset the global PersonMatchingService instance (for testing)."""
+    PersonMatchingService._reset_instance()
 
     Useful for testing to ensure a fresh instance.
     """

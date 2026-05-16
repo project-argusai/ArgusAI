@@ -12,6 +12,8 @@ This service owns the complex Event model construction that pulls together:
 - Source information (protect_event_id, etc.)
 
 Extracted from ProtectEventHandler during Phase 4 decomposition.
+
+Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
 """
 
 import json
@@ -25,10 +27,12 @@ from app.models.event import Event
 from app.models.camera import Camera
 from app.services.ai_service import AIResult
 from app.services.snapshot_service import SnapshotResult
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class ProtectEventStorageService:
     """
     Service that handles the final creation and persistence of Protect events.
@@ -107,5 +111,10 @@ class ProtectEventStorageService:
         return event
 
 
-# Singleton
-protect_event_storage_service = ProtectEventStorageService()
+# Backward compatible getter (delegates to @singleton decorator)
+def get_protect_event_storage_service() -> "ProtectEventStorageService":
+    return ProtectEventStorageService()
+
+
+def reset_protect_event_storage_service() -> None:
+    ProtectEventStorageService._reset_instance()

@@ -12,8 +12,10 @@
 'use client';
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiClient, ApiError, setAuthToken, clearAuthToken } from '@/lib/api-client';
 import type { UserRole } from '@/types/auth';
+import { toast } from 'sonner';
 
 export interface User {
   id: string;
@@ -65,6 +67,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     }
   }, []);
+
+  const router = useRouter();
+
+  // Listen for global session events (triggered by api-client after failed refresh)
+  useEffect(() => {
+    const handleSessionExpired = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const eventType = customEvent.type;
+
+      setUser(null);
+      clearAuthToken();
+
+      if (eventType === 'session-revoked-security') {
+        toast.error('Security Alert', {
+          description: 'Your session was terminated due to suspicious activity. Please log in again.',
+          duration: 8000,
+        });
+      } else {
+        toast.error('Your session has expired', {
+          description: 'Please log in again to continue.',
+          duration: 5000,
+        });
+      }
+
+      // Redirect to login page
+      router.push('/login');
+    };
+
+    window.addEventListener('session-expired', handleSessionExpired);
+    window.addEventListener('session-revoked-security', handleSessionExpired);
+
+    return () => {
+      window.removeEventListener('session-expired', handleSessionExpired);
+      window.removeEventListener('session-revoked-security', handleSessionExpired);
+    };
+  }, [router]);
 
   // Check auth on mount
   useEffect(() => {

@@ -20,6 +20,7 @@ from app.models.session import Session
 from app.models.user import User
 from app.core.config import settings
 from app.utils.auth import generate_refresh_token, REFRESH_TOKEN_LENGTH
+from app.utils.jwt import create_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,183 @@ class SessionService:
 
         return session, plain_refresh_token
 
+    def refresh_tokens(
+        self,
+        plain_refresh_token: str,
+        request: Request
+    ) -> tuple[str, str, User]:
+        """
+        Validates a refresh token, rotates it (issues new refresh + new access token),
+        and returns the new tokens along with the user.
+
+        Security features:
+        - Token rotation (single-use refresh tokens)
+        - Family tracking
+        - **Reuse detection**: If a previously used/revoked refresh token from an active
+          family is presented, the *entire family* is immediately revoked.
+        """
+        refresh_hash = Session.hash_token(plain_refresh_token)
+
+        # Find session by refresh token hash
+        session = self.db.query(Session).filter(
+            Session.refresh_token_hash == refresh_hash
+        ).first()
+
+        if not session:
+            logger.warning(
+                "Refresh attempt with unknown refresh token",
+                extra={"event_type": "refresh_token_unknown"}
+            )
+            raise ValueError("Invalid refresh token")
+
+        # === Critical: Reuse Detection ===
+        if session.refresh_revoked_at is not None and session.refresh_token_family:
+            # This refresh token has already been used/revoked.
+            # Check if any *other* tokens in this family are still valid.
+            active_in_family = self.db.query(Session).filter(
+                Session.refresh_token_family == session.refresh_token_family,
+                Session.refresh_revoked_at.is_(None),
+                Session.refresh_expires_at > datetime.now(timezone.utc)
+            ).count()
+
+            if active_in_family > 0:
+                # Reuse attack detected!
+                self._revoke_refresh_family(
+                    session.refresh_token_family,
+                    reason="reuse_detected"
+                )
+                logger.warning(
+                    "REFRESH TOKEN REUSE DETECTED — Entire family revoked",
+                    extra={
+                        "event_type": "refresh_token_reuse_detected",
+                        "user_id": session.user_id,
+                        "session_id": session.id,
+                        "family": session.refresh_token_family,
+                        "ip": request.client.host if request.client else "unknown",
+                    }
+                )
+                # Specific error code so frontend can show a better message
+                raise ValueError("refresh_token_reuse_detected")
+
+        # Normal validation
+        if not session.is_refresh_valid:
+            logger.warning(
+                "Refresh attempt with invalid/expired/revoked refresh token",
+                extra={
+                    "event_type": "refresh_token_invalid",
+                    "session_id": session.id,
+                    "user_id": session.user_id,
+                }
+            )
+            raise ValueError("Refresh token expired or revoked")
+
+        # Get the user
+        user = self.db.query(User).filter(User.id == session.user_id).first()
+        if not user or not user.is_active:
+            logger.warning(
+                "Refresh attempt for inactive or missing user",
+                extra={"user_id": session.user_id}
+            )
+            raise ValueError("User account is disabled")
+
+        # === Token Rotation ===
+        old_family = session.refresh_token_family
+
+        # Generate new refresh token (same family)
+        new_plain_refresh = generate_refresh_token()
+        new_refresh_expires = datetime.now(timezone.utc) + timedelta(days=30)
+
+        # Revoke the old refresh token
+        session.revoke_refresh("rotation")
+
+        # Set the new refresh token on the same session
+        session.set_refresh_token(new_plain_refresh, old_family, new_refresh_expires)
+
+        # Create new short-lived access token
+        new_access_token = create_access_token(user.id, user.username)
+
+        # Update session activity + access token hash
+        session.token_hash = Session.hash_token(new_access_token)
+        session.update_activity()
+
+        self.db.commit()
+        self.db.refresh(session)
+
+        logger.info(
+            "Refresh token rotated successfully",
+            extra={
+                "event_type": "refresh_token_rotated",
+                "user_id": user.id,
+                "session_id": session.id,
+                "family": old_family,
+            }
+        )
+
+        return new_access_token, new_plain_refresh, user
+
+    def _revoke_refresh_family(self, family: str, reason: str = "reuse_detected") -> int:
+        """
+        Revoke every refresh token belonging to a given family.
+        This is the nuclear option used when reuse is detected.
+        """
+        sessions = self.db.query(Session).filter(
+            Session.refresh_token_family == family,
+            Session.refresh_revoked_at.is_(None)
+        ).all()
+
+        count = 0
+        for sess in sessions:
+            sess.revoke_refresh(reason)
+            count += 1
+
+        if count > 0:
+            self.db.commit()
+            logger.warning(
+                f"Revoked entire refresh family ({count} sessions)",
+                extra={
+                    "event_type": "refresh_family_revoked",
+                    "family": family,
+                    "reason": reason,
+                    "revoked_count": count,
+                }
+            )
+
+        return count
+
+    def revoke_session_by_refresh_token(self, plain_refresh_token: str, user_id: Optional[str] = None) -> bool:
+        """
+        Revoke a session (and its refresh token) using the refresh token value.
+        Useful for logout when the access token cookie has already expired.
+        """
+        refresh_hash = Session.hash_token(plain_refresh_token)
+
+        query = self.db.query(Session).filter(Session.refresh_token_hash == refresh_hash)
+
+        if user_id:
+            query = query.filter(Session.user_id == user_id)
+
+        session = query.first()
+
+        if not session:
+            return False
+
+        if session.has_refresh_token and not session.refresh_revoked_at:
+            session.revoke_refresh("logout")
+
+        self.db.delete(session)
+        self.db.commit()
+
+        logger.info(
+            "Session revoked via refresh token",
+            extra={
+                "event_type": "session_revoked_via_refresh",
+                "user_id": session.user_id,
+                "session_id": session.id,
+            }
+        )
+
+        return True
+
     def get_session_by_token(self, token: str) -> Optional[Session]:
         """
         Get session by JWT token.
@@ -187,12 +365,9 @@ class SessionService:
         """
         Revoke a specific session.
 
-        Args:
-            session_id: Session ID to revoke
-            user_id: User ID (for authorization check)
-
-        Returns:
-            True if session was revoked, False if not found
+        If the session has an active refresh token, it is explicitly revoked
+        with reason "logout" before the session is deleted. This ensures
+        proper audit trail for refresh token revocation.
         """
         session = self.db.query(Session).filter(
             Session.id == session_id,
@@ -201,6 +376,11 @@ class SessionService:
 
         if not session:
             return False
+
+        # Explicitly revoke refresh token if present (Phase A - Web Refresh)
+        if session.has_refresh_token and not session.refresh_revoked_at:
+            session.revoke_refresh("logout")
+            self.db.commit()  # Commit the revocation before deleting
 
         self.db.delete(session)
         self.db.commit()
@@ -211,6 +391,7 @@ class SessionService:
                 "event_type": "session_revoked",
                 "user_id": user_id,
                 "session_id": session_id,
+                "refresh_revoked": session.has_refresh_token,
             }
         )
 

@@ -132,6 +132,40 @@
 **Trade-offs:**
 - Manual updates: Must copy new versions manually
 - Initial setup: More components to set up initially
+
+---
+
+### ADR-008: Web Refresh Token Architecture (Phase A)
+
+**Decision:** Use short-lived JWT access tokens + long-lived opaque refresh tokens, delivered via httpOnly cookies (with path restriction), stored server-side (hashed) in the `sessions` table, with token rotation and family-based reuse detection.
+
+**Rationale:**
+- **Security (XSS protection):** Returning refresh tokens in JSON response bodies makes them stealable via XSS. Using httpOnly cookies (especially with `Path=/api/v1/auth`) prevents JavaScript access.
+- **Modern standard practice:** Aligns with current OAuth2 / SPA best practices for session management.
+- **Enables session control:** Supports "logout from all devices", session listing/revocation, and auditability.
+- **Strong theft protection:** Implementing refresh token rotation + `refresh_token_family` + reuse detection allows immediate revocation of all tokens if one is stolen/used maliciously.
+- **Pragmatic reuse of existing model:** The `Session` model already contained device/IP/user-agent metadata. Extending it for refresh tokens was simpler than forcing web sessions into the mobile `RefreshToken` + `Device` model.
+- **Alignment with mobile:** Reuses similar patterns (rotation, family, revocation, hashing) from the existing `mobile/token_service.py`.
+
+**Trade-offs:**
+- Slightly higher complexity than long-lived JWTs.
+- Requires careful handling of concurrent refresh requests and family revocation logic.
+- Refresh token is still transmitted on every refresh call (mitigated by restricting cookie path).
+- Adds another cookie and some additional database columns.
+
+**Alternatives Considered:**
+- **Long-lived JWT access tokens only** — Rejected. No way to revoke compromised tokens without short expiry or server-side tracking.
+- **Storing refresh tokens in a separate table like mobile** — Considered, but would duplicate session metadata tracking already present in the `sessions` table.
+- **Returning refresh token only in response body (not cookie)** — Rejected for XSS reasons. httpOnly cookie is significantly safer for web clients.
+- **Using the same `RefreshToken` model for both web and mobile** — Rejected due to the model being tightly coupled to the `devices` table (mobile pairing flow).
+
+**Status:** Accepted
+
+**Implemented in:**
+- `Session` model extensions + migration
+- `SessionService` (rotation, family revocation, reuse detection)
+- Auth endpoints (`/login`, `/refresh`, `/logout`)
+- Frontend `api-client.ts` (automatic refresh handling) + `AuthContext` (security event handling)
 - No built-in themes: Must style from scratch
 
 **Status:** Accepted (Tailwind ecosystem standard)

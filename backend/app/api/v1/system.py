@@ -6,7 +6,7 @@ Endpoints for system-level configuration and monitoring:
     - Storage monitoring (GET /storage)
     - Backup and restore (POST /backup, GET /backup/{timestamp}/download, POST /restore)
 """
-from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile, Form
+from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile, Form, Header, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
@@ -23,14 +23,82 @@ from app.schemas.system import (
     StorageResponse,
     SystemSettings,
     SystemSettingsUpdate,
-    CostCapStatus
+    CostCapStatus,
+    AIResilienceResponse,
+    CircuitBreakerConfigSchema,
+    CircuitBreakerStatusResponse,
 )
 from app.services.cleanup_service import get_cleanup_service
 from app.services.backup_service import get_backup_service, BackupResult, RestoreResult, BackupInfo, ValidationResult
 from app.core.database import get_db
 from app.models.system_setting import SystemSetting
+from app.models.user import User, UserRole
+from app.api.v1.auth import get_current_user
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 from app.core.config import settings
+
+def require_debug_access(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    x_debug_token: Optional[str] = Header(None, alias="X-Debug-Token")
+) -> User:
+    """
+    Dependency that protects debug endpoints.
+
+    Requirements when DEBUG_ENDPOINTS_ENABLED=true:
+    - User must be an admin
+    - If DEBUG_TOKEN is configured in settings, the X-Debug-Token header must match it
+
+    This significantly raises the bar for accidental or malicious use of debug endpoints.
+    """
+    client_ip = request.client.host if request and request.client else None
+
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access debug endpoint",
+            extra={
+                "event_type": "debug_access_denied",
+                "reason": "not_admin",
+                "user_id": current_user.id,
+                "username": current_user.username,
+                "ip_address": client_ip,
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required to access debug endpoints"
+        )
+
+    if settings.DEBUG_TOKEN:
+        if x_debug_token != settings.DEBUG_TOKEN:
+            logger.warning(
+                "Debug endpoint access denied - invalid debug token",
+                extra={
+                    "event_type": "debug_access_denied",
+                    "reason": "invalid_debug_token",
+                    "user_id": current_user.id,
+                    "username": current_user.username,
+                    "ip_address": client_ip,
+                }
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid or missing X-Debug-Token header"
+            )
+
+    # Log successful access
+    logger.info(
+        "Debug endpoint accessed",
+        extra={
+            "event_type": "debug_endpoint_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "role": current_user.role.value if hasattr(current_user.role, 'value') else current_user.role,
+            "ip_address": client_ip,
+        }
+    )
+
+    return current_user
 
 logger = logging.getLogger(__name__)
 
@@ -58,16 +126,22 @@ router = APIRouter(
 # 404 instead of 401/403, avoiding confirmation that the endpoints exist.
 if settings.DEBUG_ENDPOINTS_ENABLED:
     logger.warning(
-        "Debug endpoints enabled - this exposes sensitive information!",
+        "Debug endpoints enabled - protected by admin role + optional DEBUG_TOKEN",
         extra={"event_type": "debug_endpoints_enabled"}
     )
 
     @router.get("/debug/ai-keys", include_in_schema=False)
-    def debug_ai_keys(db: Session = Depends(get_db)):
+    def debug_ai_keys(
+        request: Request,
+        current_user: User = Depends(require_debug_access),
+        db: Session = Depends(get_db)
+    ):
         """Debug endpoint to check if AI keys are saved in database.
 
-        WARNING: Only available when DEBUG_ENDPOINTS_ENABLED=true.
-        Exposes API key storage structure - for development use only.
+        Requires:
+        - DEBUG_ENDPOINTS_ENABLED=true in settings
+        - User must be an admin
+        - X-Debug-Token header must match DEBUG_TOKEN (if configured)
         """
         keys_to_check = [
             'ai_api_key_openai',
@@ -78,28 +152,42 @@ if settings.DEBUG_ENDPOINTS_ENABLED:
         ]
 
         results = {}
+        accessed_keys = []
+
         for key in keys_to_check:
             setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
             if setting:
                 value = setting.value
-                # Show if encrypted and first/last few chars
                 if value.startswith('encrypted:'):
                     results[key] = f"encrypted (length: {len(value)})"
                 elif value.startswith('****'):
                     results[key] = f"masked: {value}"
                 else:
                     results[key] = f"plaintext (first 4 chars): {value[:4]}... (length: {len(value)})"
+                accessed_keys.append(key)
             else:
                 results[key] = "NOT FOUND"
+
+        # Audit log - what was actually accessed
+        logger.info(
+            "Debug endpoint accessed: AI keys",
+            extra={
+                "event_type": "debug_ai_keys_accessed",
+                "user_id": current_user.id,
+                "username": current_user.username,
+                "keys_queried": accessed_keys,
+                "results_summary": results,
+            }
+        )
 
         return results
 
     @router.get("/debug/network", include_in_schema=False)
-    def debug_network_test():
+    def debug_network_test(request: Request, current_user: User = Depends(require_debug_access)):
         """Debug endpoint to test network connectivity from server context.
 
-        WARNING: Only available when DEBUG_ENDPOINTS_ENABLED=true.
-        Exposes internal network topology - for development use only.
+        Requires admin role + optional X-Debug-Token header.
+        WARNING: This endpoint contains hardcoded internal network details.
         """
         import socket
         import ssl
@@ -107,6 +195,17 @@ if settings.DEBUG_ENDPOINTS_ENABLED:
         results = {}
         host = "10.0.1.254"
         port = 7441
+
+        logger.info(
+            "Debug endpoint accessed: Network test",
+            extra={
+                "event_type": "debug_network_test_accessed",
+                "user_id": current_user.id,
+                "username": current_user.username,
+                "target_host": host,
+                "target_port": port,
+            }
+        )
 
         # Test 1: Raw socket
         try:
@@ -1822,6 +1921,82 @@ async def get_ai_cost_status(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve AI cost status"
+        )
+
+
+# =============================================================================
+# AI Resilience / Circuit Breaker Management (Phase A - A.5)
+# =============================================================================
+
+@router.get("/ai-resilience", response_model=AIResilienceResponse)
+async def get_ai_resilience_status(db: Session = Depends(get_db)):
+    """
+    Get current circuit breaker configuration and live runtime state
+    for all AI providers + global default.
+
+    Used by the AI Resilience settings page.
+    """
+    try:
+        from app.services.ai_service import get_ai_service
+        ai_service = get_ai_service()
+        return ai_service.get_ai_resilience_status(db)
+    except Exception as e:
+        logger.error(f"Failed to get AI resilience status: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve AI resilience status"
+        )
+
+
+@router.put("/ai-resilience/{provider}", response_model=CircuitBreakerStatusResponse)
+async def update_ai_resilience_config(
+    provider: str,
+    config: CircuitBreakerConfigSchema,
+    db: Session = Depends(get_db)
+):
+    """
+    Update circuit breaker configuration for a provider (or 'default').
+    Uses full object replacement.
+    """
+    valid = ["default", "openai", "grok", "claude", "gemini"]
+    if provider not in valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid provider. Must be one of {valid}"
+        )
+
+    try:
+        from app.services.ai_service import get_ai_service
+        ai_service = get_ai_service()
+        return ai_service.update_circuit_breaker_config(provider, config.model_dump(), db)
+    except Exception as e:
+        logger.error(f"Failed to update circuit breaker for {provider}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update configuration for {provider}"
+        )
+
+
+@router.post("/ai-resilience/{provider}/reset")
+async def reset_ai_circuit_breaker(provider: str, db: Session = Depends(get_db)):
+    """Manually reset a circuit breaker to CLOSED state."""
+    valid = ["default", "openai", "grok", "claude", "gemini"]
+    if provider not in valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid provider. Must be one of {valid}"
+        )
+
+    try:
+        from app.services.ai_service import get_ai_service
+        ai_service = get_ai_service()
+        ai_service.reset_circuit_breaker(provider)
+        return {"message": f"Circuit breaker for '{provider}' has been reset to CLOSED"}
+    except Exception as e:
+        logger.error(f"Failed to reset circuit breaker for {provider}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset {provider}"
         )
 
 

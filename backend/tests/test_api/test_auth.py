@@ -429,3 +429,150 @@ class TestAuthLoginParametrized:
             json={"username": username, "password": password}
         )
         assert response.status_code in expected_statuses
+
+
+# =============================================================================
+# Phase A - Web Refresh Token Tests (Issue #425)
+# =============================================================================
+
+class TestWebRefreshTokens:
+    """Tests for the new web refresh token flow (Phase A)."""
+
+    def test_login_returns_refresh_token(self, test_user):
+        """Login should now return a refresh_token in the response."""
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "refresh_token" in data
+        assert data["refresh_token"] is not None
+        assert len(data["refresh_token"]) > 50  # Should be a long opaque token
+
+    def test_successful_refresh(self, test_user):
+        """Successfully exchange a valid refresh token for new tokens."""
+        # Login first
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+        refresh_token = login_resp.json()["refresh_token"]
+
+        # Refresh
+        refresh_resp = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh_token}
+        )
+
+        assert refresh_resp.status_code == 200
+        data = refresh_resp.json()
+        assert "access_token" in data
+        assert "refresh_token" in data
+        assert data["refresh_token"] != refresh_token  # Should be rotated
+
+        # New access token should work
+        me_resp = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {data['access_token']}"}
+        )
+        assert me_resp.status_code == 200
+
+    def test_old_refresh_token_is_invalidated_after_use(self, test_user):
+        """After refreshing, the old refresh token should no longer work."""
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+        old_refresh = login_resp.json()["refresh_token"]
+
+        # First refresh
+        first_refresh = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": old_refresh}
+        )
+        assert first_refresh.status_code == 200
+        new_refresh = first_refresh.json()["refresh_token"]
+
+        # Old refresh should now be invalid
+        bad_resp = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": old_refresh}
+        )
+        assert bad_resp.status_code == 401
+
+        # New refresh should still work
+        good_resp = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": new_refresh}
+        )
+        assert good_resp.status_code == 200
+
+    def test_refresh_token_reuse_detection_revokes_family(self, test_user):
+        """Reusing a revoked refresh token should revoke the entire family."""
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+        original_refresh = login_resp.json()["refresh_token"]
+
+        # First refresh (consumes the original)
+        first = client.post("/api/v1/auth/refresh", json={"refresh_token": original_refresh})
+        new_refresh = first.json()["refresh_token"]
+
+        # Now try to use the original again (reuse attack)
+        attack_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": original_refresh})
+        assert attack_resp.status_code == 401
+        assert "reuse" in attack_resp.json()["detail"].lower() or "security" in attack_resp.json()["detail"].lower()
+
+        # Even the new refresh (from the same family) should now be invalid
+        after_attack = client.post("/api/v1/auth/refresh", json={"refresh_token": new_refresh})
+        assert after_attack.status_code == 401
+
+    def test_refresh_with_invalid_token(self):
+        """Using a completely fake refresh token returns 401."""
+        response = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": "this-is-not-a-valid-refresh-token-at-all-12345"}
+        )
+        assert response.status_code == 401
+
+    def test_logout_invalidates_refresh_token(self, test_user):
+        """After logout, the refresh token should no longer work."""
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+        refresh_token = login_resp.json()["refresh_token"]
+
+        # Logout (using access token cookie from login)
+        logout_resp = client.post("/api/v1/auth/logout")
+        assert logout_resp.status_code == 200
+
+        # Try to use the refresh token after logout
+        refresh_after_logout = client.post(
+            "/api/v1/auth/refresh",
+            json={"refresh_token": refresh_token}
+        )
+        assert refresh_after_logout.status_code == 401
+
+    def test_refresh_rate_limiting(self, test_user):
+        """Refresh endpoint should be rate limited."""
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+        refresh_token = login_resp.json()["refresh_token"]
+
+        # Make many rapid refresh calls (more than the 20/minute limit)
+        responses = []
+        for _ in range(25):
+            resp = client.post(
+                "/api/v1/auth/refresh",
+                json={"refresh_token": refresh_token}
+            )
+            responses.append(resp.status_code)
+
+        # At least some should be rate limited (429)
+        assert 429 in responses, "Refresh endpoint did not trigger rate limiting"

@@ -1067,14 +1067,18 @@ async def root():
 async def health_check():
     """Health check endpoint (no authentication required).
     
-    Includes basic secret configuration status (without leaking values).
+    Includes basic secret configuration status and Protect WebSocket health.
     """
     from app.core.config import settings
+    from app.services.protect_health_service import get_protect_health_service
+
+    protect_health = get_protect_health_service().get_status()
 
     return {
         "status": "healthy",
         "camera_count": len(camera_service.get_all_camera_status()),
         "secrets_configured": getattr(settings, 'secrets_ready', False),
+        "protect_ws": protect_health.to_dict(),
     }
 
 

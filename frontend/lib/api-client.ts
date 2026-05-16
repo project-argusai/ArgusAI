@@ -156,6 +156,7 @@ export function setAuthToken(token: string): void {
 export function clearAuthToken(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  clearRefreshToken(); // Also clear refresh token on full logout
 }
 
 /**
@@ -164,6 +165,25 @@ export function clearAuthToken(): void {
 export function hasAuthToken(): boolean {
   if (typeof window === 'undefined') return false;
   return !!localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+// =============================================================================
+// Phase A - Web Refresh Token Support
+// =============================================================================
+
+// In-memory storage for refresh token (more secure than localStorage against XSS)
+let currentRefreshToken: string | null = null;
+
+export function setRefreshToken(token: string | null): void {
+  currentRefreshToken = token;
+}
+
+export function getRefreshToken(): string | null {
+  return currentRefreshToken;
+}
+
+export function clearRefreshToken(): void {
+  currentRefreshToken = null;
 }
 
 /**
@@ -196,9 +216,14 @@ export class ApiError extends Error {
 /**
  * Base fetch wrapper with error handling
  */
+// Flag + promise to prevent multiple simultaneous refresh calls
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
 async function apiFetch<T>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
+  _retryAttempt = 0
 ): Promise<T> {
   const url = `${API_BASE_URL}${API_V1_PREFIX}${endpoint}`;
 
@@ -222,6 +247,75 @@ async function apiFetch<T>(
 
     // Parse response body
     const data = await response.json().catch(() => null);
+
+    // === Phase A: Automatic Token Refresh on 401 ===
+    if (response.status === 401 && getRefreshToken() && _retryAttempt === 0) {
+      // Only attempt refresh once per request
+      if (!isRefreshing) {
+        isRefreshing = true;
+        refreshPromise = (async () => {
+          try {
+            // The refresh token is sent automatically via httpOnly cookie
+            const refreshResponse = await fetch(`${API_BASE_URL}${API_V1_PREFIX}/auth/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+            });
+
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json();
+
+              // Update in-memory refresh token (rotated)
+              if (refreshData.refresh_token) {
+                setRefreshToken(refreshData.refresh_token);
+              }
+
+              // The new access token is set as httpOnly cookie by the server
+              return true;
+            } else {
+              // Refresh failed — clear tokens and force re-login
+              clearRefreshToken();
+              clearAuthToken();
+
+              let eventType = 'session-expired';
+
+              try {
+                const errorData = await refreshResponse.clone().json();
+                const detail = errorData?.detail || '';
+                if (detail.includes('suspicious activity') || detail.includes('reuse')) {
+                  eventType = 'session-revoked-security';
+                }
+              } catch (_) {
+                // ignore JSON parse errors
+              }
+
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent(eventType));
+              }
+
+              return false;
+            }
+          } catch (err) {
+            clearRefreshToken();
+            clearAuthToken();
+            return false;
+          } finally {
+            isRefreshing = false;
+            refreshPromise = null;
+          }
+        })();
+      }
+
+      // Wait for the current refresh attempt to finish
+      const refreshSuccess = await (refreshPromise ?? Promise.resolve(false));
+
+      if (refreshSuccess) {
+        // Retry the original request once
+        return apiFetch<T>(endpoint, options, 1);
+      } else {
+        throw new ApiError('Session expired. Please log in again.', 401, data);
+      }
+    }
 
     if (!response.ok) {
       const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
@@ -1097,7 +1191,9 @@ export const apiClient = {
      * @returns Login response with token
      */
     login: async (request: ILoginRequest): Promise<ILoginResponse> => {
-      return apiFetch('/auth/login', {
+      // The refresh token is now set as httpOnly cookie by the backend (more secure)
+      // We no longer store it from the response body
+      return apiFetch<ILoginResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify(request),
       });
@@ -1108,6 +1204,9 @@ export const apiClient = {
      * @returns Success message
      */
     logout: async (): Promise<IMessageResponse> => {
+      // Clear refresh token from memory on logout
+      clearRefreshToken();
+
       return apiFetch('/auth/logout', {
         method: 'POST',
       });
@@ -1161,6 +1260,24 @@ export const apiClient = {
      */
     listSessions: async (): Promise<ISession[]> => {
       return apiFetch('/auth/sessions');
+    },
+
+    // AI Resilience / Circuit Breakers (Phase A - A.5)
+    getAIResilience: async (): Promise<any> => {
+      return apiFetch('/system/ai-resilience');
+    },
+
+    updateAIResilienceConfig: async (provider: string, config: any): Promise<any> => {
+      return apiFetch(`/system/ai-resilience/${provider}`, {
+        method: 'PUT',
+        body: JSON.stringify(config),
+      });
+    },
+
+    resetAICircuitBreaker: async (provider: string): Promise<{ message: string }> => {
+      return apiFetch(`/system/ai-resilience/${provider}/reset`, {
+        method: 'POST',
+      });
     },
 
     /**

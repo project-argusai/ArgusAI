@@ -19,6 +19,18 @@ class LoginResponse(BaseModel):
     must_change_password: bool = Field(default=False, description="Requires password change")
 
 
+class RefreshRequest(BaseModel):
+    """Request body for refreshing access token"""
+    refresh_token: str = Field(..., description="Valid refresh token from previous login or refresh")
+
+
+class RefreshResponse(BaseModel):
+    """Response after successful token refresh"""
+    access_token: str = Field(..., description="New short-lived JWT access token")
+    refresh_token: str = Field(..., description="New rotated refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+
+
 class UserResponse(BaseModel):
     """User information response (Story P15-2.1, P16-1.1)"""
     id: str = Field(..., description="User UUID")

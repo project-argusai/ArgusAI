@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./data/app.db"
 
     # Security
-    ENCRYPTION_KEY: str  # Required - no default for security
+    ENCRYPTION_KEY: str  # Required - primary key used for new encryptions
+    ENCRYPTION_KEY_PREVIOUS: Optional[str] = None  # Previous key (used for decryption during rotation)
     JWT_SECRET_KEY: str  # Required - no default (was previously auto-generated, which was dangerous)
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 24
@@ -24,8 +25,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Debug Endpoints (Story P14-1.2)
-    # SECURITY WARNING: Only enable for development - exposes sensitive info
+    # SECURITY WARNING: Only enable for development.
+    # Even when enabled, endpoints require admin role + optional DEBUG_TOKEN.
     DEBUG_ENDPOINTS_ENABLED: bool = False
+    DEBUG_TOKEN: Optional[str] = None  # Optional extra secret required for debug endpoints
 
     # API
     API_V1_PREFIX: str = "/api/v1"
@@ -169,6 +172,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_READS: str = "100/minute"  # Rate limit for GET requests
     RATE_LIMIT_WRITES: str = "20/minute"  # Rate limit for POST/PUT/DELETE requests
     RATE_LIMIT_STORAGE_URI: Optional[str] = None  # Redis URI for distributed rate limiting (e.g., "redis://localhost:6379")
+
+    # Refresh Token Endpoint Rate Limit (Phase A - Web Auth Refresh)
+    REFRESH_RATE_LIMIT: str = "20/minute"  # Rate limit specifically for /auth/refresh (sensitive endpoint)
 
     @property
     def fcm_ready(self) -> bool:

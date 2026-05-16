@@ -117,6 +117,44 @@ ai_api_cost_total = Counter(
 )
 
 # ============================================================================
+# AI Circuit Breaker Metrics (Story #436)
+# ============================================================================
+
+ai_circuit_breaker_state = Gauge(
+    'ai_circuit_breaker_state',
+    'Current state of AI provider circuit breaker (0=Closed, 1=Open, 2=HalfOpen)',
+    ['provider'],
+    registry=REGISTRY
+)
+
+ai_circuit_breaker_transitions_total = Counter(
+    'ai_circuit_breaker_transitions_total',
+    'Total number of circuit breaker state transitions',
+    ['provider', 'from_state', 'to_state'],
+    registry=REGISTRY
+)
+
+# Protect WebSocket Health (Story #437)
+protect_ws_connected = Gauge(
+    'protect_ws_connected',
+    'Whether the UniFi Protect WebSocket is currently connected (1 = connected, 0 = not connected)',
+    registry=REGISTRY
+)
+
+protect_ws_last_message_age_seconds = Gauge(
+    'protect_ws_last_message_age_seconds',
+    'Seconds since last message received from Protect WebSocket',
+    registry=REGISTRY
+)
+
+# AI Concurrency (Story #438)
+ai_concurrent_in_flight = Gauge(
+    'ai_concurrent_in_flight',
+    'Number of AI description requests currently in flight',
+    registry=REGISTRY
+)
+
+# ============================================================================
 # Camera Metrics
 # ============================================================================
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 import secrets
 import logging
 
@@ -20,6 +20,8 @@ from app.schemas.auth import (
     MessageResponse,
     SessionResponse,
     SessionRevokeResponse,
+    RefreshRequest,
+    RefreshResponse,
 )
 from app.utils.auth import hash_password, verify_password, validate_password_strength
 from app.utils.jwt import create_access_token, decode_access_token, TokenError
@@ -223,7 +225,6 @@ async def login(
     )
 
     # Set HTTP-only cookie for the short-lived access token
-    # Cookie settings configurable via COOKIE_SECURE and COOKIE_SAMESITE env vars
     response.set_cookie(
         key=COOKIE_NAME,
         value=access_token,
@@ -232,6 +233,18 @@ async def login(
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
         path="/",
+    )
+
+    # Set HTTP-only cookie for the long-lived refresh token (Phase A - improved security)
+    # This is more secure than returning it in the JSON body (XSS protection)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        max_age=30 * 24 * 60 * 60,  # 30 days
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path="/api/v1/auth",  # Restrict to auth endpoints only
     )
 
     logger.info(
@@ -264,23 +277,143 @@ async def login(
 
 
 @router.post(
+    "/refresh",
+    response_model=RefreshResponse,
+    summary="Refresh access token",
+    description="Exchange a valid refresh token for a new access token and rotated refresh token. Rate limited via REFRESH_RATE_LIMIT setting.",
+)
+@limiter.limit(settings.REFRESH_RATE_LIMIT)
+async def refresh_token(
+    request: Request,
+    response: Response,
+    body: RefreshRequest | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Refresh endpoint (Phase A - Web Auth Refresh).
+
+    Accepts refresh token either from:
+    - JSON body (for API clients)
+    - httpOnly 'refresh_token' cookie (preferred for web, better XSS protection)
+
+    - Validates the provided refresh token
+    - Rotates the refresh token (single-use)
+    - Issues a new short-lived access token
+    - Updates the session
+    """
+    session_service = SessionService(db)
+
+    # Prefer cookie over body (more secure for web)
+    refresh_token_value = request.cookies.get("refresh_token")
+
+    if not refresh_token_value and body:
+        refresh_token_value = body.refresh_token
+
+    if not refresh_token_value:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is required",
+        )
+
+    try:
+        new_access_token, new_refresh_token, user = session_service.refresh_tokens(
+            refresh_token_value, request
+        )
+    except ValueError as e:
+        error_str = str(e)
+
+        logger.warning(
+            "Refresh token validation failed",
+            extra={
+                "event_type": "refresh_failed",
+                "reason": error_str,
+                "ip_address": get_remote_address(request),
+            }
+        )
+
+        if error_str == "refresh_token_reuse_detected":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Your session was terminated due to suspicious activity. Please log in again.",
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired refresh token",
+            )
+
+    # Set the new short-lived access token as httpOnly cookie
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=new_access_token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path="/",
+    )
+
+    # Set the new rotated refresh token as httpOnly cookie
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        max_age=30 * 24 * 60 * 60,  # 30 days
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path="/api/v1/auth",
+    )
+
+    logger.info(
+        "Token refreshed successfully",
+        extra={
+            "event_type": "token_refreshed",
+            "user_id": user.id,
+            "username": user.username,
+        }
+    )
+
+    return RefreshResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+    )
+
+
+@router.post(
     "/logout",
     response_model=MessageResponse,
     summary="End user session",
-    description="Logout by clearing the JWT cookie and invalidating server-side session.",
+    description="Logout by clearing the JWT cookie and invalidating server-side session + refresh token.",
     response_description="Logout confirmation message",
 )
-async def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+async def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    body: Optional[dict] = None,   # Optional body to support refresh_token for logout
+):
     """
-    Logout by clearing JWT cookie and invalidating server-side session (Story P15-2.7)
+    Logout (Phase A - Web Refresh support)
+
+    - Clears the access token cookie
+    - Revokes the server-side session (and its refresh token)
+    - Optionally accepts a refresh_token in the body to support logout after access token expiry
     """
-    # Invalidate server-side session
+    session_service = SessionService(db)
+    refresh_token = None
+
+    if body and isinstance(body, dict):
+        refresh_token = body.get("refresh_token")
+
+    # Try to revoke via access token first
     token = get_current_token(request)
     if token:
-        session_service = SessionService(db)
         session = session_service.get_session_by_token(token)
         if session:
             session_service.revoke_session(session.id, session.user_id)
+    elif refresh_token:
+        # Fallback: logout using refresh token (common when access token has expired)
+        session_service.revoke_session_by_refresh_token(refresh_token)
 
     response.delete_cookie(
         key=COOKIE_NAME,
@@ -288,6 +421,15 @@ async def logout(request: Request, response: Response, db: Session = Depends(get
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
         path="/",
+    )
+
+    # Also clear the refresh token cookie
+    response.delete_cookie(
+        key="refresh_token",
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        path="/api/v1/auth",
     )
 
     logger.info(

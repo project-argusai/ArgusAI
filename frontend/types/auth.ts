@@ -22,6 +22,7 @@ export interface ILoginRequest {
 
 export interface ILoginResponse {
   access_token: string;
+  refresh_token?: string; // Phase A - Web Refresh Tokens
   token_type: string;
   user: IUser;
   must_change_password: boolean;

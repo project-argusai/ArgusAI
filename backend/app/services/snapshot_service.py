@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from PIL import Image
+from app.core.decorators import singleton
 
 # Note: get_protect_service is imported lazily to avoid circular imports
 # See _fetch_snapshot_with_retry method
@@ -41,6 +42,8 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 # Snapshot retrieval timeout in seconds (AC1, AC12 - NFR4)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 SNAPSHOT_TIMEOUT_SECONDS = 1.0
 
 # Retry delay in seconds (AC8)
@@ -85,6 +88,7 @@ class SnapshotResult:
     timestamp: datetime
 
 
+@singleton
 class SnapshotService:
     """
     Service for retrieving and processing snapshots from Protect cameras (Story P2-3.2).
@@ -530,16 +534,20 @@ class SnapshotService:
         self._snapshot_success_total = 0
 
 
-# Global singleton instance
-_snapshot_service: Optional[SnapshotService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_snapshot_service() -> SnapshotService:
-    """Get the global SnapshotService singleton instance."""
-    global _snapshot_service
-    if _snapshot_service is None:
-        _snapshot_service = SnapshotService()
-    return _snapshot_service
+    """
+    Get the global SnapshotService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer SnapshotService() directly.
+    """
+    return SnapshotService()
+
+
+def reset_snapshot_service() -> None:
+    """Reset the global SnapshotService instance (for testing)."""
+    SnapshotService._reset_instance()
 
 
 # =============================================================================

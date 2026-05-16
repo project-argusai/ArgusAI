@@ -5,9 +5,12 @@ Story P3-7.3: Implement Daily/Monthly Cost Caps
 
 Provides cap enforcement, status tracking, and automatic resume logic
 for managing AI analysis costs.
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 
 import logging
+from app.core.decorators import singleton
 from datetime import datetime, timezone
 from decimal import Decimal
 from functools import lru_cache
@@ -45,6 +48,7 @@ class CostCapStatus:
     pause_reason: Optional[Literal["cost_cap_daily", "cost_cap_monthly"]]
 
 
+@singleton
 class CostCapService:
     """
     Service for managing AI cost caps and enforcement.
@@ -342,18 +346,17 @@ class CostCapService:
         return False, None
 
 
-# Singleton instance
-_cost_cap_service: Optional[CostCapService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_cost_cap_service() -> CostCapService:
     """
-    Get the singleton CostCapService instance.
+    Get the global CostCapService instance.
 
-    Returns:
-        CostCapService instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer CostCapService() directly.
     """
-    global _cost_cap_service
-    if _cost_cap_service is None:
-        _cost_cap_service = CostCapService()
-    return _cost_cap_service
+    return CostCapService()
+
+
+def reset_cost_cap_service() -> None:
+    """Reset the global CostCapService instance (for testing)."""
+    CostCapService._reset_instance()

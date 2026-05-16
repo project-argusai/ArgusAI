@@ -19,9 +19,12 @@ Flow:
                                                     |
                                                     v
     Event Processing -> PatternService.is_typical_timing() -> TimingAnalysisResult
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging
+from app.core.decorators import singleton
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -62,6 +65,7 @@ class TimingAnalysisResult:
     reason: str                 # Human-readable explanation
 
 
+@singleton
 class PatternService:
     """
     Analyze and store activity patterns for cameras.
@@ -654,24 +658,20 @@ class PatternService:
             return None
 
 
-# Global singleton instance
-_pattern_service: Optional[PatternService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_pattern_service() -> PatternService:
     """
     Get the global PatternService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        PatternService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer PatternService() directly.
     """
-    global _pattern_service
+    return PatternService()
 
-    if _pattern_service is None:
-        _pattern_service = PatternService()
-        logger.info(
+
+def reset_pattern_service() -> None:
+    """Reset the global PatternService instance (for testing)."""
+    PatternService._reset_instance()
             "Global PatternService instance created",
             extra={"event_type": "pattern_service_singleton_created"}
         )

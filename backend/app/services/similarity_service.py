@@ -317,36 +317,17 @@ class SimilarityService:
         return results
 
 
-# Global singleton instance
-_similarity_service: Optional[SimilarityService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_similarity_service() -> SimilarityService:
     """
     Get the global SimilarityService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        SimilarityService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer SimilarityService() directly.
     """
-    global _similarity_service
-
-    if _similarity_service is None:
-        _similarity_service = SimilarityService()
-        logger.info(
-            "Global SimilarityService instance created",
-            extra={"event_type": "similarity_service_singleton_created"}
-        )
-
-    return _similarity_service
+    return SimilarityService()
 
 
 def reset_similarity_service() -> None:
-    """
-    Reset the global SimilarityService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _similarity_service
-    _similarity_service = None
+    """Reset the global SimilarityService instance (for testing)."""
+    SimilarityService._reset_instance()

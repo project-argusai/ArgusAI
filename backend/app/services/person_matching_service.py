@@ -691,8 +691,3 @@ def get_person_matching_service() -> PersonMatchingService:
 def reset_person_matching_service() -> None:
     """Reset the global PersonMatchingService instance (for testing)."""
     PersonMatchingService._reset_instance()
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _person_matching_service
-    _person_matching_service = None

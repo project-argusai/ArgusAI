@@ -15,10 +15,13 @@ Privacy:
     - Only processes vehicles when vehicle_recognition_enabled is true
     - Vehicle data stored locally only
     - Users can delete all vehicle embeddings via API
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import json
 import logging
+from app.core.decorators import singleton
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -34,6 +37,7 @@ from app.services.embedding_service import EmbeddingService, get_embedding_servi
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class VehicleEmbeddingService:
     """
     Generate and store vehicle-specific embeddings.
@@ -335,36 +339,24 @@ class VehicleEmbeddingService:
         return self.MODEL_VERSION
 
 
-# Global singleton instance
-_vehicle_embedding_service: Optional[VehicleEmbeddingService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_vehicle_embedding_service() -> VehicleEmbeddingService:
     """
     Get the global VehicleEmbeddingService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        VehicleEmbeddingService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer VehicleEmbeddingService() directly.
     """
-    global _vehicle_embedding_service
+    return VehicleEmbeddingService()
 
-    if _vehicle_embedding_service is None:
-        _vehicle_embedding_service = VehicleEmbeddingService()
-        logger.info(
-            "Global VehicleEmbeddingService instance created",
-            extra={"event_type": "vehicle_embedding_service_singleton_created"}
-        )
+
+def reset_vehicle_embedding_service() -> None:
+    """Reset the global VehicleEmbeddingService instance (for testing)."""
+    VehicleEmbeddingService._reset_instance()
 
     return _vehicle_embedding_service
 
 
 def reset_vehicle_embedding_service() -> None:
-    """
-    Reset the global VehicleEmbeddingService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _vehicle_embedding_service
-    _vehicle_embedding_service = None
+    """Reset the global VehicleEmbeddingService instance (for testing)."""
+    VehicleEmbeddingService._reset_instance()

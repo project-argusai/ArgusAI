@@ -51,7 +51,7 @@ from app.api.v1.api_keys import router as api_keys_router  # Story P13-1: API Ke
 from app.api.v1.users import router as users_router  # Story P15-2.3: User Management
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
-from app.services.protect_service import get_protect_service  # Story P2-1.4: Protect WebSocket
+from app.services.protect_service import ProtectService  # Story P2-1.4: Protect WebSocket (now via @singleton)
 from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_service  # Story P4-2.1: MQTT
 from app.services.mqtt_discovery_service import initialize_discovery_service, get_discovery_service  # Story P4-2.2: HA Discovery
 from app.services.mqtt_status_service import initialize_status_sensors  # Story P4-2.5: Camera Status Sensors
@@ -406,7 +406,7 @@ async def lifespan(app: FastAPI):
 
     # Connect to Protect controllers on startup (Story P2-1.4, AC1)
     from app.models.protect_controller import ProtectController
-    protect_service = get_protect_service()
+    protect_service = ProtectService()  # @singleton pattern (#450)
     
     # Reset stale connection states from previous crashes (Issue #382)
     await protect_service.reset_stale_connection_states()

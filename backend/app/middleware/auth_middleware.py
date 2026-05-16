@@ -68,6 +68,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     EXCLUDED_PREFIXES: tuple = (
         '/api/v1/auth/login',
         '/api/v1/auth/logout',
+        '/api/v1/auth/refresh',   # Web refresh token endpoint (Phase A)
         '/api/v1/auth/setup-status',
         '/api/v1/thumbnails/',  # Thumbnail images (public for img tags)
         '/ws',  # WebSocket connections handle their own auth

@@ -539,3 +539,41 @@ class CostCapStatus(BaseModel):
                 "pause_reason": None
             }
         }
+
+
+# =============================================================================
+# AI Resilience / Circuit Breaker Schemas (Phase A - A.5)
+# =============================================================================
+
+class CircuitBreakerConfigSchema(BaseModel):
+    """Circuit breaker configuration for an AI provider"""
+    failure_threshold: int = Field(5, ge=1, le=50, description="Consecutive failures to open circuit")
+    recovery_timeout: float = Field(90.0, ge=10, le=3600, description="Seconds before trying HALF_OPEN")
+    half_open_max_calls: int = Field(1, ge=1, le=5, description="Test calls allowed in HALF_OPEN")
+    failure_rate_threshold: float = Field(0.5, ge=0.1, le=1.0, description="Failure rate to trigger open")
+    minimum_calls_in_window: int = Field(6, ge=2, le=50, description="Min calls needed to evaluate rate")
+    window_duration_seconds: float = Field(60.0, ge=10, le=3600, description="Time window for failure rate")
+
+    class Config:
+        from_attributes = True
+
+
+class CircuitBreakerStatusResponse(BaseModel):
+    """Live status + config of a circuit breaker"""
+    provider: str
+    config: CircuitBreakerConfigSchema
+    state: str  # closed, open, half_open
+    failure_count: int
+    current_failure_rate: Optional[float] = None
+    recent_window_size: int
+    last_failure_time: Optional[datetime] = None
+
+
+class AIResilienceResponse(BaseModel):
+    """Full AI Resilience status"""
+    default: CircuitBreakerStatusResponse
+    openai: Optional[CircuitBreakerStatusResponse] = None
+    grok: Optional[CircuitBreakerStatusResponse] = None
+    claude: Optional[CircuitBreakerStatusResponse] = None
+    gemini: Optional[CircuitBreakerStatusResponse] = None
+    last_reset: Optional[datetime] = None  # Global last reset timestamp (for all admins)

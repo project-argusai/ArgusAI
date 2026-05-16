@@ -22,6 +22,7 @@ from uiprotect.websocket import WebsocketState
 
 from app.core.database import get_db_session
 from app.services.websocket_manager import get_websocket_manager
+from app.services.protect_health_service import get_protect_health_service, ProtectConnectionState
 from app.services.protect_event_handler import get_protect_event_handler
 
 if TYPE_CHECKING:
@@ -628,6 +629,8 @@ class ProtectService:
 
                 # Subscribe to WebSocket state changes to detect disconnection
                 def state_callback(state: WebsocketState):
+                    health_service = get_protect_health_service()
+
                     if state == WebsocketState.DISCONNECTED:
                         logger.warning(
                             "WebSocket state changed to DISCONNECTED",
@@ -637,6 +640,10 @@ class ProtectService:
                             }
                         )
                         self._ws_disconnected[controller_id] = True
+                        health_service.update_connection_state(
+                            ProtectConnectionState.DISCONNECTED,
+                            controller_name=controller.name if controller else None
+                        )
                     elif state == WebsocketState.CONNECTED:
                         logger.info(
                             "WebSocket state changed to CONNECTED",
@@ -647,6 +654,10 @@ class ProtectService:
                         )
                         self._ws_disconnected[controller_id] = False
                         self._last_ws_message_time[controller_id] = datetime.now(timezone.utc)
+                        health_service.update_connection_state(
+                            ProtectConnectionState.CONNECTED,
+                            controller_name=controller.name if controller else None
+                        )
 
                 state_unsub = client.subscribe_websocket_state(state_callback)
                 self._ws_state_unsubs[controller_id] = state_unsub
@@ -655,6 +666,7 @@ class ProtectService:
                 def event_callback(msg):
                     # Update last message time for activity tracking
                     self._last_ws_message_time[controller_id] = datetime.now(timezone.utc)
+                    get_protect_health_service().record_message_received()
 
                     # Handle camera status changes (Story P2-2.4 AC6)
                     asyncio.create_task(
@@ -794,6 +806,9 @@ class ProtectService:
                     "delay_seconds": delay
                 }
             )
+
+            # Report to health service
+            get_protect_health_service().record_reconnect_attempt()
 
             # Wait before attempting (first wait is 1s, satisfies AC4 < 5s)
             try:

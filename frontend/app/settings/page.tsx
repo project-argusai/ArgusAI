@@ -64,6 +64,7 @@ import { AnomalySettings } from '@/components/settings/AnomalySettings';
 import { MotionEventsExport } from '@/components/settings/MotionEventsExport';
 import { PromptRefinementModal } from '@/components/settings/PromptRefinementModal';
 import { CostWarningModal } from '@/components/settings/CostWarningModal';
+import { AIResilienceSettings } from '@/components/settings/AIResilienceSettings';
 import { VideoStorageWarningModal } from '@/components/settings/VideoStorageWarningModal';
 import { FrameSamplingStrategySelector, type FrameSamplingStrategy } from '@/components/settings/FrameSamplingStrategySelector';
 import { PasswordChangeForm } from '@/components/settings/PasswordChangeForm';
@@ -308,6 +309,10 @@ export default function SettingsPage() {
                 <TabsTrigger value="ai-usage" className="flex items-center gap-2 px-3">
                   <DollarSign className="h-4 w-4" />
                   <span className="hidden sm:inline">AI Usage</span>
+                </TabsTrigger>
+                <TabsTrigger value="ai-resilience" className="flex items-center gap-2 px-3">
+                  <Shield className="h-4 w-4" />
+                  <span className="hidden sm:inline">AI Resilience</span>
                 </TabsTrigger>
                 <TabsTrigger value="motion" className="flex items-center gap-2 px-3">
                   <Eye className="h-4 w-4" />
@@ -842,6 +847,13 @@ Keep the summary concise (2-3 paragraphs).`}
             <TabsContent value="ai-usage" className="space-y-4">
               <ErrorBoundary context="AI Usage Dashboard">
                 <CostDashboard />
+              </ErrorBoundary>
+            </TabsContent>
+
+            {/* AI Resilience Tab - Phase A (Circuit Breakers) */}
+            <TabsContent value="ai-resilience" className="space-y-4">
+              <ErrorBoundary context="AI Resilience">
+                <AIResilienceSettings />
               </ErrorBoundary>
             </TabsContent>
 

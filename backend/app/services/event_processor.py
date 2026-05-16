@@ -28,6 +28,8 @@ import time
 import httpx
 import numpy as np
 import uuid
+
+from app.core.metrics import ai_concurrent_in_flight
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -173,6 +175,10 @@ class EventProcessor:
 
         self.queue_maxsize = queue_maxsize
         self.event_queue: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
+
+        # Concurrency limit for AI calls (Phase A.5 - Resource Limits)
+        ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
+        self.ai_semaphore = asyncio.Semaphore(ai_limit)
 
         # Task tracking
         self.motion_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> task
@@ -738,15 +744,21 @@ class EventProcessor:
             except Exception as ocr_setup_err:
                 logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
 
-            ai_result = await self.ai_service.generate_description(
-                frame=event.frame,
-                camera_name=event.camera_name,
-                timestamp=event.timestamp.isoformat(),
-                detected_objects=event.detected_objects,
-                sla_timeout_ms=5000,
-                custom_prompt=context_enhanced_prompt,  # Story P4-3.4: Pass enhanced prompt
-                ocr_result=ocr_result,  # Story P9-3.2: Pass OCR extraction result
-            )
+            # Limit concurrent AI calls to prevent overwhelming providers (Phase A.5)
+            async with self.ai_semaphore:
+                ai_concurrent_in_flight.inc()
+                try:
+                    ai_result = await self.ai_service.generate_description(
+                        frame=event.frame,
+                        camera_name=event.camera_name,
+                        timestamp=event.timestamp.isoformat(),
+                        detected_objects=event.detected_objects,
+                        sla_timeout_ms=5000,
+                        custom_prompt=context_enhanced_prompt,  # Story P4-3.4: Pass enhanced prompt
+                        ocr_result=ocr_result,  # Story P9-3.2: Pass OCR extraction result
+                    )
+                finally:
+                    ai_concurrent_in_flight.dec()
 
             # Story P2-6.3 AC13: If all AI providers fail, store event without description
             # and flag for retry instead of failing completely

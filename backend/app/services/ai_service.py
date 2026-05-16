@@ -21,6 +21,7 @@ import base64
 import io
 import logging
 import time
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
@@ -39,49 +40,43 @@ from app.models.system_setting import SystemSetting
 from app.models.ai_usage import AIUsage
 from app.services.cost_tracker import get_cost_tracker
 from app.services.ocr_service import OCRResult, extract_overlay_text, is_ocr_available
+from app.services.ai_circuit_breaker import AICircuitBreaker, CircuitBreakerConfig, CircuitState
+from app.services.ai_prompt_service import AIPromptService
+from app.core.metrics import ai_circuit_breaker_state, ai_circuit_breaker_transitions_total
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# DEPRECATION ROADMAP - Prompt Logic Extraction (Phase 2)
+# =============================================================================
+#
+# The following methods are deprecated as of Phase 2.4 / 2.5:
+#
+#   - AIProviderBase._build_user_prompt
+#   - AIProviderBase._build_multi_image_prompt
+#   - AIProviderBase._select_prompt_and_variant
+#   - build_context_prompt (module-level function)
+#
+# All new prompt construction should go through AIPromptService.
+#
+# Planned removal: Phase 2.7 (after all provider classes and multi-frame paths
+# are fully migrated and the new service has been stable for at least one release).
+#
+# See: AIPromptService, prompt_templates.py, and the Phase B decomposition plan.
+# =============================================================================
 
-# Multi-frame analysis system prompt (Story P3-2.4)
-# Optimized for temporal narrative descriptions of video sequences
-# Story P3-6.1: Confidence scoring instruction appended to all prompts
-CONFIDENCE_INSTRUCTION = """
 
-After your description, rate your confidence in this description from 0 to 100, where:
-- 0-30: Very uncertain, limited visibility or unclear action
-- 31-50: Somewhat uncertain, some ambiguity
-- 51-70: Moderately confident
-- 71-90: Confident
-- 91-100: Very confident, clear view and obvious action
+# Prompt templates have been extracted to prompt_templates.py (Phase 2 - AIPromptService extraction)
+# New code should import from there. These are kept temporarily for backward compatibility.
+from app.services.prompt_templates import (
+    CONFIDENCE_INSTRUCTION,
+    CONFIDENCE_INSTRUCTION_WITH_BOXES,
+    MULTI_FRAME_SYSTEM_PROMPT,
+    BOUNDING_BOX_INSTRUCTION,
+)
 
-Respond in this exact JSON format:
-{"description": "your detailed description here", "confidence": 85}"""
-
-# Story P15-5.1: Bounding box instruction for AI annotations
-# When enabled, this replaces the standard CONFIDENCE_INSTRUCTION to include bounding boxes
-BOUNDING_BOX_INSTRUCTION = """
-
-After your description, include bounding boxes for each detected object.
-
-For each person, vehicle, package, or animal visible in the frame:
-1. Draw an imaginary box around the object
-2. Estimate normalized coordinates (0.0 to 1.0) where:
-   - x = left edge position (0.0 = left side, 1.0 = right side)
-   - y = top edge position (0.0 = top, 1.0 = bottom)
-   - width = box width as fraction of image width
-   - height = box height as fraction of image height
-3. Assign entity_type: "person", "vehicle", "package", "animal", or "other"
-4. Rate confidence 0.0 to 1.0 for that specific detection
-
-Rate your overall confidence in this description from 0 to 100.
-
-Respond in this exact JSON format:
-{
-  "description": "your detailed description here",
-  "confidence": 85,
-  "bounding_boxes": [
-    {"x": 0.25, "y": 0.30, "width": 0.15, "height": 0.40, "entity_type": "person", "confidence": 0.92, "label": "Person walking toward door"},
+# The prompt constants have been successfully moved to prompt_templates.py (Phase 2.4 cleanup).
+# The old definitions have been removed.
     {"x": 0.60, "y": 0.50, "width": 0.25, "height": 0.20, "entity_type": "vehicle", "confidence": 0.88, "label": "Silver sedan in driveway"}
   ]
 }
@@ -191,94 +186,11 @@ PROVIDER_CAPABILITIES = {
 }
 
 
-def get_time_of_day_category(hour: int) -> str:
-    """Get time of day category from hour (Story P9-3.1 AC-3.1.3)
+# Deprecated helper functions removed in Phase 2.7
+# (context building is now fully inside AIPromptService)
 
-    Categories:
-    - morning: 5:00 AM - 11:59 AM
-    - afternoon: 12:00 PM - 4:59 PM
-    - evening: 5:00 PM - 8:59 PM
-    - night: 9:00 PM - 4:59 AM
-
-    Args:
-        hour: Hour in 24-hour format (0-23)
-
-    Returns:
-        Time category string
-    """
-    if 5 <= hour < 12:
-        return "morning"
-    elif 12 <= hour < 17:
-        return "afternoon"
-    elif 17 <= hour < 21:
-        return "evening"
-    else:
-        return "night"
-
-
-def build_context_prompt(
-    camera_name: str,
-    timestamp: str,
-    ocr_result: Optional[OCRResult] = None
-) -> str:
-    """Build human-readable context prompt for AI (Story P9-3.1, P9-3.2)
-
-    Formats camera name and timestamp into a natural context string that
-    the AI can reference in its descriptions. When OCR data is available,
-    it supplements or validates the database metadata.
-
-    Args:
-        camera_name: Name of the camera from database (e.g., "Front Door")
-        timestamp: ISO 8601 timestamp string (e.g., "2025-12-22T07:15:00+00:00")
-        ocr_result: Optional OCR extraction result from frame overlay (Story P9-3.2)
-
-    Returns:
-        Context string like:
-        'Context: This footage is from the "Front Door" camera at 7:15 AM on Sunday, December 22, 2025 (morning).'
-
-    Examples:
-        >>> build_context_prompt("Front Door", "2025-12-22T07:15:00+00:00")
-        'Context: This footage is from the "Front Door" camera at 7:15 AM on Sunday, December 22, 2025 (morning).'
-
-        >>> build_context_prompt("Backyard", "2025-12-22T22:30:00+00:00")
-        'Context: This footage is from the "Backyard" camera at 10:30 PM on Sunday, December 22, 2025 (night).'
-    """
-    # Story P9-3.2: Use OCR data to supplement database metadata when available
-    effective_camera_name = camera_name
-    if ocr_result and ocr_result.camera_name:
-        # OCR found camera name - use it if database name is generic
-        if camera_name.lower() in ['camera', 'camera 1', 'cam', 'ch1', 'channel 1']:
-            effective_camera_name = ocr_result.camera_name
-            logger.debug(f"Using OCR camera name '{ocr_result.camera_name}' instead of generic '{camera_name}'")
-        else:
-            # Log if OCR name differs (for debugging)
-            if ocr_result.camera_name.lower() != camera_name.lower():
-                logger.debug(f"OCR camera name '{ocr_result.camera_name}' differs from DB '{camera_name}'")
-
-    try:
-        # Parse ISO 8601 timestamp
-        dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-
-        # Format time as "7:15 AM" / "2:30 PM"
-        time_str = dt.strftime("%-I:%M %p")  # %-I removes leading zero on hour
-
-        # Format day of week and date
-        date_str = dt.strftime("%A, %B %-d, %Y")  # "Sunday, December 22, 2025"
-
-        # Get time of day category
-        time_category = get_time_of_day_category(dt.hour)
-
-        # Story P9-3.2: Note if OCR provided supplementary timestamp
-        if ocr_result and ocr_result.timestamp:
-            logger.debug(f"OCR timestamp '{ocr_result.timestamp}' found (using DB timestamp for reliability)")
-
-        return f'Context: This footage is from the "{effective_camera_name}" camera at {time_str} on {date_str} ({time_category}).'
-
-    except (ValueError, AttributeError) as e:
-        # Fallback to simple format if parsing fails
-        logger.warning(f"Failed to parse timestamp '{timestamp}': {e}")
-        return f'Context: This footage is from the "{effective_camera_name}" camera at {timestamp}.'
-
+# build_context_prompt has been removed in Phase 2.7.
+# All context building now happens inside AIPromptService.
 
 class AIProvider(Enum):
     """Supported AI vision providers"""
@@ -309,7 +221,18 @@ class AIResult:
 
 
 class AIProviderBase(ABC):
-    """Base class for AI vision providers"""
+    """
+    Base class for AI vision providers.
+
+    Deprecated methods (Phase 2.4 / 2.5):
+    - _build_user_prompt
+    - _build_multi_image_prompt
+    - _select_prompt_and_variant
+    - build_context_prompt (module level)
+
+    These are being replaced by AIPromptService.
+    They will be removed in Phase 2.7.
+    """
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -371,120 +294,91 @@ class AIProviderBase(ABC):
         Analyzes a sequence of frames together and returns a single combined description
         covering all frames. Useful for multi-frame analysis of motion clips.
 
-        Args:
-            images_base64: List of base64-encoded JPEG images (3-5 frames typical)
-            camera_name: Name of the camera for context
-            timestamp: ISO 8601 timestamp of the first frame
-            detected_objects: List of detected object types
-            custom_prompt: Optional custom prompt to override default
-            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
-            ocr_result: Optional OCR extraction from frame overlay (Story P9-3.2)
-
-        Returns:
-            AIResult with combined description covering all frames
+        Phase 2.3: Now uses AIPromptService for prompt building.
         """
-        pass
+        if not images_base64:
+            return AIResult(
+                description="No images provided for multi-frame analysis",
+                confidence=0,
+                objects_detected=detected_objects or [],
+                provider="none",
+                tokens_used=0,
+                response_time_ms=0,
+                cost_estimate=0.0,
+                success=False,
+                error="No images provided"
+            )
 
-    def _build_user_prompt(
-        self,
-        camera_name: str,
-        timestamp: str,
-        detected_objects: List[str],
-        custom_prompt: Optional[str] = None,
-        audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
-    ) -> str:
-        """Build user prompt with context
-
-        Args:
-            camera_name: Name of the camera
-            timestamp: ISO 8601 timestamp
-            detected_objects: List of detected object types
-            custom_prompt: Optional custom prompt to override the base description instruction
-                          (from Settings → AI Provider Configuration → Description prompt,
-                           or from Story P2-4.1 doorbell ring events)
-            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
-            ocr_result: Optional OCR extraction from frame overlay (Story P9-3.2)
-        """
-        # Story P9-3.1, P9-3.2: Build human-readable context with camera name, time, and OCR data
-        context = "\n" + build_context_prompt(camera_name, timestamp, ocr_result)
-        if detected_objects:
-            context += f" Motion detected: {', '.join(detected_objects)}."
-
-        # Use custom prompt if provided (from Settings description_prompt or doorbell ring)
-        # Otherwise use the default user_prompt_template
-        base_prompt = custom_prompt if custom_prompt else self.user_prompt_template
-
-        prompt = base_prompt + context
-
-        # Story P3-5.3: Add audio transcription if available
-        # Only include if transcription has actual content (not None, not empty string)
-        if audio_transcription and audio_transcription.strip():
-            prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
-
-        # Story P3-6.1, P15-5.1: Add confidence/bounding box instruction
-        # Use bounding box instruction when annotations are enabled
-        if ai_service and ai_service.annotations_enabled:
-            prompt += BOUNDING_BOX_INSTRUCTION
+        # Phase 2.3: Use AIPromptService for multi-image prompt construction
+        if self.prompt_service:
+            effective_prompt, prompt_variant = self.prompt_service.select_and_build_prompt(
+                camera_id=None,  # camera_id not always available here
+                custom_prompt=custom_prompt,
+                detected_objects=detected_objects,
+                timestamp=timestamp,
+                audio_transcription=audio_transcription,
+                ocr_result=ocr_result,
+                analysis_mode="multi_frame",
+            )
         else:
-            prompt += CONFIDENCE_INSTRUCTION
+            # Fallback during migration
+            effective_prompt = custom_prompt
+            prompt_variant = None
 
-        return prompt
+        if effective_prompt:
+            logger.debug(f"[Multi-image] Using prompt: '{effective_prompt[:80]}...'")
 
-    def _build_multi_image_prompt(
-        self,
-        camera_name: str,
-        timestamp: str,
-        detected_objects: List[str],
-        num_images: int,
-        custom_prompt: Optional[str] = None,
-        audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
-    ) -> str:
-        """Build user prompt for multi-image analysis (Story P3-2.3, P3-2.4, P3-5.3, P9-3.1, P9-3.2)
+        # Use the first configured provider for multi-image (or let providers handle fallback)
+        # For now, try providers in order until one succeeds
+        provider_order = self._get_provider_order()
 
-        Uses MULTI_FRAME_SYSTEM_PROMPT optimized for temporal narrative descriptions.
-        Custom prompts are APPENDED after system instructions, not replacing them,
-        to ensure temporal context is always included.
+        last_error = None
+        start_time = time.time()
 
-        Args:
-            camera_name: Name of the camera
-            timestamp: ISO 8601 timestamp of first frame
-            detected_objects: List of detected object types
-            num_images: Number of images being analyzed
-            custom_prompt: Optional custom prompt to APPEND after system instructions
-                          (from Settings → multi_frame_description_prompt or per-camera config)
-            audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
-            ocr_result: Optional OCR extraction from frame overlay (Story P9-3.2)
-        """
-        # Story P9-3.1, P9-3.2: Build human-readable context with camera name, time, and OCR data
-        context = "\n\n" + build_context_prompt(camera_name, timestamp, ocr_result)
-        if detected_objects:
-            context += f" Motion detected: {', '.join(detected_objects)}."
+        for provider_enum in provider_order:
+            provider = self.providers.get(provider_enum)
+            if provider is None:
+                continue
 
-        # Use optimized multi-frame system prompt with frame count (Story P3-2.4)
-        base_prompt = MULTI_FRAME_SYSTEM_PROMPT.format(num_frames=num_images)
+            try:
+                result = await provider.generate_multi_image_description(
+                    images_base64=images_base64,
+                    camera_name=camera_name,
+                    timestamp=timestamp,
+                    detected_objects=detected_objects,
+                    custom_prompt=effective_prompt,
+                    audio_transcription=audio_transcription,
+                    ocr_result=ocr_result
+                )
 
-        # APPEND custom prompt after system instructions (not replace)
-        # This ensures temporal context is always preserved (AC4)
-        if custom_prompt:
-            base_prompt += f"\n\nAdditional instructions: {custom_prompt}"
+                if result.success:
+                    result.prompt_variant = prompt_variant
+                    return result
 
-        prompt = base_prompt + context
+                last_error = result.error
 
-        # Story P3-5.3: Add audio transcription if available
-        # Only include if transcription has actual content (not None, not empty string)
-        if audio_transcription and audio_transcription.strip():
-            prompt += f'\n\nAudio transcription: "{audio_transcription.strip()}"'
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(f"Multi-image failed with {provider_enum.value}: {e}")
 
-        # Story P3-6.1, P15-5.1: Add confidence/bounding box instruction
-        # Use bounding box instruction when annotations are enabled
-        if ai_service and ai_service.annotations_enabled:
-            prompt += BOUNDING_BOX_INSTRUCTION
-        else:
-            prompt += CONFIDENCE_INSTRUCTION
+        # All providers failed
+        return AIResult(
+            description="All providers failed for multi-image analysis",
+            confidence=0,
+            objects_detected=detected_objects or [],
+            provider="none",
+            tokens_used=0,
+            response_time_ms=int((time.time() - start_time) * 1000),
+            cost_estimate=0.0,
+            success=False,
+            error=last_error or "All AI providers failed"
+        )
 
-        return prompt
+    # _build_user_prompt has been removed in Phase 2.8.
+    # All prompt construction is now handled by AIPromptService in AIService.
+
+    # _build_multi_image_prompt has been removed in Phase 2.8.
+    # All multi-image prompt construction is now handled by AIPromptService in AIService.
 
     def _parse_confidence_response(self, response_text: str) -> tuple[str, Optional[int], Optional[List[Dict[str, Any]]]]:
         """Parse AI response for description, confidence score, and bounding boxes (Story P3-6.1, P15-5.1)
@@ -629,7 +523,11 @@ class OpenAIProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription, ocr_result)
+            # Phase 2.5: Prefer pre-built prompt from AIPromptService if provided
+            if custom_prompt:
+                user_prompt = custom_prompt
+            else:
+                user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription, ocr_result)
 
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -789,9 +687,12 @@ class OpenAIProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription, ocr_result
-            )
+            # Phase 2.7: Providers no longer build their own multi-image prompts.
+            # AIService (via AIPromptService) always provides a ready-to-use prompt.
+            if not custom_prompt:
+                custom_prompt = getattr(self, 'multi_frame_prompt', None) or MULTI_FRAME_SYSTEM_PROMPT.format(num_images=len(images_base64))
+
+            user_prompt = custom_prompt
 
             # Build content array with text prompt and multiple images
             content = [{"type": "text", "text": user_prompt}]
@@ -1186,7 +1087,12 @@ class ClaudeProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription, ocr_result)
+            # Phase 2.7: Provider classes no longer build their own prompts.
+            # AIService (via AIPromptService) is now responsible for all prompt construction.
+            if not custom_prompt:
+                custom_prompt = self.user_prompt_template or "Describe what you see in this security camera image."
+
+            user_prompt = custom_prompt
 
             response = await self.client.messages.create(
                 model=self.model,
@@ -1281,9 +1187,12 @@ class ClaudeProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription, ocr_result
-            )
+            # Phase 2.7: Providers no longer build their own multi-image prompts.
+            # AIService (via AIPromptService) always provides a ready-to-use prompt.
+            if not custom_prompt:
+                custom_prompt = getattr(self, 'multi_frame_prompt', None) or MULTI_FRAME_SYSTEM_PROMPT.format(num_images=len(images_base64))
+
+            user_prompt = custom_prompt
 
             # Build content array with multiple image blocks followed by text
             content = []
@@ -1408,7 +1317,12 @@ class GeminiProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription, ocr_result)
+            # Phase 2.8: Providers no longer call deprecated prompt builders.
+            # AIService always provides a ready-to-use prompt via custom_prompt.
+            if not custom_prompt:
+                custom_prompt = getattr(self, 'user_prompt_template', None) or "Describe what you see in this security camera image."
+
+            user_prompt = custom_prompt
             full_prompt = f"{self.system_prompt}\n\n{user_prompt}"
 
             # Decode base64 to bytes for Gemini
@@ -1489,9 +1403,12 @@ class GeminiProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription, ocr_result
-            )
+            # Phase 2.7: Providers no longer build their own multi-image prompts.
+            # AIService (via AIPromptService) always provides a ready-to-use prompt.
+            if not custom_prompt:
+                custom_prompt = getattr(self, 'multi_frame_prompt', None) or MULTI_FRAME_SYSTEM_PROMPT.format(num_images=len(images_base64))
+
+            user_prompt = custom_prompt
             full_prompt = f"{self.system_prompt}\n\n{user_prompt}"
 
             # Build parts array with prompt and multiple images
@@ -2192,9 +2109,12 @@ class GrokProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_multi_image_prompt(
-                camera_name, timestamp, detected_objects, len(images_base64), custom_prompt, audio_transcription, ocr_result
-            )
+            # Phase 2.7: Providers no longer build their own multi-image prompts.
+            # AIService (via AIPromptService) always provides a ready-to-use prompt.
+            if not custom_prompt:
+                custom_prompt = getattr(self, 'multi_frame_prompt', None) or MULTI_FRAME_SYSTEM_PROMPT.format(num_images=len(images_base64))
+
+            user_prompt = custom_prompt
 
             # Build content array with text prompt and multiple images (OpenAI-compatible format)
             content = [{"type": "text", "text": user_prompt}]
@@ -2306,7 +2226,12 @@ class GrokProvider(AIProviderBase):
         start_time = time.time()
 
         try:
-            user_prompt = self._build_user_prompt(camera_name, timestamp, detected_objects, custom_prompt, audio_transcription, ocr_result)
+            # Phase 2.8: Providers no longer call deprecated prompt builders.
+            # AIService always provides a ready-to-use prompt via custom_prompt.
+            if not custom_prompt:
+                custom_prompt = getattr(self, 'user_prompt_template', None) or "Describe what you see in this security camera image."
+
+            user_prompt = custom_prompt
 
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -2468,6 +2393,12 @@ class AIService:
         # LiteLLM Integration: Unified provider with automatic fallback and cost tracking
         self.use_litellm: bool = False  # Feature flag to use LiteLLM instead of legacy providers
         self.litellm_provider = None  # LiteLLMProvider instance
+
+        # Circuit breakers for AI providers (Story #436)
+        self.circuit_breakers: Dict[AIProvider, AICircuitBreaker] = {}
+
+        # Prompt service (Phase B - extracted from Phase 2)
+        self.prompt_service: Optional[AIPromptService] = None
 
     def _estimate_image_tokens(self, provider: str, num_images: int, resolution: str = "default") -> int:
         """
@@ -2724,19 +2655,41 @@ class AIService:
         """
         if openai_key:
             self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key)
-            logger.info("OpenAI provider configured")
+            cb_config = self._load_circuit_breaker_config("openai")
+            self.circuit_breakers[AIProvider.OPENAI] = AICircuitBreaker("openai", cb_config)
+            ai_circuit_breaker_state.labels(provider="openai").set(0)
+            logger.info("OpenAI provider configured with circuit breaker")
 
         if grok_key:
             self.providers[AIProvider.GROK] = GrokProvider(grok_key)
-            logger.info("Grok provider configured")
+            cb_config = self._load_circuit_breaker_config("grok")
+            self.circuit_breakers[AIProvider.GROK] = AICircuitBreaker("grok", cb_config)
+            ai_circuit_breaker_state.labels(provider="grok").set(0)
+            logger.info("Grok provider configured with circuit breaker")
 
         if claude_key:
             self.providers[AIProvider.CLAUDE] = ClaudeProvider(claude_key, model=claude_model)
-            logger.info(f"Claude provider configured with model: {claude_model or ClaudeProvider.DEFAULT_MODEL}")
+            cb_config = self._load_circuit_breaker_config("claude")
+            self.circuit_breakers[AIProvider.CLAUDE] = AICircuitBreaker("claude", cb_config)
+            ai_circuit_breaker_state.labels(provider="claude").set(0)
+            logger.info(f"Claude provider configured with circuit breaker")
 
         if gemini_key:
             self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key)
-            logger.info("Gemini provider configured")
+            cb_config = self._load_circuit_breaker_config("gemini")
+            self.circuit_breakers[AIProvider.GEMINI] = AICircuitBreaker("gemini", cb_config)
+            ai_circuit_breaker_state.labels(provider="gemini").set(0)
+            logger.info("Gemini provider configured with circuit breaker")
+
+        # Initialize Prompt Service (Phase 2 - AIPromptService extraction)
+        self.prompt_service = AIPromptService(
+            default_prompt=self.description_prompt,
+            ab_test_prompt=self.ab_test_prompt,
+            ab_test_enabled=self.ab_test_enabled,
+            camera_prompts=self.camera_prompts,
+            annotations_enabled=self.annotations_enabled,
+        )
+        logger.info("AIPromptService initialized")
 
     def _get_provider_order(self) -> List[AIProvider]:
         """
@@ -2789,37 +2742,10 @@ class AIService:
             logger.warning(f"Failed to load provider order from database: {e}, using default")
             return default_order
 
-    def _select_prompt_and_variant(
-        self,
-        camera_id: Optional[str] = None,
-        custom_prompt: Optional[str] = None
-    ) -> tuple:
-        """
-        Select the appropriate prompt based on camera override, A/B test, or settings.
+    # _select_prompt_and_variant has been removed in Phase 2.8.
+    # All prompt selection logic now lives in AIPromptService.
 
-        Story P4-5.4: Implements prompt selection logic for A/B testing and
-        camera-specific overrides.
-
-        Priority order:
-        1. Explicit custom_prompt parameter (e.g., doorbell ring prompts)
-        2. Camera-specific override (if camera_id provided and has override)
-        3. A/B test selection (if A/B test enabled, 50/50 random)
-        4. Global description_prompt from settings
-        5. None (use provider's default prompt)
-
-        Args:
-            camera_id: Optional camera ID to check for override
-            custom_prompt: Explicit custom prompt (highest priority)
-
-        Returns:
-            Tuple of (prompt_text, variant)
-            - prompt_text: The selected prompt or None
-            - variant: 'control', 'experiment', or None (if no A/B test)
-        """
-        import random
-
-        # 1. If explicit custom_prompt provided, use it (no variant tracking)
-        if custom_prompt is not None:
+    def _get_provider_order(self) -> List[AIProvider]:
             return (custom_prompt, None)
 
         # 2. Check camera-specific override
@@ -2882,11 +2808,24 @@ class AIService:
         if detected_objects is None:
             detected_objects = []
 
-        # Story P4-5.4: Select prompt based on camera override, A/B test, or settings
-        effective_prompt, prompt_variant = self._select_prompt_and_variant(
-            camera_id=camera_id,
-            custom_prompt=custom_prompt
-        )
+        # Phase 2.2: Use the new AIPromptService for prompt selection + context building
+        if self.prompt_service:
+            effective_prompt, prompt_variant = self.prompt_service.select_and_build_prompt(
+                camera_id=camera_id,
+                custom_prompt=custom_prompt,
+                detected_objects=detected_objects,
+                timestamp=timestamp,
+                audio_transcription=audio_transcription,
+                ocr_result=ocr_result,
+                analysis_mode="single_image",
+            )
+        else:
+            # Fallback to old logic during transition
+            effective_prompt, prompt_variant = self._select_prompt_and_variant(
+                camera_id=camera_id,
+                custom_prompt=custom_prompt
+            )
+
         if effective_prompt:
             logger.debug(f"Using selected prompt: '{effective_prompt[:50]}...', variant={prompt_variant}")
 
@@ -2939,6 +2878,19 @@ class AIService:
                 logger.warning(f"{provider_enum.value} not configured, skipping")
                 continue
 
+            # === Circuit Breaker Check (Story #436) ===
+            circuit_breaker = self.circuit_breakers.get(provider_enum)
+            if circuit_breaker and not circuit_breaker.can_execute():
+                logger.warning(
+                    f"Skipping {provider_enum.value} - circuit breaker is OPEN",
+                    extra={
+                        "event_type": "ai_circuit_skipped",
+                        "provider": provider_enum.value,
+                        "state": circuit_breaker.state.value,
+                    }
+                )
+                continue
+
             logger.info(f"Attempting {provider_enum.value}... (elapsed: {elapsed_ms}ms)")
 
             # Try with provider-specific backoff for rate limits
@@ -2956,6 +2908,28 @@ class AIService:
 
             # Track usage with analysis mode (Story P3-2.5, P3-7.1)
             self._track_usage(result, analysis_mode="single_image", image_count=1)
+
+            # Record circuit breaker result + update Prometheus metrics (Story #436)
+            if circuit_breaker:
+                previous_state = circuit_breaker.state.value
+
+                if result.success:
+                    circuit_breaker.record_success()
+                else:
+                    circuit_breaker.record_failure()
+
+                # Update Prometheus gauge
+                current_state_value = circuit_breaker.get_state_value()
+                ai_circuit_breaker_state.labels(provider=provider_enum.value).set(current_state_value)
+
+                # Record transition if state changed
+                current_state = circuit_breaker.state.value
+                if previous_state != current_state:
+                    ai_circuit_breaker_transitions_total.labels(
+                        provider=provider_enum.value,
+                        from_state=previous_state,
+                        to_state=current_state
+                    ).inc()
 
             if result.success:
                 total_elapsed_ms = int((time.time() - start_time) * 1000)
@@ -4063,6 +4037,171 @@ class AIService:
                 'avg_response_time_ms': 0,
                 'provider_breakdown': {}
             }
+
+    def _load_circuit_breaker_config(self, provider_name: str) -> 'CircuitBreakerConfig':
+        """Load per-provider circuit breaker config from SystemSetting as JSON."""
+        from app.models.system_setting import SystemSetting
+        import json
+
+        key = f"ai_circuit_breaker_config_{provider_name}"
+        try:
+            # We may not have a session here, so open one
+            with get_db_session() as db:
+                setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+                if setting and setting.value:
+                    data = json.loads(setting.value)
+                    return CircuitBreakerConfig(**data)
+        except Exception as e:
+            logger.warning(f"Failed to load circuit breaker config for {provider_name}: {e}")
+
+        return DEFAULT_CIRCUIT_BREAKER_CONFIG
+
+    # =========================================================================
+    # AI Resilience / Circuit Breaker Management (Phase A - A.5)
+    # =========================================================================
+
+    def get_ai_resilience_status(self, db: Session) -> dict:
+        """
+        Return current circuit breaker configuration + live runtime state
+        for all providers + global default.
+        """
+        from app.models.system_setting import SystemSetting
+        import json
+        from datetime import datetime as dt
+
+        providers = ["default", "openai", "grok", "claude", "gemini"]
+        result = {}
+
+        for p in providers:
+            key = f"ai_circuit_breaker_config_{p}"
+            setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+
+            if setting and setting.value:
+                try:
+                    config_dict = json.loads(setting.value)
+                    config = CircuitBreakerConfig(**config_dict)
+                except Exception:
+                    config = DEFAULT_CIRCUIT_BREAKER_CONFIG
+            else:
+                config = DEFAULT_CIRCUIT_BREAKER_CONFIG
+
+            breaker = None
+            if p != "default":
+                try:
+                    provider_enum = AIProvider[p.upper()]
+                    breaker = self.circuit_breakers.get(provider_enum)
+                except KeyError:
+                    breaker = None
+
+            status = {
+                "provider": p,
+                "config": config,   # Will be serialized by Pydantic
+                "state": breaker.state.value if breaker else "closed",
+                "failure_count": 0,
+                "current_failure_rate": None,
+                "recent_window_size": 0,
+                "last_failure_time": None,
+            }
+
+            if breaker:
+                breaker_status = breaker.get_status()
+                status.update({
+                    "failure_count": breaker_status.get("failure_count", 0),
+                    "current_failure_rate": breaker_status.get("current_failure_rate"),
+                    "recent_window_size": breaker_status.get("recent_window_size", 0),
+                    "last_failure_time": dt.fromtimestamp(breaker_status["last_failure_time"])
+                    if breaker_status.get("last_failure_time") else None,
+                    "recent_transitions": breaker_status.get("recent_transitions", []),
+                })
+
+            result[p] = status
+
+        # Include global last reset timestamp (persisted in SystemSetting)
+        last_reset_setting = db.query(SystemSetting).filter(
+            SystemSetting.key == "ai_circuit_breaker_last_reset"
+        ).first()
+        result["last_reset"] = last_reset_setting.value if last_reset_setting else None
+
+        return result
+
+    def update_circuit_breaker_config(self, provider: str, config_data: dict, db: Session) -> dict:
+        """Save new circuit breaker config to SystemSetting (full replacement)."""
+        from app.models.system_setting import SystemSetting
+        import json
+
+        key = f"ai_circuit_breaker_config_{provider}"
+
+        # Validate
+        try:
+            config = CircuitBreakerConfig(**config_data)
+        except Exception as e:
+            raise ValueError(f"Invalid circuit breaker config: {e}")
+
+        # Save to database
+        setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if setting:
+            setting.value = json.dumps(config.model_dump())
+        else:
+            setting = SystemSetting(key=key, value=json.dumps(config.model_dump()))
+            db.add(setting)
+
+        db.commit()
+
+        # Reload into memory if the provider is currently loaded
+        if provider != "default":
+            try:
+                provider_enum = AIProvider[provider.upper()]
+                if provider_enum in self.circuit_breakers:
+                    self.circuit_breakers[provider_enum] = AICircuitBreaker(provider, config)
+                    # Update Prometheus gauge
+                    from app.core.metrics import ai_circuit_breaker_state
+                    ai_circuit_breaker_state.labels(provider=provider).set(
+                        self.circuit_breakers[provider_enum].get_state_value()
+                    )
+            except Exception as e:
+                logger.warning(f"Could not reload circuit breaker for {provider}: {e}")
+
+        # Return fresh status for this provider
+        status = self.get_ai_resilience_status(db)
+        return status.get(provider, status.get("default"))
+
+    def reset_circuit_breaker(self, provider: str, db: Session = None):
+        """Reset a circuit breaker to CLOSED state. Saves last reset timestamp globally for 'default'."""
+        from app.models.system_setting import SystemSetting
+        from datetime import datetime, timezone
+
+        if provider == "default":
+            for breaker in self.circuit_breakers.values():
+                breaker.reset()
+
+            # Persist last reset timestamp so all admins can see it
+            now = datetime.now(timezone.utc).isoformat()
+            target_db = db
+            close_db = False
+
+            if not target_db:
+                target_db = next(get_db_session())
+                close_db = True
+
+            try:
+                setting = target_db.query(SystemSetting).filter(
+                    SystemSetting.key == "ai_circuit_breaker_last_reset"
+                ).first()
+
+                if setting:
+                    setting.value = now
+                else:
+                    setting = SystemSetting(key="ai_circuit_breaker_last_reset", value=now)
+                    target_db.add(setting)
+
+                target_db.commit()
+            finally:
+                if close_db:
+                    target_db.close()
+        else:
+            provider_enum = AIProvider[provider.upper()]
+            if provider_enum in self.circuit_breakers:
+                self.circuit_breakers[provider_enum].reset()
 
     # =========================================================================
     # Provider Capability Query Methods (Story P3-4.1)

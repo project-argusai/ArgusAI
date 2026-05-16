@@ -43,7 +43,7 @@ from app.models.camera import Camera
 from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.ai_processing_worker import AIProcessingWorker
-from app.services.camera_service import CameraService, get_camera_service
+from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
@@ -229,7 +229,7 @@ class EventProcessor:
         if self.ai_service is None:
             self.ai_service = AIService()
         if self.camera_service is None:
-            self.camera_service = get_camera_service()
+            self.camera_service = CameraService()  # @singleton guarantees the same instance
         if self.motion_service is None:
             self.motion_service = motion_detection_service
         self.http_client = httpx.AsyncClient(timeout=10.0)

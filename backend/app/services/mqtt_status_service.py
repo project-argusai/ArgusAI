@@ -207,10 +207,10 @@ async def publish_all_camera_statuses() -> int:
         Number of cameras updated
     """
     from app.services.mqtt_service import get_mqtt_service
-    from app.services.camera_service import get_camera_service
+    from app.services.camera_service import CameraService
 
     mqtt_service = get_mqtt_service()
-    camera_service = get_camera_service()
+    camera_service = CameraService()  # @singleton pattern
     if not mqtt_service.is_connected:
         return 0
 

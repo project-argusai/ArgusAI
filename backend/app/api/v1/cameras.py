@@ -39,7 +39,7 @@ from app.schemas.motion import (
     MotionConfigUpdate, MotionConfigResponse, MotionTestRequest, MotionTestResponse,
     DetectionZone, DetectionSchedule
 )
-from app.services.camera_service import get_camera_service
+from app.services.camera_service import CameraService
 from app.services.motion_detection_service import motion_detection_service
 from app.services.detection_zone_manager import detection_zone_manager
 from app.services.event_processor import get_event_processor, ProcessingEvent
@@ -51,8 +51,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
 
-# Global camera service instance (singleton)
-camera_service = get_camera_service()
+# Camera service singleton (via @singleton decorator from core.decorators)
+# Modern usage: simply CameraService() always returns the same instance.
+camera_service = CameraService()
 
 
 @router.post("", response_model=CameraResponse, status_code=status.HTTP_201_CREATED)

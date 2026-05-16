@@ -1652,7 +1652,7 @@ async def reanalyze_event(
         {"analysis_mode": "multi_frame"}
     """
     from app.models.camera import Camera
-    from app.services.ai_service import AIService
+    from app.services.ai_service import AIService  # Thin facade; consider VisionAnalysisOrchestrator for multi-mode reanalysis in future
     from app.services.clip_service import ClipService
     from app.services.protect_service import ProtectService
     from app.services.frame_extractor import FrameExtractor
@@ -2023,7 +2023,7 @@ async def smart_reanalyze_event(
         {"query": "Was there a package delivery?", "top_k": 5}
     """
     from app.services.smart_reanalyze_service import get_smart_reanalyze_service
-    from app.services.ai_service import AIService
+    from app.services.ai_service import AIService  # Thin facade; consider VisionAnalysisOrchestrator for multi-mode reanalysis in future
     from app.models.event_frame import EventFrame
     import cv2
     import numpy as np

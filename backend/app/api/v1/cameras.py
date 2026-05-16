@@ -1734,6 +1734,20 @@ async def analyze_camera(
         )
 
 
+def _build_manual_processing_event(camera: Camera, frame: np.ndarray) -> ProcessingEvent:
+    """Helper to build a ProcessingEvent for manual analysis triggers."""
+    from datetime import datetime, timezone
+
+    return ProcessingEvent(
+        camera_id=str(camera.id),
+        camera_name=camera.name,
+        frame=frame,
+        timestamp=datetime.now(timezone.utc),
+        detected_objects=["manual_trigger"],
+        metadata={"trigger": "manual", "source": "analyze_button"},
+    )
+
+
 async def _analyze_rtsp_camera(camera: Camera, db: Session):
     """Handle manual analysis for RTSP/USB cameras"""
     camera_id = str(camera.id)
@@ -1765,16 +1779,7 @@ async def _analyze_rtsp_camera(camera: Camera, db: Session):
         )
 
     # Queue event for AI processing
-    from datetime import datetime, timezone
-
-    processing_event = ProcessingEvent(
-        camera_id=camera_id,
-        camera_name=camera.name,
-        frame=latest_frame,
-        timestamp=datetime.now(timezone.utc),
-        detected_objects=["manual_trigger"],
-        metadata={"trigger": "manual", "source": "analyze_button"}
-    )
+    processing_event = _build_manual_processing_event(camera, latest_frame)
 
     # Queue the event for async AI processing
     await event_processor.queue_event(processing_event)
@@ -1839,7 +1844,10 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
         )
 
     # Use the protect event handler to process through AI pipeline
-    # This reuses the same code path as WebSocket events
+    # This reuses the same code path as WebSocket events.
+    # TODO (decomposition): Now that ProtectAIPipeline and ProtectEventStorageService exist,
+    # this could eventually call the services directly for better architectural consistency
+    # instead of private handler methods.
     event_handler = get_protect_event_handler()
 
     # Submit to AI pipeline

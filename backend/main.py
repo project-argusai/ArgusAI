@@ -58,6 +58,8 @@ from app.services.mqtt_status_service import initialize_status_sensors  # Story 
 from app.services.pattern_service import get_pattern_service  # Story P4-3.5: Pattern Detection
 from app.services.digest_scheduler import initialize_digest_scheduler, shutdown_digest_scheduler  # Story P4-4.2: Digest Scheduler
 from app.services.homekit_service import get_homekit_service, initialize_homekit_service, shutdown_homekit_service  # Story P4-6.1: HomeKit
+from app.services.motion_detection_service import motion_detection_service  # For DI into EventProcessor
+from app.services.ai_service import AIService  # For DI into EventProcessor
 
 # Application version
 APP_VERSION = "1.0.0"
@@ -280,7 +282,12 @@ async def lifespan(app: FastAPI):
     )
 
     # Initialize Event Processor (Story 3.3)
-    await initialize_event_processor()
+    # Pass already-initialized services for better DI and startup ordering
+    await initialize_event_processor(
+        camera_service=camera_service,
+        motion_service=motion_detection_service,
+        ai_service=AIService(),  # Thin facade — real logic lives in VisionAnalysisOrchestrator
+    )
     logger.info(
         "Event processor started",
         extra={"event_type": "event_processor_init", "status": "running"}

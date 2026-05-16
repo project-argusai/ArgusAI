@@ -35,6 +35,9 @@ Flow:
                                    Create EntityEvent link
                                               ↓
                                    Return EntityMatchResult
+
+Migrated to @singleton decorator (core.decorators) as a core service
+reference example for #450 (Lightweight DI Container).
 """
 import json
 import logging
@@ -44,6 +47,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 import uuid
+
+from app.core.decorators import singleton
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -75,6 +80,7 @@ class EntityMatchResult:
     is_new: bool
 
 
+@singleton
 class EntityService:
     """
     Recognize and track recurring visitors.
@@ -1732,36 +1738,24 @@ class EntityService:
         ]
 
 
-# Global singleton instance
-_entity_service: Optional[EntityService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_entity_service() -> EntityService:
     """
     Get the global EntityService instance.
 
-    Creates the instance on first call (lazy initialization).
-
     Returns:
         EntityService singleton instance
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code can simply use EntityService() directly.
     """
-    global _entity_service
-
-    if _entity_service is None:
-        _entity_service = EntityService()
-        logger.info(
-            "Global EntityService instance created",
-            extra={"event_type": "entity_service_singleton_created"}
-        )
-
-    return _entity_service
+    return EntityService()
 
 
 def reset_entity_service() -> None:
     """
     Reset the global EntityService instance.
 
-    Useful for testing to ensure a fresh instance.
+    Useful for testing to ensure a fresh instance (clears embedding caches, etc.).
     """
-    global _entity_service
-    _entity_service = None
+    EntityService._reset_instance()

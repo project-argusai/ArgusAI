@@ -14,9 +14,12 @@ Features:
 Usage:
     cleanup_service = CleanupService()
     stats = await cleanup_service.cleanup_old_events(retention_days=30)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import os
 import logging
+from app.core.decorators import singleton
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
@@ -29,6 +32,7 @@ from app.services.frame_storage_service import get_frame_storage_service
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class CleanupService:
     """
     Service for managing data retention and cleanup operations
@@ -510,20 +514,17 @@ class CleanupService:
             db.close()
 
 
-# Global instance (initialized in FastAPI lifespan if needed)
-_cleanup_service: Optional[CleanupService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_cleanup_service() -> CleanupService:
     """
-    Get the global CleanupService instance
+    Get the global CleanupService instance.
 
-    Returns:
-        CleanupService instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer CleanupService() directly.
     """
-    global _cleanup_service
+    return CleanupService()
 
-    if _cleanup_service is None:
-        _cleanup_service = CleanupService()
 
-    return _cleanup_service
+def reset_cleanup_service() -> None:
+    """Reset the global CleanupService instance (for testing)."""
+    CleanupService._reset_instance()

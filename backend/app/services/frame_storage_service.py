@@ -13,9 +13,12 @@ Storage pattern follows the existing thumbnail pattern:
 - Frames stored in data/frames/{event_id}/frame_NNN.jpg
 - JPEG quality 85, max width 1280px
 - ~50KB per frame typical size
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import io
 import logging
+from app.core.decorators import singleton
 import os
 import shutil
 from datetime import datetime, timezone
@@ -36,6 +39,7 @@ FRAME_JPEG_QUALITY = 85
 FRAME_MAX_WIDTH = 1280
 
 
+@singleton
 class FrameStorageService:
     """
     Service for storing and managing AI analysis frames.
@@ -391,22 +395,20 @@ class FrameStorageService:
             return 0.0
 
 
-# Singleton instance
-_frame_storage_service: Optional[FrameStorageService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_frame_storage_service() -> FrameStorageService:
     """
-    Get the singleton FrameStorageService instance.
+    Get the global FrameStorageService instance.
 
-    Creates the instance on first call.
-
-    Returns:
-        FrameStorageService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer FrameStorageService() directly.
     """
-    global _frame_storage_service
-    if _frame_storage_service is None:
-        _frame_storage_service = FrameStorageService()
+    return FrameStorageService()
+
+
+def reset_frame_storage_service() -> None:
+    """Reset the global FrameStorageService instance (for testing)."""
+    FrameStorageService._reset_instance()
     return _frame_storage_service
 
 

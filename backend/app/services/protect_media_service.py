@@ -11,6 +11,8 @@ Handles:
 - Cleanup of temporary media
 
 Extracted from ProtectEventHandler during Phase 4 decomposition.
+
+Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
 """
 
 import logging
@@ -20,6 +22,7 @@ from typing import Optional, Tuple
 
 from app.services.snapshot_service import get_snapshot_service, SnapshotResult
 from app.services.clip_service import get_clip_service
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +48,7 @@ class MediaBundle:
         return self.snapshot_result is not None
 
 
+@singleton
 class ProtectMediaService:
     """
     Service that owns snapshot + clip retrieval decisions and coordination for Protect events.
@@ -165,5 +169,10 @@ class ProtectMediaService:
             return False
 
 
-# Singleton
-protect_media_service = ProtectMediaService()
+# Backward compatible getter (delegates to @singleton decorator)
+def get_protect_media_service() -> "ProtectMediaService":
+    return ProtectMediaService()
+
+
+def reset_protect_media_service() -> None:
+    ProtectMediaService._reset_instance()

@@ -68,7 +68,7 @@ from app.services.protect_event_filter import (
     EVENT_COOLDOWN_SECONDS,
 )
 from app.services.protect_ai_pipeline import ProtectAIPipeline, get_protect_ai_pipeline
-from app.services.protect_media_service import ProtectMediaService, protect_media_service, MediaBundle
+from app.services.protect_media_service import ProtectMediaService, get_protect_media_service, MediaBundle
 from app.services.protect_event_storage_service import ProtectEventStorageService, get_protect_event_storage_service
 from app.services.protect_event_broadcaster import ProtectEventBroadcaster, get_protect_event_broadcaster
 
@@ -172,7 +172,7 @@ class ProtectEventHandler:
         self.ai_pipeline: ProtectAIPipeline = get_protect_ai_pipeline()
 
         # Media retrieval coordination for Protect events (Phase 4)
-        self.media_service: ProtectMediaService = protect_media_service
+        self.media_service: ProtectMediaService = get_protect_media_service()
 
         # Event storage service (Phase 4)
         self.storage_service: ProtectEventStorageService = get_protect_event_storage_service()

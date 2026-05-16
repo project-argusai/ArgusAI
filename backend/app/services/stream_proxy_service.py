@@ -16,10 +16,13 @@ Quality Levels:
     - low: 640x360 @ 5fps, JPEG quality 70
     - medium: 1280x720 @ 10fps, JPEG quality 80
     - high: 1920x1080 @ 15fps, JPEG quality 90
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import base64
 import logging
+from app.core.decorators import singleton
 import threading
 import time
 import uuid
@@ -96,6 +99,7 @@ class CameraStream:
     total_frames_sent: int = 0
 
 
+@singleton
 class StreamProxyService:
     """
     Service for proxying camera streams via WebSocket (Story P16-2.2).
@@ -685,13 +689,17 @@ class StreamProxyService:
         logger.info("All streams stopped", extra={"event_type": "stream_proxy_shutdown"})
 
 
-# Global singleton instance
-_stream_proxy_service: Optional[StreamProxyService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_stream_proxy_service() -> StreamProxyService:
-    """Get the global StreamProxyService singleton instance."""
-    global _stream_proxy_service
-    if _stream_proxy_service is None:
-        _stream_proxy_service = StreamProxyService()
-    return _stream_proxy_service
+    """
+    Get the global StreamProxyService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer StreamProxyService() directly.
+    """
+    return StreamProxyService()
+
+
+def reset_stream_proxy_service() -> None:
+    """Reset the global StreamProxyService instance (for testing)."""
+    StreamProxyService._reset_instance()

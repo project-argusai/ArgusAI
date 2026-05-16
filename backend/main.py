@@ -1062,10 +1062,16 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint (no authentication required)"""
+    """Health check endpoint (no authentication required).
+    
+    Includes basic secret configuration status (without leaking values).
+    """
+    from app.core.config import settings
+
     return {
         "status": "healthy",
-        "camera_count": len(camera_service.get_all_camera_status())
+        "camera_count": len(camera_service.get_all_camera_status()),
+        "secrets_configured": getattr(settings, 'secrets_ready', False),
     }
 
 

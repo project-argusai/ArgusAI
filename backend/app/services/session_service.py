@@ -14,10 +14,12 @@ from sqlalchemy import desc
 from fastapi import Request
 import logging
 import re
+import uuid
 
 from app.models.session import Session
 from app.models.user import User
 from app.core.config import settings
+from app.utils.auth import generate_refresh_token, REFRESH_TOKEN_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,45 @@ class SessionService:
         )
 
         return session
+
+    def create_web_session_with_refresh(
+        self,
+        user: User,
+        access_token: str,
+        request: Request,
+        refresh_token_expiry_days: int = 30
+    ) -> tuple[Session, str]:
+        """
+        Create a new web session that also includes a refresh token.
+
+        This is the new flow for Phase A web auth refresh support.
+        Returns (session, plain_refresh_token) so the caller can return it to the client.
+        """
+        # First create the base session (access token part)
+        session = self.create_session(user, access_token, request)
+
+        # Generate refresh token + family
+        plain_refresh_token = generate_refresh_token()
+        token_family = str(uuid.uuid4())
+        refresh_expires_at = datetime.now(timezone.utc) + timedelta(days=refresh_token_expiry_days)
+
+        # Store on the session
+        session.set_refresh_token(plain_refresh_token, token_family, refresh_expires_at)
+
+        self.db.commit()
+        self.db.refresh(session)
+
+        logger.info(
+            "Web session created with refresh token",
+            extra={
+                "event_type": "web_session_with_refresh_created",
+                "user_id": user.id,
+                "session_id": session.id,
+                "refresh_token_family": token_family,
+            }
+        )
+
+        return session, plain_refresh_token
 
     def get_session_by_token(self, token: str) -> Optional[Session]:
         """

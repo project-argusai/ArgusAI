@@ -36,7 +36,8 @@ class TestSSLSettings:
             # Don't validate cert files for this test
             settings = Settings(
                 _env_file=None,
-                ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long"
+                ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+                JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long"
             )
             assert settings.SSL_ENABLED is False
             assert settings.SSL_CERT_FILE is None
@@ -52,6 +53,7 @@ class TestSSLSettings:
         settings = Settings(
             _env_file=None,
             ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_ENABLED=False
         )
         assert settings.ssl_ready is False
@@ -63,6 +65,7 @@ class TestSSLSettings:
         settings = Settings(
             _env_file=None,
             ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_ENABLED=True,
             SSL_CERT_FILE=None,
             SSL_KEY_FILE=None
@@ -78,6 +81,7 @@ class TestSSLSettings:
             Settings(
                 _env_file=None,
                 ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+                JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
                 SSL_MIN_VERSION="TLSv1_0"  # Invalid
             )
         assert "SSL_MIN_VERSION" in str(exc_info.value)
@@ -90,6 +94,7 @@ class TestSSLSettings:
         settings = Settings(
             _env_file=None,
             ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_MIN_VERSION="TLSv1_2"
         )
         assert settings.SSL_MIN_VERSION == "TLSv1_2"
@@ -98,6 +103,7 @@ class TestSSLSettings:
         settings = Settings(
             _env_file=None,
             ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_MIN_VERSION="TLSv1_3"
         )
         assert settings.SSL_MIN_VERSION == "TLSv1_3"

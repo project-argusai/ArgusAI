@@ -318,6 +318,7 @@ class TestHomekitMotionConfig:
 
         # Ensure we have required env vars
         os.environ.setdefault("ENCRYPTION_KEY", "test-key-for-testing-only-32bytes")
+        os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-for-testing-must-be-at-least-32-chars-long")
 
         # Settings should have the fields (they have defaults)
         assert hasattr(Settings, "model_fields")

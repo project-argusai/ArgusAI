@@ -21,9 +21,12 @@ Flow:
                                     |
                                     v
                     Combine with weights -> total_score + severity
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging
+from app.core.decorators import singleton
 import statistics
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -48,6 +51,7 @@ class AnomalyScoreResult:
     has_baseline: bool  # False if no baseline data available
 
 
+@singleton
 class AnomalyScoringService:
     """
     Calculate anomaly scores for events based on baseline patterns.
@@ -396,19 +400,17 @@ class AnomalyScoringService:
             return "high"
 
 
-# Global singleton instance
-_anomaly_scoring_service: Optional[AnomalyScoringService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_anomaly_scoring_service() -> AnomalyScoringService:
-    """Get or create the global AnomalyScoringService singleton."""
-    global _anomaly_scoring_service
-    if _anomaly_scoring_service is None:
-        _anomaly_scoring_service = AnomalyScoringService()
-    return _anomaly_scoring_service
+    """
+    Get the global AnomalyScoringService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer AnomalyScoringService() directly.
+    """
+    return AnomalyScoringService()
 
 
 def reset_anomaly_scoring_service() -> None:
-    """Reset the singleton (for testing)."""
-    global _anomaly_scoring_service
-    _anomaly_scoring_service = None
+    """Reset the global AnomalyScoringService instance (for testing)."""
+    AnomalyScoringService._reset_instance()

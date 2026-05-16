@@ -13,10 +13,13 @@ This service provides:
 - Health check loop with 30-second monitoring (P11-1.2)
 - Auto-reconnect with exponential backoff (P11-1.2)
 - Prometheus metrics integration (P11-1.2)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import re
 import logging
+from app.core.decorators import singleton
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -34,6 +37,7 @@ class TunnelStatus(str, Enum):
     ERROR = "error"
 
 
+@singleton
 class TunnelService:
     """
     Manages cloudflared tunnel subprocess for secure remote access.
@@ -621,13 +625,17 @@ class TunnelService:
             pass
 
 
-# Global singleton instance
-_tunnel_service: Optional[TunnelService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_tunnel_service() -> TunnelService:
-    """Get the global TunnelService singleton."""
-    global _tunnel_service
-    if _tunnel_service is None:
-        _tunnel_service = TunnelService()
-    return _tunnel_service
+    """
+    Get the global TunnelService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer TunnelService() directly.
+    """
+    return TunnelService()
+
+
+def reset_tunnel_service() -> None:
+    """Reset the global TunnelService instance (for testing)."""
+    TunnelService._reset_instance()

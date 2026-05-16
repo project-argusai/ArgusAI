@@ -8,9 +8,12 @@ Example queries:
 - "What's happening at the front door?"
 - "Any activity this morning?"
 - "Was there anyone at the back yard in the last hour?"
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import re
 import logging
+from app.core.decorators import singleton
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple, Dict, Any
@@ -58,6 +61,7 @@ class QueryResult:
     objects_detected: Dict[str, int] = field(default_factory=dict)  # object -> count
 
 
+@singleton
 class VoiceQueryService:
     """
     Service for processing natural language voice queries about security events.
@@ -455,18 +459,17 @@ class VoiceQueryService:
         return "I didn't quite understand that. Try asking about activity at a specific camera or time, like 'What happened at the front door today?'"
 
 
-# Global service instance
-_voice_query_service: Optional[VoiceQueryService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_voice_query_service() -> VoiceQueryService:
     """
     Get the global VoiceQueryService instance.
 
-    Returns:
-        VoiceQueryService singleton
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer VoiceQueryService() directly.
     """
-    global _voice_query_service
-    if _voice_query_service is None:
-        _voice_query_service = VoiceQueryService()
-    return _voice_query_service
+    return VoiceQueryService()
+
+
+def reset_voice_query_service() -> None:
+    """Reset the global VoiceQueryService instance (for testing)."""
+    VoiceQueryService._reset_instance()

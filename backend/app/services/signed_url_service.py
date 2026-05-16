@@ -10,11 +10,14 @@ Usage:
     service = get_signed_url_service()
     url = service.generate_signed_url(event_id, base_url="https://example.com")
     is_valid = service.verify_signed_url(event_id, signature, expires)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 
 import hashlib
 import hmac
 import logging
+from app.core.decorators import singleton
 import time
 from typing import Optional
 from urllib.parse import urlencode
@@ -27,6 +30,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_EXPIRATION_SECONDS = 60
 
 
+@singleton
 class SignedURLService:
     """
     Service for generating and verifying signed URLs for secure resource access.
@@ -171,19 +175,17 @@ class SignedURLService:
         return signature
 
 
-# Global singleton instance
-_signed_url_service: Optional[SignedURLService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_signed_url_service() -> SignedURLService:
-    """Get the global SignedURLService singleton instance."""
-    global _signed_url_service
-    if _signed_url_service is None:
-        _signed_url_service = SignedURLService()
-    return _signed_url_service
+    """
+    Get the global SignedURLService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer SignedURLService() directly.
+    """
+    return SignedURLService()
 
 
 def reset_signed_url_service() -> None:
-    """Reset the singleton instance (useful for testing)."""
-    global _signed_url_service
-    _signed_url_service = None
+    """Reset the global SignedURLService instance (for testing)."""
+    SignedURLService._reset_instance()

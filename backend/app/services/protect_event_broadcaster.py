@@ -5,6 +5,8 @@ Responsible for broadcasting Protect events to connected clients (WebSocket)
 and triggering HomeKit doorbell notifications.
 
 Extracted from ProtectEventHandler during Phase 4 decomposition.
+
+Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
 """
 
 import json
@@ -14,10 +16,12 @@ from typing import Optional
 
 from app.models.event import Event
 from app.models.camera import Camera
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class ProtectEventBroadcaster:
     """
     Handles WebSocket broadcasting and HomeKit notifications for Protect events.
@@ -155,5 +159,10 @@ class ProtectEventBroadcaster:
             return False
 
 
-# Singleton
-protect_event_broadcaster = ProtectEventBroadcaster()
+# Backward compatible getter (delegates to @singleton decorator)
+def get_protect_event_broadcaster() -> "ProtectEventBroadcaster":
+    return ProtectEventBroadcaster()
+
+
+def reset_protect_event_broadcaster() -> None:
+    ProtectEventBroadcaster._reset_instance()

@@ -70,7 +70,7 @@ from app.services.protect_event_filter import (
 from app.services.protect_ai_pipeline import ProtectAIPipeline, get_protect_ai_pipeline
 from app.services.protect_media_service import ProtectMediaService, protect_media_service, MediaBundle
 from app.services.protect_event_storage_service import ProtectEventStorageService, get_protect_event_storage_service
-from app.services.protect_event_broadcaster import ProtectEventBroadcaster, protect_event_broadcaster
+from app.services.protect_event_broadcaster import ProtectEventBroadcaster, get_protect_event_broadcaster
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIResult
@@ -178,7 +178,7 @@ class ProtectEventHandler:
         self.storage_service: ProtectEventStorageService = get_protect_event_storage_service()
 
         # Event broadcasting (WebSocket + HomeKit) (Phase 4)
-        self.broadcaster: ProtectEventBroadcaster = protect_event_broadcaster
+        self.broadcaster: ProtectEventBroadcaster = get_protect_event_broadcaster()
 
         # Story P3-5.3: Track last audio transcription for passing to event storage
         self._last_audio_transcription: Optional[str] = None

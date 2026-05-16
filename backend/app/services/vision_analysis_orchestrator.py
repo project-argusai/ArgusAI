@@ -20,7 +20,9 @@ After Phase 3.2, AIService becomes a much thinner facade responsible for:
 This is the second major extraction in the ai_service.py decomposition
 (Phase 3.2 following the successful AIResilienceService in 3.1).
 
-Story / Issue: Part of #444 (ai_service.py decomposition tracking) + #446
+Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
+
+Story / Issue: Part of #444 + #446 + #450
 """
 
 import asyncio
@@ -41,10 +43,12 @@ from app.services.ai_providers.base import AIProviderBase
 from app.services.ocr_service import OCRResult
 from app.core.database import get_db_session
 from app.models.ai_usage import AIUsage
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class VisionAnalysisOrchestrator:
     """
     Orchestrates vision-based AI description generation across multiple providers
@@ -748,5 +752,24 @@ class VisionAnalysisOrchestrator:
         }
 
 
-# Module-level singleton (consistent pattern)
-vision_analysis_orchestrator = VisionAnalysisOrchestrator()
+# Backward compatible getter (delegates to @singleton decorator)
+def get_vision_analysis_orchestrator() -> "VisionAnalysisOrchestrator":
+    """
+    Get the global VisionAnalysisOrchestrator instance.
+
+    Returns:
+        VisionAnalysisOrchestrator singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should prefer
+          VisionAnalysisOrchestrator() directly.
+    """
+    return VisionAnalysisOrchestrator()
+
+
+def reset_vision_analysis_orchestrator() -> None:
+    """
+    Reset the global VisionAnalysisOrchestrator instance.
+
+    Useful for testing (clears provider map, prompt/resilience service references).
+    """
+    VisionAnalysisOrchestrator._reset_instance()

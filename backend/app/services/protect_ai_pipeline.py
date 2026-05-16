@@ -64,7 +64,7 @@ class ProtectAIPipeline:
         self._last_frame_timestamps = []
 
         # Lazy import to avoid circular dependency
-        from app.services.vision_analysis_orchestrator import vision_analysis_orchestrator
+        from app.services.vision_analysis_orchestrator import get_vision_analysis_orchestrator
         from app.services.ai_service import ai_service
         from app.core.database import get_db_session
 
@@ -113,7 +113,7 @@ class ProtectAIPipeline:
                 try:
                     frames, timestamps = await self._extract_frames_from_clip(clip_path, camera)
                     if frames:
-                        ai_result = await vision_analysis_orchestrator.analyze_images(
+                        ai_result = await get_vision_analysis_orchestrator().analyze_images(
                             images=frames,  # List[bytes] or List[np.ndarray] depending on orchestrator signature
                             camera_name=camera.name,
                             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -144,7 +144,7 @@ class ProtectAIPipeline:
             pil_image = Image.open(io.BytesIO(image_data)).convert('RGB')
             frame = np.array(pil_image)[:, :, ::-1]  # RGB to BGR
 
-            ai_result = await vision_analysis_orchestrator.analyze_image(
+            ai_result = await get_vision_analysis_orchestrator().analyze_image(
                 frame=frame,
                 camera_name=camera.name,
                 timestamp=datetime.now(timezone.utc).isoformat(),

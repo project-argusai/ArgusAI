@@ -8,9 +8,21 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
 
-from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
+from app.services.vision_analysis_orchestrator import (
+    VisionAnalysisOrchestrator,
+    get_vision_analysis_orchestrator,
+    reset_vision_analysis_orchestrator,
+)
 from app.services.ai_service import AIProvider, AIResult
 from app.services.ai_circuit_breaker import CircuitState
+
+
+@pytest.fixture(autouse=True)
+def _reset_vision_orchestrator_between_tests():
+    """Ensure each test gets a clean VisionAnalysisOrchestrator instance (thanks to @singleton + reset)."""
+    reset_vision_analysis_orchestrator()
+    yield
+    reset_vision_analysis_orchestrator()
 
 
 class TestVisionAnalysisOrchestratorBasic:

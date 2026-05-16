@@ -22,6 +22,9 @@ Edge Cases:
     - Zero events: Return "No activity" without LLM call (AC7)
     - Single event: Return simple description referencing event (AC8)
     - Many events (50+): Sample intelligently to avoid token limits (AC9)
+
+Migrated to @singleton decorator (core.decorators) as part of #450
+(Lightweight DI Container).
 """
 import json
 import logging
@@ -31,6 +34,8 @@ from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
+
+from app.core.decorators import singleton
 
 from sqlalchemy.orm import Session
 
@@ -81,6 +86,7 @@ class SummaryResult:
     output_tokens: int = 0
 
 
+@singleton
 class SummaryService:
     """
     Generate natural language summaries of activity events.
@@ -880,19 +886,21 @@ Timeline:
             )
 
 
-# Singleton instance
-_summary_service: Optional[SummaryService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_summary_service() -> SummaryService:
-    """Get the singleton SummaryService instance."""
-    global _summary_service
-    if _summary_service is None:
-        _summary_service = SummaryService()
-    return _summary_service
+    """
+    Get the global SummaryService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code can simply use SummaryService() directly.
+    """
+    return SummaryService()
 
 
 def reset_summary_service() -> None:
-    """Reset the singleton instance (for testing)."""
-    global _summary_service
-    _summary_service = None
+    """
+    Reset the global SummaryService instance.
+
+    Useful for testing.
+    """
+    SummaryService._reset_instance()

@@ -10,7 +10,8 @@ from unittest.mock import patch, MagicMock
 
 from app.services.ai_resilience_service import (
     AIResilienceService,
-    ai_resilience_service,
+    get_ai_resilience_service,
+    reset_ai_resilience_service,
     DEFAULT_CIRCUIT_BREAKER_CONFIG,
 )
 from app.services.ai_circuit_breaker import CircuitState
@@ -18,8 +19,27 @@ from app.services.ai_circuit_breaker import CircuitState
 
 class TestAIResilienceServiceBasic:
     def test_singleton_instance_exists(self):
-        """The module-level instance should be importable and be an AIResilienceService."""
-        assert isinstance(ai_resilience_service, AIResilienceService)
+        """Using the @singleton decorator, AIResilienceService() always returns the same instance."""
+        s1 = AIResilienceService()
+        s2 = AIResilienceService()
+        assert s1 is s2
+        # Also works via the backward-compatible getter
+        assert get_ai_resilience_service() is s1
+
+    def test_reset_instance_gives_fresh_service(self):
+        """_reset_instance() (and the helper) allows tests to get a clean service."""
+        # Get an instance and mutate some state (circuit_breakers is populated on init in some paths)
+        service = AIResilienceService()
+        service.initialize_circuit_breakers(["openai"])
+        assert "openai" in service.circuit_breakers
+
+        # Reset
+        reset_ai_resilience_service()
+
+        # Next access should be a fresh instance with empty breakers
+        fresh = AIResilienceService()
+        assert fresh is not service
+        assert len(fresh.circuit_breakers) == 0
 
     def test_initialize_creates_breakers_for_active_providers(self):
         service = AIResilienceService()

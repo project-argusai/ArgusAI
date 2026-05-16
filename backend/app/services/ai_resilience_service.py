@@ -18,7 +18,9 @@ AI orchestration easier to test and evolve independently.
 
 Follows the same pattern as AIPromptService (Phase 2 extraction).
 
-Story / Issue: #444 (ai_service.py decomposition tracking)
+Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
+
+Story / Issue: #444 (ai_service.py decomposition tracking) + #450
 """
 
 import json
@@ -29,6 +31,7 @@ from typing import Dict, List, Optional, Any
 from sqlalchemy.orm import Session as DBSession
 
 from app.core.database import get_db_session
+from app.core.decorators import singleton
 from app.core.metrics import (
     ai_circuit_breaker_state,
     ai_circuit_breaker_transitions_total,
@@ -47,6 +50,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CIRCUIT_BREAKER_CONFIG = CircuitBreakerConfig()
 
 
+@singleton
 class AIResilienceService:
     """
     Central owner of AI provider circuit breakers.
@@ -372,6 +376,26 @@ class AIResilienceService:
         self.circuit_breakers.clear()
 
 
-# Module-level singleton instance (consistent with other services)
-# Consumers should prefer get_ai_resilience_service() once we add the factory.
-ai_resilience_service = AIResilienceService()
+# Backward compatible getter (delegates to @singleton decorator)
+# New code can also simply do AIResilienceService() — it always returns the same instance.
+def get_ai_resilience_service() -> "AIResilienceService":
+    """
+    Get the global AIResilienceService instance.
+
+    Returns:
+        AIResilienceService singleton instance
+
+    Note: This is a backward-compatible wrapper. New code should prefer
+          AIResilienceService() directly (the @singleton decorator guarantees
+          the same instance is returned).
+    """
+    return AIResilienceService()
+
+
+def reset_ai_resilience_service() -> None:
+    """
+    Reset the global AIResilienceService instance.
+
+    Useful for testing to ensure a fresh instance with clean circuit breaker state.
+    """
+    AIResilienceService._reset_instance()

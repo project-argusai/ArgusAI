@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # Known transitive issues in Docusaurus that are hard to resolve without major version bumps
+      - dependency-name: "serialize-javascript"
+      - dependency-name: "copy-webpack-plugin"
+      - dependency-name: "css-minimizer-webpack-plugin"
+
+  - package-ecosystem: "npm"
+    directory: "/docs-site"
+    schedule:
+      interval: "weekly"
+    groups:
+      docusaurus-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # Persistent transitive webpack plugin issues in current Docusaurus 3.x
+      - dependency-name: "serialize-javascript"
+      - dependency-name: "copy-webpack-plugin"
+
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"

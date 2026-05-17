@@ -8,10 +8,13 @@ This service provides:
 - Secure key generation with bcrypt hashing
 - Key validation and authentication
 - CRUD operations for API keys
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import secrets
 import bcrypt
 import logging
+from app.core.decorators import singleton
 from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.orm import Session
@@ -23,6 +26,7 @@ from app.schemas.api_key import VALID_SCOPES
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class APIKeyService:
     """
     Service for API key management operations.
@@ -250,13 +254,17 @@ class APIKeyService:
         db.commit()
 
 
-# Global singleton instance
-_api_key_service: Optional[APIKeyService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_api_key_service() -> APIKeyService:
-    """Get the global APIKeyService instance."""
-    global _api_key_service
-    if _api_key_service is None:
-        _api_key_service = APIKeyService()
-    return _api_key_service
+    """
+    Get the global APIKeyService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer APIKeyService() directly.
+    """
+    return APIKeyService()
+
+
+def reset_api_key_service() -> None:
+    """Reset the global APIKeyService instance (for testing)."""
+    APIKeyService._reset_instance()

@@ -27,8 +27,11 @@ Flow:
                          Get MCP context (MCPContextProvider) ← Story P11-3
                                     ↓
                          Format and return enhanced prompt
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import logging
+from app.core.decorators import singleton
 import random
 import time
 from dataclasses import dataclass, field
@@ -72,6 +75,7 @@ class ContextEnhancedPromptResult:
     mcp_accuracy_rate: Optional[float] = None
 
 
+@singleton
 class ContextEnhancedPromptService:
     """
     Build context-enhanced prompts for AI description generation.
@@ -667,20 +671,20 @@ class ContextEnhancedPromptService:
         return self.DEFAULT_TIME_WINDOW_DAYS
 
 
-# Global singleton instance
-_context_prompt_service: Optional[ContextEnhancedPromptService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_context_prompt_service() -> ContextEnhancedPromptService:
     """
     Get the global ContextEnhancedPromptService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        ContextEnhancedPromptService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer ContextEnhancedPromptService() directly.
     """
-    global _context_prompt_service
+    return ContextEnhancedPromptService()
+
+
+def reset_context_prompt_service() -> None:
+    """Reset the global ContextEnhancedPromptService instance (for testing)."""
+    ContextEnhancedPromptService._reset_instance()
 
     if _context_prompt_service is None:
         _context_prompt_service = ContextEnhancedPromptService()
@@ -693,10 +697,5 @@ def get_context_prompt_service() -> ContextEnhancedPromptService:
 
 
 def reset_context_prompt_service() -> None:
-    """
-    Reset the global ContextEnhancedPromptService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _context_prompt_service
-    _context_prompt_service = None
+    """Reset the global ContextEnhancedPromptService instance (for testing)."""
+    ContextEnhancedPromptService._reset_instance()

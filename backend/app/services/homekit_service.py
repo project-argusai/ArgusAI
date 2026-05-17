@@ -11,9 +11,12 @@ Story P5-1.7 adds doorbell sensors for Protect doorbell ring events.
 Story P7-1.1 adds comprehensive diagnostic logging for troubleshooting.
 Story P7-1.2 adds network binding configuration and connectivity testing.
 Story P7-2.3 adds carrier-aware package sensors and per-carrier sensor support.
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import logging
+from app.core.decorators import singleton
 import os
 import threading
 import time
@@ -100,6 +103,7 @@ class HomekitStatus:
     error: Optional[str] = None
 
 
+@singleton
 class HomekitService:
     """
     HomeKit accessory server service.
@@ -2192,23 +2196,20 @@ class HomekitService:
             return False
 
 
-# Global service instance
-_homekit_service: Optional[HomekitService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_homekit_service() -> HomekitService:
     """
-    Get the global HomeKit service instance.
+    Get the global HomekitService instance.
 
-    Creates the instance on first call.
-
-    Returns:
-        HomekitService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer HomekitService() directly.
     """
-    global _homekit_service
-    if _homekit_service is None:
-        _homekit_service = HomekitService()
-    return _homekit_service
+    return HomekitService()
+
+
+def reset_homekit_service() -> None:
+    """Reset the global HomekitService instance (for testing)."""
+    HomekitService._reset_instance()
 
 
 async def initialize_homekit_service(cameras: List[Any]) -> bool:
@@ -2227,6 +2228,6 @@ async def initialize_homekit_service(cameras: List[Any]) -> bool:
 
 async def shutdown_homekit_service() -> None:
     """Stop the HomeKit service."""
-    global _homekit_service
-    if _homekit_service:
-        await _homekit_service.stop()
+    service = HomekitService._get_instance()
+    if service:
+        await service.stop()

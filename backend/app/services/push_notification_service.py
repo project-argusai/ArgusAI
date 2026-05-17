@@ -8,6 +8,11 @@ Handles sending push notifications to subscribed browsers with:
 - Delivery tracking and metrics
 - Rich notifications with thumbnails, actions, and deep links (P4-1.3)
 - Preference filtering: camera, object type, quiet hours, sound (P4-1.4)
+
+Note on DI (#450): This service is intentionally instantiated per-use with a
+DB session (via get_push_notification_service(db=...)) rather than as a
+classic long-lived @singleton, because it performs DB operations during
+notification delivery and cleanup. The getter acts more as a factory.
 """
 import asyncio
 import json

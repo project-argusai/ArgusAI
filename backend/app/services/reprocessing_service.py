@@ -545,26 +545,19 @@ class ReprocessingService:
         })
 
 
-# Global singleton instance
-_reprocessing_service: Optional[ReprocessingService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_reprocessing_service() -> ReprocessingService:
     """
     Get the global ReprocessingService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        ReprocessingService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer ReprocessingService() directly.
     """
-    global _reprocessing_service
+    return ReprocessingService()
 
-    if _reprocessing_service is None:
-        _reprocessing_service = ReprocessingService()
-        logger.info(
-            "Global ReprocessingService instance created",
-            extra={"event_type": "reprocessing_service_singleton_created"}
-        )
+
+def reset_reprocessing_service() -> None:
+    """Reset the global ReprocessingService instance (for testing)."""
+    ReprocessingService._reset_instance()
 
     return _reprocessing_service

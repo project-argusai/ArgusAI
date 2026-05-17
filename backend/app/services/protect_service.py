@@ -7,6 +7,9 @@ Provides functionality to:
 - Auto-reconnect with exponential backoff on disconnect
 - Broadcast connection status changes to frontend
 - Discover cameras from connected controllers (future stories)
+
+Migrated to @singleton decorator (core.decorators) as part of #450
+(Lightweight DI Container) — core Protect integration service.
 """
 import asyncio
 import ssl
@@ -24,6 +27,7 @@ from app.core.database import get_db_session
 from app.services.websocket_manager import get_websocket_manager
 from app.services.protect_health_service import get_protect_health_service, ProtectConnectionState
 from app.services.protect_event_handler import get_protect_event_handler
+from app.core.decorators import singleton
 
 if TYPE_CHECKING:
     from app.models.protect_controller import ProtectController
@@ -90,6 +94,7 @@ class ConnectionTestResult:
     error_type: Optional[str] = None
 
 
+@singleton
 class ProtectService:
     """
     Service class for UniFi Protect controller operations (Story P2-1.4).
@@ -1684,13 +1689,21 @@ class ProtectService:
             return None
 
 
-# Singleton instance for the service
-_protect_service: Optional[ProtectService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_protect_service() -> ProtectService:
-    """Get the singleton ProtectService instance."""
-    global _protect_service
-    if _protect_service is None:
-        _protect_service = ProtectService()
-    return _protect_service
+    """
+    Get the global ProtectService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code can simply use ProtectService() directly.
+    """
+    return ProtectService()
+
+
+def reset_protect_service() -> None:
+    """
+    Reset the global ProtectService instance.
+
+    Useful for testing (clears WebSocket connections, client state, etc.).
+    """
+    ProtectService._reset_instance()

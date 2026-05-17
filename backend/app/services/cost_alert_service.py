@@ -5,9 +5,12 @@ Story P3-7.4: Add Cost Alerts and Notifications
 
 Provides threshold-based alerts when AI costs approach or reach configured caps.
 Integrates with CostCapService for cap status and WebSocket for real-time delivery.
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 
 import logging
+from app.core.decorators import singleton
 from datetime import datetime, timezone
 from typing import Optional, Literal, List
 from dataclasses import dataclass
@@ -52,6 +55,7 @@ class CostAlert:
     percent: float
 
 
+@singleton
 class CostAlertService:
     """
     Service for managing cost threshold alerts.
@@ -393,18 +397,17 @@ class CostAlertService:
         return alerts
 
 
-# Singleton instance
-_cost_alert_service: Optional[CostAlertService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_cost_alert_service() -> CostAlertService:
     """
-    Get the singleton CostAlertService instance.
+    Get the global CostAlertService instance.
 
-    Returns:
-        CostAlertService instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer CostAlertService() directly.
     """
-    global _cost_alert_service
-    if _cost_alert_service is None:
-        _cost_alert_service = CostAlertService()
-    return _cost_alert_service
+    return CostAlertService()
+
+
+def reset_cost_alert_service() -> None:
+    """Reset the global CostAlertService instance (for testing)."""
+    CostAlertService._reset_instance()

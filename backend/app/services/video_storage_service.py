@@ -9,9 +9,12 @@ Provides functionality to:
 - Clean up old videos based on video_retention_days setting
 
 Architecture Reference: docs/architecture-phase8.md#Video-Storage
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import logging
+from app.core.decorators import singleton
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -27,6 +30,7 @@ VIDEO_DIR = "data/videos"
 DOWNLOAD_TIMEOUT = 60.0  # 60 second timeout for video download (videos can be large)
 
 
+@singleton
 class VideoStorageService:
     """
     Service for downloading and storing full motion videos from UniFi Protect.
@@ -329,29 +333,23 @@ class VideoStorageService:
         }
 
 
-# Singleton instance
-_video_storage_service: Optional[VideoStorageService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_video_storage_service() -> VideoStorageService:
     """
-    Get the singleton VideoStorageService instance.
+    Get the global VideoStorageService instance.
 
-    Creates the instance on first call, using the ProtectService singleton.
-
-    Returns:
-        VideoStorageService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer VideoStorageService() directly.
     """
-    global _video_storage_service
-    if _video_storage_service is None:
-        from app.services.protect_service import get_protect_service
-        _video_storage_service = VideoStorageService(get_protect_service())
-    return _video_storage_service
+    from app.services.protect_service import get_protect_service
+    return VideoStorageService(get_protect_service())
 
 
 def reset_video_storage_service() -> None:
-    """
-    Reset the singleton instance (useful for testing).
-    """
-    global _video_storage_service
-    _video_storage_service = None
+    """Reset the global VideoStorageService instance (for testing)."""
+    VideoStorageService._reset_instance()
+
+
+def reset_video_storage_service() -> None:
+    """Reset the global VideoStorageService instance (for testing)."""
+    VideoStorageService._reset_instance()

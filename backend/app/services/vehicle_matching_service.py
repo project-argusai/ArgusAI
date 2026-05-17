@@ -17,9 +17,12 @@ Privacy:
     - All vehicle data stored locally only
     - User controls via vehicle_recognition_enabled setting
     - New vehicles start unnamed (user names them later)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging
+from app.core.decorators import singleton
 import re
 import time
 from dataclasses import dataclass
@@ -108,6 +111,7 @@ class VehicleMatchResult:
     extracted_characteristics: Optional[dict]
 
 
+@singleton
 class VehicleMatchingService:
     """
     Match vehicle embeddings to known vehicles.
@@ -1113,36 +1117,22 @@ class VehicleMatchingService:
         }
 
 
-# Global singleton instance
-_vehicle_matching_service: Optional[VehicleMatchingService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_vehicle_matching_service() -> VehicleMatchingService:
     """
     Get the global VehicleMatchingService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        VehicleMatchingService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer VehicleMatchingService() directly.
     """
-    global _vehicle_matching_service
-
-    if _vehicle_matching_service is None:
-        _vehicle_matching_service = VehicleMatchingService()
-        logger.info(
-            "Global VehicleMatchingService instance created",
-            extra={"event_type": "vehicle_matching_service_singleton_created"}
-        )
-
-    return _vehicle_matching_service
+    return VehicleMatchingService()
 
 
 def reset_vehicle_matching_service() -> None:
-    """
-    Reset the global VehicleMatchingService instance.
+    """Reset the global VehicleMatchingService instance (for testing)."""
+    VehicleMatchingService._reset_instance()
 
-    Useful for testing to ensure a fresh instance.
-    """
-    global _vehicle_matching_service
-    _vehicle_matching_service = None
+
+def reset_vehicle_matching_service() -> None:
+    """Reset the global VehicleMatchingService instance (for testing)."""
+    VehicleMatchingService._reset_instance()

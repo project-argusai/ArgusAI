@@ -2,25 +2,24 @@
 Event-Driven Processing Pipeline
 
 This module implements an asynchronous event processing pipeline that orchestrates
-motion detection, AI analysis, and event storage with a queue-based worker pattern.
+motion detection, AI analysis, and event storage.
 
-Architecture:
-    - asyncio.Queue (maxsize=50) for event buffering
-    - Separate async tasks for each enabled camera (motion detection)
-    - Configurable worker pool (2-5 workers) for AI processing
-    - Non-blocking database operations via httpx AsyncClient
-    - Graceful shutdown with queue draining (30s timeout)
+Architecture (after Phase 6 decomposition):
+    - asyncio.Queue for event buffering
+    - Per-camera motion detection tasks
+    - AIProcessingWorker pool (extracted workers)
+    - Focused helper methods extracted from the original _process_event
+    - Improved dependency injection for ai_service, camera_service, motion_service
+    - Graceful shutdown with queue draining
 
-Flow:
-    Motion detected → Frame captured → Event queued →
-    Worker picks event → AI API call → Description received →
-    Event stored in database → Alert rules evaluated (stub) →
-    WebSocket broadcast (stub) → Worker ready for next
+Key extractions:
+    - AIProcessingWorker (worker loop + metrics)
+    - Multiple focused helpers from _process_event (cost caps, embeddings, AI calls,
+      push notifications, MQTT, HomeKit, entity linking, alerts, storage)
 
 Performance Targets:
     - End-to-end latency: <5s p95 (motion → stored event)
     - Throughput: 10+ events per minute
-    - Queue depth: Typically <5 events under normal load
 """
 import asyncio
 import logging
@@ -43,8 +42,9 @@ from typing import TYPE_CHECKING
 from app.models.camera import Camera
 from app.models.event import Event
 from app.services.ai_service import AIService
-from app.services.camera_service import CameraService, get_camera_service
-from app.services.motion_detection_service import MotionDetectionService
+from app.services.ai_processing_worker import AIProcessingWorker
+from app.services.camera_service import CameraService
+from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
 from app.services.carrier_extractor import extract_carrier
@@ -140,19 +140,21 @@ class ProcessingMetrics:
 
 class EventProcessor:
     """
-    Main event processing pipeline orchestrator
+    Main event processing pipeline orchestrator.
 
-    Manages:
-        - Event queue (asyncio.Queue with maxsize=50)
-        - Motion detection tasks (one per enabled camera)
-        - AI worker pool (configurable 2-5 workers)
-        - Graceful shutdown with queue draining
-        - Metrics tracking
+    Responsibilities:
+    - Per-camera motion detection task management
+    - AI worker pool (using AIProcessingWorker instances)
+    - Event queue management
+    - Graceful shutdown and metrics
+
+    Services can be injected for better testability and architecture
+    (ai_service, camera_service, motion_service).
 
     Usage:
         processor = EventProcessor(worker_count=2)
         await processor.start()
-        # ... application runs ...
+        ...
         await processor.stop(timeout=30.0)
     """
 
@@ -160,6 +162,9 @@ class EventProcessor:
         self,
         worker_count: Optional[int] = None,
         queue_maxsize: int = 50,
+        ai_service: Optional[AIService] = None,
+        camera_service: Optional[CameraService] = None,
+        motion_service: Optional[MotionDetectionService] = None,
     ):
         """
         Initialize EventProcessor
@@ -167,6 +172,10 @@ class EventProcessor:
         Args:
             worker_count: Number of AI workers (default from env, fallback to 2)
             queue_maxsize: Maximum queue size (default 50)
+            ai_service: Optional injected AIService (for testing and better architecture).
+                        If not provided, one will be created on start().
+            camera_service: Optional injected CameraService.
+            motion_service: Optional injected MotionDetectionService.
         """
         self.worker_count = worker_count or int(os.getenv("EVENT_WORKER_COUNT", "2"))
         if self.worker_count < 2 or self.worker_count > 5:
@@ -185,10 +194,10 @@ class EventProcessor:
         self.worker_tasks: List[asyncio.Task] = []
         self.camera_cooldowns: Dict[str, float] = {}  # camera_id -> last_event_time
 
-        # Services
-        self.ai_service: Optional[AIService] = None
-        self.camera_service: Optional[CameraService] = None
-        self.motion_service: Optional[MotionDetectionService] = None
+        # Services (can be injected for better testability and architecture)
+        self.ai_service: Optional[AIService] = ai_service
+        self.camera_service: Optional[CameraService] = camera_service
+        self.motion_service: Optional[MotionDetectionService] = motion_service
         self.http_client: Optional[httpx.AsyncClient] = None
 
         # State tracking
@@ -216,8 +225,13 @@ class EventProcessor:
         self.running = True
         self.shutdown_event.clear()
 
-        # Initialize services
-        self.ai_service = AIService()
+        # Initialize services (use injected ones if provided)
+        if self.ai_service is None:
+            self.ai_service = AIService()
+        if self.camera_service is None:
+            self.camera_service = CameraService()  # @singleton guarantees the same instance
+        if self.motion_service is None:
+            self.motion_service = motion_detection_service
         self.http_client = httpx.AsyncClient(timeout=10.0)
 
         # Load AI API keys from database
@@ -225,12 +239,14 @@ class EventProcessor:
             await self.ai_service.load_api_keys_from_db(db)
             logger.info("AI service API keys loaded from database")
 
-        # Start AI worker pool
+        # Start AI worker pool using the new AIProcessingWorker
         for i in range(self.worker_count):
-            worker_task = asyncio.create_task(
-                self._ai_worker(worker_id=i),
-                name=f"ai_worker_{i}"
+            worker = AIProcessingWorker(
+                worker_id=i,
+                event_queue=self.event_queue,
+                processor=self,
             )
+            worker_task = asyncio.create_task(worker.run(), name=f"ai_worker_{i}")
             self.worker_tasks.append(worker_task)
 
         logger.info(f"Started {self.worker_count} AI workers")
@@ -470,89 +486,60 @@ class EventProcessor:
                 logger.error(f"Failed to handle queue overflow: {e}", exc_info=True)
                 self.metrics.increment_error("queue_overflow_handling_failed")
 
-    async def _ai_worker(self, worker_id: int):
+    async def _handle_cost_cap_skip(self, event: ProcessingEvent) -> bool:
         """
-        AI processing worker loop
+        Check cost caps before AI analysis.
 
-        - Pulls events from queue (FIFO)
-        - Calls AI service to generate description
-        - Posts event to /api/v1/events endpoint
-        - Handles errors with retry logic
-        - Auto-restarts on exception
+        If analysis should be skipped due to cost caps, stores a minimal event
+        and returns True. Otherwise returns False so normal processing can continue.
 
-        Args:
-            worker_id: Worker identifier (0-4)
+        Story P3-7.3
         """
-        logger.info(f"AI Worker {worker_id} started")
+        cost_cap_service = get_cost_cap_service()
+        with get_db_session() as db:
+            can_analyze, skip_reason = cost_cap_service.can_analyze(db)
 
-        while self.running:
-            try:
-                # Get event from queue (wait up to 1 second)
-                try:
-                    event = await asyncio.wait_for(
-                        self.event_queue.get(),
-                        timeout=1.0
-                    )
-                except asyncio.TimeoutError:
-                    # No events, continue loop
-                    continue
+        if can_analyze:
+            return False
 
-                # Update queue depth metric
-                self.metrics.queue_depth = self.event_queue.qsize()
+        logger.info(
+            f"AI analysis skipped for camera {event.camera_name} due to {skip_reason}",
+            extra={"camera_id": event.camera_id, "skip_reason": skip_reason}
+        )
+        self.metrics.increment_error(f"cost_cap_{skip_reason}")
 
-                # Process event
-                start_time = time.time()
-                success = await self._process_event(event, worker_id)
-                duration_ms = (time.time() - start_time) * 1000
+        # Store event without AI description, with skip reason
+        thumbnail_base64 = self._generate_thumbnail(event.frame)
+        event_data = {
+            "camera_id": event.camera_id,
+            "timestamp": event.timestamp.isoformat(),
+            "description": f"AI analysis paused - {skip_reason.replace('_', ' ')}",
+            "confidence": 0,
+            "objects_detected": event.detected_objects,
+            "thumbnail_base64": thumbnail_base64,
+            "alert_triggered": False,
+            "provider_used": None,
+            "description_retry_needed": True,
+            "analysis_skipped_reason": skip_reason,
+        }
 
-                # Update metrics
-                self.metrics.record_processing_time(duration_ms)
-                if success:
-                    self.metrics.events_processed_success += 1
-                else:
-                    self.metrics.events_processed_failure += 1
-
-                # Mark task done
-                self.event_queue.task_done()
-
-                logger.info(
-                    f"Worker {worker_id} processed event from {event.camera_name}",
-                    extra={
-                        "worker_id": worker_id,
-                        "camera_id": event.camera_id,
-                        "duration_ms": duration_ms,
-                        "success": success,
-                        "queue_depth": self.metrics.queue_depth
-                    }
-                )
-
-            except asyncio.CancelledError:
-                logger.info(f"AI Worker {worker_id} cancelled")
-                raise
-            except Exception as e:
-                logger.error(
-                    f"AI Worker {worker_id} exception: {e}",
-                    exc_info=True,
-                    extra={"worker_id": worker_id}
-                )
-                self.metrics.increment_error("worker_exception")
-                # Auto-restart: continue loop
-                await asyncio.sleep(1.0)
-
-        logger.info(f"AI Worker {worker_id} stopped")
+        success = await self._store_event_with_retry(event_data, max_retries=3)
+        return success
 
     async def _process_event(self, event: ProcessingEvent, worker_id: int) -> bool:
         """
-        Process a single event through the pipeline
+        Process a single event through the pipeline.
 
-        Pipeline:
-            1. Call AI service to generate description
-            2. POST event to /api/v1/events endpoint
-            3. (Stub) Evaluate alert rules
-            4. (Stub) WebSocket broadcast
+        This method orchestrates the core flow after an event has been queued:
+        1. Cost cap check (early exit if needed)
+        2. Thumbnail generation
+        3. Early embedding + entity matching (for context)
+        4. AI description generation (with context + OCR)
+        5. Storage of the processed event
+        6. Post-processing (push notifications, MQTT, HomeKit, entity alerts, face/vehicle processing)
 
-        Story P2-6.3 AC13: If all AI providers fail, store event without description
-        and flag for retry.
+        Most responsibilities have been extracted into focused helper methods
+        for better maintainability and testability.
 
         Args:
             event: ProcessingEvent to process
@@ -563,114 +550,26 @@ class EventProcessor:
         """
         try:
             # Story P3-7.3: Check cost caps before AI analysis
-            cost_cap_service = get_cost_cap_service()
-            with get_db_session() as db:
-                can_analyze, skip_reason = cost_cap_service.can_analyze(db)
+            handled = await self._handle_cost_cap_skip(event)
+            if handled:
+                return handled
 
-            if not can_analyze:
-                logger.info(
-                    f"AI analysis skipped for camera {event.camera_name} due to {skip_reason}",
-                    extra={"camera_id": event.camera_id, "skip_reason": skip_reason}
-                )
-                self.metrics.increment_error(f"cost_cap_{skip_reason}")
-
-                # Store event without AI description, with skip reason
-                thumbnail_base64 = self._generate_thumbnail(event.frame)
-                event_data = {
-                    "camera_id": event.camera_id,
-                    "timestamp": event.timestamp.isoformat(),
-                    "description": f"AI analysis paused - {skip_reason.replace('_', ' ')}",
-                    "confidence": 0,
-                    "objects_detected": event.detected_objects,
-                    "thumbnail_base64": thumbnail_base64,
-                    "alert_triggered": False,
-                    "provider_used": None,
-                    "description_retry_needed": True,  # Can retry when cap resets
-                    "analysis_skipped_reason": skip_reason  # Story P3-7.3: Track skip reason
-                }
-
-                success = await self._store_event_with_retry(event_data, max_retries=3)
-                return success
-
-            # Step 1: Generate thumbnail from frame (needed for embedding)
+            # Generate thumbnail
             thumbnail_base64 = self._generate_thumbnail(event.frame)
 
-            # Step 2: Generate embedding early for entity matching (Story P4-3.4)
-            # This allows us to match entities BEFORE generating AI description
+            # Early embedding + entity matching for context (Story P4-3.4)
             embedding_vector = None
             entity_result = None
 
             try:
-                if thumbnail_base64:
-                    from app.services.embedding_service import get_embedding_service
-                    import base64 as b64
-
-                    embedding_service = get_embedding_service()
-
-                    # Strip data URI prefix if present
-                    b64_str = thumbnail_base64
-                    if b64_str.startswith("data:"):
-                        comma_idx = b64_str.find(",")
-                        if comma_idx != -1:
-                            b64_str = b64_str[comma_idx + 1:]
-                    embedding_bytes = b64.b64decode(b64_str)
-
-                    # Generate embedding
-                    embedding_vector = await embedding_service.generate_embedding(embedding_bytes)
-
-                    logger.debug(
-                        f"Early embedding generated for context (camera {event.camera_name})",
-                        extra={
-                            "camera_id": event.camera_id,
-                            "embedding_dim": len(embedding_vector) if embedding_vector else 0,
-                        }
-                    )
-
-            except Exception as embed_error:
+                embedding_vector, entity_result = await self._generate_and_match_entity(thumbnail_base64)
+            except Exception as context_error:
                 logger.debug(
-                    f"Early embedding generation failed (will skip context): {embed_error}",
+                    f"Early context generation failed (will skip): {context_error}",
                     extra={"camera_id": event.camera_id}
                 )
 
-            # Step 3: Match entity for context building (Story P4-3.4)
-            # Uses read-only match_entity_only() - does NOT create entities or links
-            if embedding_vector:
-                try:
-                    from app.services.entity_service import get_entity_service
-
-                    entity_service = get_entity_service()
-
-                    with SessionLocal() as entity_db:
-                        entity_result = await entity_service.match_entity_only(
-                            db=entity_db,
-                            embedding=embedding_vector,
-                            threshold=0.75,
-                        )
-
-                    if entity_result:
-                        logger.debug(
-                            f"Entity matched for context (camera {event.camera_name})",
-                            extra={
-                                "camera_id": event.camera_id,
-                                "entity_id": entity_result.entity_id,
-                                "entity_name": entity_result.name,
-                                "similarity_score": entity_result.similarity_score,
-                            }
-                        )
-                    else:
-                        logger.debug(
-                            f"No entity match for context (camera {event.camera_name})",
-                            extra={"camera_id": event.camera_id}
-                        )
-
-                except Exception as entity_error:
-                    logger.debug(
-                        f"Entity matching for context failed (will skip context): {entity_error}",
-                        extra={"camera_id": event.camera_id}
-                    )
-
-            # Step 4: Build context-enhanced prompt (Story P4-3.4)
-            # Uses historical context from similar events and matched entity
+            # Build context-enhanced prompt (Story P4-3.4)
             context_enhanced_prompt = None
             context_result = None
 
@@ -679,7 +578,7 @@ class EventProcessor:
 
                 context_service = get_context_prompt_service()
 
-                # Build default base prompt (same as AI service would use)
+                # Build default base prompt
                 base_prompt = (
                     "Describe what you see in this image. Include: "
                     "WHO (people, their appearance, clothing), "
@@ -723,75 +622,17 @@ class EventProcessor:
                     extra={"camera_id": event.camera_id, "error": str(context_error)}
                 )
 
-            # Step 5: Generate AI description (with context if available)
-            logger.debug(f"Worker {worker_id}: Calling AI service for camera {event.camera_name}")
+            # Generate AI description (with context if available)
+            ai_result = await self._generate_ai_description(
+                event=event,
+                worker_id=worker_id,
+                context_enhanced_prompt=context_enhanced_prompt,
+                thumbnail_base64=thumbnail_base64,
+            )
 
-            # Story P9-3.2: Extract OCR from frame overlay if enabled
-            ocr_result = None
-            try:
-                from app.models.system_setting import SystemSetting
-                from app.services.ocr_service import extract_overlay_text, is_ocr_available
-
-                with SessionLocal() as ocr_db:
-                    setting = ocr_db.query(SystemSetting).filter(
-                        SystemSetting.key == 'settings_attempt_ocr_extraction'
-                    ).first()
-                    if setting and setting.value.lower() == 'true' and is_ocr_available():
-                        try:
-                            ocr_result = extract_overlay_text(event.frame)
-                        except Exception as ocr_err:
-                            logger.warning(f"OCR extraction failed: {ocr_err}")
-            except Exception as ocr_setup_err:
-                logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
-
-            # Limit concurrent AI calls to prevent overwhelming providers (Phase A.5)
-            async with self.ai_semaphore:
-                ai_concurrent_in_flight.inc()
-                try:
-                    ai_result = await self.ai_service.generate_description(
-                        frame=event.frame,
-                        camera_name=event.camera_name,
-                        timestamp=event.timestamp.isoformat(),
-                        detected_objects=event.detected_objects,
-                        sla_timeout_ms=5000,
-                        custom_prompt=context_enhanced_prompt,  # Story P4-3.4: Pass enhanced prompt
-                        ocr_result=ocr_result,  # Story P9-3.2: Pass OCR extraction result
-                    )
-                finally:
-                    ai_concurrent_in_flight.dec()
-
-            # Story P2-6.3 AC13: If all AI providers fail, store event without description
-            # and flag for retry instead of failing completely
-            if not ai_result.success:
-                logger.warning(
-                    f"All AI providers failed for camera {event.camera_name}, storing event for retry",
-                    extra={
-                        "camera_id": event.camera_id,
-                        "error": "All AI providers down"
-                    }
-                )
-                self.metrics.increment_error("ai_service_failed")
-
-                # Store event without description, flagged for retry (AC13)
-                event_data = {
-                    "camera_id": event.camera_id,
-                    "timestamp": event.timestamp.isoformat(),
-                    "description": "[AI description pending - providers unavailable]",
-                    "confidence": 0,  # 0 confidence indicates no AI analysis
-                    "objects_detected": event.detected_objects,
-                    "thumbnail_base64": thumbnail_base64,
-                    "alert_triggered": False,
-                    "provider_used": None,
-                    "description_retry_needed": True  # Flag for retry (AC13)
-                }
-
-                success = await self._store_event_with_retry(event_data, max_retries=3)
-                if success:
-                    logger.info(
-                        f"Event stored for retry: camera {event.camera_name}",
-                        extra={"camera_id": event.camera_id, "description_retry_needed": True}
-                    )
-                return success
+            if ai_result is None:
+                # AI failed and we already stored a retry event
+                return False
 
             logger.debug(
                 f"Worker {worker_id}: AI description generated",
@@ -838,42 +679,22 @@ class EventProcessor:
                     }
                 )
 
-            # Step 3: Store event in database
-            event_data = {
-                "camera_id": event.camera_id,
-                "timestamp": event.timestamp.isoformat(),
-                "description": ai_result.description,
-                "confidence": ai_result.confidence,
-                "objects_detected": ai_result.objects_detected,
-                "thumbnail_base64": thumbnail_base64,
-                "alert_triggered": False,  # Will be set by alert evaluation (Epic 5)
-                "provider_used": ai_result.provider,  # Story P2-5.3: Track AI provider
-                "description_retry_needed": False,  # Successfully processed
-                "ai_cost": ai_result.cost_estimate,  # Story P3-7.1: Track AI cost
-                "delivery_carrier": delivery_carrier,  # Story P7-2.1: Carrier detection
-                # Story P15-5.1: AI Visual Annotations
-                "has_annotations": has_annotations,
-                "bounding_boxes": bounding_boxes_json,
-            }
-
-            logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
-            event_id = await self._store_event_with_retry(event_data, max_retries=3)
+            # Store the successfully processed event (extracted)
+            event_id = await self._store_processed_event(
+                event=event,
+                ai_result=ai_result,
+                thumbnail_base64=thumbnail_base64,
+                delivery_carrier=delivery_carrier,
+                has_annotations=has_annotations,
+                bounding_boxes_json=bounding_boxes_json,
+            )
 
             if not event_id:
-                logger.error(
-                    f"Failed to store event for camera {event.camera_name}",
-                    extra={"camera_id": event.camera_id}
-                )
-                self.metrics.increment_error("event_storage_failed")
                 return False
 
-            # Step 3 (Stub): Evaluate alert rules (Epic 5 feature)
-            # TODO: Integrate with alert_service.evaluate_rules(event)
+            # Evaluate alert rules (stub / Epic 5)
 
-            # Step 4 (Stub): WebSocket broadcast (Epic 4 feature)
-            # TODO: Integrate with websocket_manager.broadcast_event(event)
-
-            # Step 5: Check cost thresholds and send alerts (Story P3-7.4)
+            # Check cost thresholds and send alerts (Story P3-7.4)
             try:
                 cost_alert_service = get_cost_alert_service()
                 with SessionLocal() as db:
@@ -890,47 +711,15 @@ class EventProcessor:
                     extra={"error": str(alert_error)}
                 )
 
-            # Step 6: Send push notifications (Story P4-1.1, P4-1.3)
-            try:
-                from app.services.push_notification_service import send_event_notification
+            # Send push notifications (extracted)
+            await self._send_push_notification(
+                event=event,
+                event_id=event_id,
+                ai_result=ai_result,
+                thumbnail_base64=thumbnail_base64,
+            )
 
-                # Construct thumbnail URL if we have a thumbnail
-                push_thumbnail_url = None
-                if thumbnail_base64:
-                    date_str = event.timestamp.strftime("%Y-%m-%d")
-                    push_thumbnail_url = f"/api/v1/thumbnails/{date_str}/{event_id}.jpg"
-
-                # P4-1.3: Extract smart detection type from metadata or detected objects
-                smart_detection_type = event.metadata.get("smart_detection_type")
-                if not smart_detection_type and event.detected_objects:
-                    # Map detected objects to smart detection type
-                    obj = event.detected_objects[0].lower() if event.detected_objects else None
-                    if obj in ("person", "vehicle", "package", "animal"):
-                        smart_detection_type = obj
-
-                # Fire and forget - don't await to avoid blocking
-                asyncio.create_task(
-                    send_event_notification(
-                        event_id=event_id,
-                        camera_name=event.camera_name,
-                        description=ai_result.description,
-                        thumbnail_url=push_thumbnail_url,
-                        camera_id=event.camera_id,  # P4-1.3: For notification collapse
-                        smart_detection_type=smart_detection_type,  # P4-1.3: For better title
-                    )
-                )
-                logger.debug(
-                    f"Push notification task created for event {event_id}",
-                    extra={"event_id": event_id, "camera_name": event.camera_name}
-                )
-            except Exception as push_error:
-                # Push notification failures should not block event processing
-                logger.warning(
-                    f"Failed to create push notification task: {push_error}",
-                    extra={"error": str(push_error)}
-                )
-
-            # Step 7: Publish event to MQTT for Home Assistant (Story P4-2.3)
+            # Publish event to MQTT for Home Assistant (Story P4-2.3)
             try:
                 from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
 
@@ -976,66 +765,10 @@ class EventProcessor:
                     extra={"error": str(mqtt_error), "event_id": event_id}
                 )
 
-            # Step 8: Publish camera status sensors to MQTT (Story P4-2.5)
-            try:
-                from app.services.mqtt_service import get_mqtt_service
+            # Publish camera status sensors to MQTT (extracted)
+            await self._publish_camera_status_sensors(event=event, event_id=event_id, ai_result=ai_result)
 
-                mqtt_service = get_mqtt_service()
-
-                if mqtt_service.is_connected:
-                    # Get stored event for full details
-                    with SessionLocal() as sensor_db:
-                        stored_event = sensor_db.query(Event).filter(Event.id == event_id).first()
-                        if stored_event:
-                            # Publish last event timestamp (AC2, AC8)
-                            asyncio.create_task(
-                                mqtt_service.publish_last_event_timestamp(
-                                    camera_id=event.camera_id,
-                                    camera_name=event.camera_name,
-                                    event_id=str(event_id),
-                                    timestamp=stored_event.timestamp,
-                                    description=ai_result.description,
-                                    smart_detection_type=stored_event.smart_detection_type
-                                )
-                            )
-
-                            # Publish activity state ON (AC4)
-                            asyncio.create_task(
-                                mqtt_service.publish_activity_state(
-                                    camera_id=event.camera_id,
-                                    state="ON",
-                                    last_event_at=stored_event.timestamp
-                                )
-                            )
-
-                            # Publish updated event counts (AC3)
-                            # Import the helper function for count calculation
-                            from app.services.mqtt_status_service import get_camera_event_counts
-                            counts = await get_camera_event_counts(event.camera_id)
-                            asyncio.create_task(
-                                mqtt_service.publish_event_counts(
-                                    camera_id=event.camera_id,
-                                    camera_name=event.camera_name,
-                                    events_today=counts["events_today"],
-                                    events_this_week=counts["events_this_week"]
-                                )
-                            )
-
-                            logger.debug(
-                                f"Status sensor publish tasks created for event {event_id}",
-                                extra={
-                                    "event_id": event_id,
-                                    "camera_id": event.camera_id
-                                }
-                            )
-            except Exception as status_error:
-                # Status sensor failures must not block event processing
-                logger.warning(
-                    f"Failed to publish status sensors: {status_error}",
-                    extra={"error": str(status_error), "event_id": event_id}
-                )
-
-            # Step 9: Store embedding for this event (Story P4-3.1, P4-3.4)
+            # Store embedding for this event (Story P4-3.1, P4-3.4)
             # Note: Embedding was already generated earlier (Step 2) for context building
             # Here we just need to store it linked to the actual event_id
             # AC2: Embedding generated for each new event thumbnail
@@ -1079,283 +812,37 @@ class EventProcessor:
                     }
                 )
 
-            # Step 10: Trigger HomeKit motion sensor (Story P4-6.2)
-            try:
-                from app.services.homekit_service import get_homekit_service
+            # Step 10: Trigger HomeKit sensors (extracted)
+            await self._run_homekit_triggers(event=event, event_id=event_id, smart_detection_type=smart_detection_type)
 
-                homekit_service = get_homekit_service()
+            # Entity linking (extracted)
+            await self._link_entity_to_event(event=event, event_id=event_id, embedding_vector=embedding_vector)
 
-                # Only trigger if HomeKit is running (AC6: error resilience)
-                if homekit_service.is_running:
-                    # Fire and forget - use asyncio.create_task for non-blocking (AC1: <1s)
-                    asyncio.create_task(
-                        self._trigger_homekit_motion(homekit_service, event.camera_id, event_id)
-                    )
-                    logger.debug(
-                        f"HomeKit motion trigger task created for event {event_id}",
-                        extra={"event_id": event_id, "camera_id": event.camera_id}
-                    )
+            # Face embeddings (privacy-gated, extracted)
+            await self._process_face_embeddings(
+                event=event,
+                event_id=event_id,
+                thumbnail_base64=thumbnail_base64,
+            )
 
-                    # Story P5-1.5: Trigger occupancy sensor ONLY for person detection
-                    # AC2: Only smart_detection_type == 'person' triggers occupancy
-                    if smart_detection_type == "person":
-                        asyncio.create_task(
-                            self._trigger_homekit_occupancy(homekit_service, event.camera_id, event_id)
-                        )
-                        logger.debug(
-                            f"HomeKit occupancy trigger task created for person event {event_id}",
-                            extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
-                        )
+            # Vehicle embeddings (privacy-gated, extracted)
+            await self._process_vehicle_embeddings(
+                event=event,
+                event_id=event_id,
+                objects_json=objects_json,
+                thumbnail_base64=thumbnail_base64,
+                ai_result=ai_result,
+                smart_detection_type=smart_detection_type,
+            )
+            # Entity alerts (privacy-gated, extracted)
+            await self._process_entity_alerts(
+                event=event,
+                event_id=event_id,
+                ai_result=ai_result,
+                objects_detected=objects_detected,
+            )
 
-                    # Story P5-1.6: Trigger detection-type-specific sensors
-                    # AC1: Vehicle detection triggers only vehicle sensor
-                    if smart_detection_type == "vehicle":
-                        asyncio.create_task(
-                            self._trigger_homekit_vehicle(homekit_service, event.camera_id, event_id)
-                        )
-                        logger.debug(
-                            f"HomeKit vehicle trigger task created for event {event_id}",
-                            extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
-                        )
-
-                    # AC2: Animal detection triggers only animal sensor
-                    if smart_detection_type == "animal":
-                        asyncio.create_task(
-                            self._trigger_homekit_animal(homekit_service, event.camera_id, event_id)
-                        )
-                        logger.debug(
-                            f"HomeKit animal trigger task created for event {event_id}",
-                            extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
-                        )
-
-                    # AC3: Package detection triggers only package sensor
-                    # Story P7-2.3: Pass carrier to HomeKit for logging
-                    if smart_detection_type == "package":
-                        delivery_carrier = getattr(event, 'delivery_carrier', None)
-                        asyncio.create_task(
-                            self._trigger_homekit_package(
-                                homekit_service, event.camera_id, event_id, delivery_carrier
-                            )
-                        )
-                        logger.debug(
-                            f"HomeKit package trigger task created for event {event_id}",
-                            extra={
-                                "event_id": event_id,
-                                "camera_id": event.camera_id,
-                                "smart_detection_type": smart_detection_type,
-                                "delivery_carrier": delivery_carrier
-                            }
-                        )
-            except Exception as homekit_error:
-                # HomeKit failures must not block event processing (AC6)
-                logger.warning(
-                    f"Failed to create HomeKit motion trigger task: {homekit_error}",
-                    extra={"error": str(homekit_error), "event_id": event_id}
-                )
-
-            # Step 11: Match or create entity and link to event (Story P4-3.3, P4-3.4)
-            # Note: Step 3 did a read-only match for context. Now we do the full
-            # match_or_create_entity to actually link/create the entity-event relationship.
-            # AC11: Entity matching integrated into event pipeline
-            # AC14: Graceful handling when embedding service unavailable
-            try:
-                if embedding_vector:
-                    from app.services.entity_service import get_entity_service
-
-                    entity_service = get_entity_service()
-
-                    # Determine entity type from smart detection or objects detected
-                    entity_type = "unknown"
-                    if hasattr(event, 'smart_detection_type') and event.smart_detection_type in ("person", "vehicle"):
-                        entity_type = event.smart_detection_type
-                    elif event.detected_objects:
-                        objects_list = event.detected_objects if isinstance(event.detected_objects, list) else json.loads(event.detected_objects)
-                        if "person" in [o.lower() for o in objects_list]:
-                            entity_type = "person"
-                        elif "vehicle" in [o.lower() for o in objects_list]:
-                            entity_type = "vehicle"
-
-                    with SessionLocal() as entity_db:
-                        final_entity_result = await entity_service.match_or_create_entity(
-                            db=entity_db,
-                            event_id=event_id,
-                            embedding=embedding_vector,
-                            entity_type=entity_type,
-                            threshold=0.75,
-                        )
-
-                    logger.info(
-                        f"Entity {'created' if final_entity_result.is_new else 'matched'} for event {event_id}",
-                        extra={
-                            "event_id": event_id,
-                            "entity_id": final_entity_result.entity_id,
-                            "entity_type": final_entity_result.entity_type,
-                            "is_new": final_entity_result.is_new,
-                            "similarity_score": final_entity_result.similarity_score,
-                            "occurrence_count": final_entity_result.occurrence_count,
-                        }
-                    )
-                else:
-                    logger.debug(
-                        f"Skipping entity matching - no embedding available for event {event_id}",
-                        extra={"event_id": event_id}
-                    )
-
-            except Exception as entity_error:
-                # AC14: Graceful fallback - entity matching failures must not block event processing
-                logger.warning(
-                    f"Entity matching failed for event {event_id}: {entity_error}",
-                    extra={
-                        "event_id": event_id,
-                        "camera_id": event.camera_id,
-                        "error": str(entity_error),
-                    }
-                )
-
-            # Step 12: Process face embeddings (Story P4-8.1)
-            # Only process faces if face_recognition_enabled is true (privacy control)
-            try:
-                from app.models.system_setting import SystemSetting
-                from app.services.face_embedding_service import get_face_embedding_service
-                import base64 as b64
-
-                # Check if face recognition is enabled (AC5: privacy controls)
-                with SessionLocal() as settings_db:
-                    setting = settings_db.query(SystemSetting).filter(
-                        SystemSetting.key == "face_recognition_enabled"
-                    ).first()
-                    face_recognition_enabled = (
-                        setting.value.lower() == "true" if setting else False
-                    )
-
-                if face_recognition_enabled and thumbnail_base64:
-                    # Fire and forget - use asyncio.create_task for non-blocking (AC6)
-                    asyncio.create_task(
-                        self._process_faces(event_id, thumbnail_base64)
-                    )
-                    logger.debug(
-                        f"Face processing task created for event {event_id}",
-                        extra={"event_id": event_id, "camera_id": event.camera_id}
-                    )
-                else:
-                    if not face_recognition_enabled:
-                        logger.debug(
-                            f"Face recognition disabled, skipping face processing for event {event_id}",
-                            extra={"event_id": event_id}
-                        )
-
-            except Exception as face_error:
-                # Face processing failures must not block event processing (AC6)
-                logger.warning(
-                    f"Failed to create face processing task: {face_error}",
-                    extra={"error": str(face_error), "event_id": event_id}
-                )
-
-            # Step 14: Process vehicle embeddings (Story P4-8.3)
-            # Only process vehicles if vehicle_recognition_enabled is true (privacy control)
-            # Also check if event contains vehicle detections
-            try:
-                from app.models.system_setting import SystemSetting
-
-                # Check if vehicle recognition is enabled
-                with SessionLocal() as settings_db:
-                    setting = settings_db.query(SystemSetting).filter(
-                        SystemSetting.key == "vehicle_recognition_enabled"
-                    ).first()
-                    vehicle_recognition_enabled = (
-                        setting.value.lower() == "true" if setting else False
-                    )
-
-                # Check if this event might contain vehicles
-                has_vehicle = False
-                if objects_json:
-                    try:
-                        objects_list = json.loads(objects_json)
-                        has_vehicle = "vehicle" in objects_list
-                    except json.JSONDecodeError:
-                        pass
-                # Also check smart detection type for Protect events
-                if smart_detection_type == "vehicle":
-                    has_vehicle = True
-
-                if vehicle_recognition_enabled and thumbnail_base64 and has_vehicle:
-                    # Fire and forget - use asyncio.create_task for non-blocking
-                    asyncio.create_task(
-                        self._process_vehicles(
-                            event_id,
-                            thumbnail_base64,
-                            ai_result.description if ai_result else None
-                        )
-                    )
-                    logger.debug(
-                        f"Vehicle processing task created for event {event_id}",
-                        extra={"event_id": event_id, "camera_id": event.camera_id}
-                    )
-                else:
-                    if not vehicle_recognition_enabled:
-                        logger.debug(
-                            f"Vehicle recognition disabled, skipping vehicle processing for event {event_id}",
-                            extra={"event_id": event_id}
-                        )
-                    elif not has_vehicle:
-                        logger.debug(
-                            f"No vehicle detected, skipping vehicle processing for event {event_id}",
-                            extra={"event_id": event_id}
-                        )
-
-            except Exception as vehicle_error:
-                # Vehicle processing failures must not block event processing
-                logger.warning(
-                    f"Failed to create vehicle processing task: {vehicle_error}",
-                    extra={"error": str(vehicle_error), "event_id": event_id}
-                )
-
-            # Step 15: Entity Alert Processing (Story P4-8.4)
-            # Process entity alerts for personalized notifications
-            # This runs after face (Step 13) and vehicle (Step 14) matching completes
-            try:
-                from app.models.system_setting import SystemSetting
-
-                # Check if entity alerts are enabled (tied to recognition settings)
-                face_recognition_enabled = False
-                vehicle_recognition_enabled = False
-
-                face_setting = db.query(SystemSetting).filter(
-                    SystemSetting.key == "face_recognition_enabled"
-                ).first()
-                if face_setting and face_setting.value.lower() == "true":
-                    face_recognition_enabled = True
-
-                vehicle_setting = db.query(SystemSetting).filter(
-                    SystemSetting.key == "vehicle_recognition_enabled"
-                ).first()
-                if vehicle_setting and vehicle_setting.value.lower() == "true":
-                    vehicle_recognition_enabled = True
-
-                # Only process if at least one recognition type is enabled
-                if face_recognition_enabled or vehicle_recognition_enabled:
-                    # Check if event has person or vehicle
-                    has_person = "person" in objects_detected if objects_detected else False
-                    has_vehicle = "vehicle" in objects_detected if objects_detected else False
-
-                    if has_person or has_vehicle:
-                        # Run entity alert processing asynchronously
-                        asyncio.create_task(
-                            self._process_entity_alerts(
-                                event_id=event_id,
-                                description=ai_result.description,
-                                has_person_or_vehicle=True
-                            )
-                        )
-
-            except Exception as entity_alert_error:
-                # Entity alert failures must not block event processing
-                logger.warning(
-                    f"Failed to create entity alert task: {entity_alert_error}",
-                    extra={"error": str(entity_alert_error), "event_id": event_id}
-                )
-
-            # Step 16: Audio Event Enrichment (Story P6-3.2)
+            # Audio Event Enrichment (Story P6-3.2)
             # Check for audio events and enrich the stored event with audio info
             # This runs asynchronously to not block event processing (AC graceful degradation)
             try:
@@ -2208,7 +1695,7 @@ class EventProcessor:
                 }
             )
 
-    async def _process_entity_alerts(
+    async def _execute_entity_alerts(
         self,
         event_id: str,
         description: str,
@@ -2504,6 +1991,521 @@ class EventProcessor:
             logger.error(f"Error generating thumbnail: {e}", exc_info=True)
             return None
 
+    async def _generate_early_embedding(self, thumbnail_base64: Optional[str]) -> Optional[bytes]:
+        """
+        Generate an embedding vector from a thumbnail for early entity matching.
+
+        This is done *before* the AI description so we can provide entity context
+        to the vision model (Story P4-3.4).
+
+        Returns the raw embedding bytes, or None on failure.
+        """
+        if not thumbnail_base64:
+            return None
+
+        try:
+            from app.services.embedding_service import get_embedding_service
+            import base64 as b64
+
+            embedding_service = get_embedding_service()
+
+            # Strip data URI prefix if present
+            b64_str = thumbnail_base64
+            if b64_str.startswith("data:"):
+                comma_idx = b64_str.find(",")
+                if comma_idx != -1:
+                    b64_str = b64_str[comma_idx + 1:]
+
+            embedding_bytes = b64.b64decode(b64_str)
+
+            # Generate embedding
+            embedding_vector = await embedding_service.generate_embedding(embedding_bytes)
+
+            logger.debug(
+                f"Early embedding generated (dim={len(embedding_vector) if embedding_vector else 0})",
+                extra={"embedding_dim": len(embedding_vector) if embedding_vector else 0}
+            )
+
+            return embedding_vector
+
+        except Exception as e:
+            logger.debug(f"Early embedding generation failed: {e}")
+            return None
+
+    async def _generate_and_match_entity(
+        self, thumbnail_base64: Optional[str]
+    ) -> tuple[Optional[bytes], Optional[Any]]:
+        """
+        Generate embedding from thumbnail and attempt to match an existing entity.
+
+        Returns (embedding_vector, entity_result) where either or both can be None.
+        """
+        embedding_vector = await self._generate_early_embedding(thumbnail_base64)
+        if not embedding_vector:
+            return None, None
+
+        try:
+            from app.services.entity_service import get_entity_service
+            from app.core.database import SessionLocal
+
+            entity_service = get_entity_service()
+
+            with SessionLocal() as entity_db:
+                entity_result = await entity_service.match_entity_only(
+                    db=entity_db,
+                    embedding=embedding_vector,
+                    threshold=0.75,
+                )
+
+            if entity_result:
+                logger.debug(
+                    f"Entity matched for context",
+                    extra={
+                        "entity_id": entity_result.entity_id,
+                        "entity_name": entity_result.name,
+                        "similarity_score": entity_result.similarity_score,
+                    }
+                )
+            else:
+                logger.debug("No entity match for context")
+
+            return embedding_vector, entity_result
+
+        except Exception as e:
+            logger.debug(f"Entity matching for context failed: {e}")
+            return embedding_vector, None
+
+    async def _send_push_notification(
+        self,
+        event: ProcessingEvent,
+        event_id: str,
+        ai_result: Any,
+        thumbnail_base64: Optional[str],
+    ) -> None:
+        """Fire-and-forget push notification for a processed event."""
+        try:
+            from app.services.push_notification_service import send_event_notification
+
+            push_thumbnail_url = None
+            if thumbnail_base64:
+                date_str = event.timestamp.strftime("%Y-%m-%d")
+                push_thumbnail_url = f"/api/v1/thumbnails/{date_str}/{event_id}.jpg"
+
+            smart_detection_type = event.metadata.get("smart_detection_type")
+            if not smart_detection_type and event.detected_objects:
+                obj = event.detected_objects[0].lower() if event.detected_objects else None
+                if obj in ("person", "vehicle", "package", "animal"):
+                    smart_detection_type = obj
+
+            asyncio.create_task(
+                send_event_notification(
+                    event_id=event_id,
+                    camera_name=event.camera_name,
+                    description=ai_result.description,
+                    thumbnail_url=push_thumbnail_url,
+                    camera_id=event.camera_id,
+                    smart_detection_type=smart_detection_type,
+                )
+            )
+            logger.debug(
+                f"Push notification task created for event {event_id}",
+                extra={"event_id": event_id, "camera_name": event.camera_name}
+            )
+        except Exception as push_error:
+            logger.warning(
+                f"Failed to create push notification task: {push_error}",
+                extra={"error": str(push_error)}
+            )
+
+    async def _publish_camera_status_sensors(
+        self, event: ProcessingEvent, event_id: str, ai_result: Any
+    ) -> None:
+        """Publish last event timestamp, activity state, and event counts to MQTT."""
+        try:
+            from app.services.mqtt_service import get_mqtt_service
+            from app.services.mqtt_status_service import get_camera_event_counts
+
+            mqtt_service = get_mqtt_service()
+
+            if not mqtt_service.is_connected:
+                return
+
+            with SessionLocal() as sensor_db:
+                stored_event = sensor_db.query(Event).filter(Event.id == event_id).first()
+                if not stored_event:
+                    return
+
+                # Publish last event timestamp
+                asyncio.create_task(
+                    mqtt_service.publish_last_event_timestamp(
+                        camera_id=event.camera_id,
+                        camera_name=event.camera_name,
+                        event_id=str(event_id),
+                        timestamp=stored_event.timestamp,
+                        description=ai_result.description,
+                        smart_detection_type=stored_event.smart_detection_type
+                    )
+                )
+
+                # Publish activity state ON
+                asyncio.create_task(
+                    mqtt_service.publish_activity_state(
+                        camera_id=event.camera_id,
+                        state="ON",
+                        last_event_at=stored_event.timestamp
+                    )
+                )
+
+                # Publish updated event counts
+                counts = await get_camera_event_counts(event.camera_id)
+                asyncio.create_task(
+                    mqtt_service.publish_event_counts(
+                        camera_id=event.camera_id,
+                        camera_name=event.camera_name,
+                        events_today=counts["events_today"],
+                        events_this_week=counts["events_this_week"]
+                    )
+                )
+
+                logger.debug(
+                    f"Status sensor publish tasks created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id}
+                )
+        except Exception as status_error:
+            logger.warning(
+                f"Failed to publish status sensors: {status_error}",
+                extra={"error": str(status_error), "event_id": event_id}
+            )
+
+    async def _run_homekit_triggers(
+        self, event: ProcessingEvent, event_id: str, smart_detection_type: Optional[str]
+    ) -> None:
+        """Trigger appropriate HomeKit sensors based on detection type."""
+        try:
+            from app.services.homekit_service import get_homekit_service
+
+            homekit_service = get_homekit_service()
+
+            if not homekit_service.is_running:
+                return
+
+            # Always trigger motion
+            asyncio.create_task(
+                self._trigger_homekit_motion(homekit_service, event.camera_id, event_id)
+            )
+            logger.debug(
+                f"HomeKit motion trigger task created for event {event_id}",
+                extra={"event_id": event_id, "camera_id": event.camera_id}
+            )
+
+            # Person → occupancy
+            if smart_detection_type == "person":
+                asyncio.create_task(
+                    self._trigger_homekit_occupancy(homekit_service, event.camera_id, event_id)
+                )
+                logger.debug(
+                    f"HomeKit occupancy trigger task created for person event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                )
+
+            # Vehicle
+            if smart_detection_type == "vehicle":
+                asyncio.create_task(
+                    self._trigger_homekit_vehicle(homekit_service, event.camera_id, event_id)
+                )
+                logger.debug(
+                    f"HomeKit vehicle trigger task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                )
+
+            # Animal
+            if smart_detection_type == "animal":
+                asyncio.create_task(
+                    self._trigger_homekit_animal(homekit_service, event.camera_id, event_id)
+                )
+                logger.debug(
+                    f"HomeKit animal trigger task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                )
+
+            # Package (with carrier info)
+            if smart_detection_type == "package":
+                delivery_carrier = getattr(event, 'delivery_carrier', None)
+                asyncio.create_task(
+                    self._trigger_homekit_package(homekit_service, event.camera_id, event_id, delivery_carrier)
+                )
+                logger.debug(
+                    f"HomeKit package trigger task created for event {event_id}",
+                    extra={
+                        "event_id": event_id,
+                        "camera_id": event.camera_id,
+                        "smart_detection_type": smart_detection_type,
+                        "delivery_carrier": delivery_carrier
+                    }
+                )
+        except Exception as homekit_error:
+            logger.warning(
+                f"Failed to trigger HomeKit sensors: {homekit_error}",
+                extra={"error": str(homekit_error), "event_id": event_id}
+            )
+
+    async def _link_entity_to_event(
+        self, event: ProcessingEvent, event_id: str, embedding_vector: Optional[bytes]
+    ) -> None:
+        """Match or create entity and link it to the event."""
+        if not embedding_vector:
+            logger.debug(
+                f"Skipping entity matching - no embedding available for event {event_id}",
+                extra={"event_id": event_id}
+            )
+            return
+
+        try:
+            from app.services.entity_service import get_entity_service
+
+            entity_service = get_entity_service()
+
+            # Determine entity type
+            entity_type = "unknown"
+            if hasattr(event, 'smart_detection_type') and event.smart_detection_type in ("person", "vehicle"):
+                entity_type = event.smart_detection_type
+            elif event.detected_objects:
+                objects_list = event.detected_objects if isinstance(event.detected_objects, list) else json.loads(event.detected_objects)
+                if "person" in [o.lower() for o in objects_list]:
+                    entity_type = "person"
+                elif "vehicle" in [o.lower() for o in objects_list]:
+                    entity_type = "vehicle"
+
+            with SessionLocal() as entity_db:
+                final_entity_result = await entity_service.match_or_create_entity(
+                    db=entity_db,
+                    event_id=event_id,
+                    embedding=embedding_vector,
+                    entity_type=entity_type,
+                    threshold=0.75,
+                )
+
+            logger.info(
+                f"Entity {'created' if final_entity_result.is_new else 'matched'} for event {event_id}",
+                extra={
+                    "event_id": event_id,
+                    "entity_id": final_entity_result.entity_id,
+                    "entity_type": final_entity_result.entity_type,
+                    "is_new": final_entity_result.is_new,
+                    "similarity_score": final_entity_result.similarity_score,
+                    "occurrence_count": final_entity_result.occurrence_count,
+                }
+            )
+        except Exception as entity_error:
+            logger.warning(
+                f"Entity linking failed for event {event_id}: {entity_error}",
+                extra={"error": str(entity_error), "event_id": event_id}
+            )
+
+    async def _generate_ai_description(
+        self,
+        event: ProcessingEvent,
+        worker_id: int,
+        context_enhanced_prompt: Optional[str],
+        thumbnail_base64: Optional[str],
+    ) -> Optional[Any]:
+        """
+        Call the AI service to generate a description, with OCR and concurrency control.
+
+        Returns the AIResult on success, or None if all providers failed
+        (in which case a retry event has already been stored).
+        """
+        # Story P9-3.2: Extract OCR from frame overlay if enabled
+        ocr_result = None
+        try:
+            from app.models.system_setting import SystemSetting
+            from app.services.ocr_service import extract_overlay_text, is_ocr_available
+
+            with SessionLocal() as ocr_db:
+                setting = ocr_db.query(SystemSetting).filter(
+                    SystemSetting.key == 'settings_attempt_ocr_extraction'
+                ).first()
+                if setting and setting.value.lower() == 'true' and is_ocr_available():
+                    try:
+                        ocr_result = extract_overlay_text(event.frame)
+                    except Exception as ocr_err:
+                        logger.warning(f"OCR extraction failed: {ocr_err}")
+        except Exception as ocr_setup_err:
+            logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
+
+        # Limit concurrent AI calls (Phase A.5)
+        async with self.ai_semaphore:
+            ai_concurrent_in_flight.inc()
+            try:
+                ai_result = await self.ai_service.generate_description(
+                    frame=event.frame,
+                    camera_name=event.camera_name,
+                    timestamp=event.timestamp.isoformat(),
+                    detected_objects=event.detected_objects,
+                    sla_timeout_ms=5000,
+                    custom_prompt=context_enhanced_prompt,
+                    ocr_result=ocr_result,
+                )
+            finally:
+                ai_concurrent_in_flight.dec()
+
+        if not ai_result.success:
+            logger.warning(
+                f"All AI providers failed for camera {event.camera_name}, storing event for retry",
+                extra={"camera_id": event.camera_id, "error": "All AI providers down"}
+            )
+            self.metrics.increment_error("ai_service_failed")
+
+            event_data = {
+                "camera_id": event.camera_id,
+                "timestamp": event.timestamp.isoformat(),
+                "description": "[AI description pending - providers unavailable]",
+                "confidence": 0,
+                "objects_detected": event.detected_objects,
+                "thumbnail_base64": thumbnail_base64,
+                "alert_triggered": False,
+                "provider_used": None,
+                "description_retry_needed": True,
+            }
+
+            success = await self._store_event_with_retry(event_data, max_retries=3)
+            if success:
+                logger.info(
+                    f"Event stored for retry: camera {event.camera_name}",
+                    extra={"camera_id": event.camera_id, "description_retry_needed": True}
+                )
+            return None
+
+        return ai_result
+
+    async def _process_entity_alerts(
+        self,
+        event: ProcessingEvent,
+        event_id: str,
+        ai_result: Any,
+        objects_detected: Optional[List[str]],
+    ) -> None:
+        """Privacy-gated entity alert processing (fire-and-forget)."""
+        try:
+            from app.models.system_setting import SystemSetting
+
+            face_recognition_enabled = False
+            vehicle_recognition_enabled = False
+
+            with SessionLocal() as settings_db:
+                face_setting = settings_db.query(SystemSetting).filter(
+                    SystemSetting.key == "face_recognition_enabled"
+                ).first()
+                if face_setting and face_setting.value.lower() == "true":
+                    face_recognition_enabled = True
+
+                vehicle_setting = settings_db.query(SystemSetting).filter(
+                    SystemSetting.key == "vehicle_recognition_enabled"
+                ).first()
+                if vehicle_setting and vehicle_setting.value.lower() == "true":
+                    vehicle_recognition_enabled = True
+
+            if face_recognition_enabled or vehicle_recognition_enabled:
+                has_person = "person" in objects_detected if objects_detected else False
+                has_vehicle = "vehicle" in objects_detected if objects_detected else False
+
+                if has_person or has_vehicle:
+                    asyncio.create_task(
+                        self._execute_entity_alerts(
+                            event_id=event_id,
+                            description=ai_result.description,
+                            has_person_or_vehicle=True
+                        )
+                    )
+                    logger.debug(
+                        f"Entity alert task created for event {event_id}",
+                        extra={"event_id": event_id, "camera_id": event.camera_id}
+                    )
+        except Exception as entity_alert_error:
+            logger.warning(
+                f"Failed to create entity alert task: {entity_alert_error}",
+                extra={"error": str(entity_alert_error), "event_id": event_id}
+            )
+
+    async def _store_processed_event(
+        self,
+        event: ProcessingEvent,
+        ai_result: Any,
+        thumbnail_base64: Optional[str],
+        delivery_carrier: Optional[str] = None,
+        has_annotations: bool = False,
+        bounding_boxes_json: Optional[str] = None,
+    ) -> Optional[str]:
+        """Build the rich event payload and store it after successful AI processing."""
+        event_data = {
+            "camera_id": event.camera_id,
+            "timestamp": event.timestamp.isoformat(),
+            "description": ai_result.description,
+            "confidence": ai_result.confidence,
+            "objects_detected": ai_result.objects_detected,
+            "thumbnail_base64": thumbnail_base64,
+            "alert_triggered": False,
+            "provider_used": ai_result.provider,
+            "description_retry_needed": False,
+            "ai_cost": ai_result.cost_estimate,
+            "delivery_carrier": delivery_carrier,
+            "has_annotations": has_annotations,
+            "bounding_boxes": bounding_boxes_json,
+        }
+
+        logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
+        event_id = await self._store_event_with_retry(event_data, max_retries=3)
+
+        if not event_id:
+            logger.error(
+                f"Failed to store event for camera {event.camera_name}",
+                extra={"camera_id": event.camera_id}
+            )
+            self.metrics.increment_error("event_storage_failed")
+
+        return event_id
+
+    async def _process_face_embeddings(
+        self, event: ProcessingEvent, event_id: str, thumbnail_base64: Optional[str]
+    ) -> None:
+        """Privacy-gated face processing (fire-and-forget)."""
+        try:
+            from app.models.system_setting import SystemSetting
+            from app.services.face_embedding_service import get_face_embedding_service
+
+            with SessionLocal() as settings_db:
+                setting = settings_db.query(SystemSetting).filter(
+                    SystemSetting.key == "face_recognition_enabled"
+                ).first()
+                face_recognition_enabled = (
+                    setting.value.lower() == "true" if setting else False
+                )
+
+            if face_recognition_enabled and thumbnail_base64:
+                asyncio.create_task(
+                    self._process_faces(event_id, thumbnail_base64)
+                )
+                logger.debug(
+                    f"Face processing task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id}
+                )
+            else:
+                if not face_recognition_enabled:
+                    logger.debug(
+                        f"Face recognition disabled, skipping for event {event_id}",
+                        extra={"event_id": event_id}
+                    )
+                elif not thumbnail_base64:
+                    logger.debug(
+                        f"No thumbnail available, skipping for event {event_id}",
+                        extra={"event_id": event_id}
+                    )
+        except Exception as face_error:
+            logger.warning(
+                f"Failed to create face processing task: {face_error}",
+                extra={"error": str(face_error), "event_id": event_id}
+            )
+
     def get_metrics(self) -> Dict:
         """
         Get current pipeline metrics
@@ -2528,7 +2530,12 @@ def get_event_processor() -> Optional[EventProcessor]:
     return _event_processor
 
 
-async def initialize_event_processor(worker_count: Optional[int] = None):
+async def initialize_event_processor(
+    worker_count: Optional[int] = None,
+    ai_service: Optional[AIService] = None,
+    camera_service: Optional[CameraService] = None,
+    motion_service: Optional[MotionDetectionService] = None,
+):
     """
     Initialize and start the global EventProcessor instance
 
@@ -2536,6 +2543,9 @@ async def initialize_event_processor(worker_count: Optional[int] = None):
 
     Args:
         worker_count: Number of AI workers (default from env or 2)
+        ai_service: Optional injected AIService
+        camera_service: Optional injected CameraService
+        motion_service: Optional injected MotionDetectionService
     """
     global _event_processor
 
@@ -2543,7 +2553,12 @@ async def initialize_event_processor(worker_count: Optional[int] = None):
         logger.warning("EventProcessor already initialized")
         return
 
-    _event_processor = EventProcessor(worker_count=worker_count)
+    _event_processor = EventProcessor(
+        worker_count=worker_count,
+        ai_service=ai_service,
+        camera_service=camera_service,
+        motion_service=motion_service,
+    )
     await _event_processor.start()
     logger.info("Global EventProcessor initialized and started")
 

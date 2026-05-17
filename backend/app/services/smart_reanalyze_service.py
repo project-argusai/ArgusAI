@@ -60,6 +60,7 @@ class SmartReanalyzeResult:
     cached: bool = False  # Whether result was from cache
 
 
+@singleton
 class SmartReanalyzeService:
     """
     Query-adaptive frame selection for event re-analysis.
@@ -365,36 +366,17 @@ class SmartReanalyzeService:
         return float(np.dot(a, b) / (norm_a * norm_b))
 
 
-# Global singleton instance
-_smart_reanalyze_service: Optional[SmartReanalyzeService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_smart_reanalyze_service() -> SmartReanalyzeService:
     """
     Get the global SmartReanalyzeService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        SmartReanalyzeService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer SmartReanalyzeService() directly.
     """
-    global _smart_reanalyze_service
-
-    if _smart_reanalyze_service is None:
-        _smart_reanalyze_service = SmartReanalyzeService()
-        logger.info(
-            "Global SmartReanalyzeService instance created",
-            extra={"event_type": "smart_reanalyze_service_singleton_created"}
-        )
-
-    return _smart_reanalyze_service
+    return SmartReanalyzeService()
 
 
 def reset_smart_reanalyze_service() -> None:
-    """
-    Reset the global SmartReanalyzeService instance.
-
-    Useful for testing to ensure a fresh instance.
-    """
-    global _smart_reanalyze_service
-    _smart_reanalyze_service = None
+    """Reset the global SmartReanalyzeService instance (for testing)."""
+    SmartReanalyzeService._reset_instance()

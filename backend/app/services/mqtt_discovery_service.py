@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 APP_VERSION = "4.0.0"
 
 
+@singleton
 class MQTTDiscoveryService:
     """
     Home Assistant MQTT Discovery service (Story P4-2.2).
@@ -842,21 +843,20 @@ class MQTTDiscoveryService:
             logger.error(f"Failed to publish online status: {e}")
 
 
-# Global singleton instance
-_discovery_service: Optional[MQTTDiscoveryService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_discovery_service() -> MQTTDiscoveryService:
     """
-    Get the global MQTT discovery service instance.
+    Get the global MQTTDiscoveryService instance.
 
-    Returns:
-        MQTTDiscoveryService singleton instance.
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer MQTTDiscoveryService() directly.
     """
-    global _discovery_service
-    if _discovery_service is None:
-        _discovery_service = MQTTDiscoveryService()
-    return _discovery_service
+    return MQTTDiscoveryService()
+
+
+def reset_discovery_service() -> None:
+    """Reset the global MQTTDiscoveryService instance (for testing)."""
+    MQTTDiscoveryService._reset_instance()
 
 
 async def initialize_discovery_service() -> None:

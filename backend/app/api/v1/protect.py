@@ -68,7 +68,7 @@ from app.schemas.protect import (
     TestClipDownloadRequest,
     TestClipDownloadResponse,
 )
-from app.services.protect_service import get_protect_service
+from app.services.protect_service import ProtectService, get_protect_service  # get_ kept for compatibility during #450 transition
 from app.services.clip_service import get_clip_service
 from pathlib import Path
 from typing import Optional
@@ -133,7 +133,7 @@ async def create_controller(
 
         # Auto-connect to the controller after creation
         # This enables immediate camera discovery without manual connect step
-        protect_service = get_protect_service()
+        protect_service = ProtectService()  # @singleton pattern (#450)
         try:
             await protect_service.connect(controller)
             logger.info(f"Auto-connected to controller {controller.id} after creation")

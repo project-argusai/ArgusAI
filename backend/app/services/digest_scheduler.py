@@ -32,7 +32,7 @@ from sqlalchemy import func
 from app.core.database import get_db_session
 from app.models.activity_summary import ActivitySummary
 from app.models.system_setting import SystemSetting
-from app.services.summary_service import get_summary_service, SummaryResult
+from app.services.summary_service import SummaryService, get_summary_service, SummaryResult  # get_ kept for compatibility (#450)
 from app.services.delivery_service import get_delivery_service, DeliveryResult
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,7 @@ class DigestScheduler:
                 end_time = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=timezone.utc)
 
                 # Call SummaryService to generate summary
-                summary_service = get_summary_service()
+                summary_service = SummaryService()  # @singleton pattern (#450)
                 result = await summary_service.generate_summary(
                     db=db,
                     start_time=start_time,

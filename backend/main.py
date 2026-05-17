@@ -51,13 +51,15 @@ from app.api.v1.api_keys import router as api_keys_router  # Story P13-1: API Ke
 from app.api.v1.users import router as users_router  # Story P15-2.3: User Management
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
-from app.services.protect_service import get_protect_service  # Story P2-1.4: Protect WebSocket
+from app.services.protect_service import ProtectService  # Story P2-1.4: Protect WebSocket (now via @singleton)
 from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_service  # Story P4-2.1: MQTT
 from app.services.mqtt_discovery_service import initialize_discovery_service, get_discovery_service  # Story P4-2.2: HA Discovery
 from app.services.mqtt_status_service import initialize_status_sensors  # Story P4-2.5: Camera Status Sensors
 from app.services.pattern_service import get_pattern_service  # Story P4-3.5: Pattern Detection
 from app.services.digest_scheduler import initialize_digest_scheduler, shutdown_digest_scheduler  # Story P4-4.2: Digest Scheduler
 from app.services.homekit_service import get_homekit_service, initialize_homekit_service, shutdown_homekit_service  # Story P4-6.1: HomeKit
+from app.services.motion_detection_service import motion_detection_service  # For DI into EventProcessor
+from app.services.ai_service import AIService  # For DI into EventProcessor
 
 # Application version
 APP_VERSION = "1.0.0"
@@ -280,7 +282,12 @@ async def lifespan(app: FastAPI):
     )
 
     # Initialize Event Processor (Story 3.3)
-    await initialize_event_processor()
+    # Pass already-initialized services for better DI and startup ordering
+    await initialize_event_processor(
+        camera_service=camera_service,
+        motion_service=motion_detection_service,
+        ai_service=AIService(),  # Thin facade — real logic lives in VisionAnalysisOrchestrator
+    )
     logger.info(
         "Event processor started",
         extra={"event_type": "event_processor_init", "status": "running"}
@@ -399,7 +406,7 @@ async def lifespan(app: FastAPI):
 
     # Connect to Protect controllers on startup (Story P2-1.4, AC1)
     from app.models.protect_controller import ProtectController
-    protect_service = get_protect_service()
+    protect_service = ProtectService()  # @singleton pattern (#450)
     
     # Reset stale connection states from previous crashes (Issue #382)
     await protect_service.reset_stale_connection_states()

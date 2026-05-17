@@ -19,12 +19,15 @@ Usage:
     backup_service = get_backup_service()
     result = await backup_service.create_backup()
     # result.download_url contains the download path
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import os
 import json
 import shutil
 import zipfile
 import logging
+from app.core.decorators import singleton
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass
@@ -107,6 +110,7 @@ class ValidationResult:
             self.warnings = []
 
 
+@singleton
 class BackupService:
     """
     Service for system backup and restore operations
@@ -828,20 +832,17 @@ class BackupService:
         return deleted
 
 
-# Global instance
-_backup_service: Optional[BackupService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_backup_service() -> BackupService:
     """
-    Get the global BackupService instance
+    Get the global BackupService instance.
 
-    Returns:
-        BackupService instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer BackupService() directly.
     """
-    global _backup_service
+    return BackupService()
 
-    if _backup_service is None:
-        _backup_service = BackupService()
 
-    return _backup_service
+def reset_backup_service() -> None:
+    """Reset the global BackupService instance (for testing)."""
+    BackupService._reset_instance()

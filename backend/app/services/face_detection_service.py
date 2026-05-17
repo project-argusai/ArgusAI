@@ -72,6 +72,7 @@ class FaceDetection:
         }
 
 
+@singleton
 class FaceDetectionService:
     """
     Detect faces in images using OpenCV's DNN face detector.
@@ -389,24 +390,20 @@ class FaceDetectionService:
         return self._model_loaded
 
 
-# Global singleton instance
-_face_detection_service: Optional[FaceDetectionService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_face_detection_service() -> FaceDetectionService:
     """
     Get the global FaceDetectionService instance.
 
-    Creates the instance on first call (lazy initialization).
-
-    Returns:
-        FaceDetectionService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer FaceDetectionService() directly.
     """
-    global _face_detection_service
+    return FaceDetectionService()
 
-    if _face_detection_service is None:
-        _face_detection_service = FaceDetectionService()
-        logger.info(
+
+def reset_face_detection_service() -> None:
+    """Reset the global FaceDetectionService instance (for testing)."""
+    FaceDetectionService._reset_instance()
             "Global FaceDetectionService instance created",
             extra={"event_type": "face_detection_service_singleton_created"}
         )

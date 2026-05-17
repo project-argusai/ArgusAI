@@ -11,10 +11,13 @@ Provides functionality to:
 - Retry failed downloads with exponential backoff (Story P3-1.3)
 
 Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import atexit
 import logging
+from app.core.decorators import singleton
 import time
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +82,7 @@ class NonRetriableClipError(Exception):
     pass
 
 
+@singleton
 class ClipService:
     """
     Service for downloading and managing video clips from UniFi Protect.
@@ -730,33 +734,26 @@ class ClipService:
             return None
 
 
-# Singleton instance
-_clip_service: Optional[ClipService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_clip_service() -> ClipService:
     """
-    Get the singleton ClipService instance.
+    Get the global ClipService instance.
 
-    Creates the instance on first call, using the ProtectService singleton.
-
-    Returns:
-        ClipService singleton instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer ClipService() directly.
     """
-    global _clip_service
-    if _clip_service is None:
-        from app.services.protect_service import get_protect_service
-        _clip_service = ClipService(get_protect_service())
-    return _clip_service
+    from app.services.protect_service import get_protect_service
+    return ClipService(get_protect_service())
 
 
 def reset_clip_service() -> None:
-    """
-    Reset the singleton instance (useful for testing).
+    """Reset the global ClipService instance (for testing)."""
+    ClipService._reset_instance()
 
-    Stops the scheduler if running before resetting.
-    """
-    global _clip_service
-    if _clip_service is not None:
-        _clip_service._stop_scheduler()
-    _clip_service = None
+
+def reset_clip_service() -> None:
+    """Reset the global ClipService instance (for testing)."""
+    service = ClipService._get_instance()
+    if service:
+        service._stop_scheduler()
+    ClipService._reset_instance()

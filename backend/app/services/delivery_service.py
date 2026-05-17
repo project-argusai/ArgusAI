@@ -68,6 +68,7 @@ class DeliveryResult:
         }
 
 
+@singleton
 class DeliveryService:
     """
     Service for delivering activity digests via multiple channels.
@@ -536,7 +537,7 @@ Sent by ArgusAI - Your AI-Powered Security Assistant
 
 
 # Singleton instance
-_delivery_service: Optional[DeliveryService] = None
+
 
 
 def get_delivery_service(db: Optional[Session] = None) -> DeliveryService:
@@ -550,18 +551,16 @@ def get_delivery_service(db: Optional[Session] = None) -> DeliveryService:
         DeliveryService instance
     """
     if db is not None:
-        # If db is provided, create new instance with that session
+        # Special case: return a fresh instance with the provided session
         return DeliveryService(db)
 
-    global _delivery_service
-    if _delivery_service is None:
-        _delivery_service = DeliveryService()
-    return _delivery_service
+    # Normal case: return the @singleton instance
+    return DeliveryService()
 
 
 def reset_delivery_service() -> None:
-    """Reset the singleton instance (for testing)."""
-    global _delivery_service
-    if _delivery_service is not None:
-        _delivery_service._close_db()
-    _delivery_service = None
+    """Reset the global DeliveryService instance (for testing)."""
+    service = DeliveryService._get_instance()
+    if service:
+        service._close_db()
+    DeliveryService._reset_instance()

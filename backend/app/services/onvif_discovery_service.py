@@ -12,10 +12,13 @@ Usage:
 
 Architecture Reference: docs/architecture/phase-5-additions.md (ONVIF Discovery Architecture)
 PRD Reference: docs/PRD-phase5.md (FR13, FR14, FR15)
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import hashlib
 import logging
+from app.core.decorators import singleton
 import re
 import time
 from datetime import datetime
@@ -97,6 +100,7 @@ class DeviceDetailsResult:
     status: str = "success"  # success, auth_required, error
 
 
+@singleton
 class ONVIFDiscoveryService:
     """
     ONVIF WS-Discovery service for camera auto-discovery.
@@ -1047,18 +1051,17 @@ class ONVIFDiscoveryService:
         return error if len(error) < 100 else error[:97] + "..."
 
 
-# Singleton instance
-_discovery_service: Optional[ONVIFDiscoveryService] = None
-
-
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_onvif_discovery_service() -> ONVIFDiscoveryService:
     """
-    Get the singleton ONVIFDiscoveryService instance.
+    Get the global ONVIFDiscoveryService instance.
 
-    Returns:
-        The shared discovery service instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer ONVIFDiscoveryService() directly.
     """
-    global _discovery_service
-    if _discovery_service is None:
-        _discovery_service = ONVIFDiscoveryService()
-    return _discovery_service
+    return ONVIFDiscoveryService()
+
+
+def reset_onvif_discovery_service() -> None:
+    """Reset the global ONVIFDiscoveryService instance (for testing)."""
+    ONVIFDiscoveryService._reset_instance()

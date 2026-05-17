@@ -6,9 +6,12 @@ Provides entity-aware alert handling including:
 - Recognition status classification (known/stranger/unknown)
 - VIP alert detection
 - Blocklist alert suppression
+
+Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging
+from app.core.decorators import singleton
 import re
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
@@ -23,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # Singleton instance
-_entity_alert_service: Optional["EntityAlertService"] = None
+
 
 
 @dataclass
@@ -38,6 +41,7 @@ class EntityAlertResult:
     entity_names: List[str]  # Names of matched entities (for notifications)
 
 
+@singleton
 class EntityAlertService:
     """
     Service for entity-aware alert handling.
@@ -479,20 +483,17 @@ class EntityAlertService:
         return self._entity_to_dict(entity)
 
 
+# Backward compatible thin getter (delegates to @singleton decorator)
 def get_entity_alert_service() -> EntityAlertService:
     """
-    Get or create the singleton EntityAlertService instance.
+    Get the global EntityAlertService instance.
 
-    Returns:
-        EntityAlertService instance
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer EntityAlertService() directly.
     """
-    global _entity_alert_service
-    if _entity_alert_service is None:
-        _entity_alert_service = EntityAlertService()
-    return _entity_alert_service
+    return EntityAlertService()
 
 
 def reset_entity_alert_service() -> None:
-    """Reset the singleton instance (for testing)."""
-    global _entity_alert_service
-    _entity_alert_service = None
+    """Reset the global EntityAlertService instance (for testing)."""
+    EntityAlertService._reset_instance()

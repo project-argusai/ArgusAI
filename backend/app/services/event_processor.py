@@ -45,7 +45,7 @@ from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.ai_processing_worker import AIProcessingWorker
 from app.services.ai_worker_pool import AIWorkerPool
-from app.services.ai_processing_coordinator import AIProcessingCoordinator, ProcessingContext
+from app.services.ai_processing_coordinator import AIProcessingCoordinator
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
@@ -291,20 +291,19 @@ class EventProcessor:
                 mqtt_service=container.mqtt_service,
 
                 # Still-bound helpers on EventProcessor (to be extracted later)
-                # generate_and_match_entity moved into the coordinator
-                # generate_ai_description, store_processed_event, and send_push_notification moved into the coordinator
-                store_event_with_retry=self._store_event_with_retry,
-                publish_camera_status_sensors=self._publish_camera_status_sensors,
-                # run_homekit_triggers moved into the coordinator
-                # link_entity_to_event moved into the coordinator
-                process_face_embeddings=self._process_face_embeddings,
-                # process_vehicle_embeddings moved into the coordinator
-                # process_entity_alerts moved into the coordinator
-                # enrich_event_with_audio moved into the coordinator
-                # publish_event_to_mqtt logic is now internal to the coordinator's _publish_mqtt_event
+                # generate_and_match_entity, store_processed_event, send_push_notification, and store_event_with_retry moved into the coordinator
+                # All post-processing helpers have been moved into the coordinator.
+                # Only direct services remain in the context.
             )
 
-            self.ai_processing_coordinator = AIProcessingCoordinator(context=context)
+            self.ai_processing_coordinator = AIProcessingCoordinator(
+                ai_service=self.ai_service,
+                metrics=self.metrics,
+                context_prompt_service=container.context_prompt_service,
+                cost_alert_service=container.cost_alert_service,
+                embedding_service=container.embedding_service,
+                mqtt_service=container.mqtt_service,
+            )
 
             self.ai_worker_pool = AIWorkerPool(
                 worker_count=self.worker_count,

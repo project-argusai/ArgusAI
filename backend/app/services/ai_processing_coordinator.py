@@ -21,7 +21,6 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, Callable, Awaitable, Any
 
 import numpy as np
@@ -36,38 +35,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ProcessingContext:
-    """
-    Explicit dependencies needed by AIProcessingCoordinator.
-
-    Goal: Depend on real services and focused helpers rather than the entire EventProcessor.
-    This is an incremental improvement toward full decoupling.
-    """
-    # Core services
-    ai_service: "AIService"
-    metrics: "ProcessingMetrics"
-
-    # Services obtained via container (preferred over bound methods where possible)
-    context_prompt_service: Any
-    cost_alert_service: Any
-    embedding_service: Any
-    mqtt_service: Any
-
-    # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
-    # generate_and_match_entity has been moved into the coordinator
-    # store_processed_event and send_push_notification have been moved into the coordinator
-    store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
-    publish_camera_status_sensors: Callable[..., Awaitable[None]]
-    # run_homekit_triggers has been moved into the coordinator
-    # link_entity_to_event has been moved into the coordinator
-    process_face_embeddings: Callable[..., Awaitable[None]]
-    # process_vehicle_embeddings has been moved into the coordinator
-    # process_entity_alerts has been moved into the coordinator
-    # enrich_event_with_audio has been moved into the coordinator
-    # publish_event_to_mqtt logic is now internal to _publish_mqtt_event
-
-
 class AIProcessingCoordinator:
     """
     Coordinates the end-to-end processing of one queued event.
@@ -79,9 +46,21 @@ class AIProcessingCoordinator:
     - Own high-level lifecycle
     """
 
-    def __init__(self, context: ProcessingContext):
-        self.context = context
-        self.ai_service = context.ai_service
+    def __init__(
+        self,
+        ai_service: "AIService",
+        metrics: "ProcessingMetrics",
+        context_prompt_service: Any,
+        cost_alert_service: Any,
+        embedding_service: Any,
+        mqtt_service: Any,
+    ):
+        self.ai_service = ai_service
+        self.metrics = metrics
+        self.context_prompt_service = context_prompt_service
+        self.cost_alert_service = cost_alert_service
+        self.embedding_service = embedding_service
+        self.mqtt_service = mqtt_service
 
     async def process_event(self, event: ProcessingEvent, worker_id: int) -> bool:
         """
@@ -116,7 +95,7 @@ class AIProcessingCoordinator:
             context_result = None
 
             try:
-                context_service = self.context.context_prompt_service
+                context_service = self.context_prompt_service
 
                 base_prompt = (
                     "Describe what you see in this image. Include: "
@@ -217,7 +196,7 @@ class AIProcessingCoordinator:
 
             # Cost alerts
             try:
-                cost_alert_service = self.context.cost_alert_service
+                cost_alert_service = self.cost_alert_service
                 with SessionLocal() as db:
                     alerts = await cost_alert_service.check_and_notify(db)
                     if alerts:
@@ -297,7 +276,7 @@ class AIProcessingCoordinator:
                     "worker_id": worker_id
                 }
             )
-            self.context.metrics.increment_error("processing_exception")
+            self.metrics.increment_error("processing_exception")
             return False
 
     async def _handle_cost_cap_skip(self, event: ProcessingEvent) -> bool:
@@ -323,7 +302,7 @@ class AIProcessingCoordinator:
             f"AI analysis skipped for camera {event.camera_name} due to {skip_reason}",
             extra={"camera_id": event.camera_id, "skip_reason": skip_reason}
         )
-        self.context.metrics.increment_error(f"cost_cap_{skip_reason}")
+        self.metrics.increment_error(f"cost_cap_{skip_reason}")
 
         # Store event without AI description, with skip reason
         thumbnail_base64 = self._generate_thumbnail(event.frame)
@@ -340,7 +319,7 @@ class AIProcessingCoordinator:
             "analysis_skipped_reason": skip_reason,
         }
 
-        success = await self.context.store_processed_event(event_data)
+        success = await self.store_processed_event(event_data)
         return success
 
     async def _generate_ai_description(
@@ -397,7 +376,7 @@ class AIProcessingCoordinator:
                 f"All AI providers failed for camera {event.camera_name}, storing event for retry",
                 extra={"camera_id": event.camera_id, "error": "All AI providers down"}
             )
-            self.context.metrics.increment_error("ai_service_failed")
+            self.metrics.increment_error("ai_service_failed")
 
             event_data = {
                 "camera_id": event.camera_id,
@@ -412,7 +391,7 @@ class AIProcessingCoordinator:
             }
 
             # Use the store helper from the context for the retry case
-            success = await self.context.store_event_with_retry(event_data, max_retries=3)
+            success = await self._store_event_with_retry(event_data, max_retries=3)
             if success:
                 logger.info(
                     f"Event stored for retry: camera {event.camera_name}",
@@ -449,14 +428,14 @@ class AIProcessingCoordinator:
         }
 
         logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
-        event_id = await self.context.store_event_with_retry(event_data, max_retries=3)
+        event_id = await self._store_event_with_retry(event_data, max_retries=3)
 
         if not event_id:
             logger.error(
                 f"Failed to store event for camera {event.camera_name}",
                 extra={"camera_id": event.camera_id}
             )
-            self.context.metrics.increment_error("event_storage_failed")
+            self.metrics.increment_error("event_storage_failed")
 
         return event_id
 
@@ -648,7 +627,7 @@ class AIProcessingCoordinator:
         try:
             from app.services.homekit_service import get_homekit_service
 
-            homekit_service = self.context.mqtt_service  # Note: using mqtt_service temporarily; actual homekit_service should be added to context if needed
+            homekit_service = self.mqtt_service  # Note: using mqtt_service temporarily; actual homekit_service should be added to context if needed
             # The original uses container.homekit_service. For consistency, we use context if available.
 
             # To keep this micro-step small, we delegate to the EventProcessor's version for now
@@ -721,7 +700,7 @@ class AIProcessingCoordinator:
         try:
             from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
 
-            mqtt_service = self.context.mqtt_service
+            mqtt_service = self.mqtt_service
 
             if not mqtt_service.is_connected:
                 return
@@ -738,7 +717,7 @@ class AIProcessingCoordinator:
                 topic = mqtt_service.get_event_topic(event.camera_id)
 
                 asyncio.create_task(
-                    self.context.publish_event_to_mqtt(mqtt_service, topic, mqtt_payload, event_id)
+                    self.publish_event_to_mqtt(mqtt_service, topic, mqtt_payload, event_id)
                 )
 
                 logger.debug(
@@ -770,7 +749,7 @@ class AIProcessingCoordinator:
         try:
             import base64 as b64
 
-            embedding_service = self.context.embedding_service
+            embedding_service = self.embedding_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -808,7 +787,7 @@ class AIProcessingCoordinator:
             return None, None
 
         try:
-            entity_service = self.context.embedding_service  # wait, actually entity_service for match
+            entity_service = self.embedding_service  # wait, actually entity_service for match
 
             # Note: the match is on entity_service, embedding on embedding_service
             # In practice, the context has embedding_service, but the match_entity_only is on entity_service.
@@ -845,7 +824,7 @@ class AIProcessingCoordinator:
         """Store the early embedding for the event (for future context and entity matching)."""
         try:
             if embedding_vector:
-                embedding_service = self.context.embedding_service
+                embedding_service = self.embedding_service
                 with SessionLocal() as embed_db:
                     await embedding_service.store_embedding(
                         db=embed_db,

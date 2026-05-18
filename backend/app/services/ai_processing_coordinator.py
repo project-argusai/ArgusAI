@@ -60,7 +60,7 @@ class ProcessingContext:
     store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
     publish_camera_status_sensors: Callable[..., Awaitable[None]]
     # run_homekit_triggers has been moved into the coordinator
-    link_entity_to_event: Callable[..., Awaitable[None]]
+    # link_entity_to_event has been moved into the coordinator
     process_face_embeddings: Callable[..., Awaitable[None]]
     # process_vehicle_embeddings has been moved into the coordinator
     # process_entity_alerts has been moved into the coordinator
@@ -278,7 +278,7 @@ class AIProcessingCoordinator:
             await self._run_homekit_triggers(
                 event=event, event_id=event_id, smart_detection_type=smart_detection_type
             )
-            await self.context.link_entity_to_event(
+            await self._link_entity_to_event(
                 event=event, event_id=event_id, embedding_vector=embedding_vector
             )
             await self._process_face_embeddings(
@@ -687,4 +687,57 @@ class AIProcessingCoordinator:
             logger.warning(
                 f"Failed to trigger HomeKit sensors: {homekit_error}",
                 extra={"error": str(homekit_error), "event_id": event_id}
+            )
+
+    async def _link_entity_to_event(
+        self, event: ProcessingEvent, event_id: str, embedding_vector: Optional[bytes]
+    ) -> None:
+        """Match or create entity and link it to the event."""
+        if not embedding_vector:
+            logger.debug(
+                f"Skipping entity matching - no embedding available for event {event_id}",
+                extra={"event_id": event_id}
+            )
+            return
+
+        try:
+            from app.services.service_container import container
+
+            entity_service = container.entity_service
+
+            # Determine entity type
+            entity_type = "unknown"
+            if hasattr(event, 'smart_detection_type') and event.smart_detection_type in ("person", "vehicle"):
+                entity_type = event.smart_detection_type
+            elif event.detected_objects:
+                objects_list = event.detected_objects if isinstance(event.detected_objects, list) else json.loads(event.detected_objects)
+                if "person" in [o.lower() for o in objects_list]:
+                    entity_type = "person"
+                elif "vehicle" in [o.lower() for o in objects_list]:
+                    entity_type = "vehicle"
+
+            with SessionLocal() as entity_db:
+                final_entity_result = await entity_service.match_or_create_entity(
+                    db=entity_db,
+                    event_id=event_id,
+                    embedding=embedding_vector,
+                    entity_type=entity_type,
+                    threshold=0.75,
+                )
+
+            logger.info(
+                f"Entity {'created' if final_entity_result.is_new else 'matched'} for event {event_id}",
+                extra={
+                    "event_id": event_id,
+                    "entity_id": final_entity_result.entity_id,
+                    "entity_type": final_entity_result.entity_type,
+                    "is_new": final_entity_result.is_new,
+                    "similarity_score": final_entity_result.similarity_score,
+                    "occurrence_count": final_entity_result.occurrence_count,
+                }
+            )
+        except Exception as entity_error:
+            logger.warning(
+                f"Entity linking failed for event {event_id}: {entity_error}",
+                extra={"error": str(entity_error), "event_id": event_id}
             )

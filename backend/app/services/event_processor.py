@@ -296,7 +296,7 @@ class EventProcessor:
                 store_event_with_retry=self._store_event_with_retry,
                 publish_camera_status_sensors=self._publish_camera_status_sensors,
                 # run_homekit_triggers moved into the coordinator
-                link_entity_to_event=self._link_entity_to_event,
+                # link_entity_to_event moved into the coordinator
                 process_face_embeddings=self._process_face_embeddings,
                 # process_vehicle_embeddings moved into the coordinator
                 # process_entity_alerts moved into the coordinator

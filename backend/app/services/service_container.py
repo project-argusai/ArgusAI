@@ -85,6 +85,9 @@ from app.services.face_embedding_service import get_face_embedding_service, rese
 from app.services.person_matching_service import get_person_matching_service, reset_person_matching_service
 from app.services.entity_alert_service import get_entity_alert_service, reset_entity_alert_service
 from app.services.audio_stream_service import get_audio_stream_extractor, reset_audio_stream_extractor
+from app.services.reprocessing_service import get_reprocessing_service, reset_reprocessing_service
+from app.services.smart_reanalyze_service import get_smart_reanalyze_service, reset_smart_reanalyze_service
+from app.services.signed_url_service import get_signed_url_service, reset_signed_url_service
 from app.services.context_prompt_service import get_context_prompt_service, reset_context_prompt_service
 from app.services.frame_annotation_service import get_frame_annotation_service, reset_frame_annotation_service
 from app.services.anomaly_scoring_service import get_anomaly_scoring_service, reset_anomaly_scoring_service
@@ -241,6 +244,18 @@ class ServiceContainer:
         return get_audio_stream_extractor()
 
     @property
+    def reprocessing_service(self):
+        return get_reprocessing_service()
+
+    @property
+    def smart_reanalyze_service(self):
+        return get_smart_reanalyze_service()
+
+    @property
+    def signed_url_service(self):
+        return get_signed_url_service()
+
+    @property
     def context_prompt_service(self):
         return get_context_prompt_service()
 
@@ -297,6 +312,9 @@ class ServiceContainer:
         reset_frame_annotation_service,
         reset_anomaly_scoring_service,
         reset_entity_service,
+        reset_reprocessing_service,
+        reset_smart_reanalyze_service,
+        reset_signed_url_service,
     ]
 
     def reset_all_for_tests(self) -> None:

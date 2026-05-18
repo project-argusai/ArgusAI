@@ -54,6 +54,9 @@ class CameraTaskManager:
         self._motion_task_stats: Dict[str, dict] = {}
         self._camera_cooldowns: Dict[str, float] = {}  # camera_id -> last_event_time
 
+        # Shutdown coordination (replaces reliance on external self.running)
+        self._shutdown_event = asyncio.Event()
+
     async def start_monitoring(self, camera: Camera):
         """
         Start a motion detection task for the given camera.
@@ -150,7 +153,24 @@ class CameraTaskManager:
     def update_cooldown(self, camera_id: str, timestamp: float):
         self._camera_cooldowns[camera_id] = timestamp
 
+    def shutdown(self):
+        """Signal all per-camera loops to stop gracefully (preferred over pure cancellation)."""
+        self._shutdown_event.set()
+
     async def stop_all(self):
+        self.shutdown()  # Signal loops to exit cleanly
+
+        tasks = list(self._motion_tasks.values())
+        self._motion_tasks.clear()
+
+        for task in tasks:
+            task.cancel()
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        self._camera_cooldowns.clear()
+        # Note: we intentionally keep motion_task_stats for observability after shutdown
         """Stop all active motion monitoring tasks (used during shutdown)."""
         tasks = list(self._motion_tasks.values())
         self._motion_tasks.clear()
@@ -161,7 +181,7 @@ class CameraTaskManager:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        self.camera_cooldowns.clear()
+        self._camera_cooldowns.clear()
         # Note: we intentionally keep motion_task_stats for observability after shutdown
 
     async def _run_motion_detection_loop(self, camera: Camera):
@@ -174,14 +194,14 @@ class CameraTaskManager:
 
         frame_interval = 1.0 / camera.frame_rate if camera.frame_rate > 0 else 0.2
 
-        while True:  # The manager will control running state via task cancellation
+        while not self._shutdown_event.is_set():
             try:
                 # Check cooldown
                 last_event_time = self.get_cooldown(camera.id)
                 time_since_last_event = time.time() - last_event_time
 
                 if time_since_last_event < camera.motion_cooldown:
-                    await asyncio.sleep(frame_interval)
+                    await self._sleep_respecting_shutdown(frame_interval)
                     continue
 
                 # === Real frame acquisition via CameraCaptureWorker (with backpressure) ===
@@ -201,7 +221,7 @@ class CameraTaskManager:
                         logger.debug(f"Failed to get frame from camera_service for {camera.id}: {e}")
 
                 if frame is None:
-                    await asyncio.sleep(frame_interval * 0.5)
+                    await self._sleep_respecting_shutdown(frame_interval * 0.5)
                     continue
 
                 # === Run motion detection ===
@@ -251,4 +271,13 @@ class CameraTaskManager:
                     extra={"camera_id": camera.id, "camera_name": camera.name}
                 )
                 self.record_error(camera.id)
-                await asyncio.sleep(10.0)
+                await self._sleep_respecting_shutdown(10.0)
+
+    async def _sleep_respecting_shutdown(self, seconds: float):
+        """Sleep up to `seconds`, but return early if shutdown has been signaled."""
+        if seconds <= 0:
+            return
+        try:
+            await asyncio.wait_for(self._shutdown_event.wait(), timeout=seconds)
+        except asyncio.TimeoutError:
+            pass  # normal expiration — continue the loop

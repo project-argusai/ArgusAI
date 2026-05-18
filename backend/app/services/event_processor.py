@@ -314,6 +314,7 @@ class EventProcessor:
         # Stop motion detection tasks via CameraTaskManager
         logger.info("Stopping motion detection tasks...")
         if self.camera_task_manager:
+            self.camera_task_manager.shutdown()
             await self.camera_task_manager.stop_all()
 
         # Drain queue with timeout

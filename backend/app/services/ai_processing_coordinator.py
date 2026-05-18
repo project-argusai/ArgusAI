@@ -56,7 +56,6 @@ class ProcessingContext:
     handle_cost_cap_skip: Callable[[ProcessingEvent], Awaitable[bool | None]]
     generate_thumbnail: Callable[[Any], Optional[str]]
     generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
-    generate_ai_description: Callable[..., Awaitable[Any]]
     store_processed_event: Callable[..., Awaitable[Optional[str]]]
     send_push_notification: Callable[..., Awaitable[None]]
     publish_camera_status_sensors: Callable[..., Awaitable[None]]
@@ -160,7 +159,7 @@ class AIProcessingCoordinator:
                 )
 
             # Generate AI description (with context if available)
-            ai_result = await self.context.generate_ai_description(
+            ai_result = await self._generate_ai_description(
                 event=event,
                 worker_id=worker_id,
                 context_enhanced_prompt=context_enhanced_prompt,

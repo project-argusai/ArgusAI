@@ -294,7 +294,7 @@ class EventProcessor:
                 handle_cost_cap_skip=self._handle_cost_cap_skip,
                 generate_thumbnail=self._generate_thumbnail,
                 generate_and_match_entity=self._generate_and_match_entity,
-                generate_ai_description=self._generate_ai_description,
+                # generate_ai_description moved into the coordinator
                 store_processed_event=self._store_processed_event,
                 send_push_notification=self._send_push_notification,
                 publish_camera_status_sensors=self._publish_camera_status_sensors,

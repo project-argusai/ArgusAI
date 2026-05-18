@@ -300,7 +300,7 @@ class EventProcessor:
                 process_face_embeddings=self._process_face_embeddings,
                 # process_vehicle_embeddings moved into the coordinator
                 # process_entity_alerts moved into the coordinator
-                enrich_event_with_audio=self._enrich_event_with_audio,
+                # enrich_event_with_audio moved into the coordinator
                 publish_event_to_mqtt=self._publish_event_to_mqtt,
             )
 

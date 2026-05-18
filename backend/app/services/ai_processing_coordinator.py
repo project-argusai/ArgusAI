@@ -64,7 +64,7 @@ class ProcessingContext:
     process_face_embeddings: Callable[..., Awaitable[None]]
     # process_vehicle_embeddings has been moved into the coordinator
     # process_entity_alerts has been moved into the coordinator
-    enrich_event_with_audio: Callable[[str, str], Awaitable[None]]
+    # enrich_event_with_audio has been moved into the coordinator
     publish_event_to_mqtt: Callable[..., Awaitable[None]]
 
 
@@ -296,7 +296,7 @@ class AIProcessingCoordinator:
             # Audio enrichment (fire and forget)
             try:
                 asyncio.create_task(
-                    self.context.enrich_event_with_audio(event_id, event.camera_id)
+                    self._enrich_event_with_audio(event_id, event.camera_id)
                 )
             except Exception as audio_error:
                 logger.warning(f"Failed to create audio enrichment task: {audio_error}")
@@ -600,4 +600,69 @@ class AIProcessingCoordinator:
             logger.warning(
                 f"Failed to create vehicle embeddings task: {vehicle_error}",
                 extra={"error": str(vehicle_error), "event_id": event_id}
+            )
+
+    async def _enrich_event_with_audio(
+        self,
+        event_id: str,
+        camera_id: str,
+    ) -> None:
+        """
+        Enrich a stored event with audio detection information (Story P6-3.2).
+
+        This is a fire-and-forget async task. Errors are logged but not propagated.
+        Uses its own database session since the caller's session may be closed.
+        """
+        try:
+            from app.services.audio_event_handler import get_audio_event_handler
+            from app.models.event import Event
+
+            audio_handler = get_audio_event_handler()
+
+            # Use own session since caller's may be closed
+            with get_db_session() as db:
+                # Get the stored event
+                event = db.query(Event).filter(Event.id == event_id).first()
+                if event is None:
+                    logger.warning(
+                        f"Event {event_id} not found for audio enrichment",
+                        extra={"event_id": event_id, "camera_id": camera_id}
+                    )
+                    return
+
+                # Enrich event with audio information
+                enriched = await audio_handler.enrich_event_with_audio(
+                    db=db,
+                    event=event,
+                    camera_id=camera_id,
+                    audio_duration_seconds=2.0,
+                )
+
+                if enriched:
+                    logger.info(
+                        f"Event {event_id} enriched with audio",
+                        extra={
+                            "event_type": "audio_enrichment_complete",
+                            "event_id": event_id,
+                            "camera_id": camera_id,
+                            "audio_event_type": event.audio_event_type,
+                            "audio_confidence": event.audio_confidence,
+                        }
+                    )
+                else:
+                    logger.debug(
+                        f"No audio events detected for event {event_id}",
+                        extra={"event_id": event_id, "camera_id": camera_id}
+                    )
+
+        except Exception as e:
+            # Audio enrichment errors must not propagate
+            logger.warning(
+                f"Audio enrichment failed for event {event_id}: {e}",
+                extra={
+                    "event_type": "audio_enrichment_error",
+                    "event_id": event_id,
+                    "camera_id": camera_id,
+                    "error": str(e)
+                }
             )

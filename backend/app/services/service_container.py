@@ -80,6 +80,10 @@ from app.services.backup_service import get_backup_service, reset_backup_service
 from app.services.tunnel_service import get_tunnel_service, reset_tunnel_service
 from app.services.stream_proxy_service import get_stream_proxy_service, reset_stream_proxy_service
 from app.services.vehicle_embedding_service import get_vehicle_embedding_service, reset_vehicle_embedding_service
+from app.services.embedding_service import get_embedding_service, reset_embedding_service
+from app.services.face_embedding_service import get_face_embedding_service, reset_face_embedding_service
+from app.services.person_matching_service import get_person_matching_service, reset_person_matching_service
+from app.services.entity_alert_service import get_entity_alert_service, reset_entity_alert_service
 from app.services.vehicle_matching_service import get_vehicle_matching_service, reset_vehicle_matching_service
 
 
@@ -212,6 +216,22 @@ class ServiceContainer:
         return get_vehicle_embedding_service()
 
     @property
+    def embedding_service(self):
+        return get_embedding_service()
+
+    @property
+    def face_embedding_service(self):
+        return get_face_embedding_service()
+
+    @property
+    def person_matching_service(self):
+        return get_person_matching_service()
+
+    @property
+    def entity_alert_service(self):
+        return get_entity_alert_service()
+
+    @property
     def vehicle_matching_service(self):
         return get_vehicle_matching_service()
 
@@ -243,6 +263,10 @@ class ServiceContainer:
         reset_vehicle_matching_service,
         reset_cleanup_service,
         reset_backup_service,
+        reset_embedding_service,
+        reset_face_embedding_service,
+        reset_person_matching_service,
+        reset_entity_alert_service,
     ]
 
     def reset_all_for_tests(self) -> None:

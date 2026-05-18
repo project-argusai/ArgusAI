@@ -291,7 +291,7 @@ class EventProcessor:
                 mqtt_service=container.mqtt_service,
 
                 # Still-bound helpers on EventProcessor (to be extracted later)
-                generate_and_match_entity=self._generate_and_match_entity,
+                # generate_and_match_entity moved into the coordinator
                 # generate_ai_description, store_processed_event, and send_push_notification moved into the coordinator
                 store_event_with_retry=self._store_event_with_retry,
                 publish_camera_status_sensors=self._publish_camera_status_sensors,

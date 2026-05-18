@@ -55,7 +55,7 @@ class ProcessingContext:
     mqtt_service: Any
 
     # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
-    generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
+    # generate_and_match_entity has been moved into the coordinator
     # store_processed_event and send_push_notification have been moved into the coordinator
     store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
     publish_camera_status_sensors: Callable[..., Awaitable[None]]
@@ -104,7 +104,7 @@ class AIProcessingCoordinator:
             entity_result = None
 
             try:
-                embedding_vector, entity_result = await self.context.generate_and_match_entity(thumbnail_base64)
+                embedding_vector, entity_result = await self._generate_and_match_entity(thumbnail_base64)
             except Exception as context_error:
                 logger.debug(
                     f"Early context generation failed (will skip): {context_error}",
@@ -764,3 +764,89 @@ class AIProcessingCoordinator:
                 f"Failed to create MQTT publish task: {mqtt_error}",
                 extra={"error": str(mqtt_error), "event_id": event_id}
             )
+
+    async def _generate_early_embedding(self, thumbnail_base64: Optional[str]) -> Optional[bytes]:
+        """
+        Generate an embedding vector from a thumbnail for early entity matching.
+
+        This is done *before* the AI description so we can provide entity context
+        to the vision model (Story P4-3.4).
+
+        Returns the raw embedding bytes, or None on failure.
+        """
+        if not thumbnail_base64:
+            return None
+
+        try:
+            import base64 as b64
+
+            embedding_service = self.context.embedding_service
+
+            # Strip data URI prefix if present
+            b64_str = thumbnail_base64
+            if b64_str.startswith("data:"):
+                comma_idx = b64_str.find(",")
+                if comma_idx != -1:
+                    b64_str = b64_str[comma_idx + 1:]
+
+            embedding_bytes = b64.b64decode(b64_str)
+
+            # Generate embedding
+            embedding_vector = await embedding_service.generate_embedding(embedding_bytes)
+
+            logger.debug(
+                f"Early embedding generated (dim={len(embedding_vector) if embedding_vector else 0})",
+                extra={"embedding_dim": len(embedding_vector) if embedding_vector else 0}
+            )
+
+            return embedding_vector
+
+        except Exception as e:
+            logger.debug(f"Early embedding generation failed: {e}")
+            return None
+
+    async def _generate_and_match_entity(
+        self, thumbnail_base64: Optional[str]
+    ) -> tuple[Optional[bytes], Optional[Any]]:
+        """
+        Generate embedding from thumbnail and attempt to match an existing entity.
+
+        Returns (embedding_vector, entity_result) where either or both can be None.
+        """
+        embedding_vector = await self._generate_early_embedding(thumbnail_base64)
+        if not embedding_vector:
+            return None, None
+
+        try:
+            entity_service = self.context.embedding_service  # wait, actually entity_service for match
+
+            # Note: the match is on entity_service, embedding on embedding_service
+            # In practice, the context has embedding_service, but the match_entity_only is on entity_service.
+            # For accuracy, use container for entity_service here, or add to context.
+            from app.services.service_container import container
+            entity_service = container.entity_service
+
+            with SessionLocal() as entity_db:
+                entity_result = await entity_service.match_entity_only(
+                    db=entity_db,
+                    embedding=embedding_vector,
+                    threshold=0.75,
+                )
+
+            if entity_result:
+                logger.debug(
+                    f"Entity matched for context",
+                    extra={
+                        "entity_id": entity_result.entity_id,
+                        "entity_name": entity_result.name,
+                        "similarity_score": entity_result.similarity_score,
+                    }
+                )
+            else:
+                logger.debug("No entity match for context")
+
+            return embedding_vector, entity_result
+
+        except Exception as e:
+            logger.debug(f"Entity matching for context failed: {e}")
+            return embedding_vector, None

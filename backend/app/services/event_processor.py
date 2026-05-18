@@ -412,9 +412,7 @@ class EventProcessor:
                             continue  # Respect the stronger recovery policy
 
                         if not status.get("worker_alive", True):
-                            logger.warning(f"Health monitor detected dead worker for camera {camera_id}. Attempting restart.")
-
-                            # Get the camera object
+                            # Get the camera object to pass to the shared recovery helper
                             try:
                                 from app.core.database import get_db_session
                                 from app.models.camera import Camera
@@ -422,9 +420,9 @@ class EventProcessor:
                                 with get_db_session() as db:
                                     camera = db.query(Camera).filter(Camera.id == camera_id).first()
                                     if camera:
-                                        self.camera_service.restart_camera(camera)
+                                        await self._handle_unhealthy_camera_worker(camera, context="health_monitor")
                             except Exception as e:
-                                logger.error(f"Health monitor failed to restart camera {camera_id}: {e}")
+                                logger.error(f"Health monitor failed to handle unhealthy camera {camera_id}: {e}")
 
                 await asyncio.sleep(30.0)  # Check every 30 seconds
 
@@ -434,6 +432,33 @@ class EventProcessor:
             except Exception as e:
                 logger.error(f"Error in camera health monitor: {e}")
                 await asyncio.sleep(30.0)
+
+    async def _handle_unhealthy_camera_worker(self, camera: Camera, context: str = "motion_task"):
+        """
+        Centralized logic for handling a camera whose capture worker is unhealthy or dead.
+
+        Used by both the per-camera motion task and the background health monitor.
+        Tracks recovery attempts and applies exponential backoff with jitter.
+        """
+        stats = self.motion_task_stats.setdefault(camera.id, {})
+        recovery_attempts = stats.get("recovery_attempts", 0) + 1
+        stats["recovery_attempts"] = recovery_attempts
+
+        logger.warning(
+            f"Camera {camera.name} has no healthy capture worker (context={context}, attempt={recovery_attempts})"
+        )
+
+        if recovery_attempts <= 5:  # Align with CameraService.MAX_RESTART_ATTEMPTS
+            try:
+                self.camera_service.restart_camera(camera)
+                logger.info(f"Recovery restart triggered for {camera.name} (attempt {recovery_attempts})")
+            except Exception as e:
+                logger.error(f"Recovery restart failed for {camera.name}: {e}")
+
+        # Exponential backoff with jitter (capped)
+        backoff = min(4.0 * (2 ** min(recovery_attempts - 1, 5)), 90)
+        jitter = random.uniform(0, 2.0)
+        await asyncio.sleep(backoff + jitter)
 
     async def _motion_detection_task(self, camera: Camera):
         """
@@ -471,24 +496,7 @@ class EventProcessor:
                     worker_alive = worker_status.get("worker_alive", False) if worker_status else False
 
                     if not worker_alive:
-                        logger.warning(f"Camera {camera.name} has no healthy capture worker.")
-
-                        # Track recovery attempts
-                        stats = self.motion_task_stats.setdefault(camera.id, {})
-                        recovery_attempts = stats.get("recovery_attempts", 0) + 1
-                        stats["recovery_attempts"] = recovery_attempts
-
-                        if recovery_attempts <= 3:
-                            logger.info(f"Attempting recovery for camera {camera.name} (attempt {recovery_attempts})")
-                            try:
-                                self.camera_service.restart_camera(camera)
-                            except Exception as e:
-                                logger.error(f"Recovery attempt failed for {camera.name}: {e}")
-
-                        # Exponential backoff with jitter
-                        backoff = min(4.0 * (2 ** min(recovery_attempts - 1, 5)), 90)
-                        jitter = random.uniform(0, 2.0)
-                        await asyncio.sleep(backoff + jitter)
+                        await self._handle_unhealthy_camera_worker(camera, context="motion_task")
                         continue
 
                     try:

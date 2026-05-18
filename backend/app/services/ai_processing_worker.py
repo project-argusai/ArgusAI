@@ -33,17 +33,27 @@ class AIProcessingWorker:
     the worker logic easier to test and reason about in isolation.
     """
 
-    def __init__(self, worker_id: int, event_queue: asyncio.Queue, processor: "EventProcessor"):
+    def __init__(
+        self,
+        worker_id: int,
+        event_queue: asyncio.Queue,
+        *,
+        process_event: Callable[["ProcessingEvent", int], Awaitable[bool]],
+        metrics: "ProcessingMetrics",
+        is_running: Callable[[], bool],
+    ):
         self.worker_id = worker_id
         self.event_queue = event_queue
-        self.processor = processor
+        self._process_event = process_event
+        self.metrics = metrics
+        self._is_running = is_running
         self.logger = logging.getLogger(__name__)
 
     async def run(self) -> None:
         """Main worker loop. Runs until the processor is no longer running."""
         self.logger.info(f"AI Worker {self.worker_id} started")
 
-        while self.processor.running:
+        while self._is_running():
             try:
                 # Get event from queue (wait up to 1 second)
                 try:
@@ -56,19 +66,19 @@ class AIProcessingWorker:
                     continue
 
                 # Update queue depth metric
-                self.processor.metrics.queue_depth = self.event_queue.qsize()
+                self.metrics.queue_depth = self.event_queue.qsize()
 
                 # Process the event
                 start_time = time.time()
-                success = await self.processor._process_event(event, self.worker_id)
+                success = await self._process_event(event, self.worker_id)
                 duration_ms = (time.time() - start_time) * 1000
 
                 # Record metrics
-                self.processor.metrics.record_processing_time(duration_ms)
+                self.metrics.record_processing_time(duration_ms)
                 if success:
-                    self.processor.metrics.events_processed_success += 1
+                    self.metrics.events_processed_success += 1
                 else:
-                    self.processor.metrics.events_processed_failure += 1
+                    self.metrics.events_processed_failure += 1
 
                 # Signal that the queue item has been fully processed
                 self.event_queue.task_done()
@@ -80,7 +90,7 @@ class AIProcessingWorker:
                         "camera_id": event.camera_id,
                         "duration_ms": duration_ms,
                         "success": success,
-                        "queue_depth": self.processor.metrics.queue_depth,
+                        "queue_depth": self.metrics.queue_depth,
                     },
                 )
 
@@ -93,7 +103,7 @@ class AIProcessingWorker:
                     exc_info=True,
                     extra={"worker_id": self.worker_id},
                 )
-                self.processor.metrics.increment_error("worker_exception")
+                self.metrics.increment_error("worker_exception")
                 # Brief pause before retrying to avoid tight error loops
                 await asyncio.sleep(1.0)
 

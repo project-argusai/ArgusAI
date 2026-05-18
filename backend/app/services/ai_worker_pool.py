@@ -10,9 +10,12 @@ of EventProcessor.
 import asyncio
 import logging
 import os
-from typing import List, Optional, Callable, Awaitable
+from typing import List, Optional, Callable, Awaitable, TYPE_CHECKING
 
 from app.services.ai_processing_worker import AIProcessingWorker
+
+if TYPE_CHECKING:
+    from app.services.event_processor import ProcessingMetrics, ProcessingEvent
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +34,18 @@ class AIWorkerPool:
         self,
         worker_count: int,
         event_queue: asyncio.Queue,
-        # Callback that the workers will use to process events
-        # (currently provided by EventProcessor)
-        process_event_callback: Callable[[object, int], Awaitable[None]],
+        *,
+        # Callback for processing a single event (replaces passing the whole processor)
+        process_event: Callable[["ProcessingEvent", int], Awaitable[bool]],
+        metrics: "ProcessingMetrics",
+        is_running: Callable[[], bool],
         ai_concurrent_limit: Optional[int] = None,
     ):
         self.worker_count = max(1, worker_count)
         self.event_queue = event_queue
-        self._process_event = process_event_callback
+        self._process_event = process_event
+        self.metrics = metrics
+        self._is_running = is_running
 
         # Concurrency control for AI calls (owned by the pool)
         ai_limit = ai_concurrent_limit or int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
@@ -58,10 +65,10 @@ class AIWorkerPool:
             worker = AIProcessingWorker(
                 worker_id=i,
                 event_queue=self.event_queue,
-                processor=self,  # temporary until we fully decouple
+                process_event=self._process_event,
+                metrics=self.metrics,
+                is_running=self._is_running,
             )
-            # Note: AIProcessingWorker currently expects a 'processor' with
-            # certain methods. We pass self for now during transition.
             task = asyncio.create_task(worker.run(), name=f"ai_worker_{i}")
             self._worker_tasks.append(task)
 

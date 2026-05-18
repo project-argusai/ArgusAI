@@ -277,7 +277,9 @@ class EventProcessor:
             self.ai_worker_pool = AIWorkerPool(
                 worker_count=self.worker_count,
                 event_queue=self.event_queue,
-                process_event_callback=self._process_event,  # type: ignore
+                process_event=self._process_event,
+                metrics=self.metrics,
+                is_running=lambda: self.running,
                 ai_concurrent_limit=ai_limit,
             )
         await self.ai_worker_pool.start()

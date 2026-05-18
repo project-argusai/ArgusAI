@@ -44,10 +44,13 @@ class CameraTaskManager:
         motion_service: MotionDetectionService,
         # Callback to queue a ProcessingEvent back to the main processor
         queue_event_callback: Callable[["ProcessingEvent"], Awaitable[None]],
+        # How often (in seconds) the background health monitor should check camera workers
+        health_check_interval: float = 30.0,
     ):
         self.camera_service = camera_service
         self.motion_service = motion_service
         self._queue_event = queue_event_callback
+        self._health_check_interval = max(5.0, health_check_interval)  # minimum 5s to avoid spam
 
         # Internal state (private)
         self._motion_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> task
@@ -132,6 +135,12 @@ class CameraTaskManager:
     def get_monitored_cameras(self) -> list[str]:
         """Return list of camera IDs currently being monitored."""
         return list(self._motion_tasks.keys())
+
+    def is_health_monitor_running(self) -> bool:
+        """Return whether the background health monitor task is currently active."""
+        return bool(
+            self._health_monitor_task and not self._health_monitor_task.done()
+        )
 
     def record_frame_pulled(self, camera_id: str):
         """Helper for motion tasks to update stats."""
@@ -335,14 +344,14 @@ class CameraTaskManager:
                                     f"Health monitor failed to handle unhealthy camera {camera_id}: {e}"
                                 )
 
-                await self._sleep_respecting_shutdown(30.0)
+                await self._sleep_respecting_shutdown(self._health_check_interval)
 
             except asyncio.CancelledError:
                 logger.info("Camera health monitor cancelled")
                 raise
             except Exception as e:
                 logger.error(f"Error in camera health monitor: {e}")
-                await self._sleep_respecting_shutdown(30.0)
+                await self._sleep_respecting_shutdown(self._health_check_interval)
 
     async def stop_health_monitor(self):
         """Stop the health monitor task."""

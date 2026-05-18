@@ -244,6 +244,7 @@ class EventProcessor:
                 camera_service=self.camera_service,
                 motion_service=self.motion_service,
                 queue_event_callback=self.queue_event,
+                health_check_interval=30.0,  # seconds
             )
 
         # Aliases removed - all access now goes through camera_task_manager
@@ -2458,6 +2459,7 @@ class EventProcessor:
 
         # Include motion task stats summary
         data["motion_tasks"] = self.get_motion_task_stats()
+        data["health_monitor_running"] = self.is_health_monitor_running()
 
         return data
 
@@ -2466,6 +2468,12 @@ class EventProcessor:
         if self.camera_task_manager:
             return self.camera_task_manager.get_motion_task_stats()
         return {}
+
+    def is_health_monitor_running(self) -> bool:
+        """Return whether the background camera health monitor is currently active."""
+        if self.camera_task_manager:
+            return self.camera_task_manager.is_health_monitor_running()
+        return False
 
 
 # Global instance (initialized in FastAPI lifespan)

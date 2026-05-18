@@ -407,3 +407,103 @@ class TestCameraService:
 
         # Clean up
         camera_service.stop_camera(usb_camera.id, timeout=1.0)
+
+
+class TestCameraCaptureRecoveryPolicy:
+    """Tests for the stronger automatic recovery / disable policy (#449)"""
+
+    @pytest.fixture
+    def camera_service(self):
+        return CameraService()
+
+    @pytest.fixture
+    def test_camera(self):
+        camera = Mock(spec=Camera)
+        camera.id = "test-cam-recovery-001"
+        camera.name = "Recovery Test Cam"
+        camera.type = "rtsp"
+        camera.frame_rate = 5
+        return camera
+
+    def test_manual_disable_and_enable(self, camera_service, test_camera):
+        """Admin can manually disable and re-enable a camera."""
+        cid = test_camera.id
+
+        assert cid not in camera_service._capture_disabled
+
+        camera_service.disable_camera_capture(cid)
+        assert cid in camera_service._capture_disabled
+
+        camera_service.enable_camera_capture(cid)
+        assert cid not in camera_service._capture_disabled
+
+    def test_start_refused_when_disabled(self, camera_service, test_camera):
+        """start_camera should refuse when camera is disabled."""
+        cid = test_camera.id
+        camera_service.disable_camera_capture(cid)
+
+        success = camera_service.start_camera(test_camera)
+        assert success is False
+
+        # Re-enable and it should work (mocked)
+        camera_service.enable_camera_capture(cid)
+        assert cid not in camera_service._capture_disabled
+
+    def test_auto_disable_after_max_restarts(self, camera_service, test_camera):
+        """Camera should be auto-disabled after MAX_RESTART_ATTEMPTS failed restarts."""
+        cid = test_camera.id
+        camera_service.MAX_RESTART_ATTEMPTS = 3  # speed up test
+
+        # Simulate repeated failed restarts (we call restart directly)
+        for i in range(3):
+            camera_service.restart_camera(test_camera)
+
+        assert cid in camera_service._capture_disabled
+        assert camera_service._restart_attempts.get(cid, 0) >= 3
+
+    def test_enable_clears_disabled_state(self, camera_service, test_camera):
+        """Re-enabling a disabled camera clears the disabled flag and attempt counter."""
+        cid = test_camera.id
+        camera_service.disable_camera_capture(cid)
+        camera_service._restart_attempts[cid] = 10
+
+        camera_service.enable_camera_capture(cid)
+
+        assert cid not in camera_service._capture_disabled
+        assert camera_service._restart_attempts.get(cid, 0) == 0
+
+    def test_auto_disable_after_max_restarts(self, camera_service, test_camera):
+        """Camera should become capture-disabled after MAX_RESTART_ATTEMPTS failed restarts."""
+        cid = test_camera.id
+        camera_service.MAX_RESTART_ATTEMPTS = 3
+        camera_service.RESTART_WINDOW_SECONDS = 999999  # Prevent window reset during test
+
+        # Simulate repeated failed restarts
+        for _ in range(3):
+            camera_service.restart_camera(test_camera)
+
+        assert cid in camera_service._capture_disabled
+        assert camera_service._restart_attempts.get(cid, 0) >= 3
+
+    def test_health_summary_counts_disabled_cameras(self, camera_service, test_camera):
+        """get_camera_health_summary should correctly count disabled cameras."""
+        cid = test_camera.id
+        camera_service.disable_camera_capture(cid)
+
+        summary = camera_service.get_camera_health_summary()
+
+        assert summary["disabled"] >= 1
+        assert cid in summary["cameras"]
+        assert summary["cameras"][cid]["capture_disabled"] is True
+
+    def test_restart_attempts_reset_on_success(self, camera_service, test_camera):
+        """Successful restart should reset the attempt counter."""
+        cid = test_camera.id
+        camera_service._restart_attempts[cid] = 4
+
+        # Simulate a successful restart (we'll mock the internal start to succeed)
+        with patch.object(camera_service, 'start_camera', return_value=True):
+            camera_service.restart_camera(test_camera)
+
+        assert camera_service._restart_attempts.get(cid, 0) == 0
+        assert cid not in camera_service._capture_disabled

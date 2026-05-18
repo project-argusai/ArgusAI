@@ -194,6 +194,12 @@ class CameraResponse(CameraBase):
     # Note: password field is intentionally omitted (write-only field)
     # Note: analysis_mode and homekit_stream_quality are inherited from CameraBase
 
+    # Runtime capture health (populated by CameraService when available)
+    capture_disabled: Optional[bool] = Field(None, description="Whether capture has been disabled (manually or by recovery policy)")
+    restart_attempts: Optional[int] = Field(None, description="Number of recent automatic restart attempts")
+    worker_status: Optional[str] = Field(None, description="Current worker status (connected, dead, reconnecting, etc.)")
+    worker_alive: Optional[bool] = Field(None, description="Whether the capture worker is currently considered alive")
+
     @field_validator('audio_event_types', mode='before')
     @classmethod
     def deserialize_audio_event_types(cls, v):

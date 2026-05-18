@@ -55,7 +55,8 @@ class ProcessingContext:
     # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
     generate_thumbnail: Callable[[Any], Optional[str]]
     generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
-    store_processed_event: Callable[..., Awaitable[Optional[str]]]
+    # store_processed_event has been moved into the coordinator
+    store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
     send_push_notification: Callable[..., Awaitable[None]]
     publish_camera_status_sensors: Callable[..., Awaitable[None]]
     run_homekit_triggers: Callable[..., Awaitable[None]]
@@ -202,7 +203,7 @@ class AIProcessingCoordinator:
                 bounding_boxes_json = json.dumps(ai_result.bounding_boxes)
 
             # Store the successfully processed event
-            event_id = await self.context.store_processed_event(
+            event_id = await self._store_processed_event(
                 event=event,
                 ai_result=ai_result,
                 thumbnail_base64=thumbnail_base64,
@@ -437,7 +438,7 @@ class AIProcessingCoordinator:
             }
 
             # Use the store helper from the context for the retry case
-            success = await self.context.store_processed_event(event_data)
+            success = await self.context.store_event_with_retry(event_data, max_retries=3)
             if success:
                 logger.info(
                     f"Event stored for retry: camera {event.camera_name}",
@@ -446,3 +447,41 @@ class AIProcessingCoordinator:
             return None
 
         return ai_result
+
+    async def _store_processed_event(
+        self,
+        event: ProcessingEvent,
+        ai_result: Any,
+        thumbnail_base64: Optional[str],
+        delivery_carrier: Optional[str] = None,
+        has_annotations: bool = False,
+        bounding_boxes_json: Optional[str] = None,
+    ) -> Optional[str]:
+        """Build the rich event payload and store it after successful AI processing."""
+        event_data = {
+            "camera_id": event.camera_id,
+            "timestamp": event.timestamp.isoformat(),
+            "description": ai_result.description,
+            "confidence": ai_result.confidence,
+            "objects_detected": ai_result.objects_detected,
+            "thumbnail_base64": thumbnail_base64,
+            "alert_triggered": False,
+            "provider_used": ai_result.provider,
+            "description_retry_needed": False,
+            "ai_cost": ai_result.cost_estimate,
+            "delivery_carrier": delivery_carrier,
+            "has_annotations": has_annotations,
+            "bounding_boxes": bounding_boxes_json,
+        }
+
+        logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
+        event_id = await self.context.store_event_with_retry(event_data, max_retries=3)
+
+        if not event_id:
+            logger.error(
+                f"Failed to store event for camera {event.camera_name}",
+                extra={"camera_id": event.camera_id}
+            )
+            self.context.metrics.increment_error("event_storage_failed")
+
+        return event_id

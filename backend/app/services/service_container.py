@@ -85,6 +85,10 @@ from app.services.face_embedding_service import get_face_embedding_service, rese
 from app.services.person_matching_service import get_person_matching_service, reset_person_matching_service
 from app.services.entity_alert_service import get_entity_alert_service, reset_entity_alert_service
 from app.services.audio_stream_service import get_audio_stream_extractor, reset_audio_stream_extractor
+from app.services.context_prompt_service import get_context_prompt_service, reset_context_prompt_service
+from app.services.frame_annotation_service import get_frame_annotation_service, reset_frame_annotation_service
+from app.services.anomaly_scoring_service import get_anomaly_scoring_service, reset_anomaly_scoring_service
+from app.services.entity_service import get_entity_service, reset_entity_service
 from app.services.vehicle_matching_service import get_vehicle_matching_service, reset_vehicle_matching_service
 
 
@@ -237,6 +241,22 @@ class ServiceContainer:
         return get_audio_stream_extractor()
 
     @property
+    def context_prompt_service(self):
+        return get_context_prompt_service()
+
+    @property
+    def frame_annotation_service(self):
+        return get_frame_annotation_service()
+
+    @property
+    def anomaly_scoring_service(self):
+        return get_anomaly_scoring_service()
+
+    @property
+    def entity_service(self):
+        return get_entity_service()
+
+    @property
     def vehicle_matching_service(self):
         return get_vehicle_matching_service()
 
@@ -273,6 +293,10 @@ class ServiceContainer:
         reset_person_matching_service,
         reset_entity_alert_service,
         reset_audio_stream_extractor,
+        reset_context_prompt_service,
+        reset_frame_annotation_service,
+        reset_anomaly_scoring_service,
+        reset_entity_service,
     ]
 
     def reset_all_for_tests(self) -> None:

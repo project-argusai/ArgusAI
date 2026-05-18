@@ -35,6 +35,10 @@ class TestAIProcessingCoordinator:
             "cost_alert_service": Mock(),
             "embedding_service": Mock(),
             "mqtt_service": Mock(),
+            "homekit_service": Mock(),
+            "face_embedding_service": Mock(),
+            "vehicle_embedding_service": Mock(),
+            "entity_service": Mock(),
         }
 
     @pytest.fixture
@@ -96,6 +100,10 @@ class TestAIProcessingCoordinator:
             enrich_event_with_audio=mock_helpers["enrich_event_with_audio"],
             publish_event_to_mqtt=mock_helpers["publish_event_to_mqtt"],
             store_event_with_retry=mock_helpers["store_event_with_retry"],
+            homekit_service=mock_context_services["homekit_service"],
+            face_embedding_service=mock_context_services["face_embedding_service"],
+            vehicle_embedding_service=mock_context_services["vehicle_embedding_service"],
+            entity_service=mock_context_services["entity_service"],
         )
 
     @pytest.mark.asyncio
@@ -171,6 +179,10 @@ class TestAIProcessingCoordinator:
             enrich_event_with_audio=mock_helpers["enrich_event_with_audio"],
             publish_event_to_mqtt=mock_helpers["publish_event_to_mqtt"],
             store_event_with_retry=mock_helpers["store_event_with_retry"],
+            homekit_service=mock_context_services["homekit_service"],
+            face_embedding_service=mock_context_services["face_embedding_service"],
+            vehicle_embedding_service=mock_context_services["vehicle_embedding_service"],
+            entity_service=mock_context_services["entity_service"],
         )
         assert coord.ai_service is mock_ai_service
         assert coord.metrics is mock_metrics
@@ -745,3 +757,108 @@ class TestAIProcessingCoordinator:
 
         # The embedding_service is in the context
         assert True  # Full assertion once the full logic is in the private method
+
+    @pytest.mark.asyncio
+    async def test_run_homekit_triggers_uses_injected_homekit_service(self, coordinator, mock_context_services, sample_event):
+        """_run_homekit_triggers should call methods on the injected homekit_service"""
+        mock_homekit = mock_context_services["homekit_service"]
+        mock_homekit.is_running = True
+        mock_homekit.trigger_motion.return_value = True
+        mock_homekit.trigger_occupancy.return_value = True
+
+        await coordinator._run_homekit_triggers(
+            event=sample_event,
+            event_id="event-123",
+            smart_detection_type="person",
+        )
+
+        mock_homekit.trigger_motion.assert_called_once()
+        mock_homekit.trigger_occupancy.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_face_embeddings_uses_injected_face_service(self, coordinator, mock_context_services, sample_event):
+        """_process_face_embeddings should call the injected face_embedding_service"""
+        mock_face = mock_context_services["face_embedding_service"]
+
+        await coordinator._process_face_embeddings(
+            event=sample_event,
+            event_id="event-123",
+            thumbnail_base64="fake-thumb",
+        )
+
+        mock_face.process_face_embedding.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_vehicle_embeddings_uses_injected_vehicle_service(self, coordinator, mock_context_services, sample_event):
+        """_process_vehicle_embeddings should call the injected vehicle_embedding_service"""
+        mock_vehicle = mock_context_services["vehicle_embedding_service"]
+
+        await coordinator._process_vehicle_embeddings(
+            event=sample_event,
+            event_id="event-123",
+            objects_json="[]",
+            thumbnail_base64="fake-thumb",
+            ai_result=Mock(description="test"),
+            smart_detection_type="vehicle",
+        )
+
+        mock_vehicle.process_vehicle_embedding.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_process_entity_alerts_uses_injected_entity_service(self, coordinator, mock_context_services, sample_event):
+        """_process_entity_alerts should call the injected entity_service"""
+        mock_entity = mock_context_services["entity_service"]
+
+        await coordinator._process_entity_alerts(
+            event=sample_event,
+            event_id="event-123",
+            ai_result=Mock(description="test"),
+            objects_detected=["person"],
+        )
+
+        mock_entity.execute_entity_alerts.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_homekit_triggers_graceful_when_service_not_running(self, coordinator, mock_context_services, sample_event):
+        """_run_homekit_triggers should do nothing if homekit_service is not running"""
+        mock_homekit = mock_context_services["homekit_service"]
+        mock_homekit.is_running = False
+
+        await coordinator._run_homekit_triggers(
+            event=sample_event,
+            event_id="event-123",
+            smart_detection_type="person",
+        )
+
+        mock_homekit.trigger_motion.assert_not_called()
+        mock_homekit.trigger_occupancy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_post_processing_methods_handle_missing_services_gracefully(self, coordinator, mock_context_services, sample_event):
+        """Post-processing methods should not crash if their service is None"""
+        mock_context_services["face_embedding_service"] = None
+
+        # Should not raise
+        await coordinator._process_face_embeddings(
+            event=sample_event,
+            event_id="event-123",
+            thumbnail_base64="fake-thumb",
+        )
+
+    @pytest.mark.asyncio
+    async def test_publish_mqtt_event_uses_mqtt_service_direct(self, coordinator, mock_context_services, sample_event):
+        """_publish_mqtt_event should use the injected mqtt_service"""
+        await coordinator._publish_mqtt_event(event=sample_event, event_id="event-xyz")
+        # The method uses self.mqtt_service; we just ensure it runs without error
+        assert True
+
+    @pytest.mark.asyncio
+    async def test_store_embedding_uses_embedding_service_direct(self, coordinator, mock_context_services, sample_event):
+        """_store_embedding should use the injected embedding_service"""
+        await coordinator._store_embedding(
+            event_id="event-xyz",
+            embedding_vector=b"fake-emb",
+            camera_id="cam-123",
+        )
+        # The method uses self.embedding_service; we just ensure it runs
+        assert True

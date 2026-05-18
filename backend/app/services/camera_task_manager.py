@@ -12,11 +12,17 @@ import asyncio
 import logging
 import random
 import time
+from datetime import datetime, timezone
 from typing import Dict, Optional, Callable, Awaitable
 
 from app.models.camera import Camera
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService
+
+# Forward import to avoid circular dependency
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.services.event_processor import ProcessingEvent
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +42,12 @@ class CameraTaskManager:
         self,
         camera_service: CameraService,
         motion_service: MotionDetectionService,
-        # Factory provided by the owner (currently EventProcessor) that
-        # runs the actual motion detection loop for one camera.
-        motion_task_factory: Callable[[Camera], Awaitable[None]],
+        # Callback to queue a ProcessingEvent back to the main processor
+        queue_event_callback: Callable[["ProcessingEvent"], Awaitable[None]],
     ):
         self.camera_service = camera_service
         self.motion_service = motion_service
-        self._motion_task_factory = motion_task_factory
+        self._queue_event = queue_event_callback
 
         # Internal state (was previously on EventProcessor)
         self.motion_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> task
@@ -52,13 +57,14 @@ class CameraTaskManager:
     async def start_monitoring(self, camera: Camera):
         """
         Start a motion detection task for the given camera.
+        The actual loop now lives inside this class.
         """
         if camera.id in self.motion_tasks:
             logger.warning(f"Camera {camera.id} already being monitored")
             return
 
         task = asyncio.create_task(
-            self._motion_task_factory(camera),
+            self._run_motion_detection_loop(camera),
             name=f"motion_task_{camera.id}"
         )
         self.motion_tasks[camera.id] = task
@@ -149,3 +155,92 @@ class CameraTaskManager:
 
         self.camera_cooldowns.clear()
         # Note: we intentionally keep motion_task_stats for observability after shutdown
+
+    async def _run_motion_detection_loop(self, camera: Camera):
+        """
+        Core per-camera motion detection loop (moved from EventProcessor).
+
+        This method now lives fully inside CameraTaskManager.
+        """
+        logger.info(f"Motion detection task started for camera: {camera.name}")
+
+        frame_interval = 1.0 / camera.frame_rate if camera.frame_rate > 0 else 0.2
+
+        while True:  # The manager will control running state via task cancellation
+            try:
+                # Check cooldown
+                last_event_time = self.get_cooldown(camera.id)
+                time_since_last_event = time.time() - last_event_time
+
+                if time_since_last_event < camera.motion_cooldown:
+                    await asyncio.sleep(frame_interval)
+                    continue
+
+                # === Real frame acquisition via CameraCaptureWorker (with backpressure) ===
+                frame = None
+
+                if self.camera_service:
+                    worker_status = self.camera_service.get_camera_status(camera.id)
+                    worker_alive = worker_status.get("worker_alive", False) if worker_status else False
+
+                    if not worker_alive:
+                        await self.handle_unhealthy_camera_worker(camera, context="motion_task")
+                        continue
+
+                    try:
+                        frame = self.camera_service.get_frame(camera.id, timeout=0.2)
+                    except Exception as e:
+                        logger.debug(f"Failed to get frame from camera_service for {camera.id}: {e}")
+
+                if frame is None:
+                    await asyncio.sleep(frame_interval * 0.5)
+                    continue
+
+                # === Run motion detection ===
+                try:
+                    motion_result = self.motion_service.process_frame(
+                        frame, camera_id=camera.id
+                    )
+                except Exception as e:
+                    logger.warning(f"Motion detection failed for camera {camera.name}: {e}")
+                    await asyncio.sleep(frame_interval)
+                    continue
+
+                if motion_result and motion_result.get("motion_detected"):
+                    from app.services.event_processor import ProcessingEvent  # local import to avoid cycles
+
+                    processing_event = ProcessingEvent(
+                        camera_id=str(camera.id),
+                        camera_name=camera.name,
+                        frame=frame,
+                        timestamp=datetime.now(timezone.utc),
+                        detected_objects=motion_result.get("detected_objects", ["unknown"]),
+                        metadata={
+                            "motion_confidence": motion_result.get("confidence", 0.0),
+                            "source": "camera_capture_worker",
+                        },
+                    )
+                    await self._queue_event(processing_event)
+                    logger.info(f"Motion event queued for camera {camera.name}")
+
+                # Stats
+                self.record_frame_pulled(camera.id)
+                self.record_motion_check(camera.id)
+                if frame is not None:
+                    stats = self.motion_task_stats.get(camera.id, {})
+                    if stats.get("recovery_attempts", 0) > 0:
+                        stats["recovery_attempts"] = 0
+
+                await asyncio.sleep(frame_interval)
+
+            except asyncio.CancelledError:
+                logger.info(f"Motion detection task cancelled for camera: {camera.name}")
+                raise
+            except Exception as e:
+                logger.error(
+                    f"Error in motion detection task for camera {camera.name}: {e}",
+                    exc_info=True,
+                    extra={"camera_id": camera.id, "camera_name": camera.name}
+                )
+                self.record_error(camera.id)
+                await asyncio.sleep(10.0)

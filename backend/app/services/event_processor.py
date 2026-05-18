@@ -244,7 +244,7 @@ class EventProcessor:
             self.camera_task_manager = CameraTaskManager(
                 camera_service=self.camera_service,
                 motion_service=self.motion_service,
-                motion_task_factory=self._motion_detection_task,
+                queue_event_callback=self.queue_event,
             )
 
         # Aliases removed - all access now goes through camera_task_manager

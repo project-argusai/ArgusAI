@@ -293,9 +293,8 @@ class EventProcessor:
                 # Still-bound helpers on EventProcessor (to be extracted later)
                 generate_thumbnail=self._generate_thumbnail,
                 generate_and_match_entity=self._generate_and_match_entity,
-                # generate_ai_description and store_processed_event moved into the coordinator
+                # generate_ai_description, store_processed_event, and send_push_notification moved into the coordinator
                 store_event_with_retry=self._store_event_with_retry,
-                send_push_notification=self._send_push_notification,
                 publish_camera_status_sensors=self._publish_camera_status_sensors,
                 run_homekit_triggers=self._run_homekit_triggers,
                 link_entity_to_event=self._link_entity_to_event,

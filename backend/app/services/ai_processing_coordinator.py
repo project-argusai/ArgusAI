@@ -55,9 +55,8 @@ class ProcessingContext:
     # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
     generate_thumbnail: Callable[[Any], Optional[str]]
     generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
-    # store_processed_event has been moved into the coordinator
+    # store_processed_event and send_push_notification have been moved into the coordinator
     store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
-    send_push_notification: Callable[..., Awaitable[None]]
     publish_camera_status_sensors: Callable[..., Awaitable[None]]
     run_homekit_triggers: Callable[..., Awaitable[None]]
     link_entity_to_event: Callable[..., Awaitable[None]]
@@ -226,7 +225,7 @@ class AIProcessingCoordinator:
                 logger.warning(f"Failed to check cost alerts: {alert_error}")
 
             # Push notifications
-            await self.context.send_push_notification(
+            await self._send_push_notification(
                 event=event,
                 event_id=event_id,
                 ai_result=ai_result,
@@ -485,3 +484,45 @@ class AIProcessingCoordinator:
             self.context.metrics.increment_error("event_storage_failed")
 
         return event_id
+
+    async def _send_push_notification(
+        self,
+        event: ProcessingEvent,
+        event_id: str,
+        ai_result: Any,
+        thumbnail_base64: Optional[str],
+    ) -> None:
+        """Fire-and-forget push notification for a processed event."""
+        try:
+            from app.services.push_notification_service import send_event_notification
+
+            push_thumbnail_url = None
+            if thumbnail_base64:
+                date_str = event.timestamp.strftime("%Y-%m-%d")
+                push_thumbnail_url = f"/api/v1/thumbnails/{date_str}/{event_id}.jpg"
+
+            smart_detection_type = event.metadata.get("smart_detection_type")
+            if not smart_detection_type and event.detected_objects:
+                obj = event.detected_objects[0].lower() if event.detected_objects else None
+                if obj in ("person", "vehicle", "package", "animal"):
+                    smart_detection_type = obj
+
+            asyncio.create_task(
+                send_event_notification(
+                    event_id=event_id,
+                    camera_name=event.camera_name,
+                    description=ai_result.description,
+                    thumbnail_url=push_thumbnail_url,
+                    camera_id=event.camera_id,
+                    smart_detection_type=smart_detection_type,
+                )
+            )
+            logger.debug(
+                f"Push notification task created for event {event_id}",
+                extra={"event_id": event_id, "camera_name": event.camera_name}
+            )
+        except Exception as push_error:
+            logger.warning(
+                f"Failed to create push notification task: {push_error}",
+                extra={"error": str(push_error)}
+            )

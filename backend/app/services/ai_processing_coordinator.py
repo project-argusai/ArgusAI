@@ -53,7 +53,6 @@ class ProcessingContext:
     mqtt_service: Any
 
     # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
-    handle_cost_cap_skip: Callable[[ProcessingEvent], Awaitable[bool | None]]
     generate_thumbnail: Callable[[Any], Optional[str]]
     generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
     store_processed_event: Callable[..., Awaitable[Optional[str]]]
@@ -92,7 +91,7 @@ class AIProcessingCoordinator:
         """
         try:
             # Story P3-7.3: Check cost caps before AI analysis
-            handled = await self.context.handle_cost_cap_skip(event)
+            handled = await self._handle_cost_cap_skip(event)
             if handled:
                 return handled
 
@@ -325,6 +324,49 @@ class AIProcessingCoordinator:
             )
             self.context.metrics.increment_error("processing_exception")
             return False
+
+    async def _handle_cost_cap_skip(self, event: ProcessingEvent) -> bool:
+        """
+        Check cost caps before AI analysis.
+
+        If analysis should be skipped due to cost caps, stores a minimal event
+        and returns True. Otherwise returns False so normal processing can continue.
+
+        Story P3-7.3
+        """
+        from app.services.service_container import container
+        from app.core.database import get_db_session
+
+        cost_cap_service = container.cost_cap_service
+        with get_db_session() as db:
+            can_analyze, skip_reason = cost_cap_service.can_analyze(db)
+
+        if can_analyze:
+            return False
+
+        logger.info(
+            f"AI analysis skipped for camera {event.camera_name} due to {skip_reason}",
+            extra={"camera_id": event.camera_id, "skip_reason": skip_reason}
+        )
+        self.context.metrics.increment_error(f"cost_cap_{skip_reason}")
+
+        # Store event without AI description, with skip reason
+        thumbnail_base64 = self.context.generate_thumbnail(event.frame)
+        event_data = {
+            "camera_id": event.camera_id,
+            "timestamp": event.timestamp.isoformat(),
+            "description": f"AI analysis paused - {skip_reason.replace('_', ' ')}",
+            "confidence": 0,
+            "objects_detected": event.detected_objects,
+            "thumbnail_base64": thumbnail_base64,
+            "alert_triggered": False,
+            "provider_used": None,
+            "description_retry_needed": True,
+            "analysis_skipped_reason": skip_reason,
+        }
+
+        success = await self.context.store_processed_event(event_data)
+        return success
 
     async def _generate_ai_description(
         self,

@@ -291,7 +291,6 @@ class EventProcessor:
                 mqtt_service=container.mqtt_service,
 
                 # Still-bound helpers on EventProcessor (to be extracted later)
-                handle_cost_cap_skip=self._handle_cost_cap_skip,
                 generate_thumbnail=self._generate_thumbnail,
                 generate_and_match_entity=self._generate_and_match_entity,
                 # generate_ai_description moved into the coordinator

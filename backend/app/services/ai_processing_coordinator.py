@@ -326,3 +326,81 @@ class AIProcessingCoordinator:
             self.context.metrics.increment_error("processing_exception")
             return False
 
+    async def _generate_ai_description(
+        self,
+        event: ProcessingEvent,
+        worker_id: int,
+        context_enhanced_prompt: Optional[str],
+        thumbnail_base64: Optional[str],
+    ) -> Optional[Any]:
+        """
+        Call the AI service to generate a description, with OCR and concurrency control.
+
+        Returns the AIResult on success, or None if all providers failed
+        (in which case a retry event has already been stored).
+        """
+        # Story P9-3.2: Extract OCR from frame overlay if enabled
+        ocr_result = None
+        try:
+            from app.models.system_setting import SystemSetting
+            from app.services.ocr_service import extract_overlay_text, is_ocr_available
+
+            with SessionLocal() as ocr_db:
+                setting = ocr_db.query(SystemSetting).filter(
+                    SystemSetting.key == 'settings_attempt_ocr_extraction'
+                ).first()
+                if setting and setting.value.lower() == 'true' and is_ocr_available():
+                    try:
+                        ocr_result = extract_overlay_text(event.frame)
+                    except Exception as ocr_err:
+                        logger.warning(f"OCR extraction failed: {ocr_err}")
+        except Exception as ocr_setup_err:
+            logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
+
+        # Limit concurrent AI calls (Phase A.5)
+        # The semaphore is owned by the AIWorkerPool and exposed via the ai_service for now.
+        semaphore = getattr(self.ai_service, 'ai_semaphore', None) or asyncio.Semaphore(8)
+        async with semaphore:
+            ai_concurrent_in_flight.inc()
+            try:
+                ai_result = await self.ai_service.generate_description(
+                    frame=event.frame,
+                    camera_name=event.camera_name,
+                    timestamp=event.timestamp.isoformat(),
+                    detected_objects=event.detected_objects,
+                    sla_timeout_ms=5000,
+                    custom_prompt=context_enhanced_prompt,
+                    ocr_result=ocr_result,
+                )
+            finally:
+                ai_concurrent_in_flight.dec()
+
+        if not ai_result.success:
+            logger.warning(
+                f"All AI providers failed for camera {event.camera_name}, storing event for retry",
+                extra={"camera_id": event.camera_id, "error": "All AI providers down"}
+            )
+            self.context.metrics.increment_error("ai_service_failed")
+
+            event_data = {
+                "camera_id": event.camera_id,
+                "timestamp": event.timestamp.isoformat(),
+                "description": "[AI description pending - providers unavailable]",
+                "confidence": 0,
+                "objects_detected": event.detected_objects,
+                "thumbnail_base64": thumbnail_base64,
+                "alert_triggered": False,
+                "provider_used": None,
+                "description_retry_needed": True,
+            }
+
+            # Use the store helper from the context for the retry case
+            success = await self.context.store_processed_event(event_data)
+            if success:
+                logger.info(
+                    f"Event stored for retry: camera {event.camera_name}",
+                    extra={"camera_id": event.camera_id, "description_retry_needed": True}
+                )
+            return None
+
+        return ai_result

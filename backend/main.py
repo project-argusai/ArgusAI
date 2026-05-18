@@ -51,6 +51,7 @@ from app.api.v1.api_keys import router as api_keys_router  # Story P13-1: API Ke
 from app.api.v1.users import router as users_router  # Story P15-2.3: User Management
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.cleanup_service import get_cleanup_service
+from app.services.service_container import container
 from app.services.protect_service import ProtectService  # Story P2-1.4: Protect WebSocket (now via @singleton)
 from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_service  # Story P4-2.1: MQTT
 from app.services.mqtt_discovery_service import initialize_discovery_service, get_discovery_service  # Story P4-2.2: HA Discovery
@@ -94,7 +95,7 @@ async def scheduled_cleanup_job():
         logger.info(f"Starting scheduled cleanup (retention: {retention_days} days)")
 
         # Execute cleanup
-        cleanup_service = get_cleanup_service()
+        cleanup_service = container.cleanup_service
         stats = await cleanup_service.cleanup_old_events(retention_days=retention_days)
 
         logger.info(
@@ -117,6 +118,7 @@ async def scheduled_backup_job():
     try:
         # Check if automatic backups are enabled
         from app.core.database import get_db_session
+        backup_service = container.backup_service
         from app.models.system_setting import SystemSetting
 
         with get_db_session() as db:
@@ -138,7 +140,7 @@ async def scheduled_backup_job():
         logger.info("Starting scheduled automatic backup")
 
         # Create backup
-        backup_service = get_backup_service()
+        backup_service = container.backup_service
         result = await backup_service.create_backup()
 
         if result.success:
@@ -176,7 +178,7 @@ async def scheduled_pattern_calculation_job():
 
         with get_db_session() as db:
             # Get pattern service and recalculate all patterns
-            pattern_service = get_pattern_service()
+            pattern_service = container.pattern_service
             result = await pattern_service.recalculate_all_patterns(db)
 
             logger.info(
@@ -600,7 +602,7 @@ async def lifespan(app: FastAPI):
                         token = decrypt_password(token_setting.value)
 
                         # Start tunnel
-                        tunnel_service = get_tunnel_service()
+                        tunnel_service = container.tunnel_service
                         success = await tunnel_service.start(token)
 
                         if success:
@@ -672,7 +674,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown HomeKit service (Story P4-6.1)
     try:
-        homekit_service = get_homekit_service()
+        homekit_service = container.homekit_service
         if homekit_service.is_running:
             await homekit_service.stop()
             logger.info(

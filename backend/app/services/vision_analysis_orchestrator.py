@@ -42,7 +42,7 @@ from app.services.ai_types import AIProvider, AIResult, PROVIDER_CAPABILITIES
 from app.services.ai_providers.base import AIProviderBase
 from app.services.ocr_service import OCRResult
 from app.core.database import get_db_session
-from app.models.ai_usage import AIUsage
+from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
 from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
@@ -693,46 +693,20 @@ class VisionAnalysisOrchestrator:
         image_count: Optional[int] = None
     ):
         """
-        Track API usage by persisting to database.
-
-        Uses a fresh session (consistent with how AIResilienceService loads configs).
+        Track API usage by delegating to AICostAndUsageTracker (#447).
         """
-        try:
-            with get_db_session() as db:
-                usage_record = AIUsage(
-                    timestamp=datetime.utcnow(),
-                    provider=result.provider,
-                    success=result.success,
-                    tokens_used=result.tokens_used,
-                    response_time_ms=result.response_time_ms,
-                    cost_estimate=result.cost_estimate,
-                    error=result.error,
-                    analysis_mode=analysis_mode,
-                    is_estimated=is_estimated,
-                    image_count=image_count
-                )
-                db.add(usage_record)
-                db.commit()
-
-            logger.debug(
-                f"Tracked usage: {result.provider} - "
-                f"{'success' if result.success else 'failed'} - "
-                f"{result.tokens_used} tokens - "
-                f"${result.cost_estimate:.6f} - "
-                f"mode={analysis_mode or 'unknown'} - "
-                f"images={image_count or 1} - "
-                f"estimated={is_estimated}",
-                extra={
-                    "provider": result.provider,
-                    "tokens": result.tokens_used,
-                    "analysis_mode": analysis_mode,
-                    "image_count": image_count,
-                    "is_estimated": is_estimated
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to track usage: {e}")
+        tracker = get_ai_cost_and_usage_tracker()
+        tracker.record_usage(
+            provider=result.provider,
+            success=result.success,
+            tokens_used=result.tokens_used,
+            response_time_ms=result.response_time_ms,
+            cost_estimate=result.cost_estimate,
+            error=result.error,
+            analysis_mode=analysis_mode,
+            is_estimated=is_estimated,
+            image_count=image_count,
+        )
 
     # =====================================================================
     # Diagnostics / Testing Helpers

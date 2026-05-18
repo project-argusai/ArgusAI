@@ -18,10 +18,9 @@ from typing import Optional, Literal
 from dataclasses import dataclass
 import time
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models.ai_usage import AIUsage
+from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
 from app.models.system_setting import SystemSetting
 from app.core.database import SessionLocal
 
@@ -79,44 +78,25 @@ class CostCapService:
         self._cache_timestamp = 0
         logger.debug("Cost cap cache invalidated")
 
-    def get_daily_cost(self, db: Session) -> Decimal:
+    def get_daily_cost(self, db: Session = None) -> Decimal:
         """
         Get total AI cost for current day (UTC).
 
-        Args:
-            db: Database session
-
-        Returns:
-            Total cost in USD for today
+        Delegates to AICostAndUsageTracker (#447).
         """
-        today = datetime.now(timezone.utc).date()
+        tracker = get_ai_cost_and_usage_tracker()
+        cost = tracker.get_daily_cost()
+        return Decimal(str(cost))
 
-        result = db.query(func.sum(AIUsage.cost_estimate)).filter(
-            func.date(AIUsage.timestamp) == today,
-            AIUsage.success == True
-        ).scalar()
-
-        return Decimal(str(result or 0))
-
-    def get_monthly_cost(self, db: Session) -> Decimal:
+    def get_monthly_cost(self, db: Session = None) -> Decimal:
         """
         Get total AI cost for current month (UTC).
 
-        Args:
-            db: Database session
-
-        Returns:
-            Total cost in USD for this month
+        Delegates to AICostAndUsageTracker (#447).
         """
-        now = datetime.now(timezone.utc)
-        first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        result = db.query(func.sum(AIUsage.cost_estimate)).filter(
-            AIUsage.timestamp >= first_of_month,
-            AIUsage.success == True
-        ).scalar()
-
-        return Decimal(str(result or 0))
+        tracker = get_ai_cost_and_usage_tracker()
+        cost = tracker.get_monthly_cost()
+        return Decimal(str(cost))
 
     def get_daily_cap(self, db: Session) -> Optional[float]:
         """

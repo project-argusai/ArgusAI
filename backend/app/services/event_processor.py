@@ -315,13 +315,6 @@ class EventProcessor:
         logger.info("Stopping motion detection tasks...")
         if self.camera_task_manager:
             await self.camera_task_manager.stop_all()
-        else:
-            # Fallback during transition
-            for camera_id, task in list(self.motion_tasks.items()):
-                task.cancel()
-            if self.motion_tasks:
-                await asyncio.gather(*self.motion_tasks.values(), return_exceptions=True)
-            self.motion_tasks.clear()
 
         # Drain queue with timeout
         queue_size = self.event_queue.qsize()

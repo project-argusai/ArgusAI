@@ -49,17 +49,17 @@ class CameraTaskManager:
         self.motion_service = motion_service
         self._queue_event = queue_event_callback
 
-        # Internal state (was previously on EventProcessor)
-        self.motion_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> task
-        self.motion_task_stats: Dict[str, dict] = {}
-        self.camera_cooldowns: Dict[str, float] = {}  # camera_id -> last_event_time
+        # Internal state (private)
+        self._motion_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> task
+        self._motion_task_stats: Dict[str, dict] = {}
+        self._camera_cooldowns: Dict[str, float] = {}  # camera_id -> last_event_time
 
     async def start_monitoring(self, camera: Camera):
         """
         Start a motion detection task for the given camera.
         The actual loop now lives inside this class.
         """
-        if camera.id in self.motion_tasks:
+        if camera.id in self._motion_tasks:
             logger.warning(f"Camera {camera.id} already being monitored")
             return
 
@@ -67,7 +67,7 @@ class CameraTaskManager:
             self._run_motion_detection_loop(camera),
             name=f"motion_task_{camera.id}"
         )
-        self.motion_tasks[camera.id] = task
+        self._motion_tasks[camera.id] = task
 
         logger.info(f"Started monitoring camera: {camera.name} ({camera.id})")
 
@@ -75,11 +75,11 @@ class CameraTaskManager:
         """
         Stop motion detection task for a specific camera.
         """
-        if camera_id not in self.motion_tasks:
+        if camera_id not in self._motion_tasks:
             logger.warning(f"Camera {camera_id} not being monitored")
             return
 
-        task = self.motion_tasks.pop(camera_id)
+        task = self._motion_tasks.pop(camera_id)
         task.cancel()
 
         try:
@@ -120,32 +120,40 @@ class CameraTaskManager:
 
     def get_motion_task_stats(self) -> Dict[str, dict]:
         """Return a copy of per-camera motion task statistics."""
-        return self.motion_task_stats.copy()
+        return self._motion_task_stats.copy()
+
+    def is_monitoring(self, camera_id: str) -> bool:
+        """Check if a camera is currently being monitored."""
+        return camera_id in self._motion_tasks
+
+    def get_monitored_cameras(self) -> list[str]:
+        """Return list of camera IDs currently being monitored."""
+        return list(self._motion_tasks.keys())
 
     def record_frame_pulled(self, camera_id: str):
         """Helper for motion tasks to update stats."""
-        stats = self.motion_task_stats.setdefault(camera_id, {})
+        stats = self._motion_task_stats.setdefault(camera_id, {})
         stats["frames_pulled"] = stats.get("frames_pulled", 0) + 1
         stats["last_frame_time"] = time.time()
 
     def record_motion_check(self, camera_id: str):
-        stats = self.motion_task_stats.setdefault(camera_id, {})
+        stats = self._motion_task_stats.setdefault(camera_id, {})
         stats["motion_checks"] = stats.get("motion_checks", 0) + 1
 
     def record_error(self, camera_id: str):
-        stats = self.motion_task_stats.setdefault(camera_id, {})
+        stats = self._motion_task_stats.setdefault(camera_id, {})
         stats["errors"] = stats.get("errors", 0) + 1
 
     def get_cooldown(self, camera_id: str) -> float:
-        return self.camera_cooldowns.get(camera_id, 0.0)
+        return self._camera_cooldowns.get(camera_id, 0.0)
 
     def update_cooldown(self, camera_id: str, timestamp: float):
-        self.camera_cooldowns[camera_id] = timestamp
+        self._camera_cooldowns[camera_id] = timestamp
 
     async def stop_all(self):
         """Stop all active motion monitoring tasks (used during shutdown)."""
-        tasks = list(self.motion_tasks.values())
-        self.motion_tasks.clear()
+        tasks = list(self._motion_tasks.values())
+        self._motion_tasks.clear()
 
         for task in tasks:
             task.cancel()
@@ -227,7 +235,7 @@ class CameraTaskManager:
                 self.record_frame_pulled(camera.id)
                 self.record_motion_check(camera.id)
                 if frame is not None:
-                    stats = self.motion_task_stats.get(camera.id, {})
+                    stats = self._motion_task_stats.get(camera.id, {})
                     if stats.get("recovery_attempts", 0) > 0:
                         stats["recovery_attempts"] = 0
 

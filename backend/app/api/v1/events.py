@@ -38,7 +38,7 @@ from app.schemas.event import (
     SmartReanalyzeResponse
 )
 from app.schemas.system import CleanupResponse
-from app.services.cleanup_service import get_cleanup_service
+from app.services.service_container import container
 from app.models.event_feedback import EventFeedback
 from app.schemas.feedback import FeedbackCreate, FeedbackUpdate, FeedbackResponse
 
@@ -1001,7 +1001,7 @@ async def manual_cleanup(
         )
 
         # Execute cleanup
-        cleanup_service = get_cleanup_service()
+        cleanup_service = container.cleanup_service
         stats = await cleanup_service.cleanup_old_events(retention_days=days_ago)
 
         logger.info(
@@ -1228,7 +1228,7 @@ async def bulk_delete_events(
 # =============================================================================
 
 from pydantic import BaseModel, Field
-from app.services.reprocessing_service import get_reprocessing_service
+# from app.services.reprocessing_service import get_reprocessing_service  # now via container
 
 
 class ReprocessingRequest(BaseModel):
@@ -1286,7 +1286,7 @@ async def start_entity_reprocessing(
     db: Session = Depends(get_db),
 ):
     """Start a new entity reprocessing job."""
-    reprocessing_service = get_reprocessing_service()
+    reprocessing_service = container.reprocessing_service
 
     try:
         job = await reprocessing_service.start_reprocessing(
@@ -1328,7 +1328,7 @@ async def start_entity_reprocessing(
 )
 async def get_reprocessing_status():
     """Get current reprocessing job status."""
-    reprocessing_service = get_reprocessing_service()
+    reprocessing_service = container.reprocessing_service
     job = await reprocessing_service.get_status()
 
     if not job:
@@ -1345,7 +1345,7 @@ async def get_reprocessing_status():
 )
 async def cancel_entity_reprocessing():
     """Cancel the current reprocessing job."""
-    reprocessing_service = get_reprocessing_service()
+    reprocessing_service = container.reprocessing_service
     job = await reprocessing_service.cancel_reprocessing()
 
     if not job:
@@ -1377,7 +1377,7 @@ async def estimate_reprocessing(
     db: Session = Depends(get_db),
 ):
     """Estimate the number of events that would be reprocessed."""
-    reprocessing_service = get_reprocessing_service()
+    reprocessing_service = container.reprocessing_service
 
     count = await reprocessing_service.estimate_event_count(
         db=db,
@@ -1587,7 +1587,7 @@ async def get_event(
 
         # Story P4-3.3: Add matched entity if available (AC12)
         try:
-            entity_service = get_entity_service()
+            entity_service = container.entity_service
             entity_data = await entity_service.get_entity_for_event(db, event_id)
             if entity_data:
                 event_dict["matched_entity"] = MatchedEntitySummary(
@@ -1901,7 +1901,7 @@ async def reanalyze_event(
             if event.thumbnail_path:
                 try:
                     from app.services.frame_annotation_service import get_frame_annotation_service
-                    annotation_service = get_frame_annotation_service()
+                    annotation_service = container.frame_annotation_service
 
                     # Get full path to thumbnail
                     thumb_path = _normalize_thumbnail_path(event.thumbnail_path)
@@ -2047,7 +2047,7 @@ async def smart_reanalyze_event(
             )
 
         # 3. Select relevant frames using SmartReanalyzeService
-        smart_service = get_smart_reanalyze_service()
+        smart_service = container.smart_reanalyze_service
         selection_result = await smart_service.select_relevant_frames(
             db=db,
             event_id=event_id,
@@ -3132,7 +3132,7 @@ async def get_event_thumbnail_signed(
     from app.services.signed_url_service import get_signed_url_service
 
     # Validate signature first
-    signed_url_service = get_signed_url_service()
+    signed_url_service = container.signed_url_service
     if not signed_url_service.verify_signed_url(event_id, signature, expires):
         logger.warning(
             "Invalid or expired signed URL for thumbnail",

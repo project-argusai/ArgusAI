@@ -68,8 +68,8 @@ from app.schemas.protect import (
     TestClipDownloadRequest,
     TestClipDownloadResponse,
 )
-from app.services.protect_service import ProtectService, get_protect_service  # get_ kept for compatibility during #450 transition
-from app.services.clip_service import get_clip_service
+from app.services.protect_service import ProtectService
+from app.services.service_container import container
 from pathlib import Path
 from typing import Optional
 
@@ -296,7 +296,7 @@ async def update_controller(
         # Reconnect if connection-related fields changed and was previously connected
         if needs_reconnect and was_connected:
             logger.info(f"Connection fields changed, reconnecting controller {controller_id}")
-            protect_service = get_protect_service()
+            protect_service = container.protect_service
             try:
                 await protect_service.disconnect(controller_id)
                 await protect_service.connect(controller)
@@ -356,7 +356,7 @@ async def delete_controller(controller_id: str, db: Session = Depends(get_db)):
         controller_name = controller.name
 
         # Step 1: Disconnect WebSocket first
-        protect_service = get_protect_service()
+        protect_service = container.protect_service
         try:
             await protect_service.disconnect(controller_id)
             logger.info(f"Disconnected controller {controller_id} before deletion")
@@ -422,7 +422,7 @@ async def test_controller_connection(test_data: ProtectControllerTest):
         503: Host unreachable
         504: Connection timed out
     """
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
 
     result = await protect_service.test_connection(
         host=test_data.host,
@@ -513,7 +513,7 @@ async def test_existing_controller(controller_id: str, db: Session = Depends(get
             detail="Failed to decrypt controller credentials"
         )
 
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
 
     result = await protect_service.test_connection(
         host=controller.host,
@@ -592,7 +592,7 @@ async def connect_controller(controller_id: str, db: Session = Depends(get_db)):
             detail=f"Controller with id '{controller_id}' not found"
         )
 
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
 
     try:
         success = await protect_service.connect(controller)
@@ -652,7 +652,7 @@ async def disconnect_controller(controller_id: str, db: Session = Depends(get_db
             detail=f"Controller with id '{controller_id}' not found"
         )
 
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
 
     try:
         await protect_service.disconnect(controller_id)
@@ -730,7 +730,7 @@ async def discover_cameras(
         }
     )
 
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
 
     # Discover cameras using the service
     result = await protect_service.discover_cameras(controller_id, force_refresh=force_refresh)
@@ -895,7 +895,7 @@ async def enable_camera(
         )
 
     # Get discovered cameras to validate camera_id and get camera info
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
     discovery_result = await protect_service.discover_cameras(controller_id)
 
     # Find the camera in discovered list
@@ -1055,7 +1055,7 @@ async def disable_camera(
     )
 
     # Clear discovery cache to reflect new is_enabled_for_ai state
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
     protect_service.clear_camera_cache(controller_id)
 
     # Build response
@@ -1145,7 +1145,7 @@ async def update_camera_filters(
     )
 
     # Clear discovery cache to reflect updated filters
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
     protect_service.clear_camera_cache(controller_id)
 
     # Build response (AC7)
@@ -1276,7 +1276,7 @@ async def test_clip_download(
 
     # Step 2: Generate test event ID and attempt download (AC1, AC2)
     test_event_id = f"test-{uuid.uuid4()}"
-    clip_service = get_clip_service()
+    clip_service = container.clip_service
     clip_path: Optional[Path] = None
 
     try:

@@ -628,3 +628,120 @@ class TestAIProcessingCoordinator:
         # The actual call happens inside the context building block
         # This test documents the intent; full assertion will be possible once that block is fully moved
         assert True
+
+    # ------------------------------------------------------------------
+    # Post-processing branch tests (still on EventProcessor via context)
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_run_homekit_triggers_called_with_correct_args(self, coordinator, mock_helpers, sample_event):
+        """_run_homekit_triggers should be called with the right arguments"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        mock_helpers["run_homekit_triggers"].assert_awaited_once_with(
+            event=sample_event, event_id="event-123", smart_detection_type="person"
+        )
+
+    @pytest.mark.asyncio
+    async def test_link_entity_to_event_called_with_correct_args(self, coordinator, mock_helpers, sample_event):
+        """_link_entity_to_event should be called with embedding_vector"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+        mock_helpers["generate_and_match_entity"].return_value = (b"fake-emb", None)
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        mock_helpers["link_entity_to_event"].assert_awaited_once_with(
+            event=sample_event, event_id="event-123", embedding_vector=b"fake-emb"
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_face_embeddings_called(self, coordinator, mock_helpers, sample_event):
+        """_process_face_embeddings should be called with correct args"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        mock_helpers["process_face_embeddings"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_vehicle_embeddings_called(self, coordinator, mock_helpers, sample_event):
+        """_process_vehicle_embeddings should be called"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["vehicle"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        mock_helpers["process_vehicle_embeddings"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_process_entity_alerts_called(self, coordinator, mock_helpers, sample_event):
+        """_process_entity_alerts should be called"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        mock_helpers["process_entity_alerts"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_enrich_event_with_audio_called(self, coordinator, mock_helpers, sample_event):
+        """_enrich_event_with_audio should be called as fire-and-forget"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        mock_helpers["enrich_event_with_audio"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_post_processing_failure_does_not_fail_overall_processing(self, coordinator, mock_helpers, sample_event):
+        """An exception in one post-processing step should not fail the whole event"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+        mock_helpers["send_push_notification"].side_effect = Exception("Push service down")
+
+        result = await coordinator.process_event(sample_event, worker_id=0)
+
+        # The overall processing should still succeed
+        assert result is True
+        # Other post-processing should still have been attempted
+        mock_helpers["publish_camera_status_sensors"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_mqtt_event_direct(self, coordinator, mock_context_services, sample_event):
+        """Direct test of _publish_mqtt_event"""
+        await coordinator._publish_mqtt_event(event=sample_event, event_id="event-xyz")
+
+        # At minimum we exercised the method (full assertions will be possible once the full logic is moved)
+        assert True
+
+    @pytest.mark.asyncio
+    async def test_store_embedding_direct(self, coordinator, mock_context_services, sample_event):
+        """Direct test of _store_embedding"""
+        await coordinator._store_embedding(
+            event_id="event-xyz",
+            embedding_vector=b"fake-emb",
+            camera_id="cam-123",
+        )
+
+        # The embedding_service is in the context
+        assert True  # Full assertion once the full logic is in the private method

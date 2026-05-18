@@ -49,7 +49,7 @@ class AIWorkerPool:
 
         # Concurrency control for AI calls (owned by the pool)
         ai_limit = ai_concurrent_limit or int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
-        self.ai_semaphore = asyncio.Semaphore(ai_limit)
+        self._ai_semaphore = asyncio.Semaphore(ai_limit)
 
         self._worker_tasks: List[asyncio.Task] = []
         self._running = False
@@ -102,8 +102,11 @@ class AIWorkerPool:
     def is_running(self) -> bool:
         return self._running
 
-    # Temporary compatibility for AIProcessingWorker which still calls back
-    # into the "processor". We forward the semaphore for now.
+    def active_worker_count(self) -> int:
+        """Return how many worker tasks are currently alive (not done)."""
+        return sum(1 for t in self._worker_tasks if not t.done())
+
     @property
     def ai_semaphore(self):
-        return self.ai_semaphore  # type: ignore[return-value]
+        """Concurrency semaphore for AI calls (owned by the pool)."""
+        return self._ai_semaphore

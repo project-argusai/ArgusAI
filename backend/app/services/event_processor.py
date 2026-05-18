@@ -2476,6 +2476,8 @@ class EventProcessor:
         # Include motion task stats summary
         data["motion_tasks"] = self.get_motion_task_stats()
         data["health_monitor_running"] = self.is_health_monitor_running()
+        data["ai_pool_running"] = self.is_ai_pool_running()
+        data["active_ai_workers"] = self.active_ai_workers()
 
         return data
 
@@ -2490,6 +2492,18 @@ class EventProcessor:
         if self.camera_task_manager:
             return self.camera_task_manager.is_health_monitor_running()
         return False
+
+    def is_ai_pool_running(self) -> bool:
+        """Return whether the AI worker pool is currently running."""
+        if self.ai_worker_pool:
+            return self.ai_worker_pool.is_running
+        return False
+
+    def active_ai_workers(self) -> int:
+        """Return the number of currently active AI workers."""
+        if self.ai_worker_pool:
+            return self.ai_worker_pool.active_worker_count()
+        return 0
 
 
 # Global instance (initialized in FastAPI lifespan)

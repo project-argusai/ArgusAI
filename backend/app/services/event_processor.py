@@ -45,7 +45,7 @@ from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.ai_processing_worker import AIProcessingWorker
 from app.services.ai_worker_pool import AIWorkerPool
-from app.services.ai_processing_coordinator import AIProcessingCoordinator
+from app.services.ai_processing_coordinator import AIProcessingCoordinator, ProcessingContext
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
@@ -279,10 +279,28 @@ class EventProcessor:
             ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
 
             # Create the coordinator that will own the processing logic
-            self.ai_processing_coordinator = AIProcessingCoordinator(
-                event_processor=self,
+            # Build explicit context so the coordinator doesn't need the whole EventProcessor
+            context = ProcessingContext(
                 ai_service=self.ai_service,
+                metrics=self.metrics,
+                handle_cost_cap_skip=self._handle_cost_cap_skip,
+                generate_thumbnail=self._generate_thumbnail,
+                generate_and_match_entity=self._generate_and_match_entity,
+                generate_ai_description=self._generate_ai_description,
+                store_processed_event=self._store_processed_event,
+                send_push_notification=self._send_push_notification,
+                publish_camera_status_sensors=self._publish_camera_status_sensors,
+                run_homekit_triggers=self._run_homekit_triggers,
+                link_entity_to_event=self._link_entity_to_event,
+                process_face_embeddings=self._process_face_embeddings,
+                process_vehicle_embeddings=self._process_vehicle_embeddings,
+                process_entity_alerts=self._process_entity_alerts,
+                enrich_event_with_audio=self._enrich_event_with_audio,
+                publish_event_to_mqtt=self._publish_event_to_mqtt,
+                get_container=lambda: container,
             )
+
+            self.ai_processing_coordinator = AIProcessingCoordinator(context=context)
 
             self.ai_worker_pool = AIWorkerPool(
                 worker_count=self.worker_count,

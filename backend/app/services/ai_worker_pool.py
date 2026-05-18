@@ -49,7 +49,7 @@ class AIWorkerPool:
 
         # Concurrency control for AI calls (owned by the pool)
         ai_limit = ai_concurrent_limit or int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
-        self._ai_semaphore = asyncio.Semaphore(ai_limit)
+        self.ai_semaphore = asyncio.Semaphore(ai_limit)
 
         self._worker_tasks: List[asyncio.Task] = []
         self._running = False
@@ -106,7 +106,6 @@ class AIWorkerPool:
         """Return how many worker tasks are currently alive (not done)."""
         return sum(1 for t in self._worker_tasks if not t.done())
 
-    @property
-    def ai_semaphore(self):
-        """Concurrency semaphore for AI calls (owned by the pool)."""
-        return self._ai_semaphore
+    # Public attribute: concurrency semaphore for AI calls (owned by the pool).
+    # Exposed so EventProcessor can do `async with self.ai_worker_pool.ai_semaphore:`
+    ai_semaphore: asyncio.Semaphore

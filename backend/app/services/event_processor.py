@@ -200,6 +200,7 @@ class EventProcessor:
         """Concurrency limiter for AI calls (owned by AIWorkerPool)."""
         if self.ai_worker_pool:
             return self.ai_worker_pool.ai_semaphore
+        # Fallback only before the pool is created (very early in startup)
         if self._early_ai_semaphore is None:
             ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
             self._early_ai_semaphore = asyncio.Semaphore(ai_limit)

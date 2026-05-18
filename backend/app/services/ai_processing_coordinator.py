@@ -240,17 +240,7 @@ class AIProcessingCoordinator:
             await self._publish_camera_status_sensors(event=event, event_id=event_id, ai_result=ai_result)
 
             # Store embedding
-            try:
-                if embedding_vector:
-                    embedding_service = self.context.embedding_service
-                    with SessionLocal() as embed_db:
-                        await embedding_service.store_embedding(
-                            db=embed_db,
-                            event_id=event_id,
-                            embedding=embedding_vector,
-                        )
-            except Exception as embedding_error:
-                logger.warning(f"Embedding storage failed for event {event_id}: {embedding_error}")
+            await self._store_embedding(event_id=event_id, embedding_vector=embedding_vector, camera_id=event.camera_id)
 
             # Determine smart_detection_type and objects for post-processing helpers
             smart_detection_type = getattr(event, 'smart_detection_type', None) or \
@@ -850,3 +840,40 @@ class AIProcessingCoordinator:
         except Exception as e:
             logger.debug(f"Entity matching for context failed: {e}")
             return embedding_vector, None
+
+    async def _store_embedding(self, event_id: str, embedding_vector: Optional[bytes], camera_id: str) -> None:
+        """Store the early embedding for the event (for future context and entity matching)."""
+        try:
+            if embedding_vector:
+                embedding_service = self.context.embedding_service
+                with SessionLocal() as embed_db:
+                    await embedding_service.store_embedding(
+                        db=embed_db,
+                        event_id=event_id,
+                        embedding=embedding_vector,
+                    )
+
+                logger.debug(
+                    f"Embedding stored for event {event_id}",
+                    extra={
+                        "event_id": event_id,
+                        "camera_id": camera_id,
+                        "embedding_dim": len(embedding_vector),
+                    }
+                )
+            else:
+                logger.debug(
+                    f"No embedding available for event {event_id} (will be generated later if needed)",
+                    extra={"event_id": event_id}
+                )
+
+        except Exception as embedding_error:
+            # Graceful fallback - embedding failures must not block event creation
+            logger.warning(
+                f"Embedding storage failed for event {event_id}: {embedding_error}",
+                extra={
+                    "event_id": event_id,
+                    "camera_id": camera_id,
+                    "error": str(embedding_error),
+                }
+            )

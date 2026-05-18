@@ -24,6 +24,7 @@ Performance Targets:
 import asyncio
 import logging
 import time
+import random
 import httpx
 import numpy as np
 import uuid
@@ -47,6 +48,7 @@ from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
+from app.services.service_container import container
 from app.services.carrier_extractor import extract_carrier
 from app.core.database import get_db_session
 
@@ -193,6 +195,10 @@ class EventProcessor:
         self.motion_tasks: Dict[str, asyncio.Task] = {}  # camera_id -> task
         self.worker_tasks: List[asyncio.Task] = []
         self.camera_cooldowns: Dict[str, float] = {}  # camera_id -> last_event_time
+        self._camera_health_monitor_task: Optional[asyncio.Task] = None
+
+        # Per-camera motion task stats (frames pulled, last success, errors, etc.)
+        self.motion_task_stats: Dict[str, dict] = {}
 
         # Services (can be injected for better testability and architecture)
         self.ai_service: Optional[AIService] = ai_service
@@ -227,11 +233,11 @@ class EventProcessor:
 
         # Initialize services (use injected ones if provided)
         if self.ai_service is None:
-            self.ai_service = AIService()
+            self.ai_service = container.ai_service
         if self.camera_service is None:
-            self.camera_service = CameraService()  # @singleton guarantees the same instance
+            self.camera_service = container.camera_service
         if self.motion_service is None:
-            self.motion_service = motion_detection_service
+            self.motion_service = container.motion_detection_service
         self.http_client = httpx.AsyncClient(timeout=10.0)
 
         # Load AI API keys from database
@@ -265,6 +271,12 @@ class EventProcessor:
                     await self.start_camera_monitoring(camera)
 
                 logger.info(f"Started monitoring {len(enabled_cameras)} enabled cameras")
+
+                # Start the camera health monitor for self-healing
+                self._camera_health_monitor_task = asyncio.create_task(
+                    self._camera_health_monitor(),
+                    name="camera_health_monitor"
+                )
         except Exception as e:
             logger.error(f"Failed to load enabled cameras: {e}", exc_info=True)
 
@@ -325,6 +337,15 @@ class EventProcessor:
             await asyncio.gather(*self.worker_tasks, return_exceptions=True)
         self.worker_tasks.clear()
 
+        # Stop camera health monitor
+        if self._camera_health_monitor_task and not self._camera_health_monitor_task.done():
+            self._camera_health_monitor_task.cancel()
+            try:
+                await asyncio.wait_for(self._camera_health_monitor_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+        self._camera_health_monitor_task = None
+
         # Close HTTP client
         if self.http_client:
             await self.http_client.aclose()
@@ -372,6 +393,48 @@ class EventProcessor:
 
         logger.info(f"Stopped monitoring camera: {camera_id}")
 
+    async def _camera_health_monitor(self):
+        """
+        Background task that periodically checks camera capture workers
+        and attempts to restart any that have died.
+
+        This provides self-healing for camera connectivity issues.
+        """
+        logger.info("Camera health monitor started")
+
+        while self.running:
+            try:
+                if self.camera_service:
+                    all_status = self.camera_service.get_all_camera_status()
+
+                    for camera_id, status in all_status.items():
+                        if status.get("capture_disabled"):
+                            continue  # Respect the stronger recovery policy
+
+                        if not status.get("worker_alive", True):
+                            logger.warning(f"Health monitor detected dead worker for camera {camera_id}. Attempting restart.")
+
+                            # Get the camera object
+                            try:
+                                from app.core.database import get_db_session
+                                from app.models.camera import Camera
+
+                                with get_db_session() as db:
+                                    camera = db.query(Camera).filter(Camera.id == camera_id).first()
+                                    if camera:
+                                        self.camera_service.restart_camera(camera)
+                            except Exception as e:
+                                logger.error(f"Health monitor failed to restart camera {camera_id}: {e}")
+
+                await asyncio.sleep(30.0)  # Check every 30 seconds
+
+            except asyncio.CancelledError:
+                logger.info("Camera health monitor cancelled")
+                raise
+            except Exception as e:
+                logger.error(f"Error in camera health monitor: {e}")
+                await asyncio.sleep(30.0)
+
     async def _motion_detection_task(self, camera: Camera):
         """
         Continuous motion detection loop for a single camera
@@ -399,19 +462,90 @@ class EventProcessor:
                     await asyncio.sleep(frame_interval)
                     continue
 
-                # TODO: Integrate with actual camera service to get frames
-                # For now, this is a stub that simulates motion detection
-                # In real implementation, this would:
-                # 1. Get frame from camera service
-                # 2. Run motion detection algorithm
-                # 3. If motion detected, capture best frame
+                # === Real frame acquisition via CameraCaptureWorker (with backpressure) ===
+                frame = None
 
-                # Simulate frame capture delay
+                if self.camera_service:
+                    # Check worker health first — don't hammer a dead worker
+                    worker_status = self.camera_service.get_camera_status(camera.id)
+                    worker_alive = worker_status.get("worker_alive", False) if worker_status else False
+
+                    if not worker_alive:
+                        logger.warning(f"Camera {camera.name} has no healthy capture worker.")
+
+                        # Track recovery attempts
+                        stats = self.motion_task_stats.setdefault(camera.id, {})
+                        recovery_attempts = stats.get("recovery_attempts", 0) + 1
+                        stats["recovery_attempts"] = recovery_attempts
+
+                        if recovery_attempts <= 3:
+                            logger.info(f"Attempting recovery for camera {camera.name} (attempt {recovery_attempts})")
+                            try:
+                                self.camera_service.restart_camera(camera)
+                            except Exception as e:
+                                logger.error(f"Recovery attempt failed for {camera.name}: {e}")
+
+                        # Exponential backoff with jitter
+                        backoff = min(4.0 * (2 ** min(recovery_attempts - 1, 5)), 90)
+                        jitter = random.uniform(0, 2.0)
+                        await asyncio.sleep(backoff + jitter)
+                        continue
+
+                    try:
+                        # Use the backpressure-aware API
+                        frame = self.camera_service.get_frame(camera.id, timeout=0.2)
+                    except Exception as e:
+                        logger.debug(f"Failed to get frame from camera_service for {camera.id}: {e}")
+
+                if frame is None:
+                    # No frame ready this cycle (backpressure or slow camera)
+                    await asyncio.sleep(frame_interval * 0.5)
+                    continue
+
+                # === Run motion detection on the acquired frame ===
+                try:
+                    # Use the real API of MotionDetectionService
+                    motion_result = self.motion_service.process_frame(
+                        frame, camera_id=camera.id
+                    )
+                except Exception as e:
+                    logger.warning(f"Motion detection failed for camera {camera.name}: {e}")
+                    await asyncio.sleep(frame_interval)
+                    continue
+
+                if motion_result and motion_result.get("motion_detected"):
+                    # Motion detected → build ProcessingEvent and queue it
+                    processing_event = ProcessingEvent(
+                        camera_id=str(camera.id),
+                        camera_name=camera.name,
+                        frame=frame,
+                        timestamp=datetime.now(timezone.utc),
+                        detected_objects=motion_result.get("detected_objects", ["unknown"]),
+                        metadata={
+                            "motion_confidence": motion_result.get("confidence", 0.0),
+                            "source": "camera_capture_worker",
+                        },
+                    )
+                    await self.queue_event(processing_event)
+                    logger.info(f"Motion event queued for camera {camera.name}")
+
+                # Update per-camera motion task stats
+                stats = self.motion_task_stats.setdefault(camera.id, {
+                    "frames_pulled": 0,
+                    "motion_checks": 0,
+                    "last_frame_time": None,
+                    "errors": 0,
+                    "recovery_attempts": 0,
+                })
+                stats["frames_pulled"] += 1 if frame is not None else 0
+                stats["motion_checks"] += 1
+                if frame is not None:
+                    stats["last_frame_time"] = datetime.now(timezone.utc).isoformat()
+                    # Reset recovery counter on success
+                    if stats.get("recovery_attempts", 0) > 0:
+                        stats["recovery_attempts"] = 0
+
                 await asyncio.sleep(frame_interval)
-
-                # Placeholder: Skip actual motion detection for now
-                # This will be integrated with camera_service and motion_detection_service
-                # once those services are updated to support async frame capture
 
             except asyncio.CancelledError:
                 logger.info(f"Motion detection task cancelled for camera: {camera.name}")
@@ -422,6 +556,8 @@ class EventProcessor:
                     exc_info=True,
                     extra={"camera_id": camera.id, "camera_name": camera.name}
                 )
+                stats = self.motion_task_stats.setdefault(camera.id, {"errors": 0})
+                stats["errors"] = stats.get("errors", 0) + 1
                 # Wait before retry
                 await asyncio.sleep(10.0)
 
@@ -495,7 +631,7 @@ class EventProcessor:
 
         Story P3-7.3
         """
-        cost_cap_service = get_cost_cap_service()
+        cost_cap_service = container.cost_cap_service
         with get_db_session() as db:
             can_analyze, skip_reason = cost_cap_service.can_analyze(db)
 
@@ -775,9 +911,7 @@ class EventProcessor:
             # AC7: Graceful fallback if embedding generation fails
             try:
                 if embedding_vector:
-                    from app.services.embedding_service import get_embedding_service
-
-                    embedding_service = get_embedding_service()
+                    embedding_service = container.embedding_service
 
                     # Store embedding in database (AC3: stored in event_embeddings table)
                     with SessionLocal() as embed_db:
@@ -1464,13 +1598,11 @@ class EventProcessor:
             - Errors don't propagate to caller (AC6)
         """
         try:
-            from app.services.face_embedding_service import get_face_embedding_service
-            from app.services.person_matching_service import get_person_matching_service
             from app.models.system_setting import SystemSetting
             import base64
 
-            face_service = get_face_embedding_service()
-            person_service = get_person_matching_service()
+            face_service = container.face_embedding_service
+            person_service = container.person_matching_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -1594,13 +1726,11 @@ class EventProcessor:
             - Errors don't propagate to caller
         """
         try:
-            from app.services.vehicle_embedding_service import get_vehicle_embedding_service
-            from app.services.vehicle_matching_service import get_vehicle_matching_service
             from app.models.system_setting import SystemSetting
             import base64
 
-            vehicle_service = get_vehicle_embedding_service()
-            matching_service = get_vehicle_matching_service()
+            vehicle_service = container.vehicle_embedding_service
+            matching_service = container.vehicle_matching_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -1726,7 +1856,7 @@ class EventProcessor:
             from app.models.vehicle_embedding import VehicleEmbedding
             import json
 
-            entity_service = get_entity_alert_service()
+            entity_service = container.entity_alert_service
 
             # Create new database session for background task
             with get_db_session() as db:
@@ -2513,7 +2643,32 @@ class EventProcessor:
         Returns:
             Dictionary with metrics data for /api/v1/metrics endpoint
         """
-        return self.metrics.to_dict()
+        data = self.metrics.to_dict()
+
+        # Include camera health summary (from CameraService if available)
+        if self.camera_service:
+            try:
+                all_status = self.camera_service.get_all_camera_status()
+                data["cameras"] = {
+                    cam_id: {
+                        "status": status.get("status"),
+                        "worker_alive": status.get("worker_alive", False),
+                        "thread_alive": status.get("thread_alive", False),
+                        "reconnections": status.get("reconnection_count", 0),
+                    }
+                    for cam_id, status in all_status.items()
+                }
+            except Exception:
+                pass
+
+        # Include motion task stats summary
+        data["motion_tasks"] = self.get_motion_task_stats()
+
+        return data
+
+    def get_motion_task_stats(self) -> Dict[str, dict]:
+        """Return per-camera motion detection task statistics."""
+        return self.motion_task_stats.copy()
 
 
 # Global instance (initialized in FastAPI lifespan)

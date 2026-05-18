@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.event import Event
+from app.services.service_container import container
 from app.models.event_embedding import EventEmbedding
 from app.services.embedding_service import get_embedding_service, EmbeddingService
 from app.services.similarity_service import get_similarity_service, SimilarityService
@@ -742,9 +743,7 @@ async def list_vip_entities(
     Returns:
         VipBlockedEntityListResponse with list of VIP entities
     """
-    from app.services.entity_alert_service import get_entity_alert_service
-
-    entity_service = get_entity_alert_service()
+    entity_service = container.entity_alert_service
     entities, total = await entity_service.get_all_vip_entities(
         db=db, limit=limit, offset=offset
     )
@@ -792,9 +791,7 @@ async def list_blocked_entities(
     Returns:
         VipBlockedEntityListResponse with list of blocked entities
     """
-    from app.services.entity_alert_service import get_entity_alert_service
-
-    entity_service = get_entity_alert_service()
+    entity_service = container.entity_alert_service
     entities, total = await entity_service.get_all_blocked_entities(
         db=db, limit=limit, offset=offset
     )
@@ -2092,8 +2089,6 @@ async def update_person(
     Raises:
         HTTPException 404: If person not found
     """
-    from app.services.entity_alert_service import get_entity_alert_service
-
     # Update name via person service (handles face matching updates)
     person = await person_service.update_person_name(
         db,
@@ -2109,7 +2104,7 @@ async def update_person(
 
     # Story P4-8.4: Update VIP/blocked status if provided
     if request.is_vip is not None or request.is_blocked is not None:
-        entity_service = get_entity_alert_service()
+        entity_service = container.entity_alert_service
         updated_entity = await entity_service.update_entity_alert_settings(
             db=db,
             entity_id=person_id,
@@ -2396,8 +2391,6 @@ async def update_vehicle(
     Raises:
         HTTPException 404: If vehicle not found
     """
-    from app.services.entity_alert_service import get_entity_alert_service
-
     # Update name if provided
     if request.name is not None:
         vehicle = await vehicle_service.update_vehicle_name(
@@ -2425,7 +2418,7 @@ async def update_vehicle(
 
     # Story P4-8.4: Update VIP/blocked status if provided
     if request.is_vip is not None or request.is_blocked is not None:
-        entity_service = get_entity_alert_service()
+        entity_service = container.entity_alert_service
         updated_entity = await entity_service.update_entity_alert_settings(
             db=db,
             entity_id=vehicle_id,

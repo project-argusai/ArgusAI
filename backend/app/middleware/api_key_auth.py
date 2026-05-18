@@ -14,7 +14,7 @@ from typing import Optional
 import logging
 
 from app.core.database import get_db
-from app.services.api_key_service import get_api_key_service
+from app.services.service_container import container
 from app.models.api_key import APIKey
 from app.middleware.api_key_rate_limiter import (
     get_rate_limiter,
@@ -73,7 +73,7 @@ class APIKeyAuth:
             )
 
         # Verify the key
-        service = get_api_key_service()
+        service = container.api_key_service
         api_key = service.verify_key(db, api_key_header)
 
         if not api_key:
@@ -245,7 +245,7 @@ async def get_optional_api_key(
     if not api_key_header:
         return None
 
-    service = get_api_key_service()
+    service = container.api_key_service
     api_key = service.verify_key(db, api_key_header)
 
     if api_key:

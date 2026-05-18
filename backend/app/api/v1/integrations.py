@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.database import get_db
 from app.models.mqtt_config import MQTTConfig
-from app.services.mqtt_service import get_mqtt_service
+from app.services.service_container import container
 
 logger = logging.getLogger(__name__)
 
@@ -340,7 +340,7 @@ async def update_mqtt_config(
     )
 
     # Update MQTT service with new config
-    mqtt_service = get_mqtt_service()
+    mqtt_service = container.mqtt_service
     try:
         await mqtt_service.update_config(config)
     except Exception as e:
@@ -376,7 +376,7 @@ async def get_mqtt_status():
 
     Returns connection status, statistics, and any error messages.
     """
-    mqtt_service = get_mqtt_service()
+    mqtt_service = container.mqtt_service
     status = mqtt_service.get_status()
 
     return MQTTStatusResponse(
@@ -397,7 +397,7 @@ async def test_mqtt_connection(test_request: MQTTTestRequest):
     Attempts to connect to the specified broker with the provided credentials.
     Connection is closed after test regardless of outcome.
     """
-    mqtt_service = get_mqtt_service()
+    mqtt_service = container.mqtt_service
 
     result = await mqtt_service.test_connection(
         broker_host=test_request.broker_host,
@@ -433,9 +433,7 @@ async def publish_discovery(db: Session = Depends(get_db)):
 
     Requires MQTT to be connected and discovery to be enabled.
     """
-    from app.services.mqtt_discovery_service import get_discovery_service
-
-    mqtt_service = get_mqtt_service()
+    mqtt_service = container.mqtt_service
 
     if not mqtt_service.is_connected:
         raise HTTPException(
@@ -452,7 +450,7 @@ async def publish_discovery(db: Session = Depends(get_db)):
         )
 
     # Publish discovery for all cameras
-    discovery_service = get_discovery_service()
+    discovery_service = container.mqtt_discovery_service
     cameras_published = await discovery_service.publish_all_discovery_configs()
 
     logger.info(
@@ -480,7 +478,7 @@ async def send_test_message(db: Session = Depends(get_db)):
 
     Requires MQTT to be connected.
     """
-    mqtt_service = get_mqtt_service()
+    mqtt_service = container.mqtt_service
 
     if not mqtt_service.is_connected:
         raise HTTPException(
@@ -608,9 +606,7 @@ async def get_homekit_status():
 
     Returns enabled/running state, pairing info, and setup code if not paired.
     """
-    from app.services.homekit_service import get_homekit_service
-
-    service = get_homekit_service()
+    service = container.homekit_service
     status = service.get_status()
 
     return HomekitStatusResponse(
@@ -635,9 +631,7 @@ async def reset_homekit_pairing():
     Removes existing pairing state, requiring re-pairing with the Home app.
     Generates a new pairing code.
     """
-    from app.services.homekit_service import get_homekit_service
-
-    service = get_homekit_service()
+    service = container.homekit_service
 
     if not service.is_available:
         raise HTTPException(
@@ -679,7 +673,7 @@ async def update_homekit_enabled(
     When enabled, starts the HomeKit accessory server.
     When disabled, stops the server but preserves pairing state.
     """
-    from app.services.homekit_service import get_homekit_service, initialize_homekit_service, shutdown_homekit_service
+    from app.services.homekit_service import initialize_homekit_service, shutdown_homekit_service
     from app.models.system_setting import SystemSetting
     from app.models.camera import Camera
 
@@ -699,7 +693,7 @@ async def update_homekit_enabled(
 
     db.commit()
 
-    service = get_homekit_service()
+    service = container.homekit_service
 
     if request.enabled:
         # Start HomeKit service

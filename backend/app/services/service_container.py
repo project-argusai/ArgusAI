@@ -94,6 +94,17 @@ from app.services.anomaly_scoring_service import get_anomaly_scoring_service, re
 from app.services.entity_service import get_entity_service, reset_entity_service
 from app.services.vehicle_matching_service import get_vehicle_matching_service, reset_vehicle_matching_service
 
+# Additional services for full router adoption sweep
+from app.services.api_key_service import get_api_key_service, reset_api_key_service
+from app.services.mqtt_discovery_service import (
+    get_discovery_service,
+    reset_discovery_service,
+)
+from app.services.onvif_discovery_service import (
+    get_onvif_discovery_service,
+    reset_onvif_discovery_service,
+)
+
 
 class ServiceContainer:
     """
@@ -147,6 +158,13 @@ class ServiceContainer:
         return get_cost_alert_service()
 
     # ------------------------------------------------------------------
+    # Security / Auth
+    # ------------------------------------------------------------------
+    @property
+    def api_key_service(self):
+        return get_api_key_service()
+
+    # ------------------------------------------------------------------
     # Summaries & Digests
     # ------------------------------------------------------------------
     @property
@@ -167,6 +185,14 @@ class ServiceContainer:
     @property
     def mqtt_service(self):
         return get_mqtt_service()
+
+    @property
+    def mqtt_discovery_service(self):
+        return get_discovery_service()
+
+    @property
+    def onvif_discovery_service(self):
+        return get_onvif_discovery_service()
 
     # ------------------------------------------------------------------
     # Pipeline
@@ -315,6 +341,9 @@ class ServiceContainer:
         reset_reprocessing_service,
         reset_smart_reanalyze_service,
         reset_signed_url_service,
+        reset_api_key_service,
+        reset_discovery_service,
+        reset_onvif_discovery_service,
     ]
 
     def reset_all_for_tests(self) -> None:

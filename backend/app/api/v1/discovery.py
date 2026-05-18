@@ -24,10 +24,10 @@ from app.schemas.discovery import (
     TestConnectionResponse,
 )
 from app.services.onvif_discovery_service import (
-    get_onvif_discovery_service,
     WSDISCOVERY_AVAILABLE,
     ONVIF_ZEEP_AVAILABLE,
 )
+from app.services.service_container import container
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ async def get_discovery_status() -> DiscoveryStatusResponse:
 
     Returns availability status and whether required libraries are installed.
     """
-    service = get_onvif_discovery_service()
+    service = container.onvif_discovery_service
 
     if service.is_available:
         return DiscoveryStatusResponse(
@@ -97,7 +97,7 @@ async def discover_cameras(
         503: If discovery service is unavailable
         500: If discovery fails due to network error
     """
-    service = get_onvif_discovery_service()
+    service = container.onvif_discovery_service
 
     # Check availability
     if not service.is_available:
@@ -156,7 +156,7 @@ async def clear_discovery_cache() -> dict:
     Returns:
         Success message
     """
-    service = get_onvif_discovery_service()
+    service = container.onvif_discovery_service
     service.clear_cache()
 
     logger.info("Discovery cache cleared")
@@ -188,7 +188,7 @@ async def get_device_details_status() -> DeviceDetailsStatusResponse:
 
     Returns availability status and whether required libraries are installed.
     """
-    service = get_onvif_discovery_service()
+    service = container.onvif_discovery_service
 
     if service.is_device_details_available:
         return DeviceDetailsStatusResponse(
@@ -234,7 +234,7 @@ async def get_device_details(
         503: If onvif-zeep is not installed
         500: If device query fails due to network error
     """
-    service = get_onvif_discovery_service()
+    service = container.onvif_discovery_service
 
     # Check availability
     if not service.is_device_details_available:
@@ -346,7 +346,7 @@ async def test_camera_connection(
         - URL must start with rtsp:// or rtsps://
         - Test includes opening connection and reading first frame
     """
-    service = get_onvif_discovery_service()
+    service = container.onvif_discovery_service
 
     # Sanitize URL for logging (remove password)
     sanitized_url = request.rtsp_url

@@ -28,8 +28,8 @@ from app.schemas.system import (
     CircuitBreakerConfigSchema,
     CircuitBreakerStatusResponse,
 )
-from app.services.cleanup_service import get_cleanup_service
-from app.services.backup_service import get_backup_service, BackupResult, RestoreResult, BackupInfo, ValidationResult
+from app.services.backup_service import BackupResult, RestoreResult, BackupInfo, ValidationResult
+from app.services.service_container import container
 from app.core.database import get_db
 from app.models.system_setting import SystemSetting
 from app.models.user import User, UserRole
@@ -480,7 +480,7 @@ async def get_storage_info():
     - 500: Internal server error
     """
     try:
-        cleanup_service = get_cleanup_service()
+        cleanup_service = container.cleanup_service
         storage_info = await cleanup_service.get_storage_info()
 
         return StorageResponse(**storage_info)
@@ -1459,7 +1459,7 @@ async def create_backup(options: Optional[BackupOptions] = None):
     - 500: Internal server error
     """
     try:
-        backup_service = get_backup_service()
+        backup_service = container.backup_service
         # Use default options if none provided
         opts = options or BackupOptions()
         result = await backup_service.create_backup(
@@ -1522,7 +1522,7 @@ async def download_backup(timestamp: str):
     - 404: Backup not found
     """
     try:
-        backup_service = get_backup_service()
+        backup_service = container.backup_service
         zip_path = backup_service.get_backup_path(timestamp)
 
         if not zip_path:
@@ -1580,7 +1580,7 @@ async def list_backups():
     - 500: Internal server error
     """
     try:
-        backup_service = get_backup_service()
+        backup_service = container.backup_service
         backups = backup_service.list_backups()
 
         backup_items = [
@@ -1654,7 +1654,7 @@ async def validate_backup(file: UploadFile = File(...)):
             tmp_path = Path(tmp.name)
 
         try:
-            backup_service = get_backup_service()
+            backup_service = container.backup_service
             result = backup_service.validate_backup(tmp_path)
 
             # FF-007: Include backup contents info
@@ -1747,7 +1747,7 @@ async def restore_from_backup(
             tmp_path = Path(tmp.name)
 
         try:
-            backup_service = get_backup_service()
+            backup_service = container.backup_service
 
             # Validate first
             validation = backup_service.validate_backup(tmp_path)
@@ -1850,7 +1850,7 @@ async def delete_backup(timestamp: str):
     - 404: Backup not found
     """
     try:
-        backup_service = get_backup_service()
+        backup_service = container.backup_service
         deleted = backup_service.delete_backup(timestamp)
 
         if not deleted:
@@ -1872,7 +1872,6 @@ async def delete_backup(timestamp: str):
 
 
 # Story P3-7.3: Cost Cap Status Endpoint
-from app.services.cost_cap_service import get_cost_cap_service
 from app.schemas.system import CostCapStatus as CostCapStatusSchema
 
 
@@ -1902,7 +1901,7 @@ async def get_ai_cost_status(db: Session = Depends(get_db)):
     - 500: Internal server error
     """
     try:
-        cost_cap_service = get_cost_cap_service()
+        cost_cap_service = container.cost_cap_service
         cap_status = cost_cap_service.get_cap_status(db, use_cache=False)
 
         return CostCapStatusSchema(
@@ -1937,9 +1936,7 @@ async def get_ai_resilience_status(db: Session = Depends(get_db)):
     Used by the AI Resilience settings page.
     """
     try:
-        from app.services.ai_service import get_ai_service
-        ai_service = get_ai_service()
-        return ai_service.get_ai_resilience_status(db)
+        return container.ai_service.get_ai_resilience_status(db)
     except Exception as e:
         logger.error(f"Failed to get AI resilience status: {e}", exc_info=True)
         raise HTTPException(
@@ -1966,9 +1963,7 @@ async def update_ai_resilience_config(
         )
 
     try:
-        from app.services.ai_service import get_ai_service
-        ai_service = get_ai_service()
-        return ai_service.update_circuit_breaker_config(provider, config.model_dump(), db)
+        return container.ai_service.update_circuit_breaker_config(provider, config.model_dump(), db)
     except Exception as e:
         logger.error(f"Failed to update circuit breaker for {provider}: {e}", exc_info=True)
         raise HTTPException(
@@ -1988,9 +1983,7 @@ async def reset_ai_circuit_breaker(provider: str, db: Session = Depends(get_db))
         )
 
     try:
-        from app.services.ai_service import get_ai_service
-        ai_service = get_ai_service()
-        ai_service.reset_circuit_breaker(provider)
+        container.ai_service.reset_circuit_breaker(provider)
         return {"message": f"Circuit breaker for '{provider}' has been reset to CLOSED"}
     except Exception as e:
         logger.error(f"Failed to reset circuit breaker for {provider}: {e}", exc_info=True)
@@ -2294,9 +2287,7 @@ async def get_tunnel_status(db: Session = Depends(get_db)):
     **Status Codes:**
     - 200: Success
     """
-    from app.services.tunnel_service import get_tunnel_service
-
-    tunnel_service = get_tunnel_service()
+    tunnel_service = container.tunnel_service
     status_dict = tunnel_service.get_status_dict()
 
     # Get enabled setting from database
@@ -2349,9 +2340,7 @@ async def start_tunnel(
     - 400: No token available or invalid token
     - 500: Failed to start tunnel
     """
-    from app.services.tunnel_service import get_tunnel_service
-
-    tunnel_service = get_tunnel_service()
+    tunnel_service = container.tunnel_service
 
     # Get token from request or database
     token = None
@@ -2469,9 +2458,7 @@ async def test_tunnel_connectivity(
     import asyncio
     import time
 
-    from app.services.tunnel_service import get_tunnel_service
-
-    tunnel_service = get_tunnel_service()
+    tunnel_service = container.tunnel_service
     was_running = tunnel_service.is_running
     original_token = None
 
@@ -2580,9 +2567,7 @@ async def stop_tunnel(db: Session = Depends(get_db)):
     - 200: Success
     - 500: Failed to stop tunnel
     """
-    from app.services.tunnel_service import get_tunnel_service
-
-    tunnel_service = get_tunnel_service()
+    tunnel_service = container.tunnel_service
 
     try:
         await tunnel_service.stop()

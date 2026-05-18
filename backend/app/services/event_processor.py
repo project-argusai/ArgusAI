@@ -283,6 +283,14 @@ class EventProcessor:
             context = ProcessingContext(
                 ai_service=self.ai_service,
                 metrics=self.metrics,
+
+                # Direct service instances (preferred)
+                context_prompt_service=container.context_prompt_service,
+                cost_alert_service=container.cost_alert_service,
+                embedding_service=container.embedding_service,
+                mqtt_service=container.mqtt_service,
+
+                # Still-bound helpers on EventProcessor (to be extracted later)
                 handle_cost_cap_skip=self._handle_cost_cap_skip,
                 generate_thumbnail=self._generate_thumbnail,
                 generate_and_match_entity=self._generate_and_match_entity,
@@ -297,7 +305,6 @@ class EventProcessor:
                 process_entity_alerts=self._process_entity_alerts,
                 enrich_event_with_audio=self._enrich_event_with_audio,
                 publish_event_to_mqtt=self._publish_event_to_mqtt,
-                get_container=lambda: container,
             )
 
             self.ai_processing_coordinator = AIProcessingCoordinator(context=context)

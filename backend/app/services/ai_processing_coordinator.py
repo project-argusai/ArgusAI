@@ -39,14 +39,20 @@ class ProcessingContext:
     """
     Explicit dependencies needed by AIProcessingCoordinator.
 
-    This allows the coordinator to depend on a narrow interface instead of
-    the entire EventProcessor, significantly improving decoupling and testability.
+    Goal: Depend on real services and focused helpers rather than the entire EventProcessor.
+    This is an incremental improvement toward full decoupling.
     """
     # Core services
     ai_service: "AIService"
     metrics: "ProcessingMetrics"
 
-    # Focused helper methods (bound methods from EventProcessor)
+    # Services obtained via container (preferred over bound methods where possible)
+    context_prompt_service: Any
+    cost_alert_service: Any
+    embedding_service: Any
+    mqtt_service: Any
+
+    # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
     handle_cost_cap_skip: Callable[[ProcessingEvent], Awaitable[bool | None]]
     generate_thumbnail: Callable[[Any], Optional[str]]
     generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
@@ -61,9 +67,6 @@ class ProcessingContext:
     process_entity_alerts: Callable[..., Awaitable[None]]
     enrich_event_with_audio: Callable[[str, str], Awaitable[None]]
     publish_event_to_mqtt: Callable[..., Awaitable[None]]
-
-    # Access to global services container (temporary during transition)
-    get_container: Callable[[], Any]
 
 
 class AIProcessingCoordinator:
@@ -114,8 +117,7 @@ class AIProcessingCoordinator:
             context_result = None
 
             try:
-                container = self.context.get_container()
-                context_service = container.context_prompt_service
+                context_service = self.context.context_prompt_service
 
                 base_prompt = (
                     "Describe what you see in this image. Include: "
@@ -216,8 +218,7 @@ class AIProcessingCoordinator:
 
             # Cost alerts
             try:
-                container = self.context.get_container()
-                cost_alert_service = container.cost_alert_service
+                cost_alert_service = self.context.cost_alert_service
                 with SessionLocal() as db:
                     alerts = await cost_alert_service.check_and_notify(db)
                     if alerts:
@@ -235,9 +236,8 @@ class AIProcessingCoordinator:
 
             # MQTT
             try:
-                container = self.context.get_container()
                 from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
-                mqtt_service = container.mqtt_service
+                mqtt_service = self.context.mqtt_service
                 if mqtt_service.is_connected:
                     with SessionLocal() as mqtt_db:
                         stored_event = mqtt_db.query(Event).filter(Event.id == event_id).first()
@@ -259,8 +259,7 @@ class AIProcessingCoordinator:
             # Store embedding
             try:
                 if embedding_vector:
-                    container = self.context.get_container()
-                    embedding_service = container.embedding_service
+                    embedding_service = self.context.embedding_service
                     with SessionLocal() as embed_db:
                         await embedding_service.store_embedding(
                             db=embed_db,

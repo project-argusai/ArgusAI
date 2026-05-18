@@ -62,8 +62,8 @@ class ProcessingContext:
     run_homekit_triggers: Callable[..., Awaitable[None]]
     link_entity_to_event: Callable[..., Awaitable[None]]
     process_face_embeddings: Callable[..., Awaitable[None]]
-    process_vehicle_embeddings: Callable[..., Awaitable[None]]
-    process_entity_alerts: Callable[..., Awaitable[None]]
+    # process_vehicle_embeddings has been moved into the coordinator
+    # process_entity_alerts has been moved into the coordinator
     enrich_event_with_audio: Callable[[str, str], Awaitable[None]]
     publish_event_to_mqtt: Callable[..., Awaitable[None]]
 
@@ -253,7 +253,7 @@ class AIProcessingCoordinator:
                 logger.warning(f"Failed to create MQTT publish task: {mqtt_error}")
 
             # Camera status sensors
-            await self.context.publish_camera_status_sensors(event=event, event_id=event_id, ai_result=ai_result)
+            await self._publish_camera_status_sensors(event=event, event_id=event_id, ai_result=ai_result)
 
             # Store embedding
             try:
@@ -281,15 +281,15 @@ class AIProcessingCoordinator:
             await self.context.link_entity_to_event(
                 event=event, event_id=event_id, embedding_vector=embedding_vector
             )
-            await self.context.process_face_embeddings(
+            await self._process_face_embeddings(
                 event=event, event_id=event_id, thumbnail_base64=thumbnail_base64
             )
-            await self.context.process_vehicle_embeddings(
+            await self._process_vehicle_embeddings(
                 event=event, event_id=event_id, objects_json=objects_json,
                 thumbnail_base64=thumbnail_base64, ai_result=ai_result,
                 smart_detection_type=smart_detection_type
             )
-            await self.context.process_entity_alerts(
+            await self._process_entity_alerts(
                 event=event, event_id=event_id, ai_result=ai_result, objects_detected=objects_detected
             )
 
@@ -573,4 +573,31 @@ class AIProcessingCoordinator:
             logger.warning(
                 f"Failed to create push notification task: {push_error}",
                 extra={"error": str(push_error)}
+            )
+
+    async def _process_vehicle_embeddings(
+        self,
+        event: ProcessingEvent,
+        event_id: str,
+        objects_json: Optional[str],
+        thumbnail_base64: Optional[str],
+        ai_result: Any,
+        smart_detection_type: Optional[str],
+    ) -> None:
+        """Privacy-gated vehicle embedding processing (fire-and-forget)."""
+        try:
+            # The heavy lifting is still in EventProcessor._process_vehicles for this step
+            await self.event_processor._process_vehicles(
+                event_id=event_id,
+                thumbnail_base64=thumbnail_base64,
+                event_description=ai_result.description
+            )
+            logger.debug(
+                f"Vehicle embeddings task created for event {event_id}",
+                extra={"event_id": event_id, "camera_id": event.camera_id}
+            )
+        except Exception as vehicle_error:
+            logger.warning(
+                f"Failed to create vehicle embeddings task: {vehicle_error}",
+                extra={"error": str(vehicle_error), "event_id": event_id}
             )

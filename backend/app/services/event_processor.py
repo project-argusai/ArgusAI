@@ -298,8 +298,8 @@ class EventProcessor:
                 run_homekit_triggers=self._run_homekit_triggers,
                 link_entity_to_event=self._link_entity_to_event,
                 process_face_embeddings=self._process_face_embeddings,
-                process_vehicle_embeddings=self._process_vehicle_embeddings,
-                process_entity_alerts=self._process_entity_alerts,
+                # process_vehicle_embeddings moved into the coordinator
+                # process_entity_alerts moved into the coordinator
                 enrich_event_with_audio=self._enrich_event_with_audio,
                 publish_event_to_mqtt=self._publish_event_to_mqtt,
             )

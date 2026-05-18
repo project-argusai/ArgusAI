@@ -25,7 +25,7 @@ from app.schemas.api_key import (
     MessageResponse,
     VALID_SCOPES,
 )
-from app.services.api_key_service import get_api_key_service
+from app.services.service_container import container
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ async def create_api_key(
             detail="At least one scope is required"
         )
 
-    service = get_api_key_service()
+    service = container.api_key_service
 
     try:
         api_key, plaintext_key = service.generate_api_key(
@@ -112,7 +112,7 @@ async def list_api_keys(
     db: Session = Depends(get_db),
 ):
     """List all API keys (without exposing the key itself)."""
-    service = get_api_key_service()
+    service = container.api_key_service
     keys = service.list_keys(db, include_revoked=include_revoked)
 
     return [
@@ -145,7 +145,7 @@ async def get_api_key(
     db: Session = Depends(get_db),
 ):
     """Get a specific API key by ID."""
-    service = get_api_key_service()
+    service = container.api_key_service
     api_key = service.get_key(db, key_id)
 
     if not api_key:
@@ -181,7 +181,7 @@ async def revoke_api_key(
     db: Session = Depends(get_db),
 ):
     """Revoke an API key immediately."""
-    service = get_api_key_service()
+    service = container.api_key_service
     api_key = service.revoke_key(db, key_id, revoked_by=current_user.id)
 
     if not api_key:
@@ -205,7 +205,7 @@ async def get_api_key_usage(
     db: Session = Depends(get_db),
 ):
     """Get usage statistics for an API key."""
-    service = get_api_key_service()
+    service = container.api_key_service
     api_key = service.get_key(db, key_id)
 
     if not api_key:

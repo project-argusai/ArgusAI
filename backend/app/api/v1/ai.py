@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from app.core.database import get_db
+from app.services.service_container import container
 from app.schemas.ai import (
     AIUsageStatsResponse,
     AICapabilitiesResponse,
@@ -42,14 +43,14 @@ async def get_ai_usage_stats(
     )
 ):
     """
-    Get AI usage statistics and cost tracking.
+    Get AI usage statistics and cost tracking (delegates to AICostAndUsageTracker #447).
 
     Returns aggregated statistics including:
     - Total API calls (successful and failed)
     - Token usage
     - Cost estimates
+    - Provider breakdown
     - Average response time
-    - Per-provider breakdown
 
     Supports optional date range filtering.
 
@@ -70,6 +71,43 @@ async def get_ai_usage_stats(
     )
 
     return AIUsageStatsResponse(**stats)
+
+
+@router.get("/usage/daily")
+async def get_daily_ai_usage(
+    date: Optional[str] = Query(None, description="Specific date YYYY-MM-DD (defaults to today)")
+):
+    """Daily usage breakdown for charts (richer stats from tracker)."""
+    from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
+    from datetime import datetime as dt, date as date_type
+
+    tracker = get_ai_cost_and_usage_tracker()
+    target = dt.strptime(date, "%Y-%m-%d").date() if date else dt.now().date()
+
+    breakdown = tracker.get_daily_breakdown(
+        start_date=dt.combine(target, dt.min.time()),
+        end_date=dt.combine(target, dt.max.time())
+    )
+    return {"date": str(target), "data": breakdown}
+
+
+@router.get("/usage/top-providers")
+async def get_top_ai_providers(
+    limit: int = Query(5),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None)
+):
+    """Top providers by cost (for dashboards)."""
+    from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
+    from datetime import datetime as dt
+
+    tracker = get_ai_cost_and_usage_tracker()
+    start = dt.fromisoformat(start_date) if start_date else None
+    end = dt.fromisoformat(end_date) if end_date else None
+
+    breakdown = tracker.get_provider_breakdown(start, end)
+    top = sorted(breakdown.items(), key=lambda x: x[1].get("cost", 0), reverse=True)[:limit]
+    return {"top_providers": [{"provider": p, **s} for p, s in top]}
 
 
 @router.get("/capabilities", response_model=AICapabilitiesResponse)
@@ -463,11 +501,8 @@ async def get_annotation_colors():
             ...
         }
     """
-    from app.services.frame_annotation_service import get_frame_annotation_service
-
     try:
-        annotation_service = get_frame_annotation_service()
-        colors = annotation_service.get_entity_colors()
+        colors = container.frame_annotation_service.get_entity_colors()
 
         logger.debug(
             "Annotation colors requested",

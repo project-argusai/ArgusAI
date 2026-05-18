@@ -12,10 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.camera import Camera
-from app.services.voice_query_service import (
-    get_voice_query_service,
-    VoiceQueryService,
-)
+from app.services.voice_query_service import VoiceQueryService
+from app.services.service_container import container
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +115,7 @@ async def voice_query(
     Parses the query to extract time range and camera filter,
     fetches matching events, and generates a spoken response.
     """
-    service = get_voice_query_service()
+    service = container.voice_query_service
 
     try:
         # Validate query

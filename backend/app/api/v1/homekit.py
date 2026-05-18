@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field, ConfigDict
 from app.core.database import get_db
 from app.models.homekit import HomeKitConfig, HomeKitAccessory
 from app.models.camera import Camera
-from app.services.homekit_service import get_homekit_service, HomekitStatus
+from app.services.homekit_service import HomekitStatus
+from app.services.service_container import container
 from app.config.homekit import generate_pincode
 from app.schemas.homekit_diagnostics import (
     HomeKitDiagnosticsResponse,
@@ -296,7 +297,7 @@ async def get_homekit_status(db: Session = Depends(get_db)):
         config = get_or_create_config(db)
 
         # Get service status
-        service = get_homekit_service()
+        service = container.homekit_service
         service_status = service.get_status()
 
         # Merge database config with runtime status
@@ -359,7 +360,7 @@ async def enable_homekit(
         db.refresh(config)
 
         # Update service config and start
-        service = get_homekit_service()
+        service = container.homekit_service
 
         # Update service config from database
         service.config.enabled = True
@@ -427,7 +428,7 @@ async def disable_homekit(db: Session = Depends(get_db)):
             db.commit()
 
         # Stop service
-        service = get_homekit_service()
+        service = container.homekit_service
         await service.stop()
 
         logger.info(
@@ -458,7 +459,7 @@ async def get_qrcode(db: Session = Depends(get_db)):
     to pair with the HomeKit bridge.
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
 
         if not service.is_available:
             raise HTTPException(
@@ -509,7 +510,7 @@ async def reset_pairing(db: Session = Depends(get_db)):
     The bridge will need to be re-paired with Apple Home after reset.
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
 
         # Reset pairing in service
         success = await service.reset_pairing()
@@ -597,7 +598,7 @@ async def get_pairings():
     - permissions: HAP permission level (0=regular, 1=admin)
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
         pairings = service.get_pairings()
 
         return PairingsListResponse(
@@ -636,7 +637,7 @@ async def remove_pairing(pairing_id: str):
         Success status and confirmation message
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
 
         # Check if pairing exists
         pairings = service.get_pairings()
@@ -702,7 +703,7 @@ async def get_diagnostics():
     and event delivery issues.
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
         diagnostics = service.get_diagnostics()
 
         logger.debug(
@@ -748,7 +749,7 @@ async def test_connectivity():
     Note: This test takes approximately 3-5 seconds due to mDNS discovery timeout.
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
         result = await service.test_connectivity()
 
         logger.info(
@@ -796,7 +797,7 @@ async def get_camera_snapshot(camera_id: str):
         500: Internal error
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
 
         if not service.is_running:
             raise HTTPException(
@@ -880,7 +881,7 @@ async def test_camera_stream(camera_id: str):
         500: Internal error
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
 
         if not service.is_running:
             raise HTTPException(
@@ -950,7 +951,7 @@ async def trigger_test_event(
         422: Invalid request (empty camera_id or invalid event_type)
     """
     try:
-        service = get_homekit_service()
+        service = container.homekit_service
 
         if not service.is_running:
             raise HTTPException(

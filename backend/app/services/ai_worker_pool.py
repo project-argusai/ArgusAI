@@ -9,6 +9,7 @@ of EventProcessor.
 
 import asyncio
 import logging
+import os
 from typing import List, Optional, Callable, Awaitable
 
 from app.services.ai_processing_worker import AIProcessingWorker
@@ -39,10 +40,9 @@ class AIWorkerPool:
         self.event_queue = event_queue
         self._process_event = process_event_callback
 
-        # Concurrency control for AI calls (can be moved here later)
-        self.ai_semaphore = asyncio.Semaphore(
-            ai_concurrent_limit or int(8)  # default, will be improved
-        )
+        # Concurrency control for AI calls (owned by the pool)
+        ai_limit = ai_concurrent_limit or int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
+        self.ai_semaphore = asyncio.Semaphore(ai_limit)
 
         self._worker_tasks: List[asyncio.Task] = []
         self._running = False

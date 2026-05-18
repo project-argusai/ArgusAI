@@ -189,12 +189,21 @@ class EventProcessor:
         self.queue_maxsize = queue_maxsize
         self.event_queue: asyncio.Queue = asyncio.Queue(maxsize=queue_maxsize)
 
-        # Concurrency limit for AI calls (Phase A.5 - Resource Limits)
-        ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
-        self.ai_semaphore = asyncio.Semaphore(ai_limit)
-
-        # AI worker pool (now the owner of worker tasks and count at runtime)
+        # AI worker pool (now owns concurrency control + worker tasks)
         self.ai_worker_pool: Optional[AIWorkerPool] = None
+
+        # Temporary early semaphore (only used before pool is created, which is rare)
+        self._early_ai_semaphore: Optional[asyncio.Semaphore] = None
+
+    @property
+    def ai_semaphore(self) -> asyncio.Semaphore:
+        """Concurrency limiter for AI calls (owned by AIWorkerPool)."""
+        if self.ai_worker_pool:
+            return self.ai_worker_pool.ai_semaphore
+        if self._early_ai_semaphore is None:
+            ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
+            self._early_ai_semaphore = asyncio.Semaphore(ai_limit)
+        return self._early_ai_semaphore
 
         # CameraTaskManager owns per-camera monitoring tasks, stats, cooldowns, recovery, and health monitor
 
@@ -264,10 +273,12 @@ class EventProcessor:
 
         # Start AI worker pool (now managed by AIWorkerPool)
         if self.ai_worker_pool is None:
+            ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
             self.ai_worker_pool = AIWorkerPool(
                 worker_count=self.worker_count,
                 event_queue=self.event_queue,
                 process_event_callback=self._process_event,  # type: ignore
+                ai_concurrent_limit=ai_limit,
             )
         await self.ai_worker_pool.start()
 

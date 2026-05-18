@@ -44,6 +44,7 @@ from app.models.camera import Camera
 from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.ai_processing_worker import AIProcessingWorker
+from app.services.ai_worker_pool import AIWorkerPool
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
@@ -193,7 +194,8 @@ class EventProcessor:
         self.ai_semaphore = asyncio.Semaphore(ai_limit)
 
         # Task tracking
-        self.worker_tasks: List[asyncio.Task] = []
+        self.worker_tasks: List[asyncio.Task] = []  # legacy, will be removed
+        self.ai_worker_pool: Optional[AIWorkerPool] = None
 
         # CameraTaskManager owns per-camera monitoring tasks, stats, cooldowns, recovery, and health monitor
         self.camera_task_manager: Optional[CameraTaskManager] = None
@@ -254,17 +256,16 @@ class EventProcessor:
             await self.ai_service.load_api_keys_from_db(db)
             logger.info("AI service API keys loaded from database")
 
-        # Start AI worker pool using the new AIProcessingWorker
-        for i in range(self.worker_count):
-            worker = AIProcessingWorker(
-                worker_id=i,
+        # Start AI worker pool (now managed by AIWorkerPool)
+        if self.ai_worker_pool is None:
+            self.ai_worker_pool = AIWorkerPool(
+                worker_count=self.worker_count,
                 event_queue=self.event_queue,
-                processor=self,
+                process_event_callback=self._process_event,  # type: ignore
             )
-            worker_task = asyncio.create_task(worker.run(), name=f"ai_worker_{i}")
-            self.worker_tasks.append(worker_task)
+        await self.ai_worker_pool.start()
 
-        logger.info(f"Started {self.worker_count} AI workers")
+        logger.info(f"Started {self.worker_count} AI workers via AIWorkerPool")
 
         # Start motion detection tasks for enabled cameras
         # Note: This will be called from FastAPI lifespan after camera service is initialized
@@ -330,15 +331,17 @@ class EventProcessor:
                 remaining = self.event_queue.qsize()
                 logger.warning(f"Queue drain timeout - {remaining} events remaining")
 
-        # Stop AI workers
+        # Stop AI workers (delegated to AIWorkerPool)
         logger.info("Stopping AI workers...")
-        for task in self.worker_tasks:
-            task.cancel()
-
-        # Wait for workers to finish
-        if self.worker_tasks:
-            await asyncio.gather(*self.worker_tasks, return_exceptions=True)
-        self.worker_tasks.clear()
+        if self.ai_worker_pool:
+            await self.ai_worker_pool.stop()
+        else:
+            # Legacy fallback
+            for task in self.worker_tasks:
+                task.cancel()
+            if self.worker_tasks:
+                await asyncio.gather(*self.worker_tasks, return_exceptions=True)
+            self.worker_tasks.clear()
 
         # Stop camera health monitor (now owned by CameraTaskManager)
         if self.camera_task_manager:

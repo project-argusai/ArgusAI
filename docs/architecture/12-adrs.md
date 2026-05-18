@@ -172,6 +172,55 @@
 
 ---
 
+### ADR-009: Decompose AIService into Specialized Services (Phase B)
+
+**Status:** Accepted
+
+**Context:**
+`ai_service.py` had grown to ~4,200 lines and become a classic God Object containing:
+- Multi-provider fallback and orchestration logic
+- Prompt construction, A/B testing, and camera-specific overrides
+- Image and video analysis coordination
+- Cost calculation and usage recording
+- Circuit breakers and resilience
+
+This made the service extremely difficult to test, modify safely, or understand.
+
+**Decision:**
+Decompose `AIService` into focused services, reducing it to a thin orchestrator / legacy compatibility layer.
+
+**Key Extractions Performed:**
+
+| Service                              | Responsibility                              | Status    |
+|--------------------------------------|---------------------------------------------|-----------|
+| `AIPromptService` + `prompt_templates.py` | Prompt selection, A/B testing, overrides   | Complete  |
+| `AIResilienceService`                | Circuit breakers, provider health           | Complete  |
+| `VisionAnalysisOrchestrator`         | Single/multi-frame + video analysis + SLA   | Complete  |
+| `AICostAndUsageTracker`              | Usage recording, stats, cost integration    | Complete  |
+| `ai_providers/` + `ai_types.py`      | Provider implementations and shared types   | Complete  |
+| `VideoAnalysisService` / `LiteLLMService` | Specialized analysis and routing       | Complete  |
+
+**Consequences (Positive):**
+- `ai_service.py` reduced from ~4,200 → ~692 lines.
+- Each major concern is now independently testable and replaceable.
+- Much clearer architecture and significantly easier onboarding.
+- Strong foundation for the Lightweight ServiceContainer (#450).
+
+**Consequences (Trade-offs):**
+- More files and slightly more wiring at startup.
+- Some call sites required updates during the migration.
+- `AIService` retains a small amount of legacy API compatibility code.
+
+**Alternatives Considered:**
+- Keep everything in one large service — rejected (unmaintainable).
+- Adopt a heavy DI framework — rejected (overkill; the `@singleton` decorator + `ServiceContainer` is sufficient and lightweight).
+
+**Related:**
+- #443 (Phase B Epic)
+- #444 (ai_service decomposition tracking)
+- #447 (AICostAndUsageTracker extraction)
+- #450 (Lightweight DI Container)
+
 ---
 
 [← Previous: Deployment Architecture](./11-deployment.md) | [Next: Glossary →](./13-glossary.md) | [Back to Index](./README.md)

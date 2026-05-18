@@ -1,18 +1,26 @@
 """
-AI Service (thin facade / wiring layer).
+AI Service — Thin Orchestrator / Legacy Compatibility Layer (Phase B complete)
 
-After Phase 3-4 decomposition, AIService is primarily responsible for:
-- Provider configuration and API key management (load_api_keys_from_db, configure_providers)
-- Legacy API compatibility (generate_description, describe_images, describe_video)
-- Delegation to specialized services:
-  - VisionAnalysisOrchestrator (image/video analysis, SLA, fallback)
-  - AIPromptService (prompt selection & A/B testing)
-  - AIResilienceService (circuit breakers)
-  - LiteLLMService (optional multi-provider routing)
-  - VideoAnalysisService (native video analysis)
-  - Cost tracking via get_cost_tracker()
+After full Phase B decomposition (#444 / #447), AIService has been reduced
+to a lightweight wiring layer and legacy API facade.
 
-Most heavy logic has been extracted to dedicated services (see ai_providers/, vision_analysis_orchestrator.py, etc.).
+Its responsibilities are now limited to:
+- Loading and configuring AI provider credentials from the database
+- Wiring together the specialized services at startup
+- Providing thin delegation for the main public analysis methods
+- Maintaining a small amount of legacy API compatibility
+
+All heavy logic lives in dedicated services:
+- VisionAnalysisOrchestrator     (single/multi-frame/video analysis + SLA + fallback)
+- AIPromptService                 (prompt selection, A/B testing, camera overrides)
+- AIResilienceService             (circuit breakers, provider health)
+- AICostAndUsageTracker           (usage recording + statistics)
+- CostTracker                     (pure cost calculation)
+- VideoAnalysisService            (native video analysis)
+- LiteLLMService                  (optional unified routing)
+
+New code should prefer the specialized services directly (or via the ServiceContainer)
+rather than going through AIService.
 """
 
 import logging
@@ -25,8 +33,8 @@ from sqlalchemy.orm import Session
 
 from app.utils.encryption import decrypt_password
 from app.models.system_setting import SystemSetting
-from app.models.ai_usage import AIUsage
 from app.services.cost_tracker import get_cost_tracker
+from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
 from app.services.ocr_service import OCRResult, extract_overlay_text, is_ocr_available
 from app.services.ai_prompt_service import AIPromptService
 from app.services.ai_types import AIProvider, AIResult, PROVIDER_CAPABILITIES
@@ -37,39 +45,34 @@ from app.services.litellm_service import LiteLLMService, litellm_service
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# Note: Prompt logic fully extracted to AIPromptService (Phase 2, completed).
-# Old prompt builder methods were removed in Phase 2.8.
+# Phase B Decomposition Complete (see #444 and #447)
 # =============================================================================
-
-# See: AIPromptService, prompt_templates.py, and the Phase B decomposition plan.
+# Prompt logic        → AIPromptService (and prompt_templates.py)
+# Resilience          → AIResilienceService
+# Analysis logic      → VisionAnalysisOrchestrator + VideoAnalysisService
+# Cost & Usage        → AICostAndUsageTracker + CostTracker
+# Types               → ai_types.py
+# Provider registry   → ai_providers/
+#
+# AIService is now a thin wiring / legacy compatibility layer.
+# Most new code should use the specialized services directly or via the ServiceContainer.
 # =============================================================================
-
-
-# Prompt templates have been extracted to prompt_templates.py (Phase 2 - AIPromptService extraction)
-# New code should import from there. These are kept temporarily for backward compatibility.
-from app.services.prompt_templates import (
-    CONFIDENCE_INSTRUCTION,
-    CONFIDENCE_INSTRUCTION_WITH_BOXES,
-    MULTI_FRAME_SYSTEM_PROMPT,
-    BOUNDING_BOX_INSTRUCTION,
-)
-
-# The prompt constants have been successfully moved to prompt_templates.py (Phase 2.4 cleanup).
-# The old definitions have been removed. Import from prompt_templates instead.
-
-
-# Token estimation and cost constants moved to cost_tracker.py (Phase 3.8)
-
-# AI types moved to ai_types.py (Phase 3.4)
-# AIProvider, AIResult, and PROVIDER_CAPABILITIES now come from there.
 
 
 class AIService:
-    """Main AI service with multi-provider fallback and usage tracking"""
+    """Thin orchestrator for AI analysis.
+
+    Delegates to specialized services:
+    - VisionAnalysisOrchestrator (analysis)
+    - AIPromptService (prompts)
+    - AIResilienceService (circuit breakers)
+    - AICostAndUsageTracker (usage & cost)
+    - CostTracker (pure cost calculations)
+    """
 
     def __init__(self):
         self.providers: Dict[AIProvider, Optional[AIProviderBase]] = {}
-        self.db: Optional[Session] = None  # Database session for usage tracking
+        self.db: Optional[Session] = None  # Used by some legacy paths (load_api_keys, etc.)
         self.description_prompt: Optional[str] = None  # Custom description prompt from settings
         # Story P4-5.4: A/B testing and camera-specific prompts
         self.ab_test_enabled: bool = False  # A/B test mode flag
@@ -77,24 +80,17 @@ class AIService:
         self.camera_prompts: Dict[str, str] = {}  # Camera-specific prompt overrides
         # Story P15-5.1: AI annotations (bounding boxes)
         self.annotations_enabled: bool = False  # Enable bounding box detection
-        # LiteLLM Integration (fully delegated to LiteLLMService - Phase 3.6)
         self.use_litellm: bool = False
 
-        # Prompt service (Phase 2)
+        # Wired services (initialized in configure_providers)
         self.prompt_service: Optional[AIPromptService] = None
-
-        # Resilience + Orchestrator (Phases 3.1/3.2)
         self.resilience_service: Optional[AIResilienceService] = None
         self.vision_orchestrator: Optional[VisionAnalysisOrchestrator] = None
-
-        # Video Analysis Service (Phase 3.5)
         self.video_analysis_service: Optional[VideoAnalysisService] = None
-
-        # LiteLLM Service (Phase 3.6)
         self.litellm_service: Optional[LiteLLMService] = None
 
-    # _estimate_image_tokens and _calculate_cost moved to cost_tracker.py (Phase 3.8)
-    # Use get_cost_tracker().estimate_image_tokens(...) and .calculate_cost(...) instead
+    # Token estimation and cost calculation live in CostTracker.
+    # Use get_cost_tracker().estimate_image_tokens(...) and .calculate_cost(...) instead.
 
     async def load_api_keys_from_db(self, db: Session):
         """
@@ -237,7 +233,7 @@ class AIService:
                     logger.error(f"Failed to configure LiteLLM, falling back to legacy: {e}")
                     self.use_litellm = False
 
-            # Store database session for usage tracking
+            # Store database session for legacy paths
             self.db = db
 
         except Exception as e:
@@ -265,31 +261,12 @@ class AIService:
             gemini_key: Google API key (plaintext)
             claude_model: Claude model to use (e.g., "claude-opus-4-20250514")
         """
-        # Initialize resilience service (Phase 3.1)
+        # Wire resilience
         self.resilience_service = resilience_service
-
-        active_provider_names = []
-
-        if openai_key:
-            self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key)
-            active_provider_names.append("openai")
-
-        if grok_key:
-            self.providers[AIProvider.GROK] = GrokProvider(grok_key)
-            active_provider_names.append("grok")
-
-        if claude_key:
-            self.providers[AIProvider.CLAUDE] = ClaudeProvider(claude_key, model=claude_model)
-            active_provider_names.append("claude")
-
-        if gemini_key:
-            self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key)
-            active_provider_names.append("gemini")
-
         if active_provider_names:
             self.resilience_service.initialize_circuit_breakers(active_provider_names)
 
-        # Initialize Prompt Service (Phase 2)
+        # Wire prompt service
         self.prompt_service = AIPromptService(
             default_prompt=self.description_prompt,
             ab_test_prompt=self.ab_test_prompt,
@@ -299,19 +276,19 @@ class AIService:
         )
         logger.info("AIPromptService initialized")
 
-        # Initialize Vision Orchestrator (Phase 3.2)
+        # Wire Vision Orchestrator
         self.vision_orchestrator = vision_orchestrator
         self.vision_orchestrator.set_providers(self.providers)
         self.vision_orchestrator.set_prompt_service(self.prompt_service)
         self.vision_orchestrator.set_resilience_service(self.resilience_service)
         logger.info("VisionAnalysisOrchestrator wired")
 
-        # Initialize Video Analysis Service (Phase 3.5)
+        # Wire Video Analysis Service
         self.video_analysis_service = video_analysis_service
         self.video_analysis_service.set_providers(self.providers)
         logger.info("VideoAnalysisService wired")
 
-        # Initialize LiteLLM Service (Phase 3.6)
+        # Wire LiteLLM (if enabled)
         self.litellm_service = litellm_service
         if self.use_litellm:
             configured = self.litellm_service.configure(
@@ -376,9 +353,8 @@ class AIService:
             logger.warning(f"Failed to load provider order from database: {e}, using default")
             return default_order
 
-    # _select_prompt_and_variant has been removed in Phase 2.8.
-    # All prompt selection logic now lives in AIPromptService.
-    # (Duplicate broken _get_provider_order removed during Phase 3.3 cleanup)
+    # Prompt selection now lives entirely in AIPromptService.
+    # _get_provider_order kept here only for legacy / thin compatibility.
 
     async def generate_description(
         self,
@@ -413,9 +389,8 @@ class AIService:
             AIResult with description, confidence, objects, and usage stats
             Note: AIResult.prompt_variant contains A/B test variant if applicable
         """
-        # Thin delegation to VisionAnalysisOrchestrator (Phase 4.15)
-        # All analysis logic (prompt selection, preprocessing, SLA, fallback,
-        # circuit breakers, backoff, tracking, resilience) now lives in the orchestrator.
+        # Thin delegation to VisionAnalysisOrchestrator.
+        # All heavy analysis logic lives there.
         if not self.vision_orchestrator:
             raise RuntimeError("VisionAnalysisOrchestrator not initialized in AIService")
 
@@ -502,7 +477,7 @@ class AIService:
         images_base64 = []
         for i, img_bytes in enumerate(images):
             try:
-                # Preprocess via orchestrator (Phase 4.11 - removed duplicate from AIService)
+                # Preprocessing now lives in VisionAnalysisOrchestrator.
                 base64_img = self.vision_orchestrator._preprocess_image_bytes(img_bytes)
                 images_base64.append(base64_img)
             except Exception as e:
@@ -544,7 +519,7 @@ class AIService:
             }
         )
 
-        # LiteLLM Integration (Phase 3.6): Use LiteLLMService if enabled
+        # LiteLLM Integration: Use LiteLLMService if enabled
         if self.use_litellm and self.litellm_service and self.litellm_service.is_enabled():
             return await self.litellm_service.describe_images(
                 images_base64=images_base64,
@@ -556,9 +531,9 @@ class AIService:
                 ocr_result=ocr_result,
             )
 
-        # Main path: delegate to VisionAnalysisOrchestrator (Phase 4.16)
+        # Main path: delegate to VisionAnalysisOrchestrator
         # The orchestrator handles preprocessing, provider fallback, SLA, backoff,
-        # usage tracking, and resilience. LiteLLM path is handled above.
+        # resilience, etc. LiteLLM path is handled above.
         return await self.vision_orchestrator.analyze_images(
             images=images,
             camera_name=camera_name,
@@ -579,7 +554,7 @@ class AIService:
         sla_timeout_ms: int = 30000,
         custom_prompt: Optional[str] = None
     ) -> AIResult:
-        """Thin delegation to VideoAnalysisService (Phase 3.5)."""
+        """Thin delegation to VideoAnalysisService."""
         if self.video_analysis_service:
             return await self.video_analysis_service.describe_video(
                 video_path, camera_name,
@@ -604,20 +579,22 @@ class AIService:
         image_count: Optional[int] = None
     ):
         """
-        Track API usage by persisting to database.
+        Track API usage.
 
-        Thin delegation to VisionAnalysisOrchestrator (Phase 4.14).
-        The canonical implementation lives in the orchestrator (uses get_db_session context).
+        Thin delegation to AICostAndUsageTracker (#447).
         """
-        if self.vision_orchestrator:
-            self.vision_orchestrator._track_usage(
-                result,
-                analysis_mode=analysis_mode,
-                is_estimated=is_estimated,
-                image_count=image_count
-            )
-        else:
-            logger.warning("VisionAnalysisOrchestrator not initialized, usage tracking skipped")
+        tracker = get_ai_cost_and_usage_tracker()
+        tracker.record_usage(
+            provider=result.provider,
+            success=result.success,
+            tokens_used=result.tokens_used,
+            response_time_ms=result.response_time_ms,
+            cost_estimate=result.cost_estimate,
+            error=result.error,
+            analysis_mode=analysis_mode,
+            is_estimated=is_estimated,
+            image_count=image_count,
+        )
 
     def get_usage_stats(
         self,
@@ -625,93 +602,12 @@ class AIService:
         end_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """
-        Get usage statistics from database.
+        Get usage statistics by delegating to AICostAndUsageTracker (#447).
 
-        Queries ai_usage table for aggregated statistics including total calls,
-        costs, tokens, and per-provider breakdowns.
-
-        Args:
-            start_date: Optional start of date range filter
-            end_date: Optional end of date range filter
-
-        Returns:
-            Dictionary with aggregated usage statistics
+        Thin delegation — the real implementation lives in the dedicated tracker.
         """
-        if self.db is None:
-            logger.warning("Database not configured, returning empty stats")
-            return {
-                'total_calls': 0,
-                'successful_calls': 0,
-                'failed_calls': 0,
-                'total_tokens': 0,
-                'total_cost': 0.0,
-                'avg_response_time_ms': 0,
-                'provider_breakdown': {}
-            }
-
-        try:
-            # Build query with date filters
-            query = self.db.query(AIUsage)
-
-            if start_date:
-                query = query.filter(AIUsage.timestamp >= start_date)
-            if end_date:
-                query = query.filter(AIUsage.timestamp <= end_date)
-
-            records = query.all()
-
-            if not records:
-                return {
-                    'total_calls': 0,
-                    'successful_calls': 0,
-                    'failed_calls': 0,
-                    'total_tokens': 0,
-                    'total_cost': 0.0,
-                    'avg_response_time_ms': 0,
-                    'provider_breakdown': {}
-                }
-
-            # Calculate aggregates
-            total_calls = len(records)
-            successful_calls = sum(1 for r in records if r.success)
-            failed_calls = total_calls - successful_calls
-            total_tokens = sum(r.tokens_used for r in records)
-            total_cost = sum(r.cost_estimate for r in records)
-            avg_response_time = sum(r.response_time_ms for r in records) / total_calls if total_calls > 0 else 0
-
-            # Provider breakdown
-            providers = {}
-            for provider_enum in [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]:
-                provider_records = [r for r in records if r.provider == provider_enum.value]
-                if provider_records:
-                    providers[provider_enum.value] = {
-                        'calls': len(provider_records),
-                        'success_rate': sum(1 for r in provider_records if r.success) / len(provider_records) * 100,
-                        'tokens': sum(r.tokens_used for r in provider_records),
-                        'cost': sum(r.cost_estimate for r in provider_records)
-                    }
-
-            return {
-                'total_calls': total_calls,
-                'successful_calls': successful_calls,
-                'failed_calls': failed_calls,
-                'total_tokens': total_tokens,
-                'total_cost': round(total_cost, 4),
-                'avg_response_time_ms': round(avg_response_time, 2),
-                'provider_breakdown': providers
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to get usage stats: {e}")
-            return {
-                'total_calls': 0,
-                'successful_calls': 0,
-                'failed_calls': 0,
-                'total_tokens': 0,
-                'total_cost': 0.0,
-                'avg_response_time_ms': 0,
-                'provider_breakdown': {}
-            }
+        tracker = get_ai_cost_and_usage_tracker()
+        return tracker.get_usage_stats(start_date=start_date, end_date=end_date)
 
     # =========================================================================
     # AI Resilience (delegated to AIResilienceService - Phase 3.1)

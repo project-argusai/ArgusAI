@@ -193,11 +193,17 @@ class EventProcessor:
         ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
         self.ai_semaphore = asyncio.Semaphore(ai_limit)
 
-        # Task tracking
-        self.worker_tasks: List[asyncio.Task] = []  # legacy, will be removed
+        # AI worker pool (now the owner of worker tasks and count at runtime)
         self.ai_worker_pool: Optional[AIWorkerPool] = None
 
         # CameraTaskManager owns per-camera monitoring tasks, stats, cooldowns, recovery, and health monitor
+
+    @property
+    def worker_tasks(self) -> List[asyncio.Task]:
+        """Return active AI worker tasks (delegated to AIWorkerPool)."""
+        if self.ai_worker_pool:
+            return self.ai_worker_pool.worker_tasks
+        return []
         self.camera_task_manager: Optional[CameraTaskManager] = None
 
         # Services (can be injected for better testability and architecture)
@@ -331,17 +337,11 @@ class EventProcessor:
                 remaining = self.event_queue.qsize()
                 logger.warning(f"Queue drain timeout - {remaining} events remaining")
 
-        # Stop AI workers (delegated to AIWorkerPool)
+        # Stop AI workers (now fully owned by AIWorkerPool)
         logger.info("Stopping AI workers...")
         if self.ai_worker_pool:
             await self.ai_worker_pool.stop()
-        else:
-            # Legacy fallback
-            for task in self.worker_tasks:
-                task.cancel()
-            if self.worker_tasks:
-                await asyncio.gather(*self.worker_tasks, return_exceptions=True)
-            self.worker_tasks.clear()
+        # No more direct worker_tasks management on EventProcessor
 
         # Stop camera health monitor (now owned by CameraTaskManager)
         if self.camera_task_manager:

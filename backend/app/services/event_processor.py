@@ -304,6 +304,9 @@ class EventProcessor:
                 embedding_service=container.embedding_service,
                 mqtt_service=container.mqtt_service,
                 homekit_service=container.homekit_service,
+                face_embedding_service=container.face_embedding_service,
+                vehicle_embedding_service=container.vehicle_embedding_service,
+                entity_service=container.entity_service,
             )
 
             self.ai_worker_pool = AIWorkerPool(

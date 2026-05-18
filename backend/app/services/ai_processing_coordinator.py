@@ -55,6 +55,9 @@ class AIProcessingCoordinator:
         embedding_service: Any,
         mqtt_service: Any,
         homekit_service: Any = None,
+        face_embedding_service: Any = None,
+        vehicle_embedding_service: Any = None,
+        entity_service: Any = None,
     ):
         self.ai_service = ai_service
         self.metrics = metrics
@@ -63,6 +66,9 @@ class AIProcessingCoordinator:
         self.embedding_service = embedding_service
         self.mqtt_service = mqtt_service
         self.homekit_service = homekit_service
+        self.face_embedding_service = face_embedding_service
+        self.vehicle_embedding_service = vehicle_embedding_service
+        self.entity_service = entity_service
 
     async def process_event(self, event: ProcessingEvent, worker_id: int) -> bool:
         """
@@ -541,20 +547,76 @@ class AIProcessingCoordinator:
     ) -> None:
         """Privacy-gated vehicle embedding processing (fire-and-forget)."""
         try:
-            # The heavy lifting is still in EventProcessor._process_vehicles for this step
-            await self.event_processor._process_vehicles(
-                event_id=event_id,
-                thumbnail_base64=thumbnail_base64,
-                event_description=ai_result.description
-            )
-            logger.debug(
-                f"Vehicle embeddings task created for event {event_id}",
-                extra={"event_id": event_id, "camera_id": event.camera_id}
-            )
+            if self.vehicle_embedding_service and thumbnail_base64:
+                asyncio.create_task(
+                    self.vehicle_embedding_service.process_vehicle_embedding(
+                        event_id=event_id,
+                        thumbnail_base64=thumbnail_base64,
+                        event_description=ai_result.description
+                    )
+                )
+                logger.debug(
+                    f"Vehicle embeddings task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id}
+                )
         except Exception as vehicle_error:
             logger.warning(
                 f"Failed to create vehicle embeddings task: {vehicle_error}",
                 extra={"error": str(vehicle_error), "event_id": event_id}
+            )
+
+    async def _process_face_embeddings(
+        self, event: ProcessingEvent, event_id: str, thumbnail_base64: Optional[str]
+    ) -> None:
+        """Privacy-gated face processing (fire-and-forget)."""
+        try:
+            if self.face_embedding_service and thumbnail_base64:
+                asyncio.create_task(
+                    self.face_embedding_service.process_face_embedding(
+                        event_id=event_id,
+                        thumbnail_base64=thumbnail_base64
+                    )
+                )
+                logger.debug(
+                    f"Face processing task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id}
+                )
+        except Exception as face_error:
+            logger.warning(
+                f"Failed to create face processing task: {face_error}",
+                extra={"error": str(face_error), "event_id": event_id}
+            )
+
+    async def _process_entity_alerts(
+        self,
+        event: ProcessingEvent,
+        event_id: str,
+        ai_result: Any,
+        objects_detected: Optional[List[str]],
+    ) -> None:
+        """Privacy-gated entity alert processing (fire-and-forget)."""
+        try:
+            if self.entity_service:
+                has_person_or_vehicle = False
+                if objects_detected:
+                    has_person_or_vehicle = any(o.lower() in ("person", "vehicle") for o in objects_detected)
+
+                if has_person_or_vehicle:
+                    asyncio.create_task(
+                        self.entity_service.execute_entity_alerts(
+                            event_id=event_id,
+                            description=ai_result.description,
+                            has_person_or_vehicle=True
+                        )
+                    )
+                    logger.debug(
+                        f"Entity alert task created for event {event_id}",
+                        extra={"event_id": event_id, "camera_id": event.camera_id}
+                    )
+        except Exception as entity_alert_error:
+            logger.warning(
+                f"Failed to create entity alert task: {entity_alert_error}",
+                extra={"error": str(entity_alert_error), "event_id": event_id}
             )
 
     async def _enrich_event_with_audio(

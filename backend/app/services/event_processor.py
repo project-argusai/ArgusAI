@@ -247,12 +247,7 @@ class EventProcessor:
                 motion_task_factory=self._motion_detection_task,
             )
 
-        # Temporary aliases so existing code in _motion_detection_task continues to work
-        # during the extraction (will be removed in a follow-up step)
-        if self.camera_task_manager:
-            self.motion_tasks = self.camera_task_manager.motion_tasks
-            self.motion_task_stats = self.camera_task_manager.motion_task_stats
-            self.camera_cooldowns = self.camera_task_manager.camera_cooldowns
+        # Aliases removed - all access now goes through camera_task_manager
 
         # Load AI API keys from database
         with get_db_session() as db:
@@ -420,33 +415,6 @@ class EventProcessor:
                 logger.error(f"Error in camera health monitor: {e}")
                 await asyncio.sleep(30.0)
 
-    async def _handle_unhealthy_camera_worker(self, camera: Camera, context: str = "motion_task"):
-        """
-        Centralized logic for handling a camera whose capture worker is unhealthy or dead.
-
-        Used by both the per-camera motion task and the background health monitor.
-        Tracks recovery attempts and applies exponential backoff with jitter.
-        """
-        stats = self.motion_task_stats.setdefault(camera.id, {})
-        recovery_attempts = stats.get("recovery_attempts", 0) + 1
-        stats["recovery_attempts"] = recovery_attempts
-
-        logger.warning(
-            f"Camera {camera.name} has no healthy capture worker (context={context}, attempt={recovery_attempts})"
-        )
-
-        if recovery_attempts <= 5:  # Align with CameraService.MAX_RESTART_ATTEMPTS
-            try:
-                self.camera_service.restart_camera(camera)
-                logger.info(f"Recovery restart triggered for {camera.name} (attempt {recovery_attempts})")
-            except Exception as e:
-                logger.error(f"Recovery restart failed for {camera.name}: {e}")
-
-        # Exponential backoff with jitter (capped)
-        backoff = min(4.0 * (2 ** min(recovery_attempts - 1, 5)), 90)
-        jitter = random.uniform(0, 2.0)
-        await asyncio.sleep(backoff + jitter)
-
     async def _motion_detection_task(self, camera: Camera):
         """
         Continuous motion detection loop for a single camera
@@ -525,21 +493,15 @@ class EventProcessor:
                     await self.queue_event(processing_event)
                     logger.info(f"Motion event queued for camera {camera.name}")
 
-                # Update per-camera motion task stats
-                stats = self.motion_task_stats.setdefault(camera.id, {
-                    "frames_pulled": 0,
-                    "motion_checks": 0,
-                    "last_frame_time": None,
-                    "errors": 0,
-                    "recovery_attempts": 0,
-                })
-                stats["frames_pulled"] += 1 if frame is not None else 0
-                stats["motion_checks"] += 1
-                if frame is not None:
-                    stats["last_frame_time"] = datetime.now(timezone.utc).isoformat()
-                    # Reset recovery counter on success
-                    if stats.get("recovery_attempts", 0) > 0:
-                        stats["recovery_attempts"] = 0
+                # Update stats via CameraTaskManager
+                if self.camera_task_manager:
+                    self.camera_task_manager.record_frame_pulled(camera.id)
+                    self.camera_task_manager.record_motion_check(camera.id)
+                    if frame is not None:
+                        # Reset recovery counter on success
+                        stats = self.camera_task_manager.motion_task_stats.get(camera.id, {})
+                        if stats.get("recovery_attempts", 0) > 0:
+                            stats["recovery_attempts"] = 0
 
                 await asyncio.sleep(frame_interval)
 
@@ -552,8 +514,8 @@ class EventProcessor:
                     exc_info=True,
                     extra={"camera_id": camera.id, "camera_name": camera.name}
                 )
-                stats = self.motion_task_stats.setdefault(camera.id, {"errors": 0})
-                stats["errors"] = stats.get("errors", 0) + 1
+                if self.camera_task_manager:
+                    self.camera_task_manager.record_error(camera.id)
                 # Wait before retry
                 await asyncio.sleep(10.0)
 
@@ -572,8 +534,9 @@ class EventProcessor:
             # Non-blocking put (raises QueueFull if full)
             self.event_queue.put_nowait(event)
 
-            # Update cooldown
-            self.camera_cooldowns[event.camera_id] = time.time()
+            # Update cooldown via manager
+            if self.camera_task_manager:
+                self.camera_task_manager.update_cooldown(event.camera_id, time.time())
 
             # Update metrics
             self.metrics.queue_depth = self.event_queue.qsize()
@@ -611,7 +574,8 @@ class EventProcessor:
 
                 # Now put the new event
                 self.event_queue.put_nowait(event)
-                self.camera_cooldowns[event.camera_id] = time.time()
+                if self.camera_task_manager:
+                    self.camera_task_manager.update_cooldown(event.camera_id, time.time())
                 self.metrics.queue_depth = self.event_queue.qsize()
 
             except Exception as e:

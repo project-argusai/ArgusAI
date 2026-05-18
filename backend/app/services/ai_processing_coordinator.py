@@ -234,23 +234,7 @@ class AIProcessingCoordinator:
             )
 
             # MQTT
-            try:
-                from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
-                mqtt_service = self.context.mqtt_service
-                if mqtt_service.is_connected:
-                    with SessionLocal() as mqtt_db:
-                        stored_event = mqtt_db.query(Event).filter(Event.id == event_id).first()
-                        if stored_event:
-                            api_base_url = mqtt_service.get_api_base_url()
-                            mqtt_payload = serialize_event_for_mqtt(
-                                stored_event, event.camera_name, api_base_url=api_base_url
-                            )
-                            topic = mqtt_service.get_event_topic(event.camera_id)
-                            asyncio.create_task(
-                                self.context.publish_event_to_mqtt(mqtt_service, topic, mqtt_payload, event_id)
-                            )
-            except Exception as mqtt_error:
-                logger.warning(f"Failed to create MQTT publish task: {mqtt_error}")
+            await self._publish_mqtt_event(event=event, event_id=event_id)
 
             # Camera status sensors
             await self._publish_camera_status_sensors(event=event, event_id=event_id, ai_result=ai_result)
@@ -740,4 +724,43 @@ class AIProcessingCoordinator:
             logger.warning(
                 f"Entity linking failed for event {event_id}: {entity_error}",
                 extra={"error": str(entity_error), "event_id": event_id}
+            )
+
+    async def _publish_mqtt_event(self, event: ProcessingEvent, event_id: str) -> None:
+        """Publish the event to MQTT (Home Assistant / external integrations)."""
+        try:
+            from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
+
+            mqtt_service = self.context.mqtt_service
+
+            if not mqtt_service.is_connected:
+                return
+
+            with SessionLocal() as mqtt_db:
+                stored_event = mqtt_db.query(Event).filter(Event.id == event_id).first()
+                if not stored_event:
+                    return
+
+                api_base_url = mqtt_service.get_api_base_url()
+                mqtt_payload = serialize_event_for_mqtt(
+                    stored_event, event.camera_name, api_base_url=api_base_url
+                )
+                topic = mqtt_service.get_event_topic(event.camera_id)
+
+                asyncio.create_task(
+                    self.context.publish_event_to_mqtt(mqtt_service, topic, mqtt_payload, event_id)
+                )
+
+                logger.debug(
+                    f"MQTT publish task created for event {event_id}",
+                    extra={
+                        "event_id": event_id,
+                        "topic": topic,
+                        "camera_id": event.camera_id
+                    }
+                )
+        except Exception as mqtt_error:
+            logger.warning(
+                f"Failed to create MQTT publish task: {mqtt_error}",
+                extra={"error": str(mqtt_error), "event_id": event_id}
             )

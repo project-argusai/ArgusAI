@@ -84,6 +84,7 @@ from app.services.embedding_service import get_embedding_service, reset_embeddin
 from app.services.face_embedding_service import get_face_embedding_service, reset_face_embedding_service
 from app.services.person_matching_service import get_person_matching_service, reset_person_matching_service
 from app.services.entity_alert_service import get_entity_alert_service, reset_entity_alert_service
+from app.services.audio_stream_service import get_audio_stream_extractor, reset_audio_stream_extractor
 from app.services.vehicle_matching_service import get_vehicle_matching_service, reset_vehicle_matching_service
 
 
@@ -232,6 +233,10 @@ class ServiceContainer:
         return get_entity_alert_service()
 
     @property
+    def audio_stream_extractor(self):
+        return get_audio_stream_extractor()
+
+    @property
     def vehicle_matching_service(self):
         return get_vehicle_matching_service()
 
@@ -267,6 +272,7 @@ class ServiceContainer:
         reset_face_embedding_service,
         reset_person_matching_service,
         reset_entity_alert_service,
+        reset_audio_stream_extractor,
     ]
 
     def reset_all_for_tests(self) -> None:

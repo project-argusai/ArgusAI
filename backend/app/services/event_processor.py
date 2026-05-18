@@ -412,15 +412,11 @@ class EventProcessor:
                             continue  # Respect the stronger recovery policy
 
                         if not status.get("worker_alive", True):
-                            # Get the camera object to pass to the shared recovery helper
+                            # Use CameraService helper (keeps DB access out of EventProcessor)
                             try:
-                                from app.core.database import get_db_session
-                                from app.models.camera import Camera
-
-                                with get_db_session() as db:
-                                    camera = db.query(Camera).filter(Camera.id == camera_id).first()
-                                    if camera:
-                                        await self._handle_unhealthy_camera_worker(camera, context="health_monitor")
+                                camera = self.camera_service.get_camera(camera_id)
+                                if camera:
+                                    await self._handle_unhealthy_camera_worker(camera, context="health_monitor")
                             except Exception as e:
                                 logger.error(f"Health monitor failed to handle unhealthy camera {camera_id}: {e}")
 

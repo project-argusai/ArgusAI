@@ -194,9 +194,8 @@ class EventProcessor:
 
         # Task tracking
         self.worker_tasks: List[asyncio.Task] = []
-        self._camera_health_monitor_task: Optional[asyncio.Task] = None
 
-        # CameraTaskManager owns per-camera monitoring tasks, stats, cooldowns and recovery
+        # CameraTaskManager owns per-camera monitoring tasks, stats, cooldowns, recovery, and health monitor
         self.camera_task_manager: Optional[CameraTaskManager] = None
 
         # Services (can be injected for better testability and architecture)
@@ -281,11 +280,9 @@ class EventProcessor:
 
                 logger.info(f"Started monitoring {len(enabled_cameras)} enabled cameras")
 
-                # Start the camera health monitor for self-healing
-                self._camera_health_monitor_task = asyncio.create_task(
-                    self._camera_health_monitor(),
-                    name="camera_health_monitor"
-                )
+                # Start the camera health monitor for self-healing (now owned by CameraTaskManager)
+                if self.camera_task_manager:
+                    self.camera_task_manager.start_health_monitor()
         except Exception as e:
             logger.error(f"Failed to load enabled cameras: {e}", exc_info=True)
 
@@ -342,14 +339,9 @@ class EventProcessor:
             await asyncio.gather(*self.worker_tasks, return_exceptions=True)
         self.worker_tasks.clear()
 
-        # Stop camera health monitor
-        if self._camera_health_monitor_task and not self._camera_health_monitor_task.done():
-            self._camera_health_monitor_task.cancel()
-            try:
-                await asyncio.wait_for(self._camera_health_monitor_task, timeout=5.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError):
-                pass
-        self._camera_health_monitor_task = None
+        # Stop camera health monitor (now owned by CameraTaskManager)
+        if self.camera_task_manager:
+            await self.camera_task_manager.stop_health_monitor()
 
         # Close HTTP client
         if self.http_client:
@@ -371,43 +363,6 @@ class EventProcessor:
         """
         if self.camera_task_manager:
             await self.camera_task_manager.stop_monitoring(camera_id)
-
-    async def _camera_health_monitor(self):
-        """
-        Background task that periodically checks camera capture workers
-        and attempts to restart any that have died.
-
-        This provides self-healing for camera connectivity issues.
-        """
-        logger.info("Camera health monitor started")
-
-        while self.running:
-            try:
-                if self.camera_service:
-                    all_status = self.camera_service.get_all_camera_status()
-
-                    for camera_id, status in all_status.items():
-                        if status.get("capture_disabled"):
-                            continue  # Respect the stronger recovery policy
-
-                        if not status.get("worker_alive", True):
-                            # Use CameraService helper (keeps DB access out of EventProcessor)
-                            try:
-                                camera = self.camera_service.get_camera(camera_id)
-                                if camera:
-                                    if self.camera_task_manager:
-                                        await self.camera_task_manager.handle_unhealthy_camera_worker(camera, context="health_monitor")
-                            except Exception as e:
-                                logger.error(f"Health monitor failed to handle unhealthy camera {camera_id}: {e}")
-
-                await asyncio.sleep(30.0)  # Check every 30 seconds
-
-            except asyncio.CancelledError:
-                logger.info("Camera health monitor cancelled")
-                raise
-            except Exception as e:
-                logger.error(f"Error in camera health monitor: {e}")
-                await asyncio.sleep(30.0)
 
     async def queue_event(self, event: ProcessingEvent):
         """

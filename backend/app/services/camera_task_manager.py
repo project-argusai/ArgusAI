@@ -154,11 +154,16 @@ class CameraTaskManager:
         self._camera_cooldowns[camera_id] = timestamp
 
     def shutdown(self):
-        """Signal all per-camera loops to stop gracefully (preferred over pure cancellation)."""
+        """Signal all per-camera loops and health monitor to stop gracefully."""
         self._shutdown_event.set()
 
+        if self._health_monitor_task and not self._health_monitor_task.done():
+            self._health_monitor_task.cancel()
+
     async def stop_all(self):
-        self.shutdown()  # Signal loops to exit cleanly
+        self.shutdown()  # Signal loops + health monitor to exit
+
+        await self.stop_health_monitor()
 
         tasks = list(self._motion_tasks.values())
         self._motion_tasks.clear()
@@ -281,3 +286,71 @@ class CameraTaskManager:
             await asyncio.wait_for(self._shutdown_event.wait(), timeout=seconds)
         except asyncio.TimeoutError:
             pass  # normal expiration — continue the loop
+
+    # ------------------------------------------------------------------
+    # Health Monitor (moved from EventProcessor)
+    # ------------------------------------------------------------------
+
+    _health_monitor_task: Optional[asyncio.Task] = None
+
+    def start_health_monitor(self):
+        """Start the background camera health monitor task."""
+        if self._health_monitor_task and not self._health_monitor_task.done():
+            logger.warning("Health monitor already running")
+            return
+
+        self._health_monitor_task = asyncio.create_task(
+            self._run_health_monitor(),
+            name="camera_health_monitor"
+        )
+        logger.info("Camera health monitor started via CameraTaskManager")
+
+    async def _run_health_monitor(self):
+        """
+        Background task that periodically checks camera capture workers
+        and attempts to restart any that have died.
+
+        This provides self-healing for camera connectivity issues.
+        """
+        logger.info("Camera health monitor started")
+
+        while not self._shutdown_event.is_set():
+            try:
+                if self.camera_service:
+                    all_status = self.camera_service.get_all_camera_status()
+
+                    for camera_id, status in all_status.items():
+                        if status.get("capture_disabled"):
+                            continue  # Respect the stronger recovery policy
+
+                        if not status.get("worker_alive", True):
+                            try:
+                                camera = self.camera_service.get_camera(camera_id)
+                                if camera:
+                                    await self.handle_unhealthy_camera_worker(
+                                        camera, context="health_monitor"
+                                    )
+                            except Exception as e:
+                                logger.error(
+                                    f"Health monitor failed to handle unhealthy camera {camera_id}: {e}"
+                                )
+
+                await self._sleep_respecting_shutdown(30.0)
+
+            except asyncio.CancelledError:
+                logger.info("Camera health monitor cancelled")
+                raise
+            except Exception as e:
+                logger.error(f"Error in camera health monitor: {e}")
+                await self._sleep_respecting_shutdown(30.0)
+
+    async def stop_health_monitor(self):
+        """Stop the health monitor task."""
+        if self._health_monitor_task and not self._health_monitor_task.done():
+            self._health_monitor_task.cancel()
+            try:
+                await asyncio.wait_for(self._health_monitor_task, timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            self._health_monitor_task = None
+            logger.info("Camera health monitor stopped")

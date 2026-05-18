@@ -45,6 +45,7 @@ from app.models.event import Event
 from app.services.ai_service import AIService
 from app.services.ai_processing_worker import AIProcessingWorker
 from app.services.ai_worker_pool import AIWorkerPool
+from app.services.ai_processing_coordinator import AIProcessingCoordinator
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
@@ -191,6 +192,7 @@ class EventProcessor:
 
         # AI worker pool (now owns concurrency control + worker tasks)
         self.ai_worker_pool: Optional[AIWorkerPool] = None
+        self.ai_processing_coordinator: Optional[AIProcessingCoordinator] = None
 
         # Temporary early semaphore (only used before pool is created, which is rare)
         self._early_ai_semaphore: Optional[asyncio.Semaphore] = None
@@ -275,10 +277,17 @@ class EventProcessor:
         # Start AI worker pool (now managed by AIWorkerPool)
         if self.ai_worker_pool is None:
             ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
+
+            # Create the coordinator that will own the processing logic
+            self.ai_processing_coordinator = AIProcessingCoordinator(
+                event_processor=self,
+                ai_service=self.ai_service,
+            )
+
             self.ai_worker_pool = AIWorkerPool(
                 worker_count=self.worker_count,
                 event_queue=self.event_queue,
-                process_event=self._process_event,
+                process_event=self.ai_processing_coordinator.process_event,
                 metrics=self.metrics,
                 is_running=lambda: self.running,
                 ai_concurrent_limit=ai_limit,

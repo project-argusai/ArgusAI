@@ -307,6 +307,7 @@ class EventProcessor:
                 face_embedding_service=container.face_embedding_service,
                 vehicle_embedding_service=container.vehicle_embedding_service,
                 entity_service=container.entity_service,
+                ai_semaphore=self.ai_worker_pool.ai_semaphore if self.ai_worker_pool else None,
             )
 
             self.ai_worker_pool = AIWorkerPool(

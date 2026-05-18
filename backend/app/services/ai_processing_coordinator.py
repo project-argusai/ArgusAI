@@ -58,6 +58,7 @@ class AIProcessingCoordinator:
         face_embedding_service: Any = None,
         vehicle_embedding_service: Any = None,
         entity_service: Any = None,
+        ai_semaphore: Optional[asyncio.Semaphore] = None,
     ):
         self.ai_service = ai_service
         self.metrics = metrics
@@ -69,6 +70,7 @@ class AIProcessingCoordinator:
         self.face_embedding_service = face_embedding_service
         self.vehicle_embedding_service = vehicle_embedding_service
         self.entity_service = entity_service
+        self.ai_semaphore = ai_semaphore or asyncio.Semaphore(8)
 
     async def process_event(self, event: ProcessingEvent, worker_id: int) -> bool:
         """
@@ -362,9 +364,7 @@ class AIProcessingCoordinator:
             logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
 
         # Limit concurrent AI calls (Phase A.5)
-        # The semaphore is owned by the AIWorkerPool and exposed via the ai_service for now.
-        semaphore = getattr(self.ai_service, 'ai_semaphore', None) or asyncio.Semaphore(8)
-        async with semaphore:
+        async with self.ai_semaphore:
             ai_concurrent_in_flight.inc()
             try:
                 ai_result = await self.ai_service.generate_description(

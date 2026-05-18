@@ -65,7 +65,7 @@ class ProcessingContext:
     # process_vehicle_embeddings has been moved into the coordinator
     # process_entity_alerts has been moved into the coordinator
     # enrich_event_with_audio has been moved into the coordinator
-    publish_event_to_mqtt: Callable[..., Awaitable[None]]
+    # publish_event_to_mqtt logic is now internal to _publish_mqtt_event
 
 
 class AIProcessingCoordinator:

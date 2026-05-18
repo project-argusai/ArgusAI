@@ -301,7 +301,7 @@ class EventProcessor:
                 # process_vehicle_embeddings moved into the coordinator
                 # process_entity_alerts moved into the coordinator
                 # enrich_event_with_audio moved into the coordinator
-                publish_event_to_mqtt=self._publish_event_to_mqtt,
+                # publish_event_to_mqtt logic is now internal to the coordinator's _publish_mqtt_event
             )
 
             self.ai_processing_coordinator = AIProcessingCoordinator(context=context)

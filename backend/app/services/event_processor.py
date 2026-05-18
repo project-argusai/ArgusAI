@@ -710,9 +710,7 @@ class EventProcessor:
             context_result = None
 
             try:
-                from app.services.context_prompt_service import get_context_prompt_service
-
-                context_service = get_context_prompt_service()
+                context_service = container.context_prompt_service
 
                 # Build default base prompt
                 base_prompt = (
@@ -832,7 +830,7 @@ class EventProcessor:
 
             # Check cost thresholds and send alerts (Story P3-7.4)
             try:
-                cost_alert_service = get_cost_alert_service()
+                cost_alert_service = container.cost_alert_service
                 with SessionLocal() as db:
                     alerts = await cost_alert_service.check_and_notify(db)
                     if alerts:
@@ -859,7 +857,7 @@ class EventProcessor:
             try:
                 from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
 
-                mqtt_service = get_mqtt_service()
+                mqtt_service = container.mqtt_service
 
                 # Only publish if MQTT is enabled and connected (AC6)
                 if mqtt_service.is_connected:
@@ -1093,8 +1091,7 @@ class EventProcessor:
                     # thumbnail_full_path is defined above when thumbnail_base64 is provided
                     if has_annotations and bounding_boxes_json and 'thumbnail_full_path' in locals() and thumbnail_full_path:
                         try:
-                            from app.services.frame_annotation_service import get_frame_annotation_service
-                            annotation_service = get_frame_annotation_service()
+                            annotation_service = container.frame_annotation_service
                             parsed_boxes = json.loads(bounding_boxes_json)
                             annotated_path = annotation_service.annotate_frame(
                                 thumbnail_full_path,
@@ -1516,8 +1513,7 @@ class EventProcessor:
             - Errors don't propagate to caller (AC3)
         """
         try:
-            from app.services.pattern_service import get_pattern_service
-            pattern_service = get_pattern_service()
+            pattern_service = container.pattern_service
 
             # Use own session since caller's may be closed
             with get_db_session() as db:
@@ -1553,8 +1549,7 @@ class EventProcessor:
             - Uses AnomalyScoringService for calculation (AC2)
         """
         try:
-            from app.services.anomaly_scoring_service import get_anomaly_scoring_service
-            anomaly_service = get_anomaly_scoring_service()
+            anomaly_service = container.anomaly_scoring_service
 
             # Use own session since caller's may be closed
             with get_db_session() as db:
@@ -2134,10 +2129,9 @@ class EventProcessor:
             return None
 
         try:
-            from app.services.embedding_service import get_embedding_service
             import base64 as b64
 
-            embedding_service = get_embedding_service()
+            embedding_service = container.embedding_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -2175,10 +2169,9 @@ class EventProcessor:
             return None, None
 
         try:
-            from app.services.entity_service import get_entity_service
             from app.core.database import SessionLocal
 
-            entity_service = get_entity_service()
+            entity_service = container.entity_service
 
             with SessionLocal() as entity_db:
                 entity_result = await entity_service.match_entity_only(
@@ -2252,10 +2245,9 @@ class EventProcessor:
     ) -> None:
         """Publish last event timestamp, activity state, and event counts to MQTT."""
         try:
-            from app.services.mqtt_service import get_mqtt_service
             from app.services.mqtt_status_service import get_camera_event_counts
 
-            mqtt_service = get_mqtt_service()
+            mqtt_service = container.mqtt_service
 
             if not mqtt_service.is_connected:
                 return
@@ -2314,7 +2306,7 @@ class EventProcessor:
         try:
             from app.services.homekit_service import get_homekit_service
 
-            homekit_service = get_homekit_service()
+            homekit_service = container.homekit_service
 
             if not homekit_service.is_running:
                 return
@@ -2391,9 +2383,7 @@ class EventProcessor:
             return
 
         try:
-            from app.services.entity_service import get_entity_service
-
-            entity_service = get_entity_service()
+            entity_service = container.entity_service
 
             # Determine entity type
             entity_type = "unknown"

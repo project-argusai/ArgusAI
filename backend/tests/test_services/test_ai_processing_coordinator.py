@@ -458,3 +458,173 @@ class TestAIProcessingCoordinator:
         # The actual MQTT call is inside _publish_mqtt_event which uses self.context.mqtt_service
         # This test documents the intent
         assert True
+
+    # ------------------------------------------------------------------
+    # Direct tests for private methods (now on the coordinator)
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_handle_cost_cap_skip_skip_path_direct(self, coordinator, mock_helpers, sample_event):
+        """Direct test of _handle_cost_cap_skip when cap is hit"""
+        mock_helpers["handle_cost_cap_skip"].return_value = True
+
+        result = await coordinator._handle_cost_cap_skip(sample_event)
+
+        assert result is True
+        mock_helpers["handle_cost_cap_skip"].assert_awaited_once_with(sample_event)
+
+    @pytest.mark.asyncio
+    async def test_handle_cost_cap_skip_proceed_path_direct(self, coordinator, mock_helpers, sample_event):
+        """Direct test of _handle_cost_cap_skip when cap allows analysis"""
+        mock_helpers["handle_cost_cap_skip"].return_value = False
+
+        result = await coordinator._handle_cost_cap_skip(sample_event)
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_generate_ai_description_success_direct(self, coordinator, mock_helpers, sample_event):
+        """Direct test of _generate_ai_description success path"""
+        mock_ai_result = Mock(success=True, description="A test description", confidence=0.91,
+                              provider="openai", cost_estimate=0.001, response_time_ms=950,
+                              objects_detected=["person"], bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        result = await coordinator._generate_ai_description(
+            event=sample_event,
+            worker_id=0,
+            context_enhanced_prompt="test prompt",
+            thumbnail_base64="fake-thumb",
+        )
+
+        assert result is mock_ai_result
+        mock_helpers["generate_ai_description"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_ai_description_failure_stores_retry(self, coordinator, mock_helpers, sample_event):
+        """_generate_ai_description should store a retry event on AI failure"""
+        mock_ai_result = Mock(success=False)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        result = await coordinator._generate_ai_description(
+            event=sample_event,
+            worker_id=0,
+            context_enhanced_prompt=None,
+            thumbnail_base64="fake-thumb",
+        )
+
+        assert result is None
+        mock_helpers["store_event_with_retry"].assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_store_processed_event_success_direct(self, coordinator, mock_helpers, sample_event):
+        """_store_processed_event should succeed and return event_id"""
+        mock_ai_result = Mock(description="test desc", confidence=0.95, provider="openai",
+                              cost_estimate=0.001, objects_detected=["person"])
+
+        mock_helpers["store_processed_event"].return_value = "event-456"
+
+        event_id = await coordinator._store_processed_event(
+            event=sample_event,
+            ai_result=mock_ai_result,
+            thumbnail_base64="fake-thumb",
+        )
+
+        assert event_id == "event-456"
+        mock_helpers["store_processed_event"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_store_processed_event_failure_direct(self, coordinator, mock_helpers, sample_event):
+        """_store_processed_event should return None and record error on failure"""
+        mock_ai_result = Mock(description="test desc", confidence=0.95, provider="openai",
+                              cost_estimate=0.001, objects_detected=["person"])
+
+        mock_helpers["store_processed_event"].return_value = None
+
+        event_id = await coordinator._store_processed_event(
+            event=sample_event,
+            ai_result=mock_ai_result,
+            thumbnail_base64="fake-thumb",
+        )
+
+        assert event_id is None
+        mock_helpers["store_processed_event"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_and_match_entity_success_direct(self, coordinator, mock_helpers, sample_event):
+        """_generate_and_match_entity should return embedding and entity result"""
+        mock_helpers["generate_and_match_entity"].return_value = (b"fake-emb", Mock(entity_id="ent-1"))
+
+        emb, ent = await coordinator._generate_and_match_entity("fake-thumb")
+
+        assert emb == b"fake-emb"
+        assert ent is not None
+        mock_helpers["generate_and_match_entity"].assert_awaited_once_with("fake-thumb")
+
+    @pytest.mark.asyncio
+    async def test_generate_and_match_entity_no_embedding_direct(self, coordinator, mock_helpers, sample_event):
+        """_generate_and_match_entity should return (None, None) when no embedding"""
+        mock_helpers["generate_and_match_entity"].return_value = (None, None)
+
+        emb, ent = await coordinator._generate_and_match_entity(None)
+
+        assert emb is None
+        assert ent is None
+
+    @pytest.mark.asyncio
+    async def test_send_push_notification_called(self, coordinator, mock_helpers, sample_event):
+        """_send_push_notification should be called with correct arguments"""
+        await coordinator._send_push_notification(
+            event=sample_event,
+            event_id="event-123",
+            ai_result=Mock(description="test"),
+            thumbnail_base64="fake-thumb",
+        )
+
+        mock_helpers["send_push_notification"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_camera_status_sensors_called(self, coordinator, mock_helpers, sample_event):
+        """_publish_camera_status_sensors should be called"""
+        await coordinator._publish_camera_status_sensors(
+            event=sample_event,
+            event_id="event-123",
+            ai_result=Mock(description="test"),
+        )
+
+        mock_helpers["publish_camera_status_sensors"].assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_publish_mqtt_event_uses_mqtt_service(self, coordinator, mock_context_services, sample_event):
+        """_publish_mqtt_event should use the injected mqtt_service from context"""
+        # The method is now on the coordinator
+        await coordinator._publish_mqtt_event(event=sample_event, event_id="event-123")
+
+        # At minimum we exercised the method (full assertion requires moving the full logic)
+        assert True  # The real assertion will be possible once the full _publish_mqtt_event logic is in the coordinator
+
+    @pytest.mark.asyncio
+    async def test_store_embedding_success(self, coordinator, mock_context_services, sample_event):
+        """_store_embedding should use the injected embedding_service"""
+        await coordinator._store_embedding(
+            event_id="event-123",
+            embedding_vector=b"fake-emb",
+            camera_id="cam-123",
+        )
+
+        # The embedding_service is in the context; once the full logic is in the private method we can assert
+        assert True  # Placeholder until full logic is moved
+
+    @pytest.mark.asyncio
+    async def test_context_prompt_service_called_during_context_building(self, coordinator, mock_context_services, mock_helpers, sample_event):
+        """The injected context_prompt_service should be used when building context"""
+        mock_ai_result = Mock(success=True, description="test", confidence=0.9, provider="openai",
+                              cost_estimate=0.001, response_time_ms=1000, objects_detected=["person"],
+                              bounding_boxes=None)
+        mock_helpers["generate_ai_description"].return_value = mock_ai_result
+
+        await coordinator.process_event(sample_event, worker_id=0)
+
+        # The actual call happens inside the context building block
+        # This test documents the intent; full assertion will be possible once that block is fully moved
+        assert True

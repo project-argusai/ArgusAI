@@ -295,7 +295,7 @@ class EventProcessor:
                 # generate_ai_description, store_processed_event, and send_push_notification moved into the coordinator
                 store_event_with_retry=self._store_event_with_retry,
                 publish_camera_status_sensors=self._publish_camera_status_sensors,
-                run_homekit_triggers=self._run_homekit_triggers,
+                # run_homekit_triggers moved into the coordinator
                 link_entity_to_event=self._link_entity_to_event,
                 process_face_embeddings=self._process_face_embeddings,
                 # process_vehicle_embeddings moved into the coordinator

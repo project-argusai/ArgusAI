@@ -59,7 +59,7 @@ class ProcessingContext:
     # store_processed_event and send_push_notification have been moved into the coordinator
     store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
     publish_camera_status_sensors: Callable[..., Awaitable[None]]
-    run_homekit_triggers: Callable[..., Awaitable[None]]
+    # run_homekit_triggers has been moved into the coordinator
     link_entity_to_event: Callable[..., Awaitable[None]]
     process_face_embeddings: Callable[..., Awaitable[None]]
     # process_vehicle_embeddings has been moved into the coordinator
@@ -275,7 +275,7 @@ class AIProcessingCoordinator:
             objects_json = json.dumps(objects_detected) if objects_detected else None
 
             # Post-processing helpers (still on EventProcessor via context)
-            await self.context.run_homekit_triggers(
+            await self._run_homekit_triggers(
                 event=event, event_id=event_id, smart_detection_type=smart_detection_type
             )
             await self.context.link_entity_to_event(
@@ -665,4 +665,26 @@ class AIProcessingCoordinator:
                     "camera_id": camera_id,
                     "error": str(e)
                 }
+            )
+
+    async def _run_homekit_triggers(
+        self, event: ProcessingEvent, event_id: str, smart_detection_type: Optional[str]
+    ) -> None:
+        """Trigger appropriate HomeKit sensors based on detection type."""
+        try:
+            from app.services.homekit_service import get_homekit_service
+
+            homekit_service = self.context.mqtt_service  # Note: using mqtt_service temporarily; actual homekit_service should be added to context if needed
+            # The original uses container.homekit_service. For consistency, we use context if available.
+
+            # To keep this micro-step small, we delegate to the EventProcessor's version for now
+            # (the heavy _trigger_homekit_* methods stay on EP).
+            # In a follow-up we can move the full logic.
+            await self.event_processor._run_homekit_triggers(
+                event=event, event_id=event_id, smart_detection_type=smart_detection_type
+            )
+        except Exception as homekit_error:
+            logger.warning(
+                f"Failed to trigger HomeKit sensors: {homekit_error}",
+                extra={"error": str(homekit_error), "event_id": event_id}
             )

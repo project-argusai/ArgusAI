@@ -40,16 +40,27 @@ from app.schemas.motion import (
     DetectionZone, DetectionSchedule
 )
 from app.services.camera_service import CameraService
+from app.services.service_container import container
+from typing import Any, Dict
 from app.services.motion_detection_service import motion_detection_service
 from app.services.detection_zone_manager import detection_zone_manager
 from app.services.event_processor import get_event_processor, ProcessingEvent
-from app.services.protect_service import get_protect_service
 from app.services.mqtt_discovery_service import on_camera_deleted, on_camera_disabled  # Story P4-2.2
 from app.services.stream_proxy_service import get_stream_proxy_service, StreamQuality  # Story P16-2.2
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
+
+
+@router.get("/health", summary="Camera health and status")
+def get_cameras_health() -> Dict[str, Any]:
+    """
+    Returns health summary for all cameras, including worker status,
+    restart attempts, and whether a camera has been automatically disabled.
+    """
+    camera_service = container.camera_service
+    return camera_service.get_camera_health_summary()
 
 # Camera service singleton (via @singleton decorator from core.decorators)
 # Modern usage: simply CameraService() always returns the same instance.
@@ -406,6 +417,26 @@ def get_camera(
                 detail=f"Camera {camera_id} not found"
             )
 
+        # Enrich with runtime capture health data from CameraService
+        try:
+            camera_service = container.camera_service
+            health = camera_service.get_camera_status(str(camera_id))
+            if health:
+                camera_dict = camera.to_dict() if hasattr(camera, 'to_dict') else camera.__dict__.copy()
+                # Remove SQLAlchemy internal state
+                camera_dict.pop('_sa_instance_state', None)
+
+                camera_dict.update({
+                    "capture_disabled": health.get("capture_disabled", False),
+                    "restart_attempts": health.get("restart_attempts", 0),
+                    "worker_status": health.get("status"),
+                    "worker_alive": health.get("worker_alive", False),
+                })
+                return camera_dict
+        except Exception:
+            # If anything fails, just return the DB object (graceful degradation)
+            pass
+
         return camera
 
     except HTTPException:
@@ -645,6 +676,112 @@ def reconnect_camera(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to reconnect camera: {str(e)}"
+        )
+
+
+@router.post("/{camera_id}/enable-capture")
+def enable_camera_capture_endpoint(
+    camera_id: CameraUUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Re-enable capture for a camera that was automatically disabled
+    due to repeated failed restart attempts (stronger recovery policy).
+
+    This is an admin action. After calling this, the camera will be
+    eligible for automatic restarts again and can be started manually.
+
+    Args:
+        camera_id: UUID of the camera to re-enable
+        db: Database session
+
+    Returns:
+        Success status and message
+    """
+    camera_id_str = str(camera_id)
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id_str).first()
+
+        if not camera:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Camera {camera_id} not found"
+            )
+
+        camera_service = container.camera_service
+        camera_service.enable_camera_capture(camera_id_str)
+
+        # Optionally attempt to start it immediately
+        started = camera_service.start_camera(camera)
+
+        message = "Camera capture re-enabled"
+        if started:
+            message += " and start initiated"
+
+        logger.info(f"Admin re-enabled capture for camera {camera_id_str}")
+
+        return {
+            "success": True,
+            "message": message,
+            "capture_disabled": False
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to enable capture for camera {camera_id_str}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to enable camera capture: {str(e)}"
+        )
+
+
+@router.post("/{camera_id}/disable-capture")
+def disable_camera_capture_endpoint(
+    camera_id: CameraUUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually disable capture for a camera (admin action).
+
+    This prevents the automatic recovery policy and health monitor
+    from trying to start/restart this camera until it is re-enabled.
+
+    Args:
+        camera_id: UUID of the camera to disable
+        db: Database session
+
+    Returns:
+        Success status and message
+    """
+    camera_id_str = str(camera_id)
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id_str).first()
+
+        if not camera:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Camera {camera_id} not found"
+            )
+
+        camera_service = container.camera_service
+        camera_service.disable_camera_capture(camera_id_str)
+
+        logger.info(f"Admin disabled capture for camera {camera_id_str}")
+
+        return {
+            "success": True,
+            "message": "Camera capture disabled",
+            "capture_disabled": True
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to disable capture for camera {camera_id_str}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to disable camera capture: {str(e)}"
         )
 
 
@@ -1585,7 +1722,7 @@ async def _get_protect_camera_preview(camera: Camera) -> dict:
             detail="Camera is missing Protect controller or camera ID"
         )
 
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
 
     # Check if controller is connected
     conn_status = protect_service.get_connection_status(str(camera.protect_controller_id))
@@ -1795,9 +1932,9 @@ async def _analyze_rtsp_camera(camera: Camera, db: Session):
 
 async def _analyze_protect_camera(camera: Camera, db: Session):
     """Handle manual analysis for Protect cameras (Story P2-3.3 extension)"""
-    from app.services.protect_service import get_protect_service
-    from app.services.snapshot_service import get_snapshot_service
-    from app.services.protect_event_handler import get_protect_event_handler
+    protect_service = container.protect_service
+    snapshot_service = container.snapshot_service
+    protect_event_handler = container.protect_event_handler
 
     camera_id = str(camera.id)
     logger.info(f"Starting manual analysis for Protect camera {camera_id} ({camera.name})")
@@ -1810,7 +1947,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
         )
 
     # Check if controller is connected
-    protect_service = get_protect_service()
+    protect_service = container.protect_service
     controller_status = protect_service.get_connection_status(camera.protect_controller_id)
     logger.debug(f"Controller status for {camera.protect_controller_id}: {controller_status}")
 
@@ -1821,7 +1958,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
         )
 
     # Get snapshot from Protect API
-    snapshot_service = get_snapshot_service()
+    snapshot_service = container.snapshot_service
     try:
         logger.debug(f"Requesting snapshot for camera {camera.protect_camera_id}")
         snapshot_result = await snapshot_service.get_snapshot(
@@ -1849,7 +1986,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
     # TODO (decomposition): Now that ProtectAIPipeline and ProtectEventStorageService exist,
     # this could eventually call the services directly for better architectural consistency
     # instead of private handler methods.
-    event_handler = get_protect_event_handler()
+    event_handler = container.protect_event_handler
 
     # Submit to AI pipeline
     try:
@@ -2061,7 +2198,7 @@ def test_camera_audio(
             "message": "Audio stream detected: AAC codec"
         }
     """
-    from app.services.audio_stream_service import get_audio_stream_extractor, SUPPORTED_CODECS
+    audio_stream_extractor = container.audio_stream_extractor
 
     camera = db.query(Camera).filter(Camera.id == camera_id).first()
 
@@ -2168,7 +2305,7 @@ async def get_stream_metrics():
         This endpoint is placed before /{camera_id}/stream/info to avoid
         route conflicts with FastAPI path matching
     """
-    stream_service = get_stream_proxy_service()
+    stream_service = container.stream_proxy_service
     metrics = stream_service.get_metrics()
 
     return StreamMetricsResponse(
@@ -2209,7 +2346,7 @@ async def get_stream_info(
             detail=f"Camera {camera_id} not found"
         )
 
-    stream_service = get_stream_proxy_service()
+    stream_service = container.stream_proxy_service
     stream_info = stream_service.get_stream_info(camera_id_str)
 
     # Build quality options list
@@ -2256,7 +2393,7 @@ def _build_rtsp_url_for_stream(camera: Camera, db: "Session" = None) -> str:
     if camera.source_type == "protect" and camera.protect_controller_id and camera.protect_camera_id:
         from app.models.protect_controller import ProtectController
         from app.core.database import SessionLocal
-        from app.services.protect_service import get_protect_service
+        protect_service = container.protect_service
 
         # Use provided session or create new one
         close_db = False
@@ -2276,7 +2413,7 @@ def _build_rtsp_url_for_stream(camera: Camera, db: "Session" = None) -> str:
 
                 # Get RTSP alias from uiprotect (required for RTSPS streams)
                 # The protect_camera_id is the internal ID, but RTSP requires the alias
-                protect_service = get_protect_service()
+                protect_service = container.protect_service
                 rtsp_alias = None
 
                 # Try to get RTSP alias from cached connection
@@ -2373,7 +2510,7 @@ async def get_stream_snapshot(
     except ValueError:
         quality_enum = StreamQuality.MEDIUM
 
-    stream_service = get_stream_proxy_service()
+    stream_service = container.stream_proxy_service
 
     # Build RTSP/RTSPS URL (handles both RTSP and Protect cameras)
     rtsp_url = _build_rtsp_url_for_stream(camera, db)
@@ -2469,7 +2606,7 @@ async def stream_camera(
     except ValueError:
         quality_enum = StreamQuality.MEDIUM
 
-    stream_service = get_stream_proxy_service()
+    stream_service = container.stream_proxy_service
 
     # Check if stream limit is reached before trying to add client (Story P16-2.5)
     stream_info = stream_service.get_stream_info(camera_id)

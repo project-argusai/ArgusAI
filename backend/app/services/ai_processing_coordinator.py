@@ -54,6 +54,7 @@ class AIProcessingCoordinator:
         cost_alert_service: Any,
         embedding_service: Any,
         mqtt_service: Any,
+        homekit_service: Any = None,
     ):
         self.ai_service = ai_service
         self.metrics = metrics
@@ -61,6 +62,7 @@ class AIProcessingCoordinator:
         self.cost_alert_service = cost_alert_service
         self.embedding_service = embedding_service
         self.mqtt_service = mqtt_service
+        self.homekit_service = homekit_service
 
     async def process_event(self, event: ProcessingEvent, worker_id: int) -> bool:
         """
@@ -625,17 +627,64 @@ class AIProcessingCoordinator:
     ) -> None:
         """Trigger appropriate HomeKit sensors based on detection type."""
         try:
-            from app.services.homekit_service import get_homekit_service
+            homekit_service = self.homekit_service
+            if not homekit_service or not homekit_service.is_running:
+                return
 
-            homekit_service = self.mqtt_service  # Note: using mqtt_service temporarily; actual homekit_service should be added to context if needed
-            # The original uses container.homekit_service. For consistency, we use context if available.
-
-            # To keep this micro-step small, we delegate to the EventProcessor's version for now
-            # (the heavy _trigger_homekit_* methods stay on EP).
-            # In a follow-up we can move the full logic.
-            await self.event_processor._run_homekit_triggers(
-                event=event, event_id=event_id, smart_detection_type=smart_detection_type
+            # Always trigger motion
+            asyncio.create_task(
+                self.event_processor._trigger_homekit_motion(homekit_service, event.camera_id, event_id)
             )
+            logger.debug(
+                f"HomeKit motion trigger task created for event {event_id}",
+                extra={"event_id": event_id, "camera_id": event.camera_id}
+            )
+
+            # Person → occupancy
+            if smart_detection_type == "person":
+                asyncio.create_task(
+                    self.event_processor._trigger_homekit_occupancy(homekit_service, event.camera_id, event_id)
+                )
+                logger.debug(
+                    f"HomeKit occupancy trigger task created for person event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                )
+
+            # Vehicle
+            if smart_detection_type == "vehicle":
+                asyncio.create_task(
+                    self.event_processor._trigger_homekit_vehicle(homekit_service, event.camera_id, event_id)
+                )
+                logger.debug(
+                    f"HomeKit vehicle trigger task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                )
+
+            # Animal
+            if smart_detection_type == "animal":
+                asyncio.create_task(
+                    self.event_processor._trigger_homekit_animal(homekit_service, event.camera_id, event_id)
+                )
+                logger.debug(
+                    f"HomeKit animal trigger task created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id, "smart_detection_type": smart_detection_type}
+                )
+
+            # Package (with carrier info)
+            if smart_detection_type == "package":
+                delivery_carrier = getattr(event, 'delivery_carrier', None)
+                asyncio.create_task(
+                    self.event_processor._trigger_homekit_package(homekit_service, event.camera_id, event_id, delivery_carrier)
+                )
+                logger.debug(
+                    f"HomeKit package trigger task created for event {event_id}",
+                    extra={
+                        "event_id": event_id,
+                        "camera_id": event.camera_id,
+                        "smart_detection_type": smart_detection_type,
+                        "delivery_carrier": delivery_carrier
+                    }
+                )
         except Exception as homekit_error:
             logger.warning(
                 f"Failed to trigger HomeKit sensors: {homekit_error}",

@@ -303,6 +303,7 @@ class EventProcessor:
                 cost_alert_service=container.cost_alert_service,
                 embedding_service=container.embedding_service,
                 mqtt_service=container.mqtt_service,
+                homekit_service=container.homekit_service,
             )
 
             self.ai_worker_pool = AIWorkerPool(

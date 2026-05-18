@@ -24,6 +24,8 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional, TYPE_CHECKING, Callable, Awaitable, Any
 
+import numpy as np
+
 from app.core.database import SessionLocal
 from app.services.event_processor import ProcessingEvent, Event
 
@@ -53,7 +55,6 @@ class ProcessingContext:
     mqtt_service: Any
 
     # Still-bound helper methods from EventProcessor (to be further extracted in future steps)
-    generate_thumbnail: Callable[[Any], Optional[str]]
     generate_and_match_entity: Callable[[Optional[str]], Awaitable[tuple[Any, Any]]]
     # store_processed_event and send_push_notification have been moved into the coordinator
     store_event_with_retry: Callable[..., Awaitable[Optional[str]]]
@@ -96,7 +97,7 @@ class AIProcessingCoordinator:
                 return handled
 
             # Generate thumbnail
-            thumbnail_base64 = self.context.generate_thumbnail(event.frame)
+            thumbnail_base64 = self._generate_thumbnail(event.frame)
 
             # Early embedding + entity matching for context (Story P4-3.4)
             embedding_vector = None
@@ -351,7 +352,7 @@ class AIProcessingCoordinator:
         self.context.metrics.increment_error(f"cost_cap_{skip_reason}")
 
         # Store event without AI description, with skip reason
-        thumbnail_base64 = self.context.generate_thumbnail(event.frame)
+        thumbnail_base64 = self._generate_thumbnail(event.frame)
         event_data = {
             "camera_id": event.camera_id,
             "timestamp": event.timestamp.isoformat(),
@@ -484,6 +485,53 @@ class AIProcessingCoordinator:
             self.context.metrics.increment_error("event_storage_failed")
 
         return event_id
+
+    def _generate_thumbnail(self, frame: np.ndarray, max_width: int = 320, max_height: int = 180) -> Optional[str]:
+        """
+        Generate a base64-encoded JPEG thumbnail from a frame.
+
+        Args:
+            frame: OpenCV frame (numpy array in BGR format)
+            max_width: Maximum thumbnail width (default 320px)
+            max_height: Maximum thumbnail height (default 180px)
+
+        Returns:
+            Base64-encoded JPEG string with data URI prefix, or None on error
+        """
+        try:
+            import cv2
+            import base64
+
+            if frame is None:
+                logger.warning("Cannot generate thumbnail: frame is None")
+                return None
+
+            # Calculate aspect-preserving resize
+            height, width = frame.shape[:2]
+            scale = min(max_width / width, max_height / height)
+
+            if scale < 1:
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                resized = cv2.resize(frame, (new_width, new_height), interpolation=cv2.INTER_AREA)
+            else:
+                resized = frame
+
+            # Encode as JPEG
+            encode_params = [cv2.IMWRITE_JPEG_QUALITY, 85]
+            success, buffer = cv2.imencode('.jpg', resized, encode_params)
+
+            if not success:
+                logger.warning("Failed to encode thumbnail as JPEG")
+                return None
+
+            # Convert to base64 with data URI prefix
+            b64_str = base64.b64encode(buffer).decode('utf-8')
+            return f"data:image/jpeg;base64,{b64_str}"
+
+        except Exception as e:
+            logger.error(f"Error generating thumbnail: {e}", exc_info=True)
+            return None
 
     async def _send_push_notification(
         self,

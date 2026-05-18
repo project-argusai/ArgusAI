@@ -1487,3 +1487,96 @@ class TestCameraAnalysisModeAPI:
         modes = {c["analysis_mode"] for c in data}
         assert "single_frame" in modes
         assert "multi_frame" in modes
+
+
+class TestCameraCaptureAdminActions:
+    """Tests for manual enable/disable capture endpoints and health endpoint (#449)"""
+
+    def test_enable_and_disable_capture_endpoints(self, client, db_session):
+        """Admin can disable and re-enable capture via API."""
+        # Create camera
+        create_resp = client.post("/api/v1/cameras", json={
+            "name": "Admin Action Cam",
+            "type": "rtsp",
+            "rtsp_url": "rtsp://example.com/stream"
+        })
+        assert create_resp.status_code == 201
+        cam_id = create_resp.json()["id"]
+
+        # Manually disable
+        disable_resp = client.post(f"/api/v1/cameras/{cam_id}/disable-capture")
+        assert disable_resp.status_code == 200
+        assert disable_resp.json()["capture_disabled"] is True
+
+        # Health should reflect disabled
+        health_resp = client.get("/api/v1/cameras/health")
+        assert health_resp.status_code == 200
+        health = health_resp.json()
+        assert health["disabled"] >= 1
+
+        # Re-enable
+        enable_resp = client.post(f"/api/v1/cameras/{cam_id}/enable-capture")
+        assert enable_resp.status_code == 200
+        assert enable_resp.json()["capture_disabled"] is False
+
+    def test_health_endpoint_returns_expected_fields(self, client, db_session):
+        """The dedicated health endpoint returns the expected structure."""
+        resp = client.get("/api/v1/cameras/health")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert "total" in data
+        assert "healthy" in data
+        assert "unhealthy" in data
+        assert "disabled" in data
+        assert "cameras" in data
+        assert isinstance(data["cameras"], dict)
+
+    def test_disable_and_enable_capture_via_api(self, client, db_session):
+        """Admin can disable and re-enable a camera via the new endpoints."""
+        # Create a camera
+        create_resp = client.post("/api/v1/cameras", json={
+            "name": "Policy Test Cam",
+            "type": "rtsp",
+            "rtsp_url": "rtsp://example.com/stream"
+        })
+        assert create_resp.status_code == 201
+        cam_id = create_resp.json()["id"]
+
+        # Disable it
+        disable_resp = client.post(f"/api/v1/cameras/{cam_id}/disable-capture")
+        assert disable_resp.status_code == 200
+        assert disable_resp.json()["capture_disabled"] is True
+
+        # Health should reflect it
+        health = client.get("/api/v1/cameras/health").json()
+        assert health["disabled"] >= 1
+
+        # Re-enable it
+        enable_resp = client.post(f"/api/v1/cameras/{cam_id}/enable-capture")
+        assert enable_resp.status_code == 200
+        assert enable_resp.json()["capture_disabled"] is False
+
+        # Camera should now be eligible to start again
+        health = client.get("/api/v1/cameras/health").json()
+        assert health["disabled"] == 0 or cam_id not in [c for c in health["cameras"] if health["cameras"][c].get("capture_disabled")]
+
+    def test_camera_detail_includes_capture_health_fields(self, client, db_session):
+        """GET /cameras/{id} should include capture_disabled and restart_attempts."""
+        create_resp = client.post("/api/v1/cameras", json={
+            "name": "Detail Health Cam",
+            "type": "rtsp",
+            "rtsp_url": "rtsp://example.com/stream"
+        })
+        cam_id = create_resp.json()["id"]
+
+        # Disable it
+        client.post(f"/api/v1/cameras/{cam_id}/disable-capture")
+
+        # Get detail
+        detail = client.get(f"/api/v1/cameras/{cam_id}").json()
+        assert "capture_disabled" in detail
+        assert detail["capture_disabled"] is True
+        assert "restart_attempts" in detail
+        assert "worker_status" in detail
+        assert "worker_alive" in detail

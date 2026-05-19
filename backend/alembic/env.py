@@ -8,7 +8,7 @@ from alembic import context
 
 # Import Base and all models to ensure they're registered
 from app.core.database import Base
-from app.models import Camera  # Import all models here
+from app.models import Camera, HotCameraActivity, HotEntityActivity  # Import all models here
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

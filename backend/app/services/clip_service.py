@@ -12,7 +12,7 @@ Provides functionality to:
 
 Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import atexit

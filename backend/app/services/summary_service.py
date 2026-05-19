@@ -23,7 +23,7 @@ Edge Cases:
     - Single event: Return simple description referencing event (AC8)
     - Many events (50+): Sample intelligently to avoid token limits (AC9)
 
-Migrated to @singleton decorator (core.decorators) as part of #450
+# Migrated to @singleton decorator (core.decorators) as part of #450
 (Lightweight DI Container).
 """
 import json

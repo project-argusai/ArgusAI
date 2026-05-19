@@ -14,7 +14,7 @@ Storage pattern follows the existing thumbnail pattern:
 - JPEG quality 85, max width 1280px
 - ~50KB per frame typical size
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import io
 import logging

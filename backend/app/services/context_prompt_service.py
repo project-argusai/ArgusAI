@@ -28,7 +28,7 @@ Flow:
                                     ↓
                          Format and return enhanced prompt
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import logging
 from app.core.decorators import singleton

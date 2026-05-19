@@ -10,7 +10,7 @@ Handles:
 
 Extracted from ProtectEventHandler during Phase 4 of the decomposition.
 
-Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
+# Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
 """
 
 import logging

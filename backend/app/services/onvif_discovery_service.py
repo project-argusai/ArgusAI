@@ -13,7 +13,7 @@ Usage:
 Architecture Reference: docs/architecture/phase-5-additions.md (ONVIF Discovery Architecture)
 PRD Reference: docs/PRD-phase5.md (FR13, FR14, FR15)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import hashlib

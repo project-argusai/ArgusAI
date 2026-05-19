@@ -17,7 +17,7 @@ Privacy:
     - User controls via face_recognition_enabled setting
     - New persons start unnamed (user names them later)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging

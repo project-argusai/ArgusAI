@@ -24,7 +24,7 @@ Flow (Text - Story P11-4.1):
                                                         ↓
                             Compare with Frame Embeddings (cosine similarity)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import base64

@@ -33,6 +33,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { HotActivityCard } from '@/components/dashboard/HotActivityCard';
+import { AICostTrendsCard } from '@/components/dashboard/AICostTrendsCard';
 
 interface ServiceStatus {
   name: string;
@@ -78,6 +80,13 @@ export default function StatusPage() {
       try {
         const res = await apiClient.getAIResilience();
         setAiResilience(res);
+      } catch (e) {
+        // Non-critical
+      }
+
+      // Refresh Hot Activity (coordinator hot lists)
+      try {
+        await loadHotActivity();
       } catch (e) {
         // Non-critical
       }
@@ -345,6 +354,12 @@ export default function StatusPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Hot Activity - powered by AIProcessingCoordinator hot lists */}
+      <HotActivityCard />
+
+      {/* AI Cost & Token Trends - Full view */}
+      <AICostTrendsCard variant="full" />
 
       {/* Protect WebSocket Health (Story #437) */}
       {health?.protect_ws && (

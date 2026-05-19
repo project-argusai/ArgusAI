@@ -10,7 +10,7 @@ temporal coverage (minimum 500ms spacing). This improves AI analysis quality
 by avoiding redundant frames while still capturing key moments.
 
 Architecture Reference: docs/sprint-artifacts/tech-spec-epic-P8-2.md
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 import logging
 from typing import List, Tuple

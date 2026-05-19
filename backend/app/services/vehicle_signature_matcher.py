@@ -217,4 +217,16 @@ class VehicleSignatureMatcher:
             )
             return entity.id
 
+
+# -------------------------------------------------------------------------
+# Backward compatibility shim
+# The function used to live here as a standalone function.
+# It was moved into the VehicleSignatureMatcher class during refactoring.
+# -------------------------------------------------------------------------
+
+def extract_vehicle_entity(description: str) -> Optional[VehicleEntityInfo]:
+    """Extract vehicle entity info from a description (compatibility wrapper)."""
+    matcher = VehicleSignatureMatcher()
+    return matcher.generate_signature(description)
+
         return None

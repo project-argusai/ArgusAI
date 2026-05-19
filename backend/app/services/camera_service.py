@@ -4,7 +4,7 @@ Camera capture service with thread management and reconnection logic
 Handles RTSP and USB camera capture in background threads with automatic
 reconnection on stream dropout.
 
-Migrated to @singleton decorator (core.decorators) as the core service reference
+# Migrated to @singleton decorator (core.decorators) as the core service reference
 example for #450 (Lightweight DI Container).
 """
 import cv2

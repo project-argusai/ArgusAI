@@ -31,6 +31,7 @@ from app.models.pairing_code import PairingCode
 from app.models.refresh_token import RefreshToken
 from app.models.api_key import APIKey
 from app.models.user_audit_log import UserAuditLog, AuditAction
+from app.models.hot_activity import HotCameraActivity, HotEntityActivity
 
 __all__ = [
     "ProtectController",
@@ -70,4 +71,6 @@ __all__ = [
     "APIKey",
     "UserAuditLog",
     "AuditAction",
+    "HotCameraActivity",
+    "HotEntityActivity",
 ]

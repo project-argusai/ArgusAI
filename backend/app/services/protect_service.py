@@ -8,7 +8,7 @@ Provides functionality to:
 - Broadcast connection status changes to frontend
 - Discover cameras from connected controllers (future stories)
 
-Migrated to @singleton decorator (core.decorators) as part of #450
+# Migrated to @singleton decorator (core.decorators) as part of #450
 (Lightweight DI Container) — core Protect integration service.
 """
 import asyncio

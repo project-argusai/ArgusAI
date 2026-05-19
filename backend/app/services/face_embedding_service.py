@@ -16,7 +16,7 @@ Privacy:
     - Face data stored locally only
     - Users can delete all face embeddings via API
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import json

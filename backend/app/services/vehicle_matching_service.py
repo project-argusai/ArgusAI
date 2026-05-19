@@ -18,7 +18,7 @@ Privacy:
     - User controls via vehicle_recognition_enabled setting
     - New vehicles start unnamed (user names them later)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging

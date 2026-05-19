@@ -20,8 +20,10 @@ remain on EventProcessor during the transition).
 import asyncio
 import json
 import logging
+import time
 import uuid
-from typing import Optional, TYPE_CHECKING, Callable, Awaitable, Any
+from collections import deque
+from typing import Optional, TYPE_CHECKING, Callable, Awaitable, Any, Dict, List
 
 import numpy as np
 
@@ -72,6 +74,592 @@ class AIProcessingCoordinator:
         self.entity_service = entity_service
         self.ai_semaphore = ai_semaphore or asyncio.Semaphore(8)
 
+        # Lightweight in-memory counters for the debug/stats endpoint
+        self._total_processed = 0
+        self._success_count = 0
+        self._fallback_count = 0
+        self._context_used_count = 0
+        self._ocr_used_count = 0
+        self._low_confidence_count = 0
+        self._regenerated_count = 0
+
+        # Ring buffer for recent activity
+        self._recent_activity: deque[Dict] = deque(maxlen=50)
+
+        # Hot cameras / top entities caches
+        self._camera_activity: Dict[str, Dict] = {}
+        self._entity_activity: Dict[str, Dict] = {}
+
+        # Dirty sets for periodic persistence (to avoid DB write on every event)
+        self._dirty_cameras: set = set()
+        self._dirty_entities: set = set()
+
+        # Load persisted hot activity (if tables exist)
+        self._load_activity_caches()
+
+        # Pub/sub for live streaming
+        self._event_subscribers: List[asyncio.Queue] = []
+
+    def get_processing_stats(self) -> dict:
+        """Return current lightweight runtime stats for observability and debugging.
+
+        This is intended for the /system/debug/ai-processing-stats endpoint
+        and internal monitoring. Prometheus metrics remain the primary source
+        for long-term observability.
+        """
+        total = self._total_processed
+        success_rate = round(self._success_count / max(total, 1), 4)
+
+        return {
+            "total_processed": total,
+            "success_count": self._success_count,
+            "success_rate": success_rate,
+            "fallback_count": self._fallback_count,
+            "context_used_count": self._context_used_count,
+            "ocr_used_count": self._ocr_used_count,
+            "low_confidence_count": self._low_confidence_count,
+            "regenerated_count": self._regenerated_count,
+            "current_in_flight": self.ai_semaphore._value if hasattr(self.ai_semaphore, "_value") else None,
+        }
+
+    def get_recent_activity(self, limit: int = 20) -> List[Dict]:
+        """Return the most recent processing events (ring buffer) with rich coordinator-owned fields.
+
+        === 2026 Data Audit (for AI Cost & Token Trends surface) ===
+
+        The following economics/usage fields are reliably populated on **successful** processing:
+
+        Core trend fields (best for cost/token analysis):
+        - provider (ai_result.provider)
+        - ai_cost (ai_result.cost_estimate)
+        - tokens_used (ai_result.tokens_used)
+        - ai_response_time_ms (ai_result.response_time_ms)
+        - prompt_variant (ai_result.prompt_variant)
+        - ocr_used (ai_result.ocr_used)
+        - ai_fallback_used (ai_result.ai_fallback_used)
+        - ai_confidence (ai_result.ai_confidence)
+        - low_confidence, vague_reason, regenerated
+
+        Supporting fields:
+        - context_used + context_stats
+        - post_processing_summary (rich JSON)
+        - entity_early / entity_final details
+
+        Gaps / Limitations:
+        - Cost-cap skips (analysis_skipped=True): No AI call occurred → no cost/tokens/provider data. Only has analysis_skipped_reason.
+        - General failures: Very minimal (only error message + regenerated flag).
+        - post_processing_summary exists in recent_item and on the Event row (after storage), but is not part of the initial event_data dict.
+        - All cost/token fields are NULL on legacy events (pre-extraction) and on skipped/failure rows.
+
+        For time-series cost/token trends, the best data source is successful Event rows filtered by timestamp + provider.
+        The recent ring buffer is useful for live views but too small (maxlen=50) for long-term trends.
+
+        ========================================================
+        """
+
+        # === 2026 Context Usage Audit (for new "Context Usage Patterns" surface) ===
+        #
+        # Fields captured today:
+        #
+        # On the Event table (persisted):
+        #   - context_included (Boolean, NOT NULL, default=False)
+        #   - context_stats (Text/JSON, nullable)
+        #     Stored shape: {
+        #       "entity_context_included": bool,
+        #       "similar_events_count": int,
+        #       "time_pattern_included": bool,
+        #       "context_gather_time_ms": float
+        #     }
+        #
+        # In the recent activity ring buffer (in-memory):
+        #   - "context_used": bool
+        #   - "context_stats": the object above (not serialized)
+        #
+        # Additional signals available at processing time (but not all persisted):
+        #   - context_result.entity_context_included
+        #   - context_result.similar_events_count
+        #   - context_result.time_pattern_included
+        #   - context_result.context_gather_time_ms
+        #   - context_result.mcp_context_included / mcp_feedback_included / etc.  (MCP integration)
+        #
+        # What is reliably populated on success paths:
+        #   - context_included is correctly set based on whether the final prompt used context.
+        #   - The four main context_stats fields above are captured.
+        #
+        # Gaps / Limitations:
+        #   - MCP context fields (mcp_*) are computed by ContextEnhancedPromptService but are **not** stored
+        #     in the Event row or recent_item.
+        #   - No historical breakdown of *which* context components were used across many events.
+        #   - context_stats is only populated on successful processing paths (not on cost-cap skips).
+        #   - No aggregated views or trend endpoints exist yet for context usage over time.
+        #   - The recent ring buffer only holds ~50 events — insufficient for long-term pattern analysis.
+        #
+        # Best data for future context usage trends:
+        #   - Query the `events` table on `context_included` + parsed `context_stats`.
+        #   - The `_context_used_count` counter in the coordinator only gives a global total, not time-series.
+        #
+        # ============================================================
+        return list(self._recent_activity)[-limit:]
+
+    def get_ai_cost_trends(
+        self,
+        days_back: int = 30,
+        bucket: str = "day",   # "day" or "hour"
+    ) -> List[Dict]:
+        """
+        Returns aggregated AI cost & token usage trends.
+
+        This is the first small method for the new "AI Cost & Token Trends"
+        surface. It pulls from the events table (where the rich economics
+        fields live after the extraction).
+
+        Args:
+            days_back: How many days of history to include (default 30)
+            bucket: Time granularity - "day" or "hour"
+
+        Returns:
+            List of dicts sorted by bucket (oldest first):
+            [
+                {
+                    "bucket": "2026-05-01" or "2026-05-01 14:00",
+                    "calls": 87,
+                    "total_cost": 0.412,
+                    "total_tokens": 78200,
+                    "avg_response_time_ms": 1240,
+                },
+                ...
+            ]
+        """
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import func
+        from app.core.database import get_db_session
+        from app.models.event import Event as DBEvent
+
+        if bucket not in ("day", "hour"):
+            bucket = "day"
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days_back)
+
+        with get_db_session() as db:
+            # Base query for events that actually had AI economics data
+            query = (
+                db.query(DBEvent)
+                .filter(DBEvent.timestamp >= start)
+                .filter(DBEvent.timestamp <= end)
+                .filter(DBEvent.ai_cost.isnot(None))
+            )
+
+            if bucket == "day":
+                # Group by date
+                rows = (
+                    query.with_entities(
+                        func.date(DBEvent.timestamp).label("bucket"),
+                        func.count(DBEvent.id).label("calls"),
+                        func.sum(DBEvent.ai_cost).label("total_cost"),
+                        func.sum(DBEvent.tokens_used).label("total_tokens"),
+                        func.avg(DBEvent.ai_response_time_ms).label("avg_response_time_ms"),
+                    )
+                    .group_by(func.date(DBEvent.timestamp))
+                    .order_by(func.date(DBEvent.timestamp))
+                    .all()
+                )
+            else:
+                # Group by hour (YYYY-MM-DD HH:00)
+                rows = (
+                    query.with_entities(
+                        func.strftime("%Y-%m-%d %H:00", DBEvent.timestamp).label("bucket"),
+                        func.count(DBEvent.id).label("calls"),
+                        func.sum(DBEvent.ai_cost).label("total_cost"),
+                        func.sum(DBEvent.tokens_used).label("total_tokens"),
+                        func.avg(DBEvent.ai_response_time_ms).label("avg_response_time_ms"),
+                    )
+                    .group_by(func.strftime("%Y-%m-%d %H:00", DBEvent.timestamp))
+                    .order_by(func.strftime("%Y-%m-%d %H:00", DBEvent.timestamp))
+                    .all()
+                )
+
+            result = []
+            for row in rows:
+                result.append({
+                    "bucket": str(row.bucket),
+                    "calls": int(row.calls or 0),
+                    "total_cost": round(float(row.total_cost or 0), 6),
+                    "total_tokens": int(row.total_tokens or 0),
+                    "avg_response_time_ms": round(float(row.avg_response_time_ms or 0), 1) if row.avg_response_time_ms else None,
+                })
+
+            return result
+
+    def get_context_usage_stats(self, days_back: int = 30) -> Dict:
+        """Return basic aggregates about how often and how effectively context was used.
+
+        This is the first small method for the "Context Usage Patterns" surface.
+        """
+        from datetime import datetime, timedelta, timezone
+        from app.core.database import get_db_session
+        from app.models.event import Event as DBEvent
+        import json
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days_back)
+
+        with get_db_session() as db:
+            base = db.query(DBEvent).filter(
+                DBEvent.timestamp >= start,
+                DBEvent.timestamp <= end
+            )
+
+            total = base.count()
+            context_used = base.filter(DBEvent.context_included == True).count()
+
+            # Fetch context_stats only for events that used context (to compute breakdown + avg time)
+            stats_rows = (
+                base.filter(DBEvent.context_included == True)
+                .with_entities(DBEvent.context_stats)
+                .all()
+            )
+
+            entity_ctx = 0
+            similar = 0
+            time_pat = 0
+            gather_times = []
+
+            for (ctx_json,) in stats_rows:
+                if not ctx_json:
+                    continue
+                try:
+                    data = json.loads(ctx_json)
+                    if data.get("entity_context_included"):
+                        entity_ctx += 1
+                    if data.get("similar_events_count", 0) > 0:
+                        similar += 1
+                    if data.get("time_pattern_included"):
+                        time_pat += 1
+                    gt = data.get("context_gather_time_ms")
+                    if isinstance(gt, (int, float)):
+                        gather_times.append(gt)
+                except Exception:
+                    continue
+
+            avg_gather = round(sum(gather_times) / len(gather_times), 2) if gather_times else None
+
+            return {
+                "period_days": days_back,
+                "total_events": total,
+                "context_used_count": context_used,
+                "context_used_percent": round((context_used / total * 100), 2) if total > 0 else 0.0,
+                "avg_gather_time_ms": avg_gather,
+                "context_breakdown": {
+                    "entity_context": entity_ctx,
+                    "similar_events": similar,
+                    "time_pattern": time_pat,
+                },
+            }
+
+    # ------------------------------------------------------------------
+    # Hot cameras / Top entities cache (for dashboard widgets)
+    # ------------------------------------------------------------------
+
+    def _update_activity_caches(self, record: Dict) -> None:
+        """Update the in-memory hot cameras and top entities caches (and persist)."""
+        if not record.get("success"):
+            return
+
+        now = record.get("timestamp", time.time())
+        camera_id = record.get("camera_id")
+
+        # Hot cameras
+        if camera_id:
+            if camera_id not in self._camera_activity:
+                self._camera_activity[camera_id] = {"count": 0, "last_seen": 0}
+            self._camera_activity[camera_id]["count"] += 1
+            self._camera_activity[camera_id]["last_seen"] = now
+
+        # Top recent entities (prefer final link, fall back to early)
+        entity_info = record.get("entity_final") or record.get("entity_early") or {}
+        entity_id = entity_info.get("entity_id") or entity_info.get("id")
+
+        if entity_id:
+            if entity_id not in self._entity_activity:
+                self._entity_activity[entity_id] = {
+                    "count": 0,
+                    "last_seen": 0,
+                    "name": entity_info.get("entity_name") or entity_info.get("name"),
+                    "type": entity_info.get("entity_type") or entity_info.get("type"),
+                }
+            self._entity_activity[entity_id]["count"] += 1
+            self._entity_activity[entity_id]["last_seen"] = now
+            # Keep latest name/type if available
+            if entity_info.get("entity_name") or entity_info.get("name"):
+                self._entity_activity[entity_id]["name"] = entity_info.get("entity_name") or entity_info.get("name")
+            if entity_info.get("entity_type") or entity_info.get("type"):
+                self._entity_activity[entity_id]["type"] = entity_info.get("entity_type") or entity_info.get("type")
+
+        # Mark as dirty for periodic flush (much more efficient than per-event writes)
+        if camera_id:
+            self._dirty_cameras.add(camera_id)
+        if entity_id:
+            self._dirty_entities.add(entity_id)
+
+    def get_hot_cameras(self, limit: int = 10) -> List[Dict]:
+        """Return the hottest cameras based on recent activity (exponential time decay)."""
+        if not self._camera_activity:
+            return []
+
+        now = time.time()
+        half_life = 2 * 3600  # 2 hours half-life (tunable)
+        scored = []
+        for cam_id, data in self._camera_activity.items():
+            age = max(now - data["last_seen"], 1)
+            decay = 2 ** (-age / half_life)
+            score = data["count"] * decay
+            scored.append({
+                "camera_id": cam_id,
+                "count": data["count"],
+                "last_seen": data["last_seen"],
+                "score": round(score, 2)
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:limit]
+
+    def get_top_recent_entities(self, limit: int = 10) -> List[Dict]:
+        """Return the most active entities based on recent activity (exponential time decay)."""
+        if not self._entity_activity:
+            return []
+
+        now = time.time()
+        half_life = 2 * 3600  # 2 hours half-life
+        scored = []
+        for ent_id, data in self._entity_activity.items():
+            age = max(now - data["last_seen"], 1)
+            decay = 2 ** (-age / half_life)
+            score = data["count"] * decay
+            scored.append({
+                "entity_id": ent_id,
+                "name": data.get("name"),
+                "type": data.get("type"),
+                "count": data["count"],
+                "last_seen": data["last_seen"],
+                "score": round(score, 2)
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:limit]
+
+    def _load_activity_caches(self) -> None:
+        """Load hot camera and entity activity from the database (best effort)."""
+        try:
+            from app.models.hot_activity import HotCameraActivity, HotEntityActivity
+
+            with SessionLocal() as db:
+                for row in db.query(HotCameraActivity).all():
+                    self._camera_activity[row.camera_id] = {
+                        "count": row.count,
+                        "last_seen": row.last_seen,
+                    }
+
+                for row in db.query(HotEntityActivity).all():
+                    self._entity_activity[row.entity_id] = {
+                        "count": row.count,
+                        "last_seen": row.last_seen,
+                        "name": row.name,
+                        "type": row.type,
+                    }
+        except Exception:
+            # Tables may not exist yet (migration pending) or other transient error
+            logger.debug("Could not load persisted hot activity caches yet.")
+
+    def flush_hot_activity(self) -> None:
+        """Public method to flush any dirty hot activity to the database.
+        Called on shutdown and by the periodic APScheduler job.
+        """
+        self._flush_dirty_activity_caches()
+
+    def _flush_dirty_activity_caches(self) -> None:
+        """Flush only the dirty entries to the database (called periodically by APScheduler)."""
+        if not self._dirty_cameras and not self._dirty_entities:
+            return
+
+        try:
+            from app.models.hot_activity import HotCameraActivity, HotEntityActivity
+
+            with SessionLocal() as db:
+                for cam_id in list(self._dirty_cameras):
+                    if cam_id in self._camera_activity:
+                        data = self._camera_activity[cam_id]
+                        db.merge(HotCameraActivity(
+                            camera_id=cam_id,
+                            count=data["count"],
+                            last_seen=data["last_seen"],
+                        ))
+                self._dirty_cameras.clear()
+
+                for ent_id in list(self._dirty_entities):
+                    if ent_id in self._entity_activity:
+                        data = self._entity_activity[ent_id]
+                        db.merge(HotEntityActivity(
+                            entity_id=ent_id,
+                            name=data.get("name"),
+                            type=data.get("type"),
+                            count=data["count"],
+                            last_seen=data["last_seen"],
+                        ))
+                self._dirty_entities.clear()
+
+                db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to flush hot activity caches: {e}")
+
+    def register_hot_activity_flush_job(self, scheduler) -> None:
+        """Register a periodic job to flush dirty hot activity caches (call once at startup).
+
+        The flush interval is read from the SystemSetting 'hot_activity_flush_interval_seconds'
+        (default: 45). This allows operators to tune write pressure vs. durability.
+        """
+        from apscheduler.triggers.interval import IntervalTrigger
+        from app.core.database import get_db_session
+        from app.models.system_setting import SystemSetting
+
+        interval_seconds = self._read_flush_interval()
+        self._current_flush_interval = interval_seconds
+
+        scheduler.add_job(
+            self._flush_dirty_activity_caches,
+            trigger=IntervalTrigger(seconds=interval_seconds),
+            id="hot_activity_flush",
+            name="Flush dirty hot camera/entity activity to DB",
+            replace_existing=True,
+        )
+        logger.info(f"Registered periodic hot activity flush job (every {interval_seconds}s)")
+
+    def reconfigure_hot_activity_flush(self, scheduler) -> None:
+        """Check the current SystemSetting and re-schedule the flush job if the interval changed.
+
+        Intended to be called periodically (e.g. every minute) so operators can change the
+        setting without restarting the application.
+        """
+        from apscheduler.triggers.interval import IntervalTrigger
+        from app.core.database import get_db_session
+        from app.models.system_setting import SystemSetting
+
+        new_interval = self._read_flush_interval()
+
+        if new_interval == getattr(self, "_current_flush_interval", None):
+            return  # No change
+
+        logger.info(
+            f"Hot activity flush interval changed from {getattr(self, '_current_flush_interval', 'unknown')}s "
+            f"to {new_interval}s — rescheduling job"
+        )
+
+        # Remove existing job (if present)
+        try:
+            scheduler.remove_job("hot_activity_flush")
+        except Exception:
+            pass  # Job may not exist yet or already removed
+
+        # Re-register with new interval
+        scheduler.add_job(
+            self._flush_dirty_activity_caches,
+            trigger=IntervalTrigger(seconds=new_interval),
+            id="hot_activity_flush",
+            name="Flush dirty hot camera/entity activity to DB",
+            replace_existing=True,
+        )
+
+        self._current_flush_interval = new_interval
+
+    def _read_flush_interval(self) -> int:
+        """Read the current flush interval from SystemSetting (with safe default)."""
+        from app.core.database import get_db_session
+        from app.models.system_setting import SystemSetting
+
+        interval_seconds = 45
+        try:
+            with get_db_session() as db:
+                setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == "hot_activity_flush_interval_seconds"
+                ).first()
+                if setting and setting.value:
+                    interval_seconds = max(10, int(setting.value))
+        except Exception:
+            pass
+        return interval_seconds
+
+    # ------------------------------------------------------------------
+    # Hot list push support for WebSocket clients
+    # ------------------------------------------------------------------
+
+    def _publish_hot_update(self) -> None:
+        """Push current hot cameras and top entities to all WebSocket subscribers."""
+        if not self._event_subscribers:
+            return
+
+        hot_update = {
+            "type": "hot_update",
+            "hot_cameras": self.get_hot_cameras(limit=10),
+            "top_recent_entities": self.get_top_recent_entities(limit=10),
+            "timestamp": time.time(),
+        }
+
+        for queue in self._event_subscribers[:]:
+            try:
+                queue.put_nowait(hot_update)
+            except asyncio.QueueFull:
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(hot_update)
+                except Exception:
+                    pass
+            except Exception:
+                try:
+                    self._event_subscribers.remove(queue)
+                except ValueError:
+                    pass
+
+    # ------------------------------------------------------------------
+    # WebSocket / bidirectional streaming support
+    # ------------------------------------------------------------------
+
+    async def subscribe_to_new_events_ws(self) -> asyncio.Queue:
+        """Subscribe for WebSocket clients.
+
+        Same underlying mechanism as the SSE stream, but returned as a queue
+        so the WebSocket handler can apply client-specific filtering.
+        """
+        return await self.subscribe_to_new_events()
+
+    async def subscribe_to_new_events(self) -> asyncio.Queue:
+        """Subscribe to newly processed events (for SSE / live feed).
+
+        Returns an asyncio.Queue that will receive rich event records as they
+        are processed by this coordinator.
+        """
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self._event_subscribers.append(queue)
+        return queue
+
+    def _publish_new_event(self, record: Dict) -> None:
+        """Publish a processed event record to all current subscribers."""
+        for queue in self._event_subscribers[:]:  # copy to avoid mutation during iteration
+            try:
+                queue.put_nowait(record)
+            except asyncio.QueueFull:
+                # Drop the oldest item if the subscriber is slow
+                try:
+                    queue.get_nowait()
+                    queue.put_nowait(record)
+                except Exception:
+                    pass
+            except Exception:
+                # Remove broken subscriber
+                try:
+                    self._event_subscribers.remove(queue)
+                except ValueError:
+                    pass
+
     async def process_event(self, event: ProcessingEvent, worker_id: int) -> bool:
         """
         Process a single event through the pipeline.
@@ -79,6 +667,14 @@ class AIProcessingCoordinator:
         This method now owns the orchestration (moved from EventProcessor._process_event).
         Small helper methods are still called via the context.
         """
+        start_time = time.time()
+        success = False
+        fallback_used = False
+        context_used = False
+        ocr_used = False
+        low_confidence = False
+        regenerated = False
+
         try:
             # Story P3-7.3: Check cost caps before AI analysis
             handled = await self._handle_cost_cap_skip(event)
@@ -91,9 +687,19 @@ class AIProcessingCoordinator:
             # Early embedding + entity matching for context (Story P4-3.4)
             embedding_vector = None
             entity_result = None
+            final_entity_link_result = None
+            pre_generated_event_id = str(uuid.uuid4())
 
             try:
                 embedding_vector, entity_result = await self._generate_and_match_entity(thumbnail_base64)
+
+                # Do the final persistent entity link early so the initial store already has rich final entity data
+                if embedding_vector:
+                    final_entity_link_result = await self._link_entity_to_event(
+                        event=event,
+                        event_id=pre_generated_event_id,
+                        embedding_vector=embedding_vector
+                    )
             except Exception as context_error:
                 logger.debug(
                     f"Early context generation failed (will skip): {context_error}",
@@ -191,7 +797,7 @@ class AIProcessingCoordinator:
                 has_annotations = True
                 bounding_boxes_json = json.dumps(ai_result.bounding_boxes)
 
-            # Store the successfully processed event
+            # Store the successfully processed event (now using pre-generated ID + final entity link result)
             event_id = await self._store_processed_event(
                 event=event,
                 ai_result=ai_result,
@@ -199,6 +805,10 @@ class AIProcessingCoordinator:
                 delivery_carrier=delivery_carrier,
                 has_annotations=has_annotations,
                 bounding_boxes_json=bounding_boxes_json,
+                context_result=context_result,
+                entity_match_result=entity_result,
+                final_entity_link_result=final_entity_link_result,
+                pre_generated_event_id=pre_generated_event_id,
             )
 
             if not event_id:
@@ -237,13 +847,25 @@ class AIProcessingCoordinator:
             objects_detected = event.detected_objects or []
             objects_json = json.dumps(objects_detected) if objects_detected else None
 
-            # Post-processing helpers (still on EventProcessor via context)
-            await self._run_homekit_triggers(
+            # Build expected post-processing summary (what we will attempt)
+            # Post-processing helpers
+            homekit_result = await self._run_homekit_triggers(
                 event=event, event_id=event_id, smart_detection_type=smart_detection_type
             )
-            await self._link_entity_to_event(
-                event=event, event_id=event_id, embedding_vector=embedding_vector
-            )
+
+            post_processing_summary = {
+                "homekit": homekit_result,
+                "face_embedding_attempted": bool(thumbnail_base64),
+                "vehicle_embedding_attempted": bool(thumbnail_base64) and any("vehicle" in str(o).lower() for o in objects_detected),
+                "entity_alerts_attempted": any(o.lower() in ("person", "vehicle") for o in objects_detected),
+                "mqtt_attempted": True,
+                "push_attempted": True,
+                "camera_status_attempted": True,
+                "audio_enrichment_attempted": True,
+                "embedding_stored": bool(embedding_vector),
+            }
+            # Final entity link is now performed early (before the initial store) using the
+            # pre-generated event ID. The later call has been removed as it is redundant.
             await self._process_face_embeddings(
                 event=event, event_id=event_id, thumbnail_base64=thumbnail_base64
             )
@@ -263,6 +885,29 @@ class AIProcessingCoordinator:
                 )
             except Exception as audio_error:
                 logger.warning(f"Failed to create audio enrichment task: {audio_error}")
+                post_processing_summary["audio_enrichment_attempted"] = False
+
+            # Persist post-processing summary + final entity link details
+            if event_id:
+                try:
+                    with SessionLocal() as update_db:
+                        ev = update_db.query(Event).filter(Event.id == event_id).first()
+                        if ev:
+                            import json as json_lib
+                            if post_processing_summary:
+                                ev.post_processing_summary = json_lib.dumps(post_processing_summary)
+                            if final_link_result:
+                                ev.final_entity_similarity_score = getattr(final_link_result, 'similarity_score', None)
+                                ev.final_entity_occurrence_count = getattr(final_link_result, 'occurrence_count', None)
+                                ev.final_entity_is_new = getattr(final_link_result, 'is_new', None)
+                                ev.final_entity_id = getattr(final_link_result, 'entity_id', None)
+                                ev.final_entity_type = getattr(final_link_result, 'entity_type', None)
+                                ev.final_entity_name = getattr(final_link_result, 'name', None)
+                            update_db.commit()
+                except Exception as summary_err:
+                    logger.warning(
+                        f"Failed to persist post-processing / final entity data for event {event_id}: {summary_err}"
+                    )
 
             logger.info(
                 f"Event processed successfully for camera {event.camera_name}",
@@ -273,6 +918,82 @@ class AIProcessingCoordinator:
                     "ai_provider": ai_result.provider
                 }
             )
+
+            success = True
+
+            # Best-effort capture of flags for metrics
+            context_used = bool(context_result and getattr(context_result, "context_included", False)) if 'context_result' in locals() else False
+            fallback_used = getattr(ai_result, "ai_fallback_used", False) if 'ai_result' in locals() else False
+            ocr_used = getattr(ai_result, "ocr_used", False) if 'ai_result' in locals() else False
+            low_conf = bool(low_confidence) if 'low_confidence' in locals() else False
+            regen = regenerated  # from parameter / outer scope
+
+            from app.core import metrics as prom
+            prom.ai_processing_total.labels(
+                success="true",
+                fallback_used=str(fallback_used).lower(),
+                context_used=str(context_used).lower(),
+                ocr_used=str(ocr_used).lower(),
+                low_confidence=str(low_conf).lower(),
+                regenerated=str(regen).lower(),
+            ).inc()
+
+            duration = time.time() - start_time
+            prom.ai_processing_duration_seconds.observe(duration)
+
+            # Update lightweight stats counters
+            self._total_processed += 1
+            self._success_count += 1
+            if fallback_used:
+                self._fallback_count += 1
+            if context_used:
+                self._context_used_count += 1
+            if ocr_used:
+                self._ocr_used_count += 1
+            if low_conf:
+                self._low_confidence_count += 1
+            if regen:
+                self._regenerated_count += 1
+
+            # Record rich recent activity for live view / snapshot
+            recent_item = {
+                "timestamp": time.time(),
+                "camera_id": event.camera_id,
+                "success": True,
+                "provider": getattr(ai_result, "provider", None),
+                "ai_fallback_used": getattr(ai_result, "ai_fallback_used", False),
+                "tokens_used": getattr(ai_result, "tokens_used", None),
+                "ai_cost": getattr(ai_result, "cost_estimate", None),
+                "ai_response_time_ms": getattr(ai_result, "response_time_ms", None),
+                "ai_confidence": getattr(ai_result, "ai_confidence", None),
+                "prompt_variant": getattr(ai_result, "prompt_variant", None),
+                "ocr_used": getattr(ai_result, "ocr_used", False),
+                "low_confidence": low_conf,
+                "vague_reason": vague_reason,
+                "context_used": context_used,
+                "context_stats": context_stats,
+                "regenerated": regen,
+                "entity_early": {
+                    "similarity_score": getattr(entity_result, "similarity_score", None) if entity_result else None,
+                    "occurrence_count": getattr(entity_result, "occurrence_count", None) if entity_result else None,
+                    "is_new": getattr(entity_result, "is_new", None) if entity_result else None,
+                },
+                "entity_final": {
+                    "entity_id": getattr(final_link_result, "entity_id", None) if final_link_result else None,
+                    "entity_type": getattr(final_link_result, "entity_type", None) if final_link_result else None,
+                    "entity_name": getattr(final_link_result, "name", None) if final_link_result else None,
+                    "similarity_score": getattr(final_link_result, "similarity_score", None) if final_link_result else None,
+                    "occurrence_count": getattr(final_link_result, "occurrence_count", None) if final_link_result else None,
+                    "is_new": getattr(final_link_result, "is_new", None) if final_link_result else None,
+                },
+                "post_processing_summary": post_processing_summary,
+            }
+            self._recent_activity.append(recent_item)
+            self._update_activity_caches(recent_item)
+            self._publish_new_event(recent_item)
+
+            # Push hot list updates to WebSocket clients
+            self._publish_hot_update()
 
             return True
 
@@ -287,6 +1008,33 @@ class AIProcessingCoordinator:
                 }
             )
             self.metrics.increment_error("processing_exception")
+
+            from app.core import metrics as prom
+            prom.ai_processing_total.labels(
+                success="false",
+                fallback_used="false",
+                context_used="false",
+                ocr_used="false",
+                low_confidence="false",
+                regenerated=str(regenerated).lower() if 'regenerated' in locals() else "false",
+            ).inc()
+
+            duration = time.time() - start_time
+            prom.ai_processing_duration_seconds.observe(duration)
+
+            # Count the failure for the lightweight stats
+            self._total_processed += 1
+
+            # Record failure in recent activity (richer for debugging)
+            failure_item = {
+                "timestamp": time.time(),
+                "camera_id": event.camera_id,
+                "success": False,
+                "error": str(e)[:300] if 'e' in locals() else "unknown",
+                "regenerated": getattr(self, 'regenerated', False) if 'regenerated' in locals() else False,
+            }
+            self._recent_activity.append(failure_item)
+
             return False
 
     async def _handle_cost_cap_skip(self, event: ProcessingEvent) -> bool:
@@ -330,6 +1078,19 @@ class AIProcessingCoordinator:
         }
 
         success = await self.store_processed_event(event_data)
+
+        # Record in recent activity so the /ai-processing-recent surface (and snapshots/streams)
+        # shows cost-cap skips with the new rich coordinator-owned signal.
+        recent_skip_item = {
+            "timestamp": time.time(),
+            "camera_id": event.camera_id,
+            "success": False,
+            "analysis_skipped": True,
+            "analysis_skipped_reason": skip_reason,
+            "description": event_data.get("description"),
+        }
+        self._recent_activity.append(recent_skip_item)
+
         return success
 
     async def _generate_ai_description(
@@ -379,6 +1140,16 @@ class AIProcessingCoordinator:
             finally:
                 ai_concurrent_in_flight.dec()
 
+        # Record whether OCR was actually used (attempted + produced text)
+        ocr_used = ocr_result is not None and bool(str(ocr_result).strip())
+        setattr(ai_result, 'ocr_used', ocr_used)
+
+        # Simple fallback detection (primary provider is currently OpenAI)
+        ai_fallback_used = False
+        if ai_result.success:
+            ai_fallback_used = ai_result.provider.lower() != "openai"
+        setattr(ai_result, 'ai_fallback_used', ai_fallback_used)
+
         if not ai_result.success:
             logger.warning(
                 f"All AI providers failed for camera {event.camera_name}, storing event for retry",
@@ -417,8 +1188,40 @@ class AIProcessingCoordinator:
         delivery_carrier: Optional[str] = None,
         has_annotations: bool = False,
         bounding_boxes_json: Optional[str] = None,
+        context_result: Any = None,
+        entity_match_result: Any = None,
+        final_entity_link_result: Any = None,
+        pre_generated_event_id: Optional[str] = None,
+        regenerated: bool = False,
     ) -> Optional[str]:
         """Build the rich event payload and store it after successful AI processing."""
+        import json
+
+        context_included = False
+        context_stats = None
+        if context_result:
+            context_included = bool(getattr(context_result, "context_included", False))
+            context_stats = {
+                "entity_context_included": getattr(context_result, "entity_context_included", False),
+                "similar_events_count": getattr(context_result, "similar_events_count", 0),
+                "time_pattern_included": getattr(context_result, "time_pattern_included", False),
+                "context_gather_time_ms": round(getattr(context_result, "context_gather_time_ms", 0.0), 2),
+            }
+
+        # Compute low confidence / vagueness flags (Story P3-6.1 / P3-6.2)
+        # This logic is now owned by the coordinator for the main processing path
+        ai_conf = getattr(ai_result, "ai_confidence", None)
+        low_confidence = False
+        vague_reason = None
+
+        try:
+            from app.services.vagueness_detector import VaguenessDetector
+            vague_result = VaguenessDetector().is_vague(ai_result.description)
+            low_confidence = (ai_conf is not None and ai_conf < 50) or vague_result.is_vague
+            vague_reason = vague_result.reason if vague_result.is_vague else None
+        except Exception as vague_err:
+            logger.warning(f"Vagueness detection failed during storage: {vague_err}")
+
         event_data = {
             "camera_id": event.camera_id,
             "timestamp": event.timestamp.isoformat(),
@@ -430,9 +1233,31 @@ class AIProcessingCoordinator:
             "provider_used": ai_result.provider,
             "description_retry_needed": False,
             "ai_cost": ai_result.cost_estimate,
+            "ai_response_time_ms": getattr(ai_result, "response_time_ms", None),
+            "tokens_used": getattr(ai_result, "tokens_used", None),
+            "ai_confidence": ai_conf,
+            "prompt_variant": getattr(ai_result, "prompt_variant", None),
+            "ocr_used": getattr(ai_result, "ocr_used", False),
+            "ai_fallback_used": getattr(ai_result, "ai_fallback_used", False),
+            "low_confidence": low_confidence,
+            "vague_reason": vague_reason,
             "delivery_carrier": delivery_carrier,
             "has_annotations": has_annotations,
             "bounding_boxes": bounding_boxes_json,
+            "context_included": context_included,
+            "context_stats": json.dumps(context_stats) if context_stats else None,
+            # Early context match (used for prompt enrichment)
+            "entity_similarity_score": getattr(entity_match_result, 'similarity_score', None) if entity_match_result else None,
+            "entity_occurrence_count": getattr(entity_match_result, 'occurrence_count', None) if entity_match_result else None,
+            "entity_is_new": getattr(entity_match_result, 'is_new', None) if entity_match_result else None,
+            # Final persistent link — now included at initial store time thanks to pre-generated ID
+            "final_entity_similarity_score": getattr(final_entity_link_result, 'similarity_score', None) if final_entity_link_result else getattr(entity_match_result, 'similarity_score', None),
+            "final_entity_occurrence_count": getattr(final_entity_link_result, 'occurrence_count', None) if final_entity_link_result else getattr(entity_match_result, 'occurrence_count', None),
+            "final_entity_is_new": getattr(final_entity_link_result, 'is_new', None) if final_entity_link_result else getattr(entity_match_result, 'is_new', None),
+            "final_entity_id": getattr(final_entity_link_result, 'entity_id', None) if final_entity_link_result else getattr(entity_match_result, 'entity_id', None),
+            "final_entity_type": getattr(final_entity_link_result, 'entity_type', None) if final_entity_link_result else getattr(entity_match_result, 'entity_type', None),
+            "final_entity_name": getattr(final_entity_link_result, 'name', None) if final_entity_link_result else getattr(entity_match_result, 'name', None),
+            "regenerated": regenerated,
         }
 
         logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")
@@ -686,17 +1511,29 @@ class AIProcessingCoordinator:
 
     async def _run_homekit_triggers(
         self, event: ProcessingEvent, event_id: str, smart_detection_type: Optional[str]
-    ) -> None:
-        """Trigger appropriate HomeKit sensors based on detection type."""
+    ) -> dict:
+        """Trigger appropriate HomeKit sensors based on detection type.
+
+        Returns a dict indicating which specific triggers were successfully fired.
+        """
+        triggered = {
+            "motion": False,
+            "occupancy": False,
+            "vehicle": False,
+            "animal": False,
+            "package": False,
+        }
+
         try:
             homekit_service = self.homekit_service
             if not homekit_service or not homekit_service.is_running:
-                return
+                return triggered
 
             # Always trigger motion
             try:
                 success = homekit_service.trigger_motion(event.camera_id, event_id=event_id)
                 if success:
+                    triggered["motion"] = True
                     logger.info(
                         f"HomeKit motion triggered for event",
                         extra={
@@ -729,6 +1566,7 @@ class AIProcessingCoordinator:
                 try:
                     success = homekit_service.trigger_occupancy(event.camera_id, event_id=event_id)
                     if success:
+                        triggered["occupancy"] = True
                         logger.info(
                             f"HomeKit occupancy triggered for person detection",
                             extra={
@@ -761,6 +1599,7 @@ class AIProcessingCoordinator:
                 try:
                     success = homekit_service.trigger_vehicle(event.camera_id, event_id=event_id)
                     if success:
+                        triggered["vehicle"] = True
                         logger.info(
                             f"HomeKit vehicle triggered for vehicle detection",
                             extra={
@@ -793,6 +1632,7 @@ class AIProcessingCoordinator:
                 try:
                     success = homekit_service.trigger_animal(event.camera_id, event_id=event_id)
                     if success:
+                        triggered["animal"] = True
                         logger.info(
                             f"HomeKit animal triggered for animal detection",
                             extra={
@@ -828,6 +1668,7 @@ class AIProcessingCoordinator:
                         event.camera_id, event_id=event_id, delivery_carrier=delivery_carrier
                     )
                     if success:
+                        triggered["package"] = True
                         logger.info(
                             f"HomeKit package triggered for package detection"
                             + (f" (carrier: {delivery_carrier})" if delivery_carrier else ""),
@@ -863,16 +1704,19 @@ class AIProcessingCoordinator:
                 extra={"error": str(homekit_error), "event_id": event_id}
             )
 
+        return triggered
+
     async def _link_entity_to_event(
         self, event: ProcessingEvent, event_id: str, embedding_vector: Optional[bytes]
-    ) -> None:
-        """Match or create entity and link it to the event."""
+    ) -> Optional[Any]:
+        """Match or create entity and link it to the event.
+        Returns the final match result (or None if no embedding)."""
         if not embedding_vector:
             logger.debug(
                 f"Skipping entity matching - no embedding available for event {event_id}",
                 extra={"event_id": event_id}
             )
-            return
+            return None
 
         try:
             from app.services.service_container import container
@@ -910,11 +1754,13 @@ class AIProcessingCoordinator:
                     "occurrence_count": final_entity_result.occurrence_count,
                 }
             )
+            return final_entity_result
         except Exception as entity_error:
             logger.warning(
                 f"Entity linking failed for event {event_id}: {entity_error}",
                 extra={"error": str(entity_error), "event_id": event_id}
             )
+            return None
 
     async def _publish_mqtt_event(self, event: ProcessingEvent, event_id: str) -> None:
         """Publish the event to MQTT (Home Assistant / external integrations)."""

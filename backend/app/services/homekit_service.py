@@ -12,7 +12,7 @@ Story P7-1.1 adds comprehensive diagnostic logging for troubleshooting.
 Story P7-1.2 adds network binding configuration and connectivity testing.
 Story P7-2.3 adds carrier-aware package sensors and per-carrier sensor support.
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import logging

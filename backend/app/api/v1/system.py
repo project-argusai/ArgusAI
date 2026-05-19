@@ -6,16 +6,118 @@ Endpoints for system-level configuration and monitoring:
     - Storage monitoring (GET /storage)
     - Backup and restore (POST /backup, GET /backup/{timestamp}/download, POST /restore)
 """
-from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile, Form, Header, Request
+from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile, Form, Header, Request, WebSocket, WebSocketDisconnect, Query
+from jose import JWTError, jwt
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional, List, get_origin, get_args
 from pydantic import BaseModel, Field
 from pathlib import Path
+import asyncio
+import json
 import logging
 import tempfile
 import shutil
+import time
+
+
+def _matches_filters(record: dict, filters: dict) -> bool:
+    """Check if a rich event record matches the client's filter rules."""
+    if not filters:
+        return True
+
+    # Camera filter
+    cam_ids = filters.get("camera_ids")
+    if cam_ids and record.get("camera_id") not in cam_ids:
+        return False
+
+    # Simple boolean flags
+    for flag in ("low_confidence", "regenerated", "ai_fallback_used", "ocr_used", "entity_is_new"):
+        if flag in filters:
+            record_val = record.get(flag) or (record.get("entity_final") or {}).get(flag) or (record.get("entity_early") or {}).get(flag)
+            if bool(record_val) != bool(filters[flag]):
+                return False
+
+    # Post-processing outcomes (e.g. "homekit_triggered", "face_processed", etc.)
+    pp_filters = filters.get("post_processing", {})
+    pp_summary = record.get("post_processing_summary", {})
+    for key, should_be_true in pp_filters.items():
+        val = pp_summary.get(key)
+        if isinstance(val, dict):
+            val = val.get("success", val.get("attempted", False))
+        if bool(val) != bool(should_be_true):
+            return False
+
+    # Minimum AI confidence
+    min_conf = filters.get("min_confidence")
+    if min_conf is not None:
+        conf = record.get("ai_confidence")
+        if conf is None or conf < min_conf:
+            return False
+
+    # Allowed providers
+    providers = filters.get("providers")
+    if providers and record.get("provider") not in providers:
+        return False
+
+    return True
+
+
+def _filter_hot_update(record: dict, filters: dict) -> Optional[dict]:
+    """Filter a hot_update record according to client preferences (used by both SSE and WS).
+
+    Supports rich filtering on the hot lists themselves:
+      - camera_ids, min_camera_count, min_camera_score
+      - entity_types, entity_ids, min_score, entity_is_new
+    """
+    if not record or record.get("type") != "hot_update":
+        return None
+
+    hot_cameras = record.get("hot_cameras", []) or []
+    top_entities = record.get("top_recent_entities", []) or []
+
+    # Camera filters
+    cam_ids = filters.get("camera_ids")
+    if cam_ids:
+        if not isinstance(cam_ids, (list, set)):
+            cam_ids = [cam_ids]
+        hot_cameras = [c for c in hot_cameras if c.get("camera_id") in cam_ids]
+
+    min_cam_count = filters.get("min_camera_count")
+    if min_cam_count is not None:
+        hot_cameras = [c for c in hot_cameras if c.get("count", 0) >= min_cam_count]
+
+    min_cam_score = filters.get("min_camera_score")
+    if min_cam_score is not None:
+        hot_cameras = [c for c in hot_cameras if (c.get("score") or 0) >= min_cam_score]
+
+    # Entity filters
+    ent_types = filters.get("entity_types")
+    if ent_types:
+        if not isinstance(ent_types, (list, set)):
+            ent_types = [ent_types]
+        top_entities = [e for e in top_entities if e.get("type") in ent_types]
+
+    ent_ids = filters.get("entity_ids")
+    if ent_ids:
+        if not isinstance(ent_ids, (list, set)):
+            ent_ids = [ent_ids]
+        top_entities = [e for e in top_entities if e.get("entity_id") in ent_ids]
+
+    min_score = filters.get("min_score")
+    if min_score is not None:
+        top_entities = [e for e in top_entities if (e.get("score") or 0) >= min_score]
+
+    if filters.get("entity_is_new") is True:
+        top_entities = [e for e in top_entities if e.get("is_new")]
+
+    filtered = dict(record)
+    filtered["hot_cameras"] = hot_cameras
+    filtered["top_recent_entities"] = top_entities
+
+    return filtered
+
 
 from app.schemas.system import (
     RetentionPolicyUpdate,
@@ -182,6 +284,40 @@ if settings.DEBUG_ENDPOINTS_ENABLED:
 
         return results
 
+    @router.get("/debug/ai-processing-stats", include_in_schema=False)
+    def debug_ai_processing_stats(
+        request: Request,
+        current_user: User = Depends(require_debug_access),
+    ):
+        """Debug endpoint returning current runtime stats from the AIProcessingCoordinator.
+
+        Returns counters for processed events, fallbacks, context usage, OCR,
+        low confidence descriptions, regenerations, etc.
+
+        Requires:
+        - DEBUG_ENDPOINTS_ENABLED=true
+        - Admin role
+        - X-Debug-Token (if configured)
+        """
+        coordinator = container.ai_processing_coordinator
+        stats = coordinator.get_processing_stats()
+
+        logger.info(
+            "Debug endpoint accessed: AI processing stats",
+            extra={
+                "event_type": "debug_ai_processing_stats_accessed",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+
+        return {
+            "status": "ok",
+            "coordinator": "AIProcessingCoordinator",
+            "stats": stats,
+            "note": "These are lightweight in-memory counters. Use Prometheus (/metrics) for long-term observability.",
+        }
+
     @router.get("/debug/network", include_in_schema=False)
     def debug_network_test(request: Request, current_user: User = Depends(require_debug_access)):
         """Debug endpoint to test network connectivity from server context.
@@ -240,6 +376,1015 @@ else:
         "Debug endpoints disabled (default secure configuration)",
         extra={"event_type": "debug_endpoints_disabled"}
     )
+
+
+@router.get("/ai-processing-stats")
+def get_ai_processing_stats(
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint returning current runtime stats from the AIProcessingCoordinator.
+
+    Always available to admins (does not require DEBUG_ENDPOINTS_ENABLED).
+    Returns lightweight in-memory counters for processed events, fallbacks,
+    context usage, OCR, low-confidence descriptions, regenerations, etc.
+
+    Requires admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI processing stats",
+            extra={
+                "event_type": "admin_ai_processing_stats_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    coordinator = container.ai_processing_coordinator
+    stats = coordinator.get_processing_stats()
+
+    logger.info(
+        "Admin accessed AI processing stats",
+        extra={
+            "event_type": "admin_ai_processing_stats_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+        },
+    )
+
+    return {
+        "status": "ok",
+        "coordinator": "AIProcessingCoordinator",
+        "stats": stats,
+        "source": "in-memory counters (Prometheus /metrics recommended for historical data)",
+    }
+
+
+@router.get("/ai-processing-snapshot")
+def get_ai_processing_snapshot(
+    limit: int = 30,
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint returning a live snapshot of the AIProcessingCoordinator.
+
+    Combines current stats + recent processing activity in one call.
+    Very useful for real-time dashboards and debugging.
+
+    Requires admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI processing snapshot",
+            extra={
+                "event_type": "admin_ai_processing_snapshot_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    coordinator = container.ai_processing_coordinator
+    stats = coordinator.get_processing_stats()
+    recent = coordinator.get_recent_activity(limit=limit)
+    hot_cameras = coordinator.get_hot_cameras(limit=limit)
+    top_entities = coordinator.get_top_recent_entities(limit=limit)
+
+    logger.info(
+        "Admin accessed AI processing snapshot",
+        extra={
+            "event_type": "admin_ai_processing_snapshot_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "limit": limit,
+        },
+    )
+
+    return {
+        "status": "ok",
+        "coordinator": "AIProcessingCoordinator",
+        "stats": stats,
+        "recent_activity": recent,
+        "recent_count": len(recent),
+        "hot_cameras": hot_cameras,
+        "top_recent_entities": top_entities,
+    }
+
+
+@router.get("/ai-processing-recent")
+def get_ai_processing_recent(
+    limit: int = Query(50, description="Maximum number of recent processing records to return (max 100)"),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint returning the most recent AI processing activity records.
+
+    Returns the rich per-event records produced by AIProcessingCoordinator,
+    including AI economics (cost, tokens, latency, provider, confidence, prompt variant),
+    entity linking results (early + final), post-processing outcomes,
+    context usage, OCR/fallback/regeneration flags, cost-cap skips, and errors.
+
+    This is the dedicated, lightweight way to fetch the recent activity ring buffer
+    (as opposed to the combined snapshot endpoint).
+
+    Requires admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI processing recent activity",
+            extra={
+                "event_type": "admin_ai_processing_recent_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    # Cap the limit to prevent abuse
+    safe_limit = max(1, min(limit, 100))
+
+    coordinator = container.ai_processing_coordinator
+    recent = coordinator.get_recent_activity(limit=safe_limit)
+
+    logger.info(
+        "Admin accessed AI processing recent activity",
+        extra={
+            "event_type": "admin_ai_processing_recent_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "limit": safe_limit,
+            "returned": len(recent),
+        },
+    )
+
+    return {
+        "status": "ok",
+        "coordinator": "AIProcessingCoordinator",
+        "recent_activity": recent,
+        "count": len(recent),
+        "limit": safe_limit,
+    }
+
+
+@router.get("/ai-cost-trends")
+def get_ai_cost_trends(
+    days_back: int = Query(30, description="Number of days of history to include (1-365)"),
+    bucket: str = Query("day", description="Time granularity: 'day' or 'hour'"),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint returning aggregated AI cost and token usage trends over time.
+
+    Pulls from the rich economics data stored by AIProcessingCoordinator
+    (ai_cost, tokens_used, provider_used, response time, etc.).
+
+    Requires admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI cost trends",
+            extra={
+                "event_type": "admin_ai_cost_trends_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    # Basic validation
+    safe_days = max(1, min(days_back, 365))
+    safe_bucket = bucket if bucket in ("day", "hour") else "day"
+
+    coordinator = container.ai_processing_coordinator
+    trends = coordinator.get_ai_cost_trends(days_back=safe_days, bucket=safe_bucket)
+
+    logger.info(
+        "Admin accessed AI cost trends",
+        extra={
+            "event_type": "admin_ai_cost_trends_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "days_back": safe_days,
+            "bucket": safe_bucket,
+            "points": len(trends),
+        },
+    )
+
+    return {
+        "status": "ok",
+        "coordinator": "AIProcessingCoordinator",
+        "trends": trends,
+        "count": len(trends),
+        "days_back": safe_days,
+        "bucket": safe_bucket,
+    }
+
+
+@router.get("/ai-context-usage-stats")
+def get_ai_context_usage_stats(
+    days_back: int = Query(30, description="Number of days of history to include (1-365)"),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint returning context usage statistics over time.
+
+    Shows how often context-enhanced prompts were used, average gather time,
+    and breakdown by context type (entity, similar events, time patterns).
+
+    Requires admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI context usage stats",
+            extra={
+                "event_type": "admin_ai_context_usage_stats_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    safe_days = max(1, min(days_back, 365))
+
+    coordinator = container.ai_processing_coordinator
+    stats = coordinator.get_context_usage_stats(days_back=safe_days)
+
+    logger.info(
+        "Admin accessed AI context usage stats",
+        extra={
+            "event_type": "admin_ai_context_usage_stats_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "days_back": safe_days,
+        },
+    )
+
+    return {
+        "status": "ok",
+        "coordinator": "AIProcessingCoordinator",
+        "stats": stats,
+        "days_back": safe_days,
+    }
+
+
+@router.get("/ai-processing-hot")
+def get_ai_processing_hot(
+    limit: int = Query(10, description="Maximum number of items to return per list"),
+    camera_ids: Optional[str] = Query(None, description="Comma-separated camera IDs"),
+    entity_types: Optional[str] = Query(None, description="Comma-separated entity types"),
+    entity_ids: Optional[str] = Query(None, description="Comma-separated entity IDs"),
+    min_camera_count: Optional[int] = Query(None, description="Minimum event count for cameras"),
+    min_camera_score: Optional[float] = Query(None, description="Minimum camera popularity score"),
+    min_score: Optional[float] = Query(None, description="Minimum entity score"),
+    entity_is_new: Optional[str] = Query(None, description="true/false — only new entities"),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin endpoint returning the current 'hot' cameras and top recent entities.
+
+    Very lightweight and fast — ideal for dashboard widgets that want the
+    trending items right now (with exponential decay).
+
+    Supports the same rich per-client hot-list filtering as the hot streams:
+
+      Camera filters: camera_ids, min_camera_count, min_camera_score
+      Entity filters:  entity_types, entity_ids, min_score, entity_is_new
+
+    Requires admin role.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI processing hot data",
+            extra={
+                "event_type": "admin_ai_processing_hot_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    # Build filters dict (same shape as WS + SSE)
+    filters: dict = {}
+    if camera_ids:
+        filters["camera_ids"] = [c.strip() for c in camera_ids.split(",") if c.strip()]
+    if entity_types:
+        filters["entity_types"] = [t.strip() for t in entity_types.split(",") if t.strip()]
+    if entity_ids:
+        filters["entity_ids"] = [e.strip() for e in entity_ids.split(",") if e.strip()]
+    if min_camera_count is not None:
+        filters["min_camera_count"] = min_camera_count
+    if min_camera_score is not None:
+        filters["min_camera_score"] = min_camera_score
+    if min_score is not None:
+        filters["min_score"] = min_score
+    if entity_is_new is not None:
+        filters["entity_is_new"] = entity_is_new.lower() in ("true", "1", "yes")
+
+    coordinator = container.ai_processing_coordinator
+
+    # Fetch a bit more than the final limit so filtering has room to work
+    raw_cameras = coordinator.get_hot_cameras(limit=max(limit, 30))
+    raw_entities = coordinator.get_top_recent_entities(limit=max(limit, 30))
+
+    record = {
+        "type": "hot_update",
+        "hot_cameras": raw_cameras,
+        "top_recent_entities": raw_entities,
+    }
+
+    filtered = _filter_hot_update(record, filters) or {"hot_cameras": [], "top_recent_entities": []}
+
+    # Apply final client limit after filtering
+    hot_cameras = filtered["hot_cameras"][:limit]
+    top_entities = filtered["top_recent_entities"][:limit]
+
+    logger.info(
+        "Admin accessed AI processing hot data",
+        extra={
+            "event_type": "admin_ai_processing_hot_accessed",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "limit": limit,
+            "filters": filters,
+        },
+    )
+
+    return {
+        "status": "ok",
+        "coordinator": "AIProcessingCoordinator",
+        "hot_cameras": hot_cameras,
+        "top_recent_entities": top_entities,
+        "filters_applied": filters,
+    }
+
+
+@router.get("/ai-processing-hot-stream")
+async def ai_processing_hot_stream(
+    camera_ids: Optional[str] = Query(None, description="Comma-separated camera IDs to include"),
+    entity_types: Optional[str] = Query(None, description="Comma-separated entity types (person,vehicle,package,animal)"),
+    entity_ids: Optional[str] = Query(None, description="Comma-separated entity IDs"),
+    min_camera_count: Optional[int] = Query(None, description="Minimum event count for a camera to appear"),
+    min_camera_score: Optional[float] = Query(None, description="Minimum popularity score for cameras"),
+    min_score: Optional[float] = Query(None, description="Minimum score for entities"),
+    entity_is_new: Optional[str] = Query(None, description="true/false — only return entities that are new"),
+    current_user: User = Depends(get_current_user),
+):
+    """Admin-only Server-Sent Events (SSE) stream that only pushes hot list updates.
+
+    Clients receive `hot_update` messages whenever the "hot cameras" or
+    "top recent entities" lists change (exponential decay scoring).
+
+    This is the lightweight counterpart to the full event stream — perfect for
+    dashboard "trending now" widgets.
+
+    Query parameters for rich per-client filtering on the hot lists themselves
+    (symmetric with the hot WebSocket):
+
+      Camera filters:
+        - camera_ids: comma-separated (e.g. cam-living,cam-front)
+        - min_camera_count: integer
+        - min_camera_score: float
+
+      Entity filters:
+        - entity_types: comma-separated (person,vehicle,package,animal)
+        - entity_ids: comma-separated
+        - min_score: float (0.0–1.0+)
+        - entity_is_new: "true" or "false"
+
+    Heartbeat:
+    - Server sends `{"type": "ping"}` approximately every 20 seconds.
+    - Client should reply with `{"command": "pong"}` (or any message) to keep the connection alive.
+    - If no activity is seen for ~60s the server will close the connection.
+
+    Requires admin role.
+
+    Recommended client behavior:
+    - Implement exponential backoff reconnect (1s → 30s max).
+    - Re-apply the same query parameters after reconnect.
+    - Treat both onclose and onerror as reconnect triggers.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI processing hot stream",
+            extra={
+                "event_type": "admin_ai_processing_hot_stream_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    # Build a single filters dict (same shape used by the hot WebSocket)
+    filters: dict = {}
+
+    if camera_ids:
+        filters["camera_ids"] = [c.strip() for c in camera_ids.split(",") if c.strip()]
+    if entity_types:
+        filters["entity_types"] = [t.strip() for t in entity_types.split(",") if t.strip()]
+    if entity_ids:
+        filters["entity_ids"] = [e.strip() for e in entity_ids.split(",") if e.strip()]
+
+    if min_camera_count is not None:
+        filters["min_camera_count"] = min_camera_count
+    if min_camera_score is not None:
+        filters["min_camera_score"] = min_camera_score
+    if min_score is not None:
+        filters["min_score"] = min_score
+    if entity_is_new is not None:
+        filters["entity_is_new"] = entity_is_new.lower() in ("true", "1", "yes")
+
+    coordinator = container.ai_processing_coordinator
+    queue = await coordinator.subscribe_to_new_events()
+
+    async def event_generator():
+        """Generator for the hot list stream with heartbeat support."""
+        try:
+            yield ": connected\n\n"
+
+            while True:
+                try:
+                    record = await asyncio.wait_for(queue.get(), timeout=20)
+
+                    if record.get("type") != "hot_update":
+                        continue
+
+                    filtered_record = _filter_hot_update(record, filters)
+                    if filtered_record:
+                        yield f"data: {json.dumps(filtered_record, default=str)}\n\n"
+
+                except asyncio.TimeoutError:
+                    # Send explicit JSON ping (consistent with WebSocket)
+                    yield 'data: {"type": "ping"}\n\n'
+
+                except Exception as e:
+                    logger.warning(f"Error in AI processing hot stream: {e}")
+                    break
+        finally:
+            try:
+                coordinator._event_subscribers.remove(queue)
+            except ValueError:
+                pass
+
+    logger.info(
+        "Admin connected to AI processing hot list stream",
+        extra={
+            "event_type": "admin_ai_processing_hot_stream_connected",
+            "user_id": current_user.id,
+            "username": current_user.username,
+            "filters": filters,
+        },
+    )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/ai-processing-stream")
+async def ai_processing_stream(
+    current_user: User = Depends(get_current_user),
+):
+    """Admin-only Server-Sent Events (SSE) stream of newly processed events.
+
+    Each message contains the full rich record for a newly processed event
+    (same structure as items returned by /ai-processing-recent).
+
+    Requires admin role. Intended for real-time dashboards.
+    """
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin attempted to access AI processing stream",
+            extra={
+                "event_type": "admin_ai_processing_stream_access_denied",
+                "user_id": current_user.id,
+                "username": current_user.username,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required"
+        )
+
+    coordinator = container.ai_processing_coordinator
+    queue = await coordinator.subscribe_to_new_events()
+
+    async def event_generator():
+        try:
+            yield ": connected\n\n"  # initial comment to open the stream
+
+            while True:
+                try:
+                    record = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(record, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                except Exception as e:
+                    logger.warning(f"Error in AI processing stream: {e}")
+                    break
+        finally:
+            try:
+                coordinator._event_subscribers.remove(queue)
+            except ValueError:
+                pass
+
+    logger.info(
+        "Admin connected to AI processing live stream",
+        extra={
+            "event_type": "admin_ai_processing_stream_connected",
+            "user_id": current_user.id,
+            "username": current_user.username,
+        },
+    )
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.websocket("/ai-processing-ws")
+async def ai_processing_ws(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Bidirectional WebSocket for real-time AI event streaming + client commands.
+
+    Supports two auth methods:
+    - Normal session cookie (for browser clients)
+    - Query parameter ?token=JWT (for scripts / non-browser clients)
+
+    Heartbeat:
+    - Server sends {"type": "ping"} approximately every 20 seconds.
+    - Client should reply with {"command": "pong"} (or the server will close the connection after ~60s of inactivity).
+
+    Supported client commands (send as JSON):
+      {"command": "pause", "camera_id": "cam-123"}
+      {"command": "resume", "camera_id": "cam-123"}
+      {"command": "filter", "filters": {...}}
+      {"command": "clear_filter"}
+      {"command": "get_stats"}
+      {"command": "ping"} / {"command": "pong"}
+
+    Advanced filtering example:
+      {"command": "filter", "filters": {
+          "camera_ids": ["cam-living", "cam-front"],
+          "low_confidence": true,
+          "post_processing": {"homekit_triggered": true, "face_processed": true},
+          "min_confidence": 70,
+          "providers": ["grok", "openai"]
+      }}
+
+    Special "hot updates only" mode (useful for dashboards that only care about the hot lists):
+      {"command": "filter", "filters": {"hot_updates_only": true}}
+
+    Special server messages:
+      {"type": "event", "data": {...}}           // normal processed event
+      {"type": "hot_update", "hot_cameras": [...], "top_recent_entities": [...]}
+      {"type": "stats", "data": {...}}
+      {"type": "filter_applied", "filters": {...}}
+      {"type": "ping"} / {"type": "pong"}
+
+    Requires admin role.
+
+    Recommended client behavior: implement exponential backoff reconnect + re-apply last filters on reconnect.
+    """
+    # Support query-param token for non-browser clients
+    if not current_user and token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            username = payload.get("sub")
+            if username:
+                from app.core.database import get_db_session
+                with get_db_session() as db:
+                    current_user = db.query(User).filter(User.username == username).first()
+        except JWTError:
+            pass
+
+    if not current_user or current_user.role != UserRole.ADMIN:
+        await websocket.close(code=1008, reason="Admin role required")
+        return
+
+    await websocket.accept()
+
+    coordinator = container.ai_processing_coordinator
+    queue = await coordinator.subscribe_to_new_events_ws()
+
+    # Per-connection filter state
+    websocket.active_filters = {}
+    paused_cameras: set = set()
+    allowed_cameras: Optional[set] = None  # None = receive all
+
+    logger.info(
+        "Admin connected to AI processing WebSocket",
+        extra={
+            "event_type": "admin_ai_processing_ws_connected",
+            "user_id": current_user.id,
+            "username": current_user.username,
+        },
+    )
+
+    async def reader():
+        """Reads events from the internal queue and forwards them to the client,
+        while also sending periodic pings for heartbeat detection."""
+        last_activity = time.time()
+
+        while True:
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=20)
+                last_activity = time.time()
+
+                # Hot list updates (new type of message)
+                if data.get("type") == "hot_update":
+                    await websocket.send_json(data)
+                    continue
+
+                # Regular processed event
+                camera_id = data.get("camera_id")
+                if allowed_cameras is not None and camera_id not in allowed_cameras:
+                    continue
+                if camera_id in paused_cameras:
+                    continue
+
+                active_filters = getattr(websocket, "active_filters", {})
+                hot_only = getattr(websocket, "hot_updates_only", False)
+
+                # If client only wants hot list updates, skip regular events
+                if hot_only and data.get("type") != "hot_update":
+                    continue
+
+                if active_filters and not _matches_filters(data, active_filters):
+                    continue
+
+                await websocket.send_json({"type": "event", "data": data})
+
+            except asyncio.TimeoutError:
+                # Send a server-initiated ping
+                try:
+                    await websocket.send_json({"type": "ping", "ts": time.time()})
+                except Exception:
+                    break
+
+                # If we haven't heard anything (including pong) for a long time, close
+                if time.time() - last_activity > 60:
+                    break
+
+            except Exception:
+                break
+
+        # Connection is considered dead
+        try:
+            await websocket.close(code=1000, reason="Heartbeat timeout")
+        except Exception:
+            pass
+
+    async def writer():
+        while True:
+            try:
+                message = await websocket.receive_json()
+            except Exception:
+                break
+
+            cmd = message.get("command")
+
+            if cmd == "pause":
+                cam = message.get("camera_id")
+                if cam:
+                    paused_cameras.add(cam)
+            elif cmd == "resume":
+                cam = message.get("camera_id")
+                if cam:
+                    paused_cameras.discard(cam)
+            elif cmd == "filter":
+                filters = message.get("filters", {})
+                if "camera_ids" in message and "camera_ids" not in filters:
+                    filters["camera_ids"] = message["camera_ids"]
+
+                websocket.active_filters = filters
+
+                # Support "hot updates only" mode for clients that only want the hot lists
+                if "hot_updates_only" in filters:
+                    websocket.hot_updates_only = bool(filters["hot_updates_only"])
+
+                await websocket.send_json({"type": "filter_applied", "filters": filters})
+            elif cmd == "clear_filter":
+                websocket.active_filters = {}
+                websocket.hot_updates_only = False
+                await websocket.send_json({"type": "filter_applied", "filters": {}})
+            elif cmd == "get_stats":
+                await websocket.send_json({
+                    "type": "stats",
+                    "data": coordinator.get_processing_stats()
+                })
+            elif cmd == "ping":
+                # Client sent a ping → reply with pong
+                await websocket.send_json({"type": "pong", "ts": time.time()})
+            elif cmd == "pong":
+                # Client responded to our ping — update last seen
+                pass  # We can extend with last_pong tracking if needed later
+
+    try:
+        # Send initial stats on connect
+        await websocket.send_json({
+            "type": "stats",
+            "data": coordinator.get_processing_stats()
+        })
+
+        await asyncio.gather(reader(), writer())
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(f"WebSocket error: {e}")
+    finally:
+        try:
+            coordinator._event_subscribers.remove(queue)
+        except ValueError:
+            pass
+
+
+@router.websocket("/ai-processing-hot-ws")
+async def ai_processing_hot_ws(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Lightweight bidirectional WebSocket that **only** streams hot list updates (`hot_update` messages).
+
+    Ideal for dashboard widgets that only care about the current "Top Cameras" and
+    "Top Recent Entities" (with exponential decay popularity scoring). This endpoint
+    never sends full event records — only compact hot-list snapshots.
+
+    Supports the same command protocol as the main AI WS (filter, pause, get_stats, ping/pong).
+
+    Supports two auth methods:
+    - Normal session cookie (for browser clients)
+    - Query parameter ?token=JWT (for scripts / non-browser clients)
+
+    Requires admin role.
+
+    Heartbeat (strict, symmetric with main WS):
+    - Server sends {"type": "ping", "ts": ...} ~every 20s when idle.
+    - Client must reply with {"command": "pong"} (or any message).
+    - No valid pong for ~60s → server closes with code 1000 + reason "Heartbeat timeout".
+
+    Recommended client behavior (copy-paste ready example below):
+    - Exponential backoff reconnect (1s → 30s cap).
+    - Re-apply your last `filters` object after every reconnect.
+    - Treat `onclose`/`onerror` as reconnect triggers.
+    - Always reply promptly to pings.
+
+    ------------------------------------------------------------------------
+    Advanced per-client filtering ON THE HOT LISTS THEMSELVES
+    (send via the normal filter command — these keys are specific to hot updates):
+
+    {
+      "command": "filter",
+      "filters": {
+        "camera_ids": ["cam-living", "cam-front"],   // only these cameras
+        "min_camera_count": 5,                       // camera must appear in ≥N events
+        "min_camera_score": 8.5,                     // camera popularity score threshold
+
+        "entity_types": ["person", "vehicle"],
+        "entity_ids": ["ent-uuid-123"],
+        "min_score": 0.82,                           // entity similarity / popularity score
+        "entity_is_new": true                        // only entities never seen before
+      }
+    }
+
+    The server applies the filters to the `hot_cameras` and `top_recent_entities`
+    arrays inside every `hot_update` before sending it to *this* client only.
+    Other clients on the same WS can have completely different hot-list filters.
+
+    ------------------------------------------------------------------------
+    Example robust JavaScript client (heartbeat + reconnect + hot-list filters):
+
+    ```js
+    let ws;
+    let reconnectAttempts = 0;
+    let lastFilters = {
+      // Example: only high-confidence new people + busy cameras
+      entity_types: ["person"],
+      entity_is_new: true,
+      min_score: 0.80,
+      min_camera_score: 6.0,
+      min_camera_count: 3
+    };
+    let token = null; // set if using token auth
+
+    function connectHotWS() {
+      let url = "ws://localhost:8000/api/v1/system/ai-processing-hot-ws";
+      if (token) url += `?token=${encodeURIComponent(token)}`;
+
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        console.log("[HotWS] Connected");
+        reconnectAttempts = 0;
+
+        // Re-apply hot-list filters on every (re)connect
+        if (lastFilters) {
+          ws.send(JSON.stringify({ command: "filter", filters: lastFilters }));
+        }
+        ws.send(JSON.stringify({ command: "get_stats" }));
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        if (msg.type === "ping") {
+          ws.send(JSON.stringify({ command: "pong" }));
+          return;
+        }
+
+        if (msg.type === "hot_update") {
+          // msg.data = { hot_cameras: [...], top_recent_entities: [...] }
+          console.log("Hot lists (after your filters):", msg.data);
+          // Update your Top 5 cameras / Top visitors widgets here
+        } else if (msg.type === "stats") {
+          console.log("Coordinator stats:", msg.data);
+        } else if (msg.type === "filter_applied") {
+          console.log("Hot-list filters applied for this connection:", msg.filters);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.warn("[HotWS] Closed", event.code, event.reason);
+        if (event.code !== 1000) scheduleReconnect();
+      };
+
+      ws.onerror = () => scheduleReconnect();
+    }
+
+    function scheduleReconnect() {
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000) + Math.random() * 800;
+      reconnectAttempts++;
+      console.log(`[HotWS] Reconnecting in ${Math.round(delay)}ms (attempt ${reconnectAttempts})`);
+      setTimeout(connectHotWS, delay);
+    }
+
+    connectHotWS();
+    ```
+    """
+    if not current_user and token:
+        try:
+            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            username = payload.get("sub")
+            if username:
+                from app.core.database import get_db_session
+                with get_db_session() as db:
+                    current_user = db.query(User).filter(User.username == username).first()
+        except JWTError:
+            pass
+
+    if not current_user or current_user.role != UserRole.ADMIN:
+        await websocket.close(code=1008, reason="Admin role required")
+        return
+
+    await websocket.accept()
+
+    coordinator = container.ai_processing_coordinator
+    queue = await coordinator.subscribe_to_new_events_ws()
+
+    # Per-connection filter state (same as main WS)
+    websocket.active_filters = {}
+    websocket.hot_updates_only = True  # Force hot-only mode
+    paused_cameras: set = set()
+    allowed_cameras: Optional[set] = None
+
+    logger.info(
+        "Admin connected to AI processing hot-only WebSocket",
+        extra={
+            "event_type": "admin_ai_processing_hot_ws_connected",
+            "user_id": current_user.id,
+            "username": current_user.username,
+        },
+    )
+
+    async def reader():
+        """Reads hot updates from the queue and forwards them (with per-client filtering), with strict heartbeat pings."""
+        last_activity = time.time()
+        last_pong = time.time()
+
+        while True:
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=20)
+                last_activity = time.time()
+
+                if data.get("type") == "pong":
+                    last_pong = time.time()
+                    continue
+
+                if data.get("type") != "hot_update":
+                    continue
+
+                active_filters = getattr(websocket, "active_filters", {})
+
+                if active_filters:
+                    filtered = _filter_hot_update(data, active_filters)
+                    if not filtered:
+                        continue
+                    data = filtered
+
+                await websocket.send_json({"type": "hot_update", "data": data})
+
+            except asyncio.TimeoutError:
+                # Send server-initiated ping
+                try:
+                    await websocket.send_json({"type": "ping", "ts": time.time()})
+                except Exception:
+                    break
+
+                # Require recent pong activity (stricter than just any message)
+                if time.time() - last_pong > 60:
+                    break
+
+            except Exception:
+                break
+
+        try:
+            await websocket.close(code=1000, reason="Heartbeat timeout")
+        except Exception:
+            pass
+
+    async def writer():
+        while True:
+            try:
+                message = await websocket.receive_json()
+            except Exception:
+                break
+
+            cmd = message.get("command")
+
+            if cmd == "pause":
+                cam = message.get("camera_id")
+                if cam:
+                    paused_cameras.add(cam)
+            elif cmd == "resume":
+                cam = message.get("camera_id")
+                if cam:
+                    paused_cameras.discard(cam)
+            elif cmd == "filter":
+                filters = message.get("filters", {})
+                if "camera_ids" in message and "camera_ids" not in filters:
+                    filters["camera_ids"] = message["camera_ids"]
+                websocket.active_filters = filters
+                await websocket.send_json({"type": "filter_applied", "filters": filters})
+            elif cmd == "clear_filter":
+                websocket.active_filters = {}
+                websocket.hot_updates_only = True
+                await websocket.send_json({"type": "filter_applied", "filters": {}})
+            elif cmd == "get_stats":
+                await websocket.send_json({
+                    "type": "stats",
+                    "data": coordinator.get_processing_stats()
+                })
+            elif cmd == "ping":
+                await websocket.send_json({"type": "pong", "ts": time.time()})
+
+    try:
+        await websocket.send_json({
+            "type": "stats",
+            "data": coordinator.get_processing_stats()
+        })
+
+        await asyncio.gather(reader(), writer())
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(f"Hot WebSocket error: {e}")
+    finally:
+        try:
+            coordinator._event_subscribers.remove(queue)
+        except ValueError:
+            pass
 
 
 def get_retention_policy_from_db(db: Optional[Session] = None) -> int:

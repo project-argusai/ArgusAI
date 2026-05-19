@@ -13,7 +13,7 @@ This service owns the complex Event model construction that pulls together:
 
 Extracted from ProtectEventHandler during Phase 4 decomposition.
 
-Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
+# Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
 """
 
 import json

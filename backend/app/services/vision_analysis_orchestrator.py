@@ -20,7 +20,7 @@ After Phase 3.2, AIService becomes a much thinner facade responsible for:
 This is the second major extraction in the ai_service.py decomposition
 (Phase 3.2 following the successful AIResilienceService in 3.1).
 
-Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
+# Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
 
 Story / Issue: Part of #444 + #446 + #450
 """

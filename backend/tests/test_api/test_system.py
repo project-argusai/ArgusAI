@@ -14,6 +14,7 @@ from app.models.system_setting import SystemSetting
 from app.models.event import Event
 from app.models.ai_usage import AIUsage
 from app.services import cleanup_service
+from app.services.service_container import container
 
 
 # Create module-level temp database
@@ -1123,3 +1124,206 @@ def teardown_module():
     engine.dispose()
     if os.path.exists(_test_db_path):
         os.remove(_test_db_path)
+
+
+# =============================================================================
+# Pure unit tests for hot-list filtering (_filter_hot_update)
+# These are fast, have no DB/app dependencies, and cover the advanced
+# per-client hot-list filters used by the dedicated hot WebSocket and SSE.
+# =============================================================================
+
+from app.api.v1.system import _filter_hot_update
+
+
+class TestHotListFilters:
+    """Focused tests for advanced filtering on hot_cameras / top_recent_entities."""
+
+    def test_filters_hot_cameras_by_min_score_and_count(self):
+        record = {
+            "type": "hot_update",
+            "hot_cameras": [
+                {"camera_id": "cam-1", "count": 12, "score": 9.4},
+                {"camera_id": "cam-2", "count": 3, "score": 7.1},
+                {"camera_id": "cam-3", "count": 8, "score": 4.2},
+            ],
+            "top_recent_entities": [],
+        }
+
+        filters = {"min_camera_count": 5, "min_camera_score": 5.0}
+        result = _filter_hot_update(record, filters)
+
+        cam_ids = [c["camera_id"] for c in result["hot_cameras"]]
+        assert cam_ids == ["cam-1"]  # only cam-1 meets both thresholds
+
+    def test_filters_entities_by_min_score_and_is_new(self):
+        record = {
+            "type": "hot_update",
+            "hot_cameras": [],
+            "top_recent_entities": [
+                {"entity_id": "e1", "type": "person", "score": 0.95, "is_new": True},
+                {"entity_id": "e2", "type": "person", "score": 0.71, "is_new": False},
+                {"entity_id": "e3", "type": "vehicle", "score": 0.88, "is_new": True},
+            ],
+        }
+
+        filters = {"min_score": 0.80, "entity_is_new": True}
+        result = _filter_hot_update(record, filters)
+
+        ids = [e["entity_id"] for e in result["top_recent_entities"]]
+        assert ids == ["e1"]  # only the high-scoring new person
+
+    def test_filters_entities_by_type_and_specific_ids(self):
+        record = {
+            "type": "hot_update",
+            "hot_cameras": [],
+            "top_recent_entities": [
+                {"entity_id": "p1", "type": "person", "score": 0.9},
+                {"entity_id": "v1", "type": "vehicle", "score": 0.9},
+                {"entity_id": "p2", "type": "person", "score": 0.9},
+            ],
+        }
+
+        filters = {"entity_types": ["person"], "entity_ids": ["p1", "p2"]}
+        result = _filter_hot_update(record, filters)
+
+        ids = [e["entity_id"] for e in result["top_recent_entities"]]
+        assert set(ids) == {"p1", "p2"}
+
+    def test_returns_empty_lists_when_no_items_match_filters(self):
+        record = {
+            "type": "hot_update",
+            "hot_cameras": [{"camera_id": "c1", "score": 1.0}],
+            "top_recent_entities": [{"entity_id": "e1", "score": 0.5}],
+        }
+
+        filters = {"min_score": 0.99, "min_camera_score": 10.0}
+        result = _filter_hot_update(record, filters)
+
+        assert result["hot_cameras"] == []
+        assert result["top_recent_entities"] == []
+
+    def test_preserves_other_fields_and_returns_new_dict(self):
+        record = {
+            "type": "hot_update",
+            "hot_cameras": [{"camera_id": "c1", "score": 5.0}],
+            "top_recent_entities": [],
+            "timestamp": "2026-05-15T12:00:00Z",
+        }
+
+        result = _filter_hot_update(record, {})
+        assert result is not record  # must not mutate original
+        assert result["timestamp"] == "2026-05-15T12:00:00Z"
+        assert result["hot_cameras"] == record["hot_cameras"]
+
+
+# =============================================================================
+# Lightweight API tests for the enriched REST hot snapshot endpoint
+# (/ai-processing-hot) with rich per-client hot-list filters.
+# These tests mock the coordinator methods so they are fast and isolated.
+# =============================================================================
+
+from unittest.mock import patch
+from app.models.user import User, UserRole
+from app.api.v1.auth import get_current_user
+from main import app as main_app
+
+
+def _admin_user_override():
+    """Return a fake admin user for protected endpoint tests."""
+    return User(id=1, username="testadmin", role=UserRole.ADMIN, is_active=True)
+
+
+class TestAIProcessingHotRestEndpoint:
+    """Tests for GET /api/v1/system/ai-processing-hot with the new filter params."""
+
+    @pytest.fixture(autouse=True)
+    def admin_auth(self):
+        """Temporarily override auth so we can call admin-only endpoints."""
+        main_app.dependency_overrides[get_current_user] = _admin_user_override
+        yield
+        main_app.dependency_overrides.pop(get_current_user, None)
+
+    def test_hot_snapshot_no_filters(self):
+        mock_cameras = [
+            {"camera_id": "cam-living", "name": "Living Room", "score": 12.4, "count": 8},
+            {"camera_id": "cam-front", "name": "Front Door", "score": 9.1, "count": 5},
+        ]
+        mock_entities = [
+            {"entity_id": "ent-1", "name": "Alice", "type": "person", "score": 0.94, "is_new": False},
+            {"entity_id": "ent-2", "name": "Bob's Car", "type": "vehicle", "score": 0.81, "is_new": True},
+        ]
+
+        with patch.object(
+            container.ai_processing_coordinator, "get_hot_cameras", return_value=mock_cameras
+        ), patch.object(
+            container.ai_processing_coordinator, "get_top_recent_entities", return_value=mock_entities
+        ):
+            response = client.get("/api/v1/system/ai-processing-hot?limit=5")
+            assert response.status_code == 200
+            data = response.json()
+
+            assert data["status"] == "ok"
+            assert data["hot_cameras"] == mock_cameras
+            assert data["top_recent_entities"] == mock_entities
+            assert data["filters_applied"] == {}
+
+    def test_hot_snapshot_entity_filters(self):
+        mock_entities = [
+            {"entity_id": "e1", "type": "person", "score": 0.95, "is_new": True},
+            {"entity_id": "e2", "type": "person", "score": 0.72, "is_new": False},
+            {"entity_id": "e3", "type": "vehicle", "score": 0.88, "is_new": True},
+        ]
+
+        with patch.object(
+            container.ai_processing_coordinator, "get_hot_cameras", return_value=[]
+        ), patch.object(
+            container.ai_processing_coordinator, "get_top_recent_entities", return_value=mock_entities
+        ):
+            # Only high-scoring new people
+            response = client.get(
+                "/api/v1/system/ai-processing-hot?min_score=0.85&entity_is_new=true&entity_types=person"
+            )
+            assert response.status_code == 200
+            data = response.json()
+
+            returned_ids = [e["entity_id"] for e in data["top_recent_entities"]]
+            assert returned_ids == ["e1"]
+            assert data["filters_applied"]["min_score"] == 0.85
+            assert data["filters_applied"]["entity_is_new"] is True
+
+    def test_hot_snapshot_camera_score_filter_and_limit(self):
+        mock_cameras = [
+            {"camera_id": "c1", "score": 15.0, "count": 20},
+            {"camera_id": "c2", "score": 7.5, "count": 4},
+            {"camera_id": "c3", "score": 11.2, "count": 9},
+        ]
+
+        with patch.object(
+            container.ai_processing_coordinator, "get_hot_cameras", return_value=mock_cameras
+        ), patch.object(
+            container.ai_processing_coordinator, "get_top_recent_entities", return_value=[]
+        ):
+            response = client.get("/api/v1/system/ai-processing-hot?min_camera_score=10&limit=1")
+            assert response.status_code == 200
+            data = response.json()
+
+            assert len(data["hot_cameras"]) == 1
+            assert data["hot_cameras"][0]["camera_id"] == "c1"
+            assert data["filters_applied"]["min_camera_score"] == 10
+            assert data["filters_applied"]["min_score"] is None  # not provided
+
+    def test_hot_snapshot_combined_filters_echoed(self):
+        with patch.object(
+            container.ai_processing_coordinator, "get_hot_cameras", return_value=[]
+        ), patch.object(
+            container.ai_processing_coordinator, "get_top_recent_entities", return_value=[]
+        ):
+            response = client.get(
+                "/api/v1/system/ai-processing-hot?min_camera_count=5&entity_is_new=false&limit=3"
+            )
+            assert response.status_code == 200
+            data = response.json()
+
+            f = data["filters_applied"]
+            assert f["min_camera_count"] == 5
+            assert f["entity_is_new"] is False

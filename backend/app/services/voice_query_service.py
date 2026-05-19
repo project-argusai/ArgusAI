@@ -9,7 +9,7 @@ Example queries:
 - "Any activity this morning?"
 - "Was there anyone at the back yard in the last hour?"
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import re
 import logging

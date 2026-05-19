@@ -6,7 +6,7 @@ Story P3-7.3: Implement Daily/Monthly Cost Caps
 Provides cap enforcement, status tracking, and automatic resume logic
 for managing AI analysis costs.
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 
 import logging

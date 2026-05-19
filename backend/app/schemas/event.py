@@ -40,6 +40,107 @@ class MatchedEntitySummary(BaseModel):
     }
 
 
+class AIEconomics(BaseModel):
+    """Consolidated AI cost, performance and quality signals (surfaced from AIProcessingCoordinator)"""
+    cost: Optional[float] = Field(None, description="Estimated cost in USD for the AI call")
+    tokens_used: Optional[int] = Field(None, description="Number of tokens consumed")
+    response_time_ms: Optional[int] = Field(None, description="Wall-clock time of the vision AI call in milliseconds")
+    provider: Optional[str] = Field(None, description="Final provider used (openai, grok, claude, gemini)")
+    fallback_used: bool = Field(default=False, description="Whether the call fell back from the primary provider")
+    confidence: Optional[int] = Field(None, ge=0, le=100, description="AI self-reported confidence (0-100)")
+    prompt_variant: Optional[str] = Field(None, description="Prompt variant used for A/B testing")
+    ocr_used: bool = Field(default=False, description="Whether OCR overlay extraction was used")
+    low_confidence: bool = Field(default=False, description="Whether the description was flagged as low confidence or vague")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "cost": 0.0018,
+                    "tokens_used": 980,
+                    "response_time_ms": 720,
+                    "provider": "grok",
+                    "fallback_used": true,
+                    "confidence": 87,
+                    "prompt_variant": "experiment",
+                    "ocr_used": true,
+                    "low_confidence": false
+                }
+            ]
+        }
+    }
+
+
+class ProcessingSummary(BaseModel):
+    """Lightweight rollup of the most important processing flags for timeline/event cards.
+    (Surfaced from AIProcessingCoordinator)"""
+    context_used: bool = Field(default=False, description="Whether context-enhanced prompt was used")
+    low_confidence: bool = Field(default=False, description="Description was flagged as low confidence or vague")
+    ai_fallback_used: bool = Field(default=False, description="AI call fell back from primary provider")
+    ocr_used: bool = Field(default=False, description="Overlay text (OCR) was extracted and used")
+    entity_matched: bool = Field(default=False, description="An entity was matched (early or final)")
+    entity_is_new: Optional[bool] = Field(None, description="The matched entity was newly created")
+    regenerated: bool = Field(default=False, description="This description was regenerated via reanalysis")
+    homekit_triggered: bool = Field(default=False, description="Any HomeKit sensor was triggered")
+    face_processed: bool = Field(default=False, description="Face embedding processing was attempted")
+    vehicle_processed: bool = Field(default=False, description="Vehicle embedding processing was attempted")
+    entity_alerts_run: bool = Field(default=False, description="Entity alerts were executed")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "context_used": true,
+                    "low_confidence": false,
+                    "ai_fallback_used": true,
+                    "ocr_used": true,
+                    "entity_matched": true,
+                    "entity_is_new": false,
+                    "regenerated": false,
+                    "homekit_triggered": true,
+                    "face_processed": true,
+                    "vehicle_processed": false,
+                    "entity_alerts_run": true
+                }
+            ]
+        }
+    }
+
+
+class ProcessingMetadata(BaseModel):
+    """Full consolidated processing metadata for event detail pages.
+    Merges economics, summary, context, and entity information into one convenient object.
+    (Surfaced from AIProcessingCoordinator)"""
+    ai_economics: Optional["AIEconomics"] = None
+    processing_summary: Optional["ProcessingSummary"] = None
+
+    # Context details
+    context: Optional[dict] = Field(None, description="Context usage details (included + stats)")
+
+    # Entity details (early context match vs final persistent link)
+    entity: Optional[dict] = Field(None, description="Entity match information (early + final)")
+
+    # Other coordinator-level signals
+    flags: Optional[dict] = Field(None, description="Key boolean signals (fallback, regenerated, etc.)")
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "ai_economics": {"cost": 0.0018, "provider": "grok", ...},
+                    "processing_summary": {"context_used": true, "homekit_triggered": true, ...},
+                    "context": {"context_included": true, "stats": {...}},
+                    "entity": {
+                        "early": {"similarity_score": 0.87, "is_new": false},
+                        "final": {"entity_id": "ent-123", "similarity_score": 0.93, "name": "Mail Carrier"}
+                    },
+                    "flags": {"ai_fallback_used": true, "regenerated": false, "ocr_used": true}
+                }
+            ]
+        }
+    }
+
+
 class EventCreate(BaseModel):
     """Schema for creating a new event via POST /api/v1/events"""
     camera_id: str = Field(..., description="UUID of the camera that triggered the event")
@@ -151,6 +252,49 @@ class EventResponse(BaseModel):
     reanalysis_count: int = Field(default=0, ge=0, description="Number of re-analyses performed")
     # Story P3-7.1: AI cost tracking
     ai_cost: Optional[float] = Field(None, description="Estimated cost in USD for AI analysis")
+    # Surfaced from AIProcessingCoordinator: latency of the vision AI call
+    ai_response_time_ms: Optional[int] = Field(None, description="Milliseconds the AI vision call took for this event")
+    # Story P3-7.1: Token usage for cost/usage observability (surfaced from coordinator)
+    tokens_used: Optional[int] = Field(None, description="Number of tokens consumed by the AI vision call")
+    # Story P9-3.2: OCR overlay extraction (surfaced from coordinator)
+    ocr_used: bool = Field(default=False, description="Whether overlay text was extracted from the video frame and provided to the AI")
+    # Surfaced from AIProcessingCoordinator: whether fallback occurred
+    ai_fallback_used: bool = Field(default=False, description="True if the AI call fell back to a secondary provider")
+    # Story P4-3.4: Rich early entity match metadata (surfaced from coordinator)
+    entity_similarity_score: Optional[float] = Field(None, description="Similarity score of the matched entity from early embedding (0.0-1.0)")
+    entity_occurrence_count: Optional[int] = Field(None, description="Number of previous sightings of this entity")
+    entity_is_new: Optional[bool] = Field(None, description="Whether this event resulted in a brand new entity being created (vs matched an existing one)")
+    final_entity_similarity_score: Optional[float] = Field(None, description="Similarity score from the final persistent entity link")
+    final_entity_occurrence_count: Optional[int] = Field(None, description="Occurrence count from the final link")
+    final_entity_is_new: Optional[bool] = Field(None, description="Whether the final link created a new entity")
+    final_entity_id: Optional[str] = Field(None, description="UUID of the final linked entity")
+    final_entity_type: Optional[str] = Field(None, description="Type of the final linked entity (person/vehicle)")
+    final_entity_name: Optional[str] = Field(None, description="Name of the final linked entity (if assigned)")
+    # Surfaced from AIProcessingCoordinator: reanalysis / regeneration flag
+    regenerated: bool = Field(default=False, description="True if this description was generated during a deliberate reanalysis")
+    # Context prompt usage (Story P4-3.4)
+    context_included: bool = Field(default=False, description="Whether a context-enhanced prompt was used for AI analysis")
+    context_stats: Optional[dict] = Field(None, description="Basic context stats (entity_context, similar_events_count, time_pattern, gather_time_ms)")
+    # Post-processing actions performed by the coordinator
+    post_processing_summary: Optional[dict] = Field(
+        None,
+        description="Summary of post-processing actions. HomeKit contains granular flags (motion, occupancy, vehicle, animal, package)."
+    )
+    # Consolidated AI cost/performance/quality data (surfaced from AIProcessingCoordinator)
+    ai_economics: Optional["AIEconomics"] = Field(
+        None,
+        description="Combined AI economics and quality signals for easier consumption"
+    )
+    # Lightweight rollup for timeline/event cards (surfaced from AIProcessingCoordinator)
+    processing_summary: Optional["ProcessingSummary"] = Field(
+        None,
+        description="Convenient rollup of the most important processing flags for cards"
+    )
+    # Full consolidated processing metadata for detail pages
+    processing_metadata: Optional["ProcessingMetadata"] = Field(
+        None,
+        description="Rich merged object containing economics, summary, context, and entity details"
+    )
     # Story P3-7.5: Key frames gallery display
     key_frames_base64: Optional[List[str]] = Field(None, description="Base64-encoded key frames used for AI analysis")
     frame_timestamps: Optional[List[float]] = Field(None, description="Timestamps in seconds for each key frame")
@@ -211,6 +355,24 @@ class EventResponse(BaseModel):
             return json.loads(v)
         return v
 
+    @field_validator('context_stats', mode='before')
+    @classmethod
+    def parse_context_stats(cls, v):
+        """Parse JSON string into dict for context stats (surfaced from coordinator)"""
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
+
+    @field_validator('post_processing_summary', mode='before')
+    @classmethod
+    def parse_post_processing_summary(cls, v):
+        """Parse JSON string into dict for post-processing summary"""
+        if isinstance(v, str):
+            import json
+            return json.loads(v)
+        return v
+
     @model_validator(mode='after')
     def compute_delivery_carrier_display(self) -> 'EventResponse':
         """Compute human-readable carrier display name from carrier code (Story P7-2.1)"""
@@ -219,6 +381,84 @@ class EventResponse(BaseModel):
                 self.delivery_carrier,
                 self.delivery_carrier.upper()  # Fallback: uppercase the code
             )
+        return self
+
+    @model_validator(mode='after')
+    def populate_ai_economics(self) -> 'EventResponse':
+        """Assemble the consolidated AI economics object from flat fields (surfaced from coordinator)."""
+        self.ai_economics = AIEconomics(
+            cost=self.ai_cost,
+            tokens_used=self.tokens_used,
+            response_time_ms=self.ai_response_time_ms,
+            provider=self.provider_used,
+            fallback_used=self.ai_fallback_used,
+            confidence=self.ai_confidence,
+            prompt_variant=self.prompt_variant,
+            ocr_used=self.ocr_used,
+            low_confidence=self.low_confidence,
+        )
+        return self
+
+    @model_validator(mode='after')
+    def populate_processing_summary(self) -> 'EventResponse':
+        """Build a lightweight rollup object for timeline cards from the detailed fields."""
+        post = self.post_processing_summary or {}
+
+        # Derive high-level booleans from the detailed post_processing_summary
+        homekit = post.get("homekit", {}) if isinstance(post, dict) else {}
+        homekit_triggered = any(v for v in homekit.values() if isinstance(v, dict) and v.get("success"))
+
+        face = post.get("face_embedding", {}) if isinstance(post, dict) else {}
+        vehicle = post.get("vehicle_embedding", {}) if isinstance(post, dict) else {}
+        entity_alerts = post.get("entity_alerts", {}) if isinstance(post, dict) else {}
+
+        self.processing_summary = ProcessingSummary(
+            context_used=self.context_included,
+            low_confidence=self.low_confidence,
+            ai_fallback_used=self.ai_fallback_used,
+            ocr_used=self.ocr_used,
+            entity_matched=bool(self.entity_similarity_score or self.final_entity_similarity_score),
+            entity_is_new=self.entity_is_new or self.final_entity_is_new,
+            regenerated=self.regenerated,
+            homekit_triggered=homekit_triggered,
+            face_processed=face.get("attempted", False) if isinstance(face, dict) else False,
+            vehicle_processed=vehicle.get("attempted", False) if isinstance(vehicle, dict) else False,
+            entity_alerts_run=entity_alerts.get("attempted", False) if isinstance(entity_alerts, dict) else False,
+        )
+        return self
+
+    @model_validator(mode='after')
+    def populate_processing_metadata(self) -> 'EventResponse':
+        """Build the full rich processing metadata object for event detail pages."""
+        self.processing_metadata = ProcessingMetadata(
+            ai_economics=self.ai_economics,
+            processing_summary=self.processing_summary,
+            context={
+                "context_included": self.context_included,
+                "stats": self.context_stats,
+            } if self.context_included or self.context_stats else None,
+            entity={
+                "early": {
+                    "similarity_score": self.entity_similarity_score,
+                    "occurrence_count": self.entity_occurrence_count,
+                    "is_new": self.entity_is_new,
+                },
+                "final": {
+                    "entity_id": self.final_entity_id,
+                    "entity_type": self.final_entity_type,
+                    "entity_name": self.final_entity_name,
+                    "similarity_score": self.final_entity_similarity_score,
+                    "occurrence_count": self.final_entity_occurrence_count,
+                    "is_new": self.final_entity_is_new,
+                },
+            } if (self.entity_similarity_score or self.final_entity_id) else None,
+            flags={
+                "ai_fallback_used": self.ai_fallback_used,
+                "regenerated": self.regenerated,
+                "ocr_used": self.ocr_used,
+                "low_confidence": self.low_confidence,
+            },
+        )
         return self
 
     model_config = {

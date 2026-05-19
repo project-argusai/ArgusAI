@@ -42,8 +42,7 @@ from app.core.decorators import singleton
 logger = logging.getLogger(__name__)
 
 # Snapshot retrieval timeout in seconds (AC1, AC12 - NFR4)
-
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 SNAPSHOT_TIMEOUT_SECONDS = 1.0
 
 # Retry delay in seconds (AC8)

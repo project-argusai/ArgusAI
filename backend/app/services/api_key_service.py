@@ -9,7 +9,7 @@ This service provides:
 - Key validation and authentication
 - CRUD operations for API keys
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import secrets
 import bcrypt

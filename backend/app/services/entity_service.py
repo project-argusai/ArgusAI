@@ -36,7 +36,7 @@ Flow:
                                               ↓
                                    Return EntityMatchResult
 
-Migrated to @singleton decorator (core.decorators) as a core service
+# Migrated to @singleton decorator (core.decorators) as a core service
 reference example for #450 (Lightweight DI Container).
 """
 import json

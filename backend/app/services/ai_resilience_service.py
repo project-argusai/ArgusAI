@@ -18,7 +18,7 @@ AI orchestration easier to test and evolve independently.
 
 Follows the same pattern as AIPromptService (Phase 2 extraction).
 
-Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
+# Migrated to @singleton decorator (core.decorators) as part of #450 (Lightweight DI Container).
 
 Story / Issue: #444 (ai_service.py decomposition tracking) + #450
 """

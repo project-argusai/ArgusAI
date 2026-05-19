@@ -15,7 +15,7 @@ Usage:
     cleanup_service = CleanupService()
     stats = await cleanup_service.cleanup_old_events(retention_days=30)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import os
 import logging

@@ -17,7 +17,7 @@ Vehicle Classes (COCO):
     - bus (class 6)
     - truck (class 8)
 
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 import asyncio
 import base64

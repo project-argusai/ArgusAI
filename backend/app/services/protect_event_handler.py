@@ -991,3 +991,18 @@ class ProtectEventHandler:
     # Broadcast shims removed (Phase 4) — call self.broadcaster.* directly
 
     # _download_and_store_video removed — logic moved to ProtectMediaService (Phase 4)
+
+
+# -------------------------------------------------------------------------
+# Singleton accessors (added to fix ImportError after #450 migration)
+# -------------------------------------------------------------------------
+
+def get_protect_event_handler() -> "ProtectEventHandler":
+    """Get the global ProtectEventHandler singleton instance."""
+    return ProtectEventHandler()
+
+
+def reset_protect_event_handler() -> None:
+    """Reset the global ProtectEventHandler singleton (for tests)."""
+    ProtectEventHandler._reset_instance()
+

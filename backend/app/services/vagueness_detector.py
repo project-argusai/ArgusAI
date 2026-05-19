@@ -13,7 +13,7 @@ Usage:
     if result.is_vague:
         print(f"Vague: {result.reason}")
 
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 from dataclasses import dataclass
 from typing import Optional

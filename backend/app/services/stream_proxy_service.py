@@ -17,7 +17,7 @@ Quality Levels:
     - medium: 1280x720 @ 10fps, JPEG quality 80
     - high: 1920x1080 @ 15fps, JPEG quality 90
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import base64

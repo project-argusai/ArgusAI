@@ -20,7 +20,7 @@ Usage:
     result = await backup_service.create_backup()
     # result.download_url contains the download path
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import os
 import json

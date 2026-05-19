@@ -17,6 +17,8 @@ Individual steps are still delegated to focused helper methods (many of which
 remain on EventProcessor during the transition).
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -28,10 +30,10 @@ from typing import Optional, TYPE_CHECKING, Callable, Awaitable, Any, Dict, List
 import numpy as np
 
 from app.core.database import SessionLocal
-from app.services.event_processor import ProcessingEvent, Event
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIService
+    from app.services.event_processor import ProcessingEvent, Event
     from app.services.metrics import ProcessingMetrics
 
 logger = logging.getLogger(__name__)

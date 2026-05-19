@@ -341,12 +341,28 @@ async def lifespan(app: FastAPI):
         replace_existing=True
     )
 
+    # Add hot activity persistence job (periodic flush of dirty hot cameras/entities)
+    try:
+        coordinator = container.ai_processing_coordinator
+        coordinator.register_hot_activity_flush_job(scheduler)
+    except Exception as e:
+        logger.warning(f"Could not register hot activity flush job: {e}")
+
+    # Periodically check if the hot activity flush interval setting has changed
+    scheduler.add_job(
+        lambda: container.ai_processing_coordinator.reconfigure_hot_activity_flush(scheduler),
+        trigger=CronTrigger(minute="*"),  # every minute is plenty
+        id="hot_activity_flush_reconfig",
+        name="Check for hot activity flush interval changes",
+        replace_existing=True,
+    )
+
     scheduler.start()
     logger.info(
         "Scheduler started",
         extra={
             "event_type": "scheduler_init",
-            "jobs": ["daily_cleanup", "system_metrics_update", "daily_backup", "hourly_pattern_calculation", "hourly_session_cleanup"]
+            "jobs": ["daily_cleanup", "system_metrics_update", "daily_backup", "hourly_pattern_calculation", "hourly_session_cleanup", "hot_activity_flush", "hot_activity_flush_reconfig"]
         }
     )
 
@@ -728,6 +744,20 @@ async def lifespan(app: FastAPI):
         logger.error(
             f"Error disconnecting Protect controllers: {e}",
             extra={"event_type": "protect_shutdown_error", "error": str(e)}
+        )
+
+    # Flush any remaining dirty hot activity caches (graceful shutdown)
+    try:
+        coordinator = container.ai_processing_coordinator
+        coordinator.flush_hot_activity()
+        logger.info(
+            "Hot activity caches flushed on shutdown",
+            extra={"event_type": "hot_activity_shutdown_flush"}
+        )
+    except Exception as e:
+        logger.error(
+            f"Error flushing hot activity caches on shutdown: {e}",
+            extra={"event_type": "hot_activity_shutdown_error", "error": str(e)}
         )
 
     # Stop scheduler

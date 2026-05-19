@@ -27,7 +27,7 @@ Correlation Criteria (AC2):
 - Different cameras (exclude same camera)
 - Same controller (for stricter correlation, future enhancement)
 
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 
 import asyncio

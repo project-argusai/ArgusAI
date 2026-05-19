@@ -84,6 +84,24 @@ event_queue_depth = Gauge(
 )
 
 # ============================================================================
+# AI Processing Coordinator Metrics (surfaced from AIProcessingCoordinator)
+# ============================================================================
+
+ai_processing_total = Counter(
+    'ai_processing_total',
+    'Total events processed by the AIProcessingCoordinator',
+    ['success', 'fallback_used', 'context_used', 'ocr_used', 'low_confidence', 'regenerated'],
+    registry=REGISTRY
+)
+
+ai_processing_duration_seconds = Histogram(
+    'ai_processing_duration_seconds',
+    'Full AI processing duration (from the coordinator)',
+    buckets=[0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 60.0],
+    registry=REGISTRY
+)
+
+# ============================================================================
 # AI API Metrics
 # ============================================================================
 

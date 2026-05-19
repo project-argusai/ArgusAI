@@ -39,6 +39,23 @@ class Event(Base):
         reanalyzed_at: Timestamp of last re-analysis (Story P3-6.4)
         reanalysis_count: Number of re-analyses performed for rate limiting (Story P3-6.4)
         ai_cost: Estimated cost in USD for AI analysis (Story P3-7.1)
+        ai_response_time_ms: Milliseconds the vision AI call took for this event (surfaced from AIProcessingCoordinator after extraction)
+        tokens_used: Number of tokens consumed by the AI vision call (surfaced from AIProcessingCoordinator for detailed usage tracking)
+        ocr_used: Whether overlay text extraction was attempted and used (Story P9-3.2)
+        entity_similarity_score: Similarity score of early entity match (0-1)
+        entity_occurrence_count: How many previous sightings of this entity
+        entity_is_new: Whether the early match created a new entity (vs matched existing one)
+        final_entity_similarity_score: Similarity from the final persistent entity link
+        final_entity_occurrence_count: Occurrence count from the final link
+        final_entity_is_new: Whether the final link created a new entity
+        final_entity_id: UUID of the final linked entity
+        final_entity_type: Type of the final linked entity (person/vehicle)
+        final_entity_name: Name of the final linked entity (if assigned)
+        regenerated: Whether this description was generated during a deliberate reanalysis (coordinator-level flag)
+        ai_fallback_used: Whether the AI call fell back to a secondary provider (surfaced from coordinator)
+        context_included: Whether context-enhanced prompt was used (Story P4-3.4)
+        context_stats: JSON stats from context prompt service (entity_context, similar_events, etc.)
+        post_processing_summary: JSON of post-processing actions performed (HomeKit, face/vehicle/entity, MQTT, push, etc.)
         analysis_skipped_reason: Reason AI analysis was skipped - "cost_cap_daily"/"cost_cap_monthly" (Story P3-7.3)
         key_frames_base64: JSON array of base64-encoded frame thumbnails for gallery display (Story P3-7.5)
         frame_timestamps: JSON array of float seconds from video start for each frame (Story P3-7.5)
@@ -91,6 +108,32 @@ class Event(Base):
     reanalysis_count = Column(Integer, nullable=False, default=0)  # Number of re-analyses performed (for rate limiting)
     # Story P3-7.1: AI cost tracking
     ai_cost = Column(Float, nullable=True)  # Estimated cost in USD for AI analysis (null = not tracked)
+    # Surfaced from AIProcessingCoordinator: exact latency of the vision AI call for this event
+    ai_response_time_ms = Column(Integer, nullable=True)  # Milliseconds the AI vision call took (null = not recorded)
+    # Story P3-7.1: Token usage for detailed cost/usage tracking (surfaced from coordinator)
+    tokens_used = Column(Integer, nullable=True)  # Number of tokens consumed by the AI vision call (null = not tracked)
+    # Story P9-3.2: OCR overlay text extraction (surfaced from AIProcessingCoordinator)
+    ocr_used = Column(Boolean, nullable=False, default=False)  # Whether overlay text was extracted from the frame and provided to the AI
+    # Story P4-3.4: Richer early entity match metadata (surfaced from coordinator)
+    entity_similarity_score = Column(Float, nullable=True)  # Similarity score of the matched entity (0.0-1.0)
+    entity_occurrence_count = Column(Integer, nullable=True)  # How many times this entity has been seen before
+    # Surfaced from AIProcessingCoordinator: final entity link details
+    entity_is_new = Column(Boolean, nullable=True)  # Whether the early match created a brand new entity (vs matched an existing one)
+    final_entity_similarity_score = Column(Float, nullable=True)  # Similarity score from the final persistent link
+    final_entity_occurrence_count = Column(Integer, nullable=True)
+    final_entity_is_new = Column(Boolean, nullable=True)  # Whether the final link created a new entity
+    final_entity_id = Column(String, nullable=True)  # UUID of the final linked entity
+    final_entity_type = Column(String(20), nullable=True)  # person / vehicle / unknown
+    final_entity_name = Column(String, nullable=True)  # User-assigned name of the final linked entity (if any)
+    # Surfaced from AIProcessingCoordinator: whether this description was generated as part of a reanalysis/regeneration
+    regenerated = Column(Boolean, nullable=False, default=False)  # True if this processing run was a deliberate re-generation of the description
+    # Surfaced from AIProcessingCoordinator: whether fallback to secondary providers occurred
+    ai_fallback_used = Column(Boolean, nullable=False, default=False)  # True if the final AI provider was reached via fallback
+    # Story P4-3.4 / AIProcessingCoordinator: Context-enhanced prompt usage
+    context_included = Column(Boolean, nullable=False, default=False)  # Whether context was applied to the AI prompt
+    context_stats = Column(Text, nullable=True)  # JSON: {entity_context_included, similar_events_count, time_pattern_included, gather_time_ms, ...}
+    # Post-processing actions performed by AIProcessingCoordinator
+    post_processing_summary = Column(Text, nullable=True)  # JSON summary of which post-processing actions were executed
     # Story P3-7.3: Cost cap enforcement - analysis skip reason
     analysis_skipped_reason = Column(String(50), nullable=True)  # "cost_cap_daily", "cost_cap_monthly" (null = not skipped)
     # Story P3-7.5: Key frames storage for event detail gallery

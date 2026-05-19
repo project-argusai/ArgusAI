@@ -5,6 +5,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CameraGrid } from "@/components/cameras/CameraGrid";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
+import { HotActivityCard } from "@/components/dashboard/HotActivityCard";
+import { RecentProcessingActivityCard } from "@/components/dashboard/RecentProcessingActivityCard";
+import { AICostTrendsCard } from "@/components/dashboard/AICostTrendsCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { SummaryCard } from "@/components/dashboard/SummaryCard";
 import { PackageDeliveryWidget } from "@/components/dashboard/PackageDeliveryWidget";
@@ -27,6 +30,15 @@ export default function DashboardPage() {
 
       {/* Stats Grid - Real data */}
       <DashboardStats />
+
+      {/* Hot Activity (Trending) - Live mini view from AIProcessingCoordinator */}
+      <HotActivityCard variant="mini" />
+
+      {/* Recent AI Processing Activity - Mini view of the coordinator's recent ring buffer */}
+      <RecentProcessingActivityCard variant="mini" />
+
+      {/* AI Cost & Token Trends - Mini view */}
+      <AICostTrendsCard variant="mini" />
 
       {/* Activity Summary and Package Deliveries Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">

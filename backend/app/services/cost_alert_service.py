@@ -6,7 +6,7 @@ Story P3-7.4: Add Cost Alerts and Notifications
 Provides threshold-based alerts when AI costs approach or reach configured caps.
 Integrates with CostCapService for cap status and WebSocket for real-time delivery.
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 
 import logging

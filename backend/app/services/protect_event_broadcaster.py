@@ -6,7 +6,7 @@ and triggering HomeKit doorbell notifications.
 
 Extracted from ProtectEventHandler during Phase 4 decomposition.
 
-Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
+# Migrated to @singleton decorator as part of #450 (Lightweight DI Container).
 """
 
 import json

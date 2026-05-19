@@ -14,7 +14,7 @@ Uses paho-mqtt 2.0+ with CallbackAPIVersion.VERSION2.
 Connects using MQTT 5.0 protocol for message expiry support,
 with graceful fallback to MQTT 3.1.1 if broker doesn't support v5.
 
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 import asyncio
 import json

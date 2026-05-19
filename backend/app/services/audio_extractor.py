@@ -9,7 +9,7 @@ Provides functionality to:
 - Transcribe audio to text using OpenAI Whisper API (Story P3-5.2)
 
 Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 import asyncio
 from datetime import datetime, timezone

@@ -7,7 +7,7 @@ Provides entity-aware alert handling including:
 - VIP alert detection
 - Blocklist alert suppression
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging

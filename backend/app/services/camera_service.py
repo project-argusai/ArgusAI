@@ -4,7 +4,7 @@ Camera capture service with thread management and reconnection logic
 Handles RTSP and USB camera capture in background threads with automatic
 reconnection on stream dropout.
 
-Migrated to @singleton decorator (core.decorators) as the core service reference
+# Migrated to @singleton decorator (core.decorators) as the core service reference
 example for #450 (Lightweight DI Container).
 """
 import cv2
@@ -278,6 +278,17 @@ class CameraService:
             "last_frame_time": status.get("last_frame_time"),
             "error": status.get("error"),
         }
+
+    def get_camera(self, camera_id: str) -> Optional["Camera"]:
+        """Return the full Camera ORM model by ID.
+
+        Used by health monitoring and recovery logic in EventProcessor.
+        Keeps raw DB access out of higher-level services.
+        """
+        from app.core.database import get_db_session
+
+        with get_db_session() as db:
+            return db.query(Camera).filter(Camera.id == camera_id).first()
 
     def stop_all_cameras(self, timeout: float = 5.0) -> None:
         """Stop all active CameraCaptureWorkers gracefully."""

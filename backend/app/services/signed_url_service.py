@@ -11,7 +11,7 @@ Usage:
     url = service.generate_signed_url(event_id, base_url="https://example.com")
     is_valid = service.verify_signed_url(event_id, signature, expires)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 
 import hashlib

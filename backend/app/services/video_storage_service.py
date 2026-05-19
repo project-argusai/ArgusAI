@@ -10,7 +10,7 @@ Provides functionality to:
 
 Architecture Reference: docs/architecture-phase8.md#Video-Storage
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import logging

@@ -14,7 +14,7 @@ This service provides:
 - Auto-reconnect with exponential backoff (P11-1.2)
 - Prometheus metrics integration (P11-1.2)
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import asyncio
 import re

@@ -14,7 +14,7 @@ Sampling Strategies (P8-2.4):
 - hybrid: Extract more candidates uniformly, then filter adaptively
 
 Architecture Reference: docs/architecture.md#Phase-3-Service-Architecture
-Migrated to @singleton: Story P14-5.3
+# Migrated to @singleton: Story P14-5.3
 """
 import io
 import logging

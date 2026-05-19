@@ -20,7 +20,7 @@ Flow:
                                                     v
     Event Processing -> PatternService.is_typical_timing() -> TimingAnalysisResult
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging

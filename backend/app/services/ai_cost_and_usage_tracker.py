@@ -4,7 +4,7 @@ AI Cost and Usage Tracker Service
 Extracted as part of Phase B (#447) to separate cost tracking and usage recording
 from analysis orchestration logic in AIService and VisionAnalysisOrchestrator.
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 
 Responsibilities:
 - Record usage after every AI call (tokens, cost, provider, mode, camera, etc.)

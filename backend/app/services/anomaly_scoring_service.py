@@ -22,7 +22,7 @@ Flow:
                                     v
                     Combine with weights -> total_score + severity
 
-Migrated to @singleton as part of #450 (Lightweight DI Container).
+# Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import json
 import logging

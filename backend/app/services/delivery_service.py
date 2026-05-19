@@ -40,6 +40,8 @@ from app.services.push_notification_service import (
 )
 from app.utils.encryption import decrypt_password
 
+from app.core.decorators import singleton
+
 logger = logging.getLogger(__name__)
 
 # Configuration

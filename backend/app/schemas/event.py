@@ -60,11 +60,11 @@ class AIEconomics(BaseModel):
                     "tokens_used": 980,
                     "response_time_ms": 720,
                     "provider": "grok",
-                    "fallback_used": true,
+                    "fallback_used": True,
                     "confidence": 87,
                     "prompt_variant": "experiment",
-                    "ocr_used": true,
-                    "low_confidence": false
+                    "ocr_used": True,
+                    "low_confidence": False
                 }
             ]
         }
@@ -90,17 +90,17 @@ class ProcessingSummary(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "context_used": true,
-                    "low_confidence": false,
-                    "ai_fallback_used": true,
-                    "ocr_used": true,
-                    "entity_matched": true,
-                    "entity_is_new": false,
-                    "regenerated": false,
-                    "homekit_triggered": true,
-                    "face_processed": true,
-                    "vehicle_processed": false,
-                    "entity_alerts_run": true
+                    "context_used": True,
+                    "low_confidence": False,
+                    "ai_fallback_used": True,
+                    "ocr_used": True,
+                    "entity_matched": True,
+                    "entity_is_new": False,
+                    "regenerated": False,
+                    "homekit_triggered": True,
+                    "face_processed": True,
+                    "vehicle_processed": False,
+                    "entity_alerts_run": True
                 }
             ]
         }

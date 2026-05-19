@@ -317,3 +317,8 @@ class MotionDetectionService:
 
 # Global singleton instance
 motion_detection_service = MotionDetectionService()
+
+
+def reset_motion_detection_service() -> None:
+    """Reset the global MotionDetectionService instance (for testing)."""
+    MotionDetectionService._reset_instance()

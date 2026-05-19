@@ -284,3 +284,8 @@ class FrameAnnotationService:
 def get_frame_annotation_service() -> FrameAnnotationService:
     """Get singleton instance of FrameAnnotationService."""
     return FrameAnnotationService()
+
+
+def reset_frame_annotation_service() -> None:
+    """Reset the global FrameAnnotationService instance (for testing)."""
+    FrameAnnotationService._reset_instance()

@@ -28,7 +28,7 @@ bcrypt>=5.0.0
 slowapi>=0.1.9
 
 # AI Vision APIs
-openai>=2.37.0
+openai>=2.30.0
 anthropic>=0.102.0
 google-generativeai>=0.8.6
 litellm>=1.83.7  # Unified LLM gateway SDK with fallbacks and cost tracking

@@ -36,6 +36,8 @@ from sqlalchemy.orm import Session
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 from app.services.similarity_service import batch_cosine_similarity
 
+from app.core.decorators import singleton
+
 logger = logging.getLogger(__name__)
 
 

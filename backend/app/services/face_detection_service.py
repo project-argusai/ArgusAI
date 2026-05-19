@@ -27,6 +27,8 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from app.core.decorators import singleton
+
 logger = logging.getLogger(__name__)
 
 

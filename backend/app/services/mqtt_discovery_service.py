@@ -14,6 +14,8 @@ import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 
+from app.core.decorators import singleton
+
 from app.services.mqtt_service import MQTTService, get_mqtt_service
 from app.core.database import SessionLocal
 from app.models.mqtt_config import MQTTConfig

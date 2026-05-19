@@ -690,3 +690,19 @@ class AIService:
 
 # Global AI service instance
 ai_service = AIService()
+
+
+# Backward compatible thin getter (delegates to @singleton decorator)
+def get_ai_service() -> AIService:
+    """
+    Get the global AIService instance.
+
+    Note: This is now a thin backward-compatible wrapper.
+          New code should prefer AIService() directly.
+    """
+    return AIService()
+
+
+def reset_ai_service() -> None:
+    """Reset the global AIService instance (for testing)."""
+    AIService._reset_instance()

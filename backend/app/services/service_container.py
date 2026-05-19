@@ -69,6 +69,7 @@ from app.services.mqtt_service import get_mqtt_service, reset_mqtt_service
 from app.services.snapshot_service import get_snapshot_service, reset_snapshot_service
 from app.services.event_processor import get_event_processor, reset_event_processor
 from app.services.ai_service import get_ai_service, reset_ai_service
+from app.services.ai_processing_coordinator import get_ai_processing_coordinator, reset_ai_processing_coordinator
 from app.services.protect_event_handler import get_protect_event_handler, reset_protect_event_handler
 from app.services.motion_detection_service import motion_detection_service, reset_motion_detection_service
 from app.services.clip_service import get_clip_service, reset_clip_service
@@ -202,6 +203,10 @@ class ServiceContainer:
         return get_event_processor()
 
     @property
+    def ai_processing_coordinator(self):
+        return get_ai_processing_coordinator()
+
+    @property
     def ai_service(self):
         return get_ai_service()
 
@@ -316,6 +321,7 @@ class ServiceContainer:
         reset_mqtt_service,
         reset_snapshot_service,
         reset_event_processor,
+        reset_ai_processing_coordinator,
         reset_ai_service,
         reset_protect_event_handler,
         reset_motion_detection_service,

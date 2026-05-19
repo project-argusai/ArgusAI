@@ -30,6 +30,7 @@ from typing import Optional, TYPE_CHECKING, Callable, Awaitable, Any, Dict, List
 import numpy as np
 
 from app.core.database import SessionLocal
+from app.core.decorators import singleton
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIService
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class AIProcessingCoordinator:
     """
     Coordinates the end-to-end processing of one queued event.
@@ -1925,3 +1927,17 @@ class AIProcessingCoordinator:
                     "error": str(embedding_error),
                 }
             )
+
+
+# -------------------------------------------------------------------------
+# Singleton accessors (for ServiceContainer and APScheduler jobs)
+# -------------------------------------------------------------------------
+
+def get_ai_processing_coordinator() -> "AIProcessingCoordinator":
+    """Get the global AIProcessingCoordinator singleton instance."""
+    return AIProcessingCoordinator()
+
+
+def reset_ai_processing_coordinator() -> None:
+    """Reset the global AIProcessingCoordinator instance (for testing)."""
+    AIProcessingCoordinator._reset_instance()

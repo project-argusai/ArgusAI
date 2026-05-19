@@ -207,25 +207,7 @@ class EventProcessor:
         # Temporary early semaphore (only used before pool is created, which is rare)
         self._early_ai_semaphore: Optional[asyncio.Semaphore] = None
 
-    @property
-    def ai_semaphore(self) -> asyncio.Semaphore:
-        """Concurrency limiter for AI calls (owned by AIWorkerPool)."""
-        if self.ai_worker_pool:
-            return self.ai_worker_pool.ai_semaphore
-        # Fallback only before the pool is created (very early in startup)
-        if self._early_ai_semaphore is None:
-            ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
-            self._early_ai_semaphore = asyncio.Semaphore(ai_limit)
-        return self._early_ai_semaphore
-
         # CameraTaskManager owns per-camera monitoring tasks, stats, cooldowns, recovery, and health monitor
-
-    @property
-    def worker_tasks(self) -> List[asyncio.Task]:
-        """Return active AI worker tasks (delegated to AIWorkerPool)."""
-        if self.ai_worker_pool:
-            return self.ai_worker_pool.worker_tasks
-        return []
         self.camera_task_manager: Optional[CameraTaskManager] = None
 
         # Services (can be injected for better testability and architecture)
@@ -242,6 +224,24 @@ class EventProcessor:
         self.metrics = ProcessingMetrics()
 
         logger.info(f"EventProcessor initialized: {self.worker_count} workers, queue max {self.queue_maxsize}")
+
+    @property
+    def ai_semaphore(self) -> asyncio.Semaphore:
+        """Concurrency limiter for AI calls (owned by AIWorkerPool)."""
+        if self.ai_worker_pool:
+            return self.ai_worker_pool.ai_semaphore
+        # Fallback only before the pool is created (very early in startup)
+        if self._early_ai_semaphore is None:
+            ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
+            self._early_ai_semaphore = asyncio.Semaphore(ai_limit)
+        return self._early_ai_semaphore
+
+    @property
+    def worker_tasks(self) -> List[asyncio.Task]:
+        """Return active AI worker tasks (delegated to AIWorkerPool)."""
+        if self.ai_worker_pool:
+            return self.ai_worker_pool.worker_tasks
+        return []
 
     async def start(self):
         """
@@ -287,24 +287,6 @@ class EventProcessor:
         # Start AI worker pool (now managed by AIWorkerPool)
         if self.ai_worker_pool is None:
             ai_limit = int(os.getenv("AI_CONCURRENT_LIMIT", "8"))
-
-            # Create the coordinator that will own the processing logic
-            # Build explicit context so the coordinator doesn't need the whole EventProcessor
-            context = ProcessingContext(
-                ai_service=self.ai_service,
-                metrics=self.metrics,
-
-                # Direct service instances (preferred)
-                context_prompt_service=_get_container().context_prompt_service,
-                cost_alert_service=_get_container().cost_alert_service,
-                embedding_service=_get_container().embedding_service,
-                mqtt_service=_get_container().mqtt_service,
-
-                # Still-bound helpers on EventProcessor (to be extracted later)
-                # generate_and_match_entity, store_processed_event, send_push_notification, and store_event_with_retry moved into the coordinator
-                # All post-processing helpers have been moved into the coordinator.
-                # Only direct services remain in the context.
-            )
 
             self.ai_processing_coordinator = AIProcessingCoordinator(
                 ai_service=self.ai_service,

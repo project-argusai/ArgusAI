@@ -1292,6 +1292,11 @@ def get_mqtt_service() -> MQTTService:
     return MQTTService()
 
 
+def reset_mqtt_service() -> None:
+    """Reset the global MQTTService instance (for testing)."""
+    MQTTService._reset_instance()
+
+
 async def initialize_mqtt_service() -> None:
     """Initialize MQTT service on app startup."""
     service = MQTTService()

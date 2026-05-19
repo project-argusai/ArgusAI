@@ -228,5 +228,3 @@ def extract_vehicle_entity(description: str) -> Optional[VehicleEntityInfo]:
     """Extract vehicle entity info from a description (compatibility wrapper)."""
     matcher = VehicleSignatureMatcher()
     return matcher.generate_signature(description)
-
-        return None

@@ -404,8 +404,3 @@ def get_face_detection_service() -> FaceDetectionService:
 def reset_face_detection_service() -> None:
     """Reset the global FaceDetectionService instance (for testing)."""
     FaceDetectionService._reset_instance()
-            "Global FaceDetectionService instance created",
-            extra={"event_type": "face_detection_service_singleton_created"}
-        )
-
-    return _face_detection_service

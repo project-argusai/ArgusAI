@@ -127,14 +127,14 @@ class ProcessingMetadata(BaseModel):
         "json_schema_extra": {
             "examples": [
                 {
-                    "ai_economics": {"cost": 0.0018, "provider": "grok", ...},
-                    "processing_summary": {"context_used": true, "homekit_triggered": true, ...},
-                    "context": {"context_included": true, "stats": {...}},
+                    "ai_economics": {"cost": 0.0018, "provider": "grok", "response_time_ms": 1240},
+                    "processing_summary": {"context_used": True, "homekit_triggered": True, "ai_retries": 0},
+                    "context": {"context_included": True, "stats": {"tokens": 1840}},
                     "entity": {
-                        "early": {"similarity_score": 0.87, "is_new": false},
+                        "early": {"similarity_score": 0.87, "is_new": False},
                         "final": {"entity_id": "ent-123", "similarity_score": 0.93, "name": "Mail Carrier"}
                     },
-                    "flags": {"ai_fallback_used": true, "regenerated": false, "ocr_used": true}
+                    "flags": {"ai_fallback_used": True, "regenerated": False, "ocr_used": True}
                 }
             ]
         }

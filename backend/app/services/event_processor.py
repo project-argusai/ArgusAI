@@ -50,7 +50,6 @@ from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
-from app.services.service_container import container
 from app.services.carrier_extractor import extract_carrier
 from app.core.database import get_db_session
 from app.services.camera_task_manager import CameraTaskManager
@@ -59,6 +58,17 @@ if TYPE_CHECKING:
     from app.services.mqtt_service import MQTTService
 
 logger = logging.getLogger(__name__)
+
+
+def _get_container():
+    """Lazy getter for the service container.
+
+    Avoids circular import between event_processor <-> service_container
+    (service_container imports the get_event_processor/reset functions).
+    """
+    from app.services.service_container import container
+    return container
+
 
 
 @dataclass
@@ -251,11 +261,11 @@ class EventProcessor:
 
         # Initialize services (use injected ones if provided)
         if self.ai_service is None:
-            self.ai_service = container.ai_service
+            self.ai_service = _get_container().ai_service
         if self.camera_service is None:
-            self.camera_service = container.camera_service
+            self.camera_service = _get_container().camera_service
         if self.motion_service is None:
-            self.motion_service = container.motion_detection_service
+            self.motion_service = _get_container().motion_detection_service
         self.http_client = httpx.AsyncClient(timeout=10.0)
 
         # Create the CameraTaskManager (owns per-camera monitoring tasks + recovery)
@@ -285,10 +295,10 @@ class EventProcessor:
                 metrics=self.metrics,
 
                 # Direct service instances (preferred)
-                context_prompt_service=container.context_prompt_service,
-                cost_alert_service=container.cost_alert_service,
-                embedding_service=container.embedding_service,
-                mqtt_service=container.mqtt_service,
+                context_prompt_service=_get_container().context_prompt_service,
+                cost_alert_service=_get_container().cost_alert_service,
+                embedding_service=_get_container().embedding_service,
+                mqtt_service=_get_container().mqtt_service,
 
                 # Still-bound helpers on EventProcessor (to be extracted later)
                 # generate_and_match_entity, store_processed_event, send_push_notification, and store_event_with_retry moved into the coordinator
@@ -299,14 +309,14 @@ class EventProcessor:
             self.ai_processing_coordinator = AIProcessingCoordinator(
                 ai_service=self.ai_service,
                 metrics=self.metrics,
-                context_prompt_service=container.context_prompt_service,
-                cost_alert_service=container.cost_alert_service,
-                embedding_service=container.embedding_service,
-                mqtt_service=container.mqtt_service,
-                homekit_service=container.homekit_service,
-                face_embedding_service=container.face_embedding_service,
-                vehicle_embedding_service=container.vehicle_embedding_service,
-                entity_service=container.entity_service,
+                context_prompt_service=_get_container().context_prompt_service,
+                cost_alert_service=_get_container().cost_alert_service,
+                embedding_service=_get_container().embedding_service,
+                mqtt_service=_get_container().mqtt_service,
+                homekit_service=_get_container().homekit_service,
+                face_embedding_service=_get_container().face_embedding_service,
+                vehicle_embedding_service=_get_container().vehicle_embedding_service,
+                entity_service=_get_container().entity_service,
                 ai_semaphore=self.ai_worker_pool.ai_semaphore if self.ai_worker_pool else None,
             )
 
@@ -489,7 +499,7 @@ class EventProcessor:
 
         Story P3-7.3
         """
-        cost_cap_service = container.cost_cap_service
+        cost_cap_service = _get_container().cost_cap_service
         with get_db_session() as db:
             can_analyze, skip_reason = cost_cap_service.can_analyze(db)
 
@@ -568,7 +578,7 @@ class EventProcessor:
             context_result = None
 
             try:
-                context_service = container.context_prompt_service
+                context_service = _get_container().context_prompt_service
 
                 # Build default base prompt
                 base_prompt = (
@@ -688,7 +698,7 @@ class EventProcessor:
 
             # Check cost thresholds and send alerts (Story P3-7.4)
             try:
-                cost_alert_service = container.cost_alert_service
+                cost_alert_service = _get_container().cost_alert_service
                 with SessionLocal() as db:
                     alerts = await cost_alert_service.check_and_notify(db)
                     if alerts:
@@ -715,7 +725,7 @@ class EventProcessor:
             try:
                 from app.services.mqtt_service import get_mqtt_service, serialize_event_for_mqtt
 
-                mqtt_service = container.mqtt_service
+                mqtt_service = _get_container().mqtt_service
 
                 # Only publish if MQTT is enabled and connected (AC6)
                 if mqtt_service.is_connected:
@@ -767,7 +777,7 @@ class EventProcessor:
             # AC7: Graceful fallback if embedding generation fails
             try:
                 if embedding_vector:
-                    embedding_service = container.embedding_service
+                    embedding_service = _get_container().embedding_service
 
                     # Store embedding in database (AC3: stored in event_embeddings table)
                     with SessionLocal() as embed_db:
@@ -949,7 +959,7 @@ class EventProcessor:
                     # thumbnail_full_path is defined above when thumbnail_base64 is provided
                     if has_annotations and bounding_boxes_json and 'thumbnail_full_path' in locals() and thumbnail_full_path:
                         try:
-                            annotation_service = container.frame_annotation_service
+                            annotation_service = _get_container().frame_annotation_service
                             parsed_boxes = json.loads(bounding_boxes_json)
                             annotated_path = annotation_service.annotate_frame(
                                 thumbnail_full_path,
@@ -1371,7 +1381,7 @@ class EventProcessor:
             - Errors don't propagate to caller (AC3)
         """
         try:
-            pattern_service = container.pattern_service
+            pattern_service = _get_container().pattern_service
 
             # Use own session since caller's may be closed
             with get_db_session() as db:
@@ -1407,7 +1417,7 @@ class EventProcessor:
             - Uses AnomalyScoringService for calculation (AC2)
         """
         try:
-            anomaly_service = container.anomaly_scoring_service
+            anomaly_service = _get_container().anomaly_scoring_service
 
             # Use own session since caller's may be closed
             with get_db_session() as db:
@@ -1454,8 +1464,8 @@ class EventProcessor:
             from app.models.system_setting import SystemSetting
             import base64
 
-            face_service = container.face_embedding_service
-            person_service = container.person_matching_service
+            face_service = _get_container().face_embedding_service
+            person_service = _get_container().person_matching_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -1582,8 +1592,8 @@ class EventProcessor:
             from app.models.system_setting import SystemSetting
             import base64
 
-            vehicle_service = container.vehicle_embedding_service
-            matching_service = container.vehicle_matching_service
+            vehicle_service = _get_container().vehicle_embedding_service
+            matching_service = _get_container().vehicle_matching_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -1709,7 +1719,7 @@ class EventProcessor:
             from app.models.vehicle_embedding import VehicleEmbedding
             import json
 
-            entity_service = container.entity_alert_service
+            entity_service = _get_container().entity_alert_service
 
             # Create new database session for background task
             with get_db_session() as db:
@@ -1989,7 +1999,7 @@ class EventProcessor:
         try:
             import base64 as b64
 
-            embedding_service = container.embedding_service
+            embedding_service = _get_container().embedding_service
 
             # Strip data URI prefix if present
             b64_str = thumbnail_base64
@@ -2029,7 +2039,7 @@ class EventProcessor:
         try:
             from app.core.database import SessionLocal
 
-            entity_service = container.entity_service
+            entity_service = _get_container().entity_service
 
             with SessionLocal() as entity_db:
                 entity_result = await entity_service.match_entity_only(
@@ -2105,7 +2115,7 @@ class EventProcessor:
         try:
             from app.services.mqtt_status_service import get_camera_event_counts
 
-            mqtt_service = container.mqtt_service
+            mqtt_service = _get_container().mqtt_service
 
             if not mqtt_service.is_connected:
                 return
@@ -2164,7 +2174,7 @@ class EventProcessor:
         try:
             from app.services.homekit_service import get_homekit_service
 
-            homekit_service = container.homekit_service
+            homekit_service = _get_container().homekit_service
 
             if not homekit_service.is_running:
                 return
@@ -2241,7 +2251,7 @@ class EventProcessor:
             return
 
         try:
-            entity_service = container.entity_service
+            entity_service = _get_container().entity_service
 
             # Determine entity type
             entity_type = "unknown"
@@ -2478,6 +2488,12 @@ def get_event_processor() -> Optional[EventProcessor]:
         EventProcessor instance or None if not initialized
     """
     return _event_processor
+
+
+def reset_event_processor() -> None:
+    """Reset the global EventProcessor instance (for testing)."""
+    global _event_processor
+    _event_processor = None
 
 
 async def initialize_event_processor(

@@ -40,6 +40,8 @@ from app.services.ai_prompt_service import AIPromptService
 from app.services.ai_types import AIProvider, AIResult, PROVIDER_CAPABILITIES
 from app.services.video_analysis_service import VideoAnalysisService, video_analysis_service
 from app.services.litellm_service import LiteLLMService, litellm_service
+from app.services.ai_resilience_service import AIResilienceService
+from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
 
 
 logger = logging.getLogger(__name__)
@@ -262,9 +264,8 @@ class AIService:
             claude_model: Claude model to use (e.g., "claude-opus-4-20250514")
         """
         # Wire resilience
-        self.resilience_service = resilience_service
-        if active_provider_names:
-            self.resilience_service.initialize_circuit_breakers(active_provider_names)
+        self.resilience_service = AIResilienceService()
+        # Note: circuit breakers are initialized later when providers are known
 
         # Wire prompt service
         self.prompt_service = AIPromptService(
@@ -277,7 +278,7 @@ class AIService:
         logger.info("AIPromptService initialized")
 
         # Wire Vision Orchestrator
-        self.vision_orchestrator = vision_orchestrator
+        self.vision_orchestrator = VisionAnalysisOrchestrator()
         self.vision_orchestrator.set_providers(self.providers)
         self.vision_orchestrator.set_prompt_service(self.prompt_service)
         self.vision_orchestrator.set_resilience_service(self.resilience_service)

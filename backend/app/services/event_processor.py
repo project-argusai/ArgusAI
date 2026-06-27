@@ -42,10 +42,20 @@ from typing import TYPE_CHECKING
 
 from app.models.camera import Camera
 from app.models.event import Event
+from app.models.system_setting import SystemSetting
 from app.services.ai_service import AIService
 from app.services.ai_processing_worker import AIProcessingWorker
 from app.services.ai_worker_pool import AIWorkerPool
 from app.services.ai_processing_coordinator import AIProcessingCoordinator
+from app.services.ai_types import (
+    FACE_RECOGNITION_ENABLED,
+    VEHICLE_RECOGNITION_ENABLED,
+    PERSON_MATCH_THRESHOLD,
+    AUTO_CREATE_PERSONS,
+    UPDATE_APPEARANCE_ON_HIGH_MATCH,
+    VEHICLE_MATCH_THRESHOLD,
+    AUTO_CREATE_VEHICLES,
+)
 from app.services.camera_service import CameraService
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
@@ -1443,7 +1453,6 @@ class EventProcessor:
             - Errors don't propagate to caller (AC6)
         """
         try:
-            from app.models.system_setting import SystemSetting
             import base64
 
             face_service = _get_container().face_embedding_service
@@ -1478,15 +1487,15 @@ class EventProcessor:
                     )
 
                     # Step 13: Person Matching (P4-8.2)
-                    # Get settings for person matching
+                    # Get settings for person matching (standardized in Phase B Slice 3)
                     threshold_setting = db.query(SystemSetting).filter(
-                        SystemSetting.key == "person_match_threshold"
+                        SystemSetting.key == PERSON_MATCH_THRESHOLD
                     ).first()
                     auto_create_setting = db.query(SystemSetting).filter(
-                        SystemSetting.key == "auto_create_persons"
+                        SystemSetting.key == AUTO_CREATE_PERSONS
                     ).first()
                     update_appearance_setting = db.query(SystemSetting).filter(
-                        SystemSetting.key == "update_appearance_on_high_match"
+                        SystemSetting.key == UPDATE_APPEARANCE_ON_HIGH_MATCH
                     ).first()
 
                     threshold = float(threshold_setting.value) if threshold_setting else 0.70
@@ -1571,7 +1580,6 @@ class EventProcessor:
             - Errors don't propagate to caller
         """
         try:
-            from app.models.system_setting import SystemSetting
             import base64
 
             vehicle_service = _get_container().vehicle_embedding_service
@@ -1606,12 +1614,12 @@ class EventProcessor:
                     )
 
                     # Step 14b: Vehicle Matching (P4-8.3)
-                    # Get settings for vehicle matching
+                    # Get settings for vehicle matching (standardized in Phase B Slice 3)
                     threshold_setting = db.query(SystemSetting).filter(
-                        SystemSetting.key == "vehicle_match_threshold"
+                        SystemSetting.key == VEHICLE_MATCH_THRESHOLD
                     ).first()
                     auto_create_setting = db.query(SystemSetting).filter(
-                        SystemSetting.key == "auto_create_vehicles"
+                        SystemSetting.key == AUTO_CREATE_VEHICLES
                     ).first()
 
                     threshold = float(threshold_setting.value) if threshold_setting else 0.65
@@ -2281,20 +2289,19 @@ class EventProcessor:
     ) -> None:
         """Privacy-gated entity alert processing (fire-and-forget)."""
         try:
-            from app.models.system_setting import SystemSetting
-
             face_recognition_enabled = False
             vehicle_recognition_enabled = False
 
-            with SessionLocal() as settings_db:
-                face_setting = settings_db.query(SystemSetting).filter(
-                    SystemSetting.key == "face_recognition_enabled"
+            with get_db_session() as db:
+                # Use standardized constants (Phase B Slice 2)
+                face_setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == FACE_RECOGNITION_ENABLED
                 ).first()
                 if face_setting and face_setting.value.lower() == "true":
                     face_recognition_enabled = True
 
-                vehicle_setting = settings_db.query(SystemSetting).filter(
-                    SystemSetting.key == "vehicle_recognition_enabled"
+                vehicle_setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == VEHICLE_RECOGNITION_ENABLED
                 ).first()
                 if vehicle_setting and vehicle_setting.value.lower() == "true":
                     vehicle_recognition_enabled = True
@@ -2364,16 +2371,16 @@ class EventProcessor:
     ) -> None:
         """Privacy-gated face processing (fire-and-forget)."""
         try:
-            from app.models.system_setting import SystemSetting
             from app.services.face_embedding_service import get_face_embedding_service
 
-            with SessionLocal() as settings_db:
-                setting = settings_db.query(SystemSetting).filter(
-                    SystemSetting.key == "face_recognition_enabled"
+            face_recognition_enabled = False
+            with get_db_session() as db:
+                # Use standardized constant (Phase B Slice 2)
+                setting = db.query(SystemSetting).filter(
+                    SystemSetting.key == FACE_RECOGNITION_ENABLED
                 ).first()
-                face_recognition_enabled = (
-                    setting.value.lower() == "true" if setting else False
-                )
+                if setting and setting.value.lower() == "true":
+                    face_recognition_enabled = True
 
             if face_recognition_enabled and thumbnail_base64:
                 asyncio.create_task(

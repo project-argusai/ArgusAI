@@ -89,3 +89,17 @@ PROVIDER_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "supports_audio": True,
     },
 }
+
+
+# Recognition feature flags (SystemSetting keys) - Phase B standardization
+FACE_RECOGNITION_ENABLED = "face_recognition_enabled"
+VEHICLE_RECOGNITION_ENABLED = "vehicle_recognition_enabled"
+
+# Person matching settings (SystemSetting keys) - Phase B Slice 3
+PERSON_MATCH_THRESHOLD = "person_match_threshold"
+AUTO_CREATE_PERSONS = "auto_create_persons"
+UPDATE_APPEARANCE_ON_HIGH_MATCH = "update_appearance_on_high_match"
+
+# Vehicle matching settings (SystemSetting keys) - Phase B Slice 3
+VEHICLE_MATCH_THRESHOLD = "vehicle_match_threshold"
+AUTO_CREATE_VEHICLES = "auto_create_vehicles"

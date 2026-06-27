@@ -214,3 +214,5 @@ backend/data/clips/
 
 # Generated service files (install.sh --services)
 /services/
+
+/graphify-out

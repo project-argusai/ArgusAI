@@ -1,7 +1,7 @@
 # FastAPI and Web Framework
-fastapi[standard]==0.136.1
-uvicorn[standard]==0.47.0
-python-multipart>=0.0.28
+fastapi[standard]==0.138.1
+uvicorn[standard]==0.49.0
+python-multipart>=0.0.32
 
 # Task Scheduling
 apscheduler>=3.11.2
@@ -10,39 +10,39 @@ apscheduler>=3.11.2
 tenacity>=9.1.4
 
 # Database
-sqlalchemy>=2.0.49
-alembic>=1.18.4
+sqlalchemy>=2.0.51
+alembic>=1.18.5
 
 # Data Validation
 pydantic>=2.13.4
-pydantic-settings>=2.14.1
+pydantic-settings>=2.14.2
 
 # Camera and Image Processing
 opencv-python-headless>=4.13.0.92  # Headless version for servers (no GUI/libGL dependency)
-av>=17.0.1  # PyAV for secure RTSP (rtsps://) streams
+av>=17.1.0  # PyAV for secure RTSP (rtsps://) streams
 
 # Security and Encryption
-cryptography==48.0.0
+cryptography==49.0.0
 python-jose[cryptography]==3.5.0
 bcrypt>=5.0.0
-slowapi>=0.1.9
+slowapi>=0.1.10
 
 # AI Vision APIs
-openai>=2.30.0
-anthropic>=0.102.0
+openai>=2.44.0
+anthropic>=0.112.0
 google-generativeai>=0.8.6
 litellm>=1.83.7  # Unified LLM gateway SDK with fallbacks and cost tracking
 pillow>=12.2.0
 pytesseract>=0.3.13  # OCR for frame overlay text extraction (optional, requires tesseract binary)
 
 # UniFi Protect Integration (Phase 2)
-uiprotect>=10.4.1  # UniFi Protect API client
+uiprotect>=15.3.0  # UniFi Protect API client
 
 # Web Push Notifications (Phase 4)
 pywebpush>=2.3.0  # Web Push with VAPID authentication
 
 # Email Delivery (Phase 4 - Story P4-4.3)
-aiosmtplib>=5.1.0  # Async SMTP client for digest email delivery
+aiosmtplib>=5.1.2  # Async SMTP client for digest email delivery
 
 # MQTT Integration (Phase 4 - Home Assistant)
 paho-mqtt>=2.1.0  # MQTT client for Home Assistant integration
@@ -52,7 +52,7 @@ HAP-python>=5.0.0  # HomeKit Accessory Protocol for Apple Home integration
 qrcode>=8.2  # QR code generation for HomeKit pairing
 
 # Temporal Context Engine (Phase 4 - Story P4-3.1)
-sentence-transformers>=5.5.0  # CLIP model for image embeddings
+sentence-transformers>=5.6.0  # CLIP model for image embeddings
 
 # ONVIF Camera Discovery (Phase 5 - Story P5-2.1)
 WSDiscovery>=2.1.2  # WS-Discovery protocol for camera auto-discovery
@@ -65,12 +65,12 @@ psutil>=7.2.2
 
 # APNS Push Notifications (Phase 11 - Story P11-2.1)
 httpx[http2]>=0.28.1  # HTTP/2 client for APNS
-PyJWT>=2.12.1  # JWT generation for APNS authentication
+PyJWT>=2.13.0  # JWT generation for APNS authentication
 
 # FCM Push Notifications (Phase 11 - Story P11-2.2)
 firebase-admin>=7.4.0  # Firebase Admin SDK for FCM
 
 # Development and Testing
-pytest==9.0.3
-pytest-asyncio==1.3.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
 pytest-cov==7.1.0

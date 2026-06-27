@@ -35,7 +35,7 @@ export function Logo({ size = 24, showText = true, text = 'ArgusAI', className }
         />
       </div>
       {showText && (
-        <span className="font-bold text-lg truncate">{text}</span>
+        <span className="font-bold text-lg tracking-[-0.02em] truncate">{text}</span>
       )}
     </div>
   );

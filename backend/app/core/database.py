@@ -9,14 +9,30 @@ from app.core.config import settings
 
 # Configure engine based on database type
 # Story P10-2.5: Add PostgreSQL support
+_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+
 engine_kwargs = {
     "echo": settings.DEBUG,  # Log SQL queries in debug mode
+    # pool_pre_ping issues a lightweight liveness check before handing out a
+    # connection, transparently replacing ones dropped by the DB/network while
+    # idle. Safe for both SQLite and PostgreSQL.
+    "pool_pre_ping": settings.DB_POOL_PRE_PING,
+    "pool_recycle": settings.DB_POOL_RECYCLE,
 }
 
-# SQLite requires check_same_thread=False for multi-threaded access
-# PostgreSQL doesn't need this and doesn't support it
-if settings.DATABASE_URL.startswith("sqlite"):
+if _is_sqlite:
+    # SQLite requires check_same_thread=False for multi-threaded access (camera
+    # threads + asyncio workers). It is single-writer, so pool sizing is N/A.
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # PostgreSQL (prod): bound the connection pool explicitly so concurrent
+    # workers/replicas cannot exhaust the server's max_connections. All values
+    # are env-driven (12-Factor III) and default to SQLAlchemy's own defaults.
+    engine_kwargs.update(
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+    )
 
 # Create SQLAlchemy engine
 engine = create_engine(settings.DATABASE_URL, **engine_kwargs)

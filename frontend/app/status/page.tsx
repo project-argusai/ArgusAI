@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Activity,
   Camera,
@@ -22,12 +22,13 @@ import {
   HardDrive,
   MemoryStick,
   RotateCcw,
+  Shield,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 import { apiClient } from '@/lib/api-client';
 import type { SystemHealth, LogEntry, LogsResponse } from '@/types/monitoring';
-import { AuthContext } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,8 +55,8 @@ export default function StatusPage() {
   // AI Resilience reset tracking
   const [lastCircuitBreakerReset, setLastCircuitBreakerReset] = useState<string | null>(null);
 
-  const auth = useContext(AuthContext);
-  const isAdmin = auth?.isAdmin ?? false;
+  const auth = useAuth();
+  const isAdmin = auth.isAdmin;
 
   // Load data on mount and set up refresh interval
   useEffect(() => {
@@ -84,12 +85,7 @@ export default function StatusPage() {
         // Non-critical
       }
 
-      // Refresh Hot Activity (coordinator hot lists)
-      try {
-        await loadHotActivity();
-      } catch (e) {
-        // Non-critical
-      }
+      // Hot Activity refreshes itself via the self-contained <HotActivityCard />.
 
       setLastUpdated(new Date());
     } catch (error) {

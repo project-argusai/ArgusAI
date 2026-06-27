@@ -28,6 +28,12 @@ interface CircuitBreakerStatus {
   current_failure_rate: number | null;
   recent_window_size: number;
   last_failure_time: string | null;
+  recent_transitions?: Array<{
+    timestamp: number;
+    from_state?: string;
+    to_state?: string;
+    reason?: string;
+  }>;
 }
 
 interface AIResilienceData {

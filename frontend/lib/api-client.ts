@@ -1262,98 +1262,6 @@ export const apiClient = {
       return apiFetch('/auth/sessions');
     },
 
-    // AI Resilience / Circuit Breakers (Phase A - A.5)
-    getAIResilience: async (): Promise<any> => {
-      return apiFetch('/system/ai-resilience');
-    },
-
-    updateAIResilienceConfig: async (provider: string, config: any): Promise<any> => {
-      return apiFetch(`/system/ai-resilience/${provider}`, {
-        method: 'PUT',
-        body: JSON.stringify(config),
-      });
-    },
-
-    resetAICircuitBreaker: async (provider: string): Promise<{ message: string }> => {
-      return apiFetch(`/system/ai-resilience/${provider}/reset`, {
-        method: 'POST',
-      });
-    },
-
-    /**
-     * Get current hot cameras and top recent entities (with rich filtering support)
-     * Uses the AIProcessingCoordinator hot lists surfaced via /system/ai-processing-hot
-     */
-    getAIProcessingHot: async (params?: {
-      limit?: number;
-      min_camera_count?: number;
-      min_camera_score?: number;
-      min_score?: number;
-      entity_is_new?: boolean;
-      entity_types?: string;
-    }): Promise<{
-      status: string;
-      hot_cameras: any[];
-      top_recent_entities: any[];
-      filters_applied: Record<string, any>;
-    }> => {
-      const query = new URLSearchParams();
-      if (params) {
-        Object.entries(params).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            query.set(key, String(value));
-          }
-        });
-      }
-      const qs = query.toString();
-      return apiFetch(`/system/ai-processing-hot${qs ? `?${qs}` : ''}`);
-    },
-
-    /**
-     * Get recent AI processing activity records (rich per-event data from the coordinator ring buffer).
-     * Uses the dedicated /system/ai-processing-recent endpoint.
-     */
-    getAIProcessingRecent: async (params?: {
-      limit?: number;
-    }): Promise<{
-      status: string;
-      recent_activity: any[];
-      count: number;
-      limit: number;
-    }> => {
-      const query = new URLSearchParams();
-      if (params?.limit) query.set('limit', String(params.limit));
-      const qs = query.toString();
-      return apiFetch(`/system/ai-processing-recent${qs ? `?${qs}` : ''}`);
-    },
-
-    /**
-     * Get AI cost & token usage trends over time.
-     * Uses the new /system/ai-cost-trends endpoint.
-     */
-    getAICostTrends: async (params?: {
-      days_back?: number;
-      bucket?: 'day' | 'hour';
-    }): Promise<{
-      status: string;
-      trends: Array<{
-        bucket: string;
-        calls: number;
-        total_cost: number;
-        total_tokens: number;
-        avg_response_time_ms: number | null;
-      }>;
-      count: number;
-      days_back: number;
-      bucket: string;
-    }> => {
-      const query = new URLSearchParams();
-      if (params?.days_back) query.set('days_back', String(params.days_back));
-      if (params?.bucket) query.set('bucket', params.bucket);
-      const qs = query.toString();
-      return apiFetch(`/system/ai-cost-trends${qs ? `?${qs}` : ''}`);
-    },
-
     /**
      * Revoke a specific session
      * @param sessionId Session ID to revoke
@@ -1373,6 +1281,98 @@ export const apiClient = {
         method: 'DELETE',
       });
     },
+  },
+
+  // AI Resilience / Circuit Breakers (Phase A - A.5)
+  getAIResilience: async (): Promise<any> => {
+    return apiFetch('/system/ai-resilience');
+  },
+
+  updateAIResilienceConfig: async (provider: string, config: any): Promise<any> => {
+    return apiFetch(`/system/ai-resilience/${provider}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  resetAICircuitBreaker: async (provider: string): Promise<{ message: string }> => {
+    return apiFetch(`/system/ai-resilience/${provider}/reset`, {
+      method: 'POST',
+    });
+  },
+
+  /**
+   * Get current hot cameras and top recent entities (with rich filtering support)
+   * Uses the AIProcessingCoordinator hot lists surfaced via /system/ai-processing-hot
+   */
+  getAIProcessingHot: async (params?: {
+    limit?: number;
+    min_camera_count?: number;
+    min_camera_score?: number;
+    min_score?: number;
+    entity_is_new?: boolean;
+    entity_types?: string;
+  }): Promise<{
+    status: string;
+    hot_cameras: any[];
+    top_recent_entities: any[];
+    filters_applied: Record<string, any>;
+  }> => {
+    const query = new URLSearchParams();
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          query.set(key, String(value));
+        }
+      });
+    }
+    const qs = query.toString();
+    return apiFetch(`/system/ai-processing-hot${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Get recent AI processing activity records (rich per-event data from the coordinator ring buffer).
+   * Uses the dedicated /system/ai-processing-recent endpoint.
+   */
+  getAIProcessingRecent: async (params?: {
+    limit?: number;
+  }): Promise<{
+    status: string;
+    recent_activity: any[];
+    count: number;
+    limit: number;
+  }> => {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return apiFetch(`/system/ai-processing-recent${qs ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * Get AI cost & token usage trends over time.
+   * Uses the new /system/ai-cost-trends endpoint.
+   */
+  getAICostTrends: async (params?: {
+    days_back?: number;
+    bucket?: 'day' | 'hour';
+  }): Promise<{
+    status: string;
+    trends: Array<{
+      bucket: string;
+      calls: number;
+      total_cost: number;
+      total_tokens: number;
+      avg_response_time_ms: number | null;
+    }>;
+    count: number;
+    days_back: number;
+    bucket: string;
+  }> => {
+    const query = new URLSearchParams();
+    if (params?.days_back) query.set('days_back', String(params.days_back));
+    if (params?.bucket) query.set('bucket', params.bucket);
+    const qs = query.toString();
+    return apiFetch(`/system/ai-cost-trends${qs ? `?${qs}` : ''}`);
   },
 
   // User Management (Story P15-2.3)

@@ -8,6 +8,16 @@ export interface SystemHealth {
   camera_count: number;
   uptime_seconds?: number;
   version?: string;
+  // UniFi Protect WebSocket health (Story #437) — present only when a
+  // Protect controller is configured; the status page guards on its presence.
+  protect_ws?: {
+    is_healthy: boolean;
+    state: string;
+    last_message_age_seconds: number | null;
+    reconnect_attempts: number;
+    controller_name?: string | null;
+    last_error?: string | null;
+  };
 }
 
 export interface ServiceStatus {

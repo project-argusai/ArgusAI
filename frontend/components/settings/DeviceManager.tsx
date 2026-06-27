@@ -20,7 +20,7 @@ import {
   AlertTriangle,
   Loader2,
   Apple,
-  Chrome,
+  Globe,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -69,7 +69,7 @@ function PlatformIcon({ platform }: { platform: string }) {
     case 'android':
       return <Smartphone className="h-4 w-4" />;
     case 'web':
-      return <Chrome className="h-4 w-4" />;
+      return <Globe className="h-4 w-4" />;
     default:
       return <Smartphone className="h-4 w-4" />;
   }

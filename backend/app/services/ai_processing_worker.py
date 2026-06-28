@@ -10,7 +10,7 @@ the AI pipeline (_process_event).
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 if TYPE_CHECKING:
     from app.services.event_processor import EventProcessor, ProcessingEvent

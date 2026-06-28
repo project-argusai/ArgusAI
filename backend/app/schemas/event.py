@@ -260,6 +260,8 @@ class EventResponse(BaseModel):
     ocr_used: bool = Field(default=False, description="Whether overlay text was extracted from the video frame and provided to the AI")
     # Surfaced from AIProcessingCoordinator: whether fallback occurred
     ai_fallback_used: bool = Field(default=False, description="True if the AI call fell back to a secondary provider")
+    # A/B prompt experiment variant (surfaced from coordinator; consumed by AIEconomics)
+    prompt_variant: Optional[str] = Field(None, description="Prompt variant used for the AI vision call ('control'/'experiment'; null = no A/B test active)")
     # Story P4-3.4: Rich early entity match metadata (surfaced from coordinator)
     entity_similarity_score: Optional[float] = Field(None, description="Similarity score of the matched entity from early embedding (0.0-1.0)")
     entity_occurrence_count: Optional[int] = Field(None, description="Number of previous sightings of this entity")

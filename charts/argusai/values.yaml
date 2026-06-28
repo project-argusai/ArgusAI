@@ -7,11 +7,24 @@ fullnameOverride: ""
 
 # Backend configuration
 backend:
+  # MUST stay 1: the backend is a stateful singleton (in-process queue,
+  # per-camera threads, APScheduler, HomeKit/Protect/MQTT). Scaling requires
+  # the web/worker split described in PRODUCTION_DEPLOYMENT.md.
   replicaCount: 1
   image:
     repository: ghcr.io/project-argusai/argusai-backend
+    # Pin to an immutable tag/digest per release (build-once/promote). "latest"
+    # is non-reproducible and breaks 12-Factor V — override in CD per deploy.
     tag: "latest"
     pullPolicy: IfNotPresent
+  # Recreate, not RollingUpdate: a 2nd pod cannot mount the RWO PVC.
+  strategy:
+    type: Recreate
+  # >= in-process drain (queue 30s + cameras 5s + buffer); see backend/main.py.
+  terminationGracePeriodSeconds: 45
+  # Cold boot loads CLIP + opens Protect WS/HomeKit; allow up to 30*5s = 150s.
+  startupProbe:
+    failureThreshold: 30
   resources:
     requests:
       memory: "512Mi"
@@ -22,6 +35,29 @@ backend:
   service:
     type: ClusterIP
     port: 8000
+
+# PodDisruptionBudget — guards the singleton backend during node drains.
+# maxUnavailable: 0 forces voluntary disruptions (drains/upgrades) to wait for
+# operator action rather than silently taking the only backend pod down.
+podDisruptionBudget:
+  backend:
+    enabled: true
+    maxUnavailable: 0
+  frontend:
+    enabled: true
+    minAvailable: 1
+
+# Horizontal Pod Autoscaler — DISABLED for the backend by design (singleton).
+# Only the stateless frontend may be autoscaled. Do not enable backend HPA
+# until the web/worker split + leader election land.
+autoscaling:
+  backend:
+    enabled: false
+  frontend:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
 
 # Frontend configuration
 frontend:

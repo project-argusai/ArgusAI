@@ -1,0 +1,35 @@
+# ArgusAI PodDisruptionBudgets
+# Guards availability during voluntary disruptions (node drains, cluster upgrades).
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argusai-backend
+  namespace: argusai
+  labels:
+    app: argusai
+    component: backend
+spec:
+  # The backend is a single-replica stateful singleton. maxUnavailable: 0 makes
+  # voluntary disruptions block until an operator drains it deliberately, rather
+  # than letting a node drain silently take down the only backend pod.
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: argusai
+      component: backend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: argusai-frontend
+  namespace: argusai
+  labels:
+    app: argusai
+    component: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: argusai
+      component: frontend

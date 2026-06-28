@@ -9,6 +9,7 @@ from alembic import context
 # Import Base and all models to ensure they're registered
 from app.core.database import Base
 from app.models import Camera, HotCameraActivity, HotEntityActivity  # Import all models here
+from app.core.config import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -18,6 +19,19 @@ config = context.config
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Always target the SAME database the application uses. `settings.DATABASE_URL`
+# is sourced from the DATABASE_URL env var (see app.core.config), so this makes
+# `DATABASE_URL=... alembic upgrade head` actually take effect — for CI, for
+# testing a migration against a *copy* of a DB, and for prod alike.
+#
+# Previously both env.py paths read only the static alembic.ini `sqlalchemy.url`,
+# so DATABASE_URL was silently ignored — which made "test against a copy first"
+# unknowingly run against the real database. The `%` -> `%%` escape protects
+# ConfigParser interpolation for URLs that contain a literal '%' (e.g. an
+# encoded password in a Postgres DSN).
+if settings.DATABASE_URL:
+    config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("%", "%%"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support

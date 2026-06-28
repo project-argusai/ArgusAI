@@ -12,7 +12,7 @@ import threading
 import time
 import logging
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 import numpy as np
 from app.core.decorators import singleton

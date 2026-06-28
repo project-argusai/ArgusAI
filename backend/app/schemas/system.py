@@ -578,7 +578,11 @@ class CircuitBreakerStatusResponse(BaseModel):
 
 class AIResilienceResponse(BaseModel):
     """Full AI Resilience status"""
-    default: CircuitBreakerStatusResponse
+    # Optional so the endpoint degrades gracefully (HTTP 200) when the
+    # AIResilienceService is not initialized — in that case the service layer
+    # returns just {"last_reset": None}. A required `default` made FastAPI raise
+    # ResponseValidationError -> 500 on GET /api/v1/system/ai-resilience.
+    default: Optional[CircuitBreakerStatusResponse] = None
     openai: Optional[CircuitBreakerStatusResponse] = None
     grok: Optional[CircuitBreakerStatusResponse] = None
     claude: Optional[CircuitBreakerStatusResponse] = None

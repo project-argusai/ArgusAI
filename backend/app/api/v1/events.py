@@ -590,6 +590,7 @@ def list_events(
                 "correlation_group_id": event.correlation_group_id,
                 "correlated_events": None,
                 "provider_used": event.provider_used,
+                "prompt_variant": getattr(event, 'prompt_variant', None),
                 "fallback_reason": event.fallback_reason,
                 "analysis_mode": event.analysis_mode,
                 "frame_count_used": event.frame_count_used,

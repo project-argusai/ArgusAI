@@ -1,0 +1,31 @@
+{{- if .Values.podDisruptionBudget.backend.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "argusai.backendFullname" . }}
+  labels:
+    {{- include "argusai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  # Singleton backend: block voluntary disruptions (node drain / cluster
+  # upgrade) until an operator intervenes, rather than evicting the only pod.
+  maxUnavailable: {{ .Values.podDisruptionBudget.backend.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "argusai.backendSelectorLabels" . | nindent 6 }}
+{{- end }}
+---
+{{- if .Values.podDisruptionBudget.frontend.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "argusai.frontendFullname" . }}
+  labels:
+    {{- include "argusai.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.frontend.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "argusai.frontendSelectorLabels" . | nindent 6 }}
+{{- end }}

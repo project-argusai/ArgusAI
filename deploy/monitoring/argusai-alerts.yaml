@@ -1,0 +1,95 @@
+# ArgusAI Prometheus rules — recording rules + SLO alerts.
+# Targets metrics already exported by backend/app/core/metrics.py (scrape /metrics).
+# Load via Prometheus `rule_files:` or a PrometheusRule CR (Prometheus Operator).
+#
+# SLOs encoded here:
+#   - AI description p95 latency  < 5s   (event_processor target)
+#   - Event pipeline never backs up      (queue depth bounded)
+#   - AI provider chain stays closed     (circuit breaker not Open)
+#   - HTTP availability                  (5xx ratio < 1%)
+groups:
+  - name: argusai.recording
+    interval: 30s
+    rules:
+      # p95 of end-to-end AI API latency over 5m, for the <5s SLO.
+      - record: job:ai_api_duration_seconds:p95_5m
+        expr: histogram_quantile(0.95, sum(rate(ai_api_duration_seconds_bucket[5m])) by (le))
+      # HTTP 5xx error ratio over 5m.
+      - record: job:http_requests:error_ratio_5m
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1)
+
+  - name: argusai.slo
+    rules:
+      # ---- Availability ----
+      - alert: ArgusAIBackendDown
+        expr: up{job="argusai-backend"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "ArgusAI backend is down (scrape failing for 2m)"
+          description: "Prometheus cannot scrape the backend /metrics — pod down or unreachable."
+
+      - alert: ArgusAIHighHTTPErrorRate
+        expr: job:http_requests:error_ratio_5m > 0.01
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "HTTP 5xx ratio > 1% for 10m"
+          description: "Error ratio is {{ $value | humanizePercentage }} — investigate recent deploy or a failing dependency."
+
+      # ---- AI latency SLO ----
+      - alert: ArgusAIDescriptionLatencySLOBreach
+        expr: job:ai_api_duration_seconds:p95_5m > 5
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "AI description p95 latency > 5s SLO"
+          description: "p95 is {{ $value }}s. Check provider health, retry/backoff, and event_queue_depth."
+
+      # ---- Event pipeline backpressure ----
+      - alert: ArgusAIEventQueueBacklog
+        expr: event_queue_depth > 50
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Event queue backlog sustained (> 50 for 5m)"
+          description: "Depth {{ $value }}. Workers cannot keep up — risk of queue overflow + dropped events."
+
+      - alert: ArgusAIEventQueueNearOverflow
+        expr: event_queue_depth > 200
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Event queue near overflow — events about to be dropped"
+          description: "Depth {{ $value }}. The bounded queue drops on overflow; scale workers or shed load now."
+
+      # ---- AI resilience ----
+      - alert: ArgusAICircuitBreakerOpen
+        expr: ai_circuit_breaker_state == 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "AI provider circuit breaker OPEN ({{ $labels.provider }})"
+          description: "Provider {{ $labels.provider }} has been failing — fallback chain is degraded."
+
+      # ---- Integrations ----
+      - alert: ArgusAIProtectWebSocketDisconnected
+        expr: protect_ws_connected == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "UniFi Protect WebSocket disconnected for 5m"
+          description: "Live Protect events are not being received — reconnect loop may be stuck."
+
+      # ---- Saturation ----
+      - alert: ArgusAIBackendMemoryPressure
+        expr: |
+          container_memory_working_set_bytes{container="backend"}
+            / clamp_min(kube_pod_container_resource_limits{container="backend",resource="memory"}, 1) > 0.9
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Backend memory > 90% of limit for 10m"
+          description: "Near the 1Gi limit — OOMKill risk (CLIP model + frame buffers). Raise limit or investigate a leak."

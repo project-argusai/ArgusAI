@@ -17,11 +17,14 @@ spec:
     matchLabels:
       app: argusai
       component: backend
+  # Recreate (not RollingUpdate): the backend is a single-replica stateful
+  # singleton (in-process queue, per-camera threads, APScheduler, HomeKit/
+  # Protect/MQTT clients) bound to a ReadWriteOnce PVC. A surge pod cannot
+  # mount the RWO volume on another node -> rolling deadlock. Recreate stops
+  # the old pod before starting the new one. (Brief downtime is acceptable;
+  # see PRODUCTION_DEPLOYMENT.md for the web/worker split that removes it.)
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+    type: Recreate
   template:
     metadata:
       labels:
@@ -34,7 +37,10 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
-      terminationGracePeriodSeconds: 30
+      # Must exceed the in-process drain: event-queue drain (30s) + camera
+      # stop (5s) + buffer. Keep in sync with the lifespan shutdown timeouts
+      # in backend/main.py so SIGKILL never truncates the queue drain.
+      terminationGracePeriodSeconds: 45
       containers:
         - name: backend
           image: ghcr.io/project-argusai/argusai-backend:latest
@@ -58,17 +64,27 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/data
+          # Startup probe: a cold backend loads the CLIP model and opens the
+          # Protect WebSocket / HomeKit bridge, which can take well over the
+          # liveness initialDelay. Gate liveness behind startup so a slow boot
+          # is not mistaken for a crash. Allows up to 30 x 5s = 150s to start.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
           livenessProbe:
             httpGet:
-              path: /api/v1/system/health
+              path: /health
               port: 8000
-            initialDelaySeconds: 15
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/v1/system/health
+              path: /health
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10

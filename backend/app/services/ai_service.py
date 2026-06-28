@@ -714,17 +714,21 @@ class AIService:
 ai_service = AIService()
 
 
-# Backward compatible thin getter (delegates to @singleton decorator)
 def get_ai_service() -> AIService:
     """
-    Get the global AIService instance.
+    Get the shared global AIService instance.
 
-    Note: This is now a thin backward-compatible wrapper.
-          New code should prefer AIService() directly.
+    IMPORTANT: must return the module-global `ai_service`, NOT a fresh
+    `AIService()`. AIService is not a singleton, and a fresh instance is
+    unconfigured (no providers, no resilience service). Returning a new instance
+    each call caused instance fragmentation: e.g. the /ai-resilience endpoint
+    configured one throwaway instance via load_api_keys_from_db and then read
+    resilience state from a different (unconfigured) instance -> empty status.
     """
-    return AIService()
+    return ai_service
 
 
 def reset_ai_service() -> None:
     """Reset the global AIService instance (for testing)."""
-    AIService._reset_instance()
+    global ai_service
+    ai_service = AIService()

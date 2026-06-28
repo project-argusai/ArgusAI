@@ -3081,6 +3081,13 @@ async def get_ai_resilience_status(db: Session = Depends(get_db)):
     Used by the AI Resilience settings page.
     """
     try:
+        # AI provider wiring (incl. the resilience service + circuit breakers) is
+        # lazy — it only runs on the first AI processing call (event_processor,
+        # reanalyze, etc.), not at startup. A freshly-restarted process that has
+        # not yet processed an AI event would otherwise report an empty stub.
+        # Ensure it's configured so admins see real circuit-breaker state.
+        if container.ai_service.resilience_service is None:
+            await container.ai_service.load_api_keys_from_db(db)
         return container.ai_service.get_ai_resilience_status(db)
     except Exception as e:
         logger.error(f"Failed to get AI resilience status: {e}", exc_info=True)

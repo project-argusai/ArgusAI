@@ -104,7 +104,7 @@ class CameraTaskManager:
 
         Shared between per-camera motion tasks and the background health monitor.
         """
-        stats = self.motion_task_stats.setdefault(camera.id, {})
+        stats = self._motion_task_stats.setdefault(camera.id, {})
         recovery_attempts = stats.get("recovery_attempts", 0) + 1
         stats["recovery_attempts"] = recovery_attempts
 

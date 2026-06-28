@@ -44,6 +44,48 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  startup-smoke:
+    # Guards the two failure modes that took prod down on 2026-06-28:
+    #  1. Import-time NameError from missing `typing` imports — masked locally
+    #     on Python 3.14 (PEP 649 defers annotation eval) but fatal on prod's
+    #     Python 3.12. We import the real uvicorn entrypoint on 3.12 to catch it.
+    #  2. Migrations that don't apply cleanly — we run `alembic upgrade head`
+    #     against a fresh DB. (Does not catch "prod was never migrated"; the
+    #     deploy migration-gate in deploy.yml / scripts/deploy-baremetal.sh does.)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 (matches production)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import app entrypoint (fail on import-time NameError)
+        run: python -c "import main; print('main import OK', type(main.app).__name__)"
+        env:
+          DATABASE_URL: sqlite:///./smoke.db
+          ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY || 'YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=' }}
+          JWT_SECRET_KEY: ci-smoke-test-secret-not-for-production
+          PYTHONPATH: .
+
+      - name: Verify migrations apply cleanly to head
+        run: alembic upgrade head
+        env:
+          DATABASE_URL: sqlite:///./smoke_migrate.db
+          ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY || 'YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=' }}
+          JWT_SECRET_KEY: ci-smoke-test-secret-not-for-production
+          PYTHONPATH: .
+
   frontend-tests:
     runs-on: ubuntu-latest
     defaults:

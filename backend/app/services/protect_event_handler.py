@@ -183,7 +183,16 @@ class ProtectEventHandler:
         # Story P3-5.3: Track last audio transcription for passing to event storage
         self._last_audio_transcription: Optional[str] = None
 
-    # _try_ocr_extraction removed — can be moved to a shared OCR service later if needed (Phase 4)
+    def _try_ocr_extraction(self, frame, db) -> Optional[str]:
+        """Extract overlay text from a frame via OCR, if enabled in settings.
+
+        Returns the extracted text, or None when OCR is disabled or unavailable.
+
+        NOTE: This method's `def` line was accidentally dropped in a refactor,
+        leaving the body orphaned inside __init__ and crashing handler
+        construction with `NameError: name 'db' is not defined`. Restoring the
+        signature (frame, db) — matching the existing tests — fixes startup.
+        """
         from app.models.system_setting import SystemSetting
         from app.services.ocr_service import extract_overlay_text, is_ocr_available
 

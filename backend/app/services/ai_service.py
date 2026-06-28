@@ -267,6 +267,27 @@ class AIService:
         self.resilience_service = AIResilienceService()
         # Note: circuit breakers are initialized later when providers are known
 
+        # Construct provider clients from the supplied keys. This block was
+        # dropped in the #443-#450 ai_service decomposition, leaving
+        # self.providers permanently empty (0 providers => no AI descriptions).
+        # Restored to match the original AIService.configure_providers behavior.
+        from app.services.ai_providers import (
+            OpenAIProvider,
+            GrokProvider,
+            ClaudeProvider,
+            GeminiProvider,
+        )
+        self.providers = {}
+        if openai_key:
+            self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key)
+        if grok_key:
+            self.providers[AIProvider.GROK] = GrokProvider(grok_key)
+        if claude_key:
+            self.providers[AIProvider.CLAUDE] = ClaudeProvider(claude_key, claude_model)
+        if gemini_key:
+            self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key)
+        logger.info(f"Constructed {len(self.providers)} AI provider client(s)")
+
         # Wire prompt service
         self.prompt_service = AIPromptService(
             default_prompt=self.description_prompt,

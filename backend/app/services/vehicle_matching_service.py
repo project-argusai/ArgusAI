@@ -888,9 +888,13 @@ class VehicleMatchingService:
         result = []
         for v in vehicles:
             metadata = {}
-            if v.metadata:
+            # NOTE: must use `entity_metadata` (the Text/JSON column), NOT `.metadata`
+            # — `.metadata` is SQLAlchemy's reserved MetaData attribute on every ORM
+            # object, which made `json.loads(v.metadata)` raise TypeError and 500 the
+            # /api/v1/context/vehicles endpoint.
+            if v.entity_metadata:
                 try:
-                    metadata = json.loads(v.metadata)
+                    metadata = json.loads(v.entity_metadata)
                 except json.JSONDecodeError:
                     pass
 

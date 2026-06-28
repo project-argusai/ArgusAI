@@ -13,6 +13,16 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./data/app.db"
 
+    # Database connection pool (12-Factor IV/VIII; tuned for Postgres prod deploys).
+    # Defaults match SQLAlchemy's own defaults so existing behavior is unchanged.
+    # pool_pre_ping eliminates stale-connection errors after idle periods; size/overflow
+    # are only applied to non-SQLite engines (SQLite is single-writer and ignores them).
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 1800  # seconds; recycle connections older than 30 min
+    DB_POOL_PRE_PING: bool = True
+
     # Security
     ENCRYPTION_KEY: str  # Required - primary key used for new encryptions
     ENCRYPTION_KEY_PREVIOUS: Optional[str] = None  # Previous key (used for decryption during rotation)

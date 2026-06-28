@@ -42,6 +42,7 @@ from app.services.ai_circuit_breaker import (
     CircuitBreakerConfig,
     CircuitState,
 )
+from app.services.ai_types import AIProvider  # used in get_ai_resilience_status / reset (was missing -> NameError)
 
 logger = logging.getLogger(__name__)
 

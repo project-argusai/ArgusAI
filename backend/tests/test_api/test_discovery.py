@@ -64,7 +64,7 @@ class TestDiscoverEndpoint:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -89,7 +89,7 @@ class TestDiscoverEndpoint:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -111,7 +111,7 @@ class TestDiscoverEndpoint:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -152,7 +152,7 @@ class TestDiscoverEndpoint:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -168,7 +168,7 @@ class TestDiscoverEndpoint:
         mock_discovery_service.is_available = False
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -184,7 +184,7 @@ class TestDiscoverEndpoint:
         )
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -204,7 +204,7 @@ class TestDiscoverEndpoint:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -222,7 +222,7 @@ class TestDiscoveryStatusEndpoint:
         mock_discovery_service.is_available = True
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.get("/api/v1/cameras/discover/status")
@@ -239,7 +239,7 @@ class TestDiscoveryStatusEndpoint:
         mock_discovery_service.is_available = False
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.get("/api/v1/cameras/discover/status")
@@ -258,7 +258,7 @@ class TestClearCacheEndpoint:
     def test_clear_cache_success(self, client, mock_discovery_service):
         """Test cache clear returns success."""
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover/clear-cache")
@@ -291,7 +291,7 @@ class TestDiscoveryResponseSchema:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post("/api/v1/cameras/discover")
@@ -316,7 +316,7 @@ class TestDiscoveryResponseSchema:
         mock_discovery_service.discover_cameras_with_result.return_value = mock_result
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             # Valid timeout
@@ -345,7 +345,7 @@ class TestDeviceDetailsStatusEndpoint:
         mock_discovery_service.is_device_details_available = True
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.get("/api/v1/cameras/discover/device/status")
@@ -362,7 +362,7 @@ class TestDeviceDetailsStatusEndpoint:
         mock_discovery_service.is_device_details_available = False
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.get("/api/v1/cameras/discover/device/status")
@@ -422,7 +422,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.get_device_details = mock_get_device_details
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -477,7 +477,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.get_device_details = mock_get_device_details
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -509,7 +509,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.get_device_details = mock_get_device_details
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -529,7 +529,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.is_device_details_available = False
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -557,7 +557,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.get_device_details = mock_get_device_details
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -582,7 +582,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.get_device_details = mock_get_device_details
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -599,7 +599,7 @@ class TestGetDeviceDetailsEndpoint:
         mock_discovery_service.is_device_details_available = True
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -669,7 +669,7 @@ class TestDeviceDetailsResponseSchema:
         mock_discovery_service.get_device_details = mock_get_device_details
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -742,7 +742,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -783,7 +783,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -802,7 +802,7 @@ class TestTestConnectionEndpoint:
     def test_test_connection_invalid_url_scheme(self, client, mock_discovery_service):
         """AC1, AC3: Test rejection of non-RTSP URL schemes."""
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             # HTTP URL should fail validation
@@ -833,7 +833,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -861,7 +861,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -891,7 +891,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -921,7 +921,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -951,7 +951,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -968,7 +968,7 @@ class TestTestConnectionEndpoint:
     def test_test_connection_missing_rtsp_url(self, client, mock_discovery_service):
         """AC1: Test validation error when rtsp_url is missing."""
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -995,7 +995,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -1022,7 +1022,7 @@ class TestTestConnectionEndpoint:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -1059,7 +1059,7 @@ class TestTestConnectionResponseSchema:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(
@@ -1105,7 +1105,7 @@ class TestTestConnectionResponseSchema:
         mock_discovery_service.test_connection = mock_test_connection
 
         with patch(
-            'app.api.v1.discovery.get_onvif_discovery_service',
+            'app.services.service_container.get_onvif_discovery_service',
             return_value=mock_discovery_service
         ):
             response = client.post(

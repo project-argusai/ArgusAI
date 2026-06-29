@@ -142,11 +142,17 @@ class ProtectMediaService:
             clip_start = event_timestamp - timedelta(seconds=15)
             clip_end = event_timestamp + timedelta(seconds=15)
 
+            # NOTE: keyword names MUST match ClipService.download_clip's signature
+            # (controller_id, camera_id, event_start, event_end, event_id) where
+            # `camera_id` is the *native Protect* camera id. A prior refactor used
+            # protect_camera_id/start_time/end_time here, which raised TypeError on
+            # EVERY call — silently swallowed below — so clip_path was always None
+            # and the pipeline fell back to single-frame for every event.
             clip_path = await clip_service.download_clip(
                 controller_id=controller_id,
-                protect_camera_id=protect_camera_id,
-                start_time=clip_start,
-                end_time=clip_end,
+                camera_id=protect_camera_id,
+                event_start=clip_start,
+                event_end=clip_end,
                 event_id=event_id,
             )
 
@@ -155,6 +161,16 @@ class ProtectMediaService:
             else:
                 return None, "clip_download_failed"
 
+        except TypeError as e:
+            # A signature/programming error is NOT a transient clip failure. Surface
+            # it loudly (with traceback) so it can never again hide as a routine
+            # warning and silently disable multi-frame analysis.
+            logger.error(
+                f"Clip download call error for camera '{camera_name}' (likely a code/"
+                f"signature bug, not a transient failure): {e}",
+                exc_info=True,
+            )
+            return None, "clip_download_exception"
         except Exception as e:
             logger.warning(f"Clip download failed for camera '{camera_name}': {e}")
             return None, "clip_download_exception"

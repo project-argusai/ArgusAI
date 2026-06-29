@@ -943,6 +943,35 @@ export const apiClient = {
     }> => {
       return apiFetch('/system/ai-providers');
     },
+
+    /**
+     * List per-provider AI model info: configured?, active model, override, and
+     * the models the provider currently offers (for the model picker UI).
+     */
+    getAIModels: async (): Promise<{
+      providers: Array<{
+        provider: string;
+        configured: boolean;
+        active_model: string | null;
+        override: string | null;
+        available_models: string[];
+      }>;
+    }> => {
+      return apiFetch('/system/ai-models');
+    },
+
+    /**
+     * Pin a provider's model (model = id) or clear the pin (model = null) to
+     * revert to dynamic resolution.
+     */
+    setAIModel: async (provider: string, model: string | null): Promise<{
+      provider: string; model: string | null; status: string;
+    }> => {
+      return apiFetch(`/system/ai-models/${provider}`, {
+        method: 'PUT',
+        body: JSON.stringify({ model }),
+      });
+    },
   },
 
   alertRules: {

@@ -178,11 +178,16 @@ class ProtectAIPipeline:
             from app.services.frame_extractor import get_frame_extractor
 
             extractor = get_frame_extractor()
-            # Use adaptive or uniform sampling based on camera settings if available
-            frames, timestamps = await extractor.extract_frames(
-                video_path=clip_path,
-                max_frames=5,           # Reasonable default for cost control
-                strategy="adaptive"     # Can be made configurable later
+            # Use extract_frames_with_timestamps (returns a (frames, timestamps)
+            # tuple). NOTE: plain extract_frames() returns only List[bytes] and
+            # takes clip_path/frame_count — the previous call used
+            # video_path=/max_frames= and unpacked two values, raising TypeError
+            # (caught below) so this returned [] and multi-frame silently
+            # degraded to single-frame even when a clip was available.
+            frames, timestamps = await extractor.extract_frames_with_timestamps(
+                clip_path=clip_path,
+                frame_count=5,                 # Reasonable default for cost control
+                sampling_strategy="adaptive",  # content-aware selection
             )
 
             # Convert to bytes if they come back as numpy arrays

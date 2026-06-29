@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '@/lib/datetime';
 import { Bell, Plus, Pencil, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -176,7 +176,7 @@ interface RuleRowProps {
 function RuleRow({ rule, onToggleEnabled, onEdit, onDelete, isToggling }: RuleRowProps) {
   // Format last triggered time
   const lastTriggeredText = rule.last_triggered_at
-    ? formatDistanceToNow(new Date(rule.last_triggered_at), { addSuffix: true })
+    ? formatRelative(rule.last_triggered_at)
     : 'Never';
 
   // Get action badges

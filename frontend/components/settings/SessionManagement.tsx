@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { parseApiDate, formatLocale } from '@/lib/datetime';
 import type { ISession } from '@/types/auth';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -63,7 +64,7 @@ function getDeviceIcon(deviceInfo: string | null) {
 }
 
 function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
+  const date = parseApiDate(dateString)!;
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / (1000 * 60));
@@ -220,7 +221,7 @@ export function SessionManagement() {
                             {formatRelativeTime(session.last_active_at)}
                           </TooltipTrigger>
                           <TooltipContent>
-                            Last active: {new Date(session.last_active_at).toLocaleString()}
+                            Last active: {formatLocale(session.last_active_at)}
                           </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>

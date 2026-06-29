@@ -14,6 +14,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format, subDays, startOfMonth } from 'date-fns';
+import { formatDateTime } from '@/lib/datetime';
 import {
   PieChart,
   Pie,
@@ -399,8 +400,8 @@ export function CostDashboard() {
           <p className="text-sm text-muted-foreground">
             {usageData?.period && (
               <>
-                {format(new Date(usageData.period.start), 'MMM d, yyyy')} -{' '}
-                {format(new Date(usageData.period.end), 'MMM d, yyyy')}
+                {formatDateTime(usageData.period.start, 'MMM d, yyyy')} -{' '}
+                {formatDateTime(usageData.period.end, 'MMM d, yyyy')}
               </>
             )}
           </p>
@@ -599,13 +600,13 @@ export function CostDashboard() {
                 </defs>
                 <XAxis
                   dataKey="date"
-                  tickFormatter={(date) => format(new Date(date as string), 'MMM d')}
+                  tickFormatter={(date) => formatDateTime(date as string, 'MMM d')}
                   tick={{ fontSize: 12 }}
                 />
                 <YAxis tickFormatter={(v) => formatCost(v)} tick={{ fontSize: 12 }} />
                 <Tooltip
                   content={<ChartTooltip />}
-                  labelFormatter={(date) => format(new Date(date as string), 'MMMM d, yyyy')}
+                  labelFormatter={(date) => formatDateTime(date as string, 'MMMM d, yyyy')}
                 />
                 <Area
                   type="monotone"

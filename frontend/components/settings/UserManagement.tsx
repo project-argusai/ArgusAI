@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { formatLocale } from '@/lib/datetime';
 import type { IUser, IUserCreate, IUserCreateResponse, UserRole } from '@/types/auth';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -246,7 +247,7 @@ export function UserManagement({ currentUserId }: UserManagementProps) {
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleString();
+    return formatLocale(dateString);
   };
 
   if (isLoading) {

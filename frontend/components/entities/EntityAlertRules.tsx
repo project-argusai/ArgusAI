@@ -8,7 +8,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '@/lib/datetime';
 import { Bell, BellOff, Clock, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -88,7 +88,7 @@ export function EntityAlertRules({ entityId }: EntityAlertRulesProps) {
             </Badge>
             {rule.last_triggered_at && (
               <span className="text-xs text-muted-foreground hidden sm:inline">
-                {formatDistanceToNow(new Date(rule.last_triggered_at), { addSuffix: true })}
+                {formatRelative(rule.last_triggered_at)}
               </span>
             )}
           </div>

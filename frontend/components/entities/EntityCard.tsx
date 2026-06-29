@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { EntityAlertModal } from './EntityAlertModal';
 import { EntityEditModal, type EntityEditData } from './EntityEditModal';
 import type { IEntity } from '@/types/entity';
+import { parseApiDate } from '@/lib/datetime';
 
 interface EntityCardProps {
   entity: IEntity;
@@ -68,14 +69,6 @@ function getEntityTypeBadgeVariant(entityType: string): 'default' | 'secondary' 
     default:
       return 'outline';
   }
-}
-
-// Parse timestamp as UTC
-function parseUTCTimestamp(timestamp: string): Date {
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
 }
 
 export const EntityCard = memo(function EntityCard({
@@ -123,8 +116,8 @@ export const EntityCard = memo(function EntityCard({
       : `${apiUrl}${thumbnailUrl}`
     : null;
 
-  const firstSeenDate = parseUTCTimestamp(entity.first_seen_at);
-  const lastSeenDate = parseUTCTimestamp(entity.last_seen_at);
+  const firstSeenDate = parseApiDate(entity.first_seen_at)!;
+  const lastSeenDate = parseApiDate(entity.last_seen_at)!;
   const lastSeenRelative = formatDistanceToNow(lastSeenDate, { addSuffix: true });
 
   // Display name with fallback

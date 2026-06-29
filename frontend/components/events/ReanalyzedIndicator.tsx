@@ -14,20 +14,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { parseApiDate } from '@/lib/datetime';
 
 interface ReanalyzedIndicatorProps {
   /** Timestamp when event was re-analyzed (ISO 8601), null if never re-analyzed */
   reanalyzedAt?: string | null;
-}
-
-/**
- * Parse timestamp as UTC
- */
-function parseUTCTimestamp(timestamp: string): Date {
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
 }
 
 /**
@@ -42,7 +33,7 @@ export function ReanalyzedIndicator({ reanalyzedAt }: ReanalyzedIndicatorProps) 
     return null;
   }
 
-  const reanalyzedDate = parseUTCTimestamp(reanalyzedAt);
+  const reanalyzedDate = parseApiDate(reanalyzedAt)!;
   const relativeTime = formatDistanceToNow(reanalyzedDate, { addSuffix: true });
 
   return (

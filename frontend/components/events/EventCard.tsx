@@ -30,6 +30,7 @@ import { EntitySelectModal } from '@/components/entities/EntitySelectModal';
 import { EntityCreateModal } from '@/components/entities/EntityCreateModal';
 import { useAssignEventToEntity } from '@/hooks/useEntities';
 import { cn } from '@/lib/utils';
+import { parseApiDate } from '@/lib/datetime';
 
 interface EventCardProps {
   event: IEvent;
@@ -49,15 +50,6 @@ const OBJECT_ICONS: Record<string, string> = {
   package: '📦',
   unknown: '❓',
 };
-
-// Parse timestamp as UTC (backend stores UTC without timezone indicator)
-function parseUTCTimestamp(timestamp: string): Date {
-  // If timestamp doesn't have timezone info, append 'Z' to interpret as UTC
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
-}
 
 export const EventCard = memo(function EventCard({
   event,
@@ -156,7 +148,7 @@ export const EventCard = memo(function EventCard({
   // Story P9-4.4: Check if event has entity association
   const hasEntity = !!event.entity_id;
 
-  const eventDate = parseUTCTimestamp(event.timestamp);
+  const eventDate = parseApiDate(event.timestamp)!;
   const relativeTime = formatDistanceToNow(eventDate, {
     addSuffix: true,
   });

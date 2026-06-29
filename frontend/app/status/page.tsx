@@ -24,7 +24,7 @@ import {
   RotateCcw,
   Shield,
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { parseApiDate, formatRelative } from '@/lib/datetime';
 
 import { apiClient } from '@/lib/api-client';
 import type { SystemHealth, LogEntry, LogsResponse } from '@/types/monitoring';
@@ -298,7 +298,7 @@ export default function StatusPage() {
                 Real-time protection status for vision providers
                 {lastCircuitBreakerReset && (
                   <span className="text-[10px] text-muted-foreground">
-                    · Last reset {formatDistanceToNow(new Date(lastCircuitBreakerReset), { addSuffix: true })}
+                    · Last reset {formatRelative(lastCircuitBreakerReset)}
                   </span>
                 )}
               </CardDescription>
@@ -497,7 +497,7 @@ export default function StatusPage() {
                 {logs.map((log, index) => (
                   <div key={index} className="flex gap-2 border-b border-muted pb-1 last:border-0">
                     <span className="shrink-0 text-muted-foreground">
-                      {new Date(log.timestamp).toLocaleTimeString()}
+                      {parseApiDate(log.timestamp)!.toLocaleTimeString()}
                     </span>
                     <span className={`shrink-0 w-16 ${getLogLevelColor(log.level)}`}>
                       [{log.level}]

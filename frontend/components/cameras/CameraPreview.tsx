@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { CameraStatus } from './CameraStatus';
 import { LiveStreamModal } from '@/components/streaming/LiveStreamModal';
 import type { ICamera, CameraSourceType } from '@/types/camera';
-import { format } from 'date-fns';
+import { formatDateTime } from '@/lib/datetime';
 
 interface CameraPreviewProps {
   /**
@@ -144,7 +144,7 @@ export const CameraPreview = memo(function CameraPreview({ camera, onDelete }: C
 
         {/* Updated timestamp */}
         <div className="text-xs text-muted-foreground">
-          Updated: {format(new Date(camera.updated_at), 'MMM d, yyyy h:mm a')}
+          Updated: {formatDateTime(camera.updated_at)}
         </div>
 
         {/* Action buttons */}

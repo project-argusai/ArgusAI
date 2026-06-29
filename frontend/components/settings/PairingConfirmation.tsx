@@ -9,7 +9,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '@/lib/datetime';
 import { Smartphone, Check, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -146,7 +146,7 @@ export function PairingConfirmation() {
                       {pairing.device_name || pairing.device_model || `${pairing.platform} device`}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Expires {formatDistanceToNow(new Date(pairing.expires_at), { addSuffix: true })}
+                      Expires {formatRelative(pairing.expires_at)}
                     </p>
                   </div>
                 </div>

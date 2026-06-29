@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Download, Play, Pause, Volume2, VolumeX, Maximize, Loader2 } from 'lucide-react';
+import { formatLocale } from '@/lib/datetime';
 
 interface VideoPlayerModalProps {
   open: boolean;
@@ -97,7 +98,7 @@ export function VideoPlayerModal({
   };
 
   const formattedTimestamp = timestamp
-    ? new Date(timestamp).toLocaleString()
+    ? formatLocale(timestamp)
     : undefined;
 
   return (

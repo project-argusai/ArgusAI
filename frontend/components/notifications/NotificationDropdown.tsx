@@ -11,7 +11,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { formatDistanceToNow } from 'date-fns';
+import { parseApiDate, formatRelative } from '@/lib/datetime';
 import { Check, Trash2, Loader2, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -99,7 +99,7 @@ export function NotificationDropdown({ onClose }: NotificationDropdownProps) {
                 if (a.is_doorbell_ring && !b.is_doorbell_ring) return -1;
                 if (!a.is_doorbell_ring && b.is_doorbell_ring) return 1;
                 // Then by created_at (newest first)
-                return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                return parseApiDate(b.created_at)!.getTime() - parseApiDate(a.created_at)!.getTime();
               })
               .map((notification) => (
                 <NotificationItem
@@ -144,9 +144,7 @@ function NotificationItem({ notification, onClick, onDelete }: NotificationItemP
   const isDoorbellRing = notification.is_doorbell_ring;
 
   // Format relative timestamp
-  const timeAgo = formatDistanceToNow(new Date(notification.created_at), {
-    addSuffix: true,
-  });
+  const timeAgo = formatRelative(notification.created_at);
 
   // Build thumbnail URL
   const thumbnailUrl = notification.thumbnail_url

@@ -21,14 +21,7 @@ import { apiClient } from '@/lib/api-client';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CARRIER_CONFIG } from '@/types/event';
-
-// Parse timestamp as UTC (backend stores UTC without timezone indicator)
-function parseUTCTimestamp(timestamp: string): Date {
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
-}
+import { parseApiDate } from '@/lib/datetime';
 
 /**
  * Carrier badge component with color coding
@@ -211,7 +204,7 @@ export function PackageDeliveryWidget() {
                 >
                   <CarrierBadge carrier={event.delivery_carrier} />
                   <span className="text-muted-foreground">
-                    {formatDistanceToNow(parseUTCTimestamp(event.timestamp), { addSuffix: true })}
+                    {formatDistanceToNow(parseApiDate(event.timestamp)!, { addSuffix: true })}
                   </span>
                   <span className="text-muted-foreground truncate">
                     {event.camera_name}

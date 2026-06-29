@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { parseApiDate } from '@/lib/datetime';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,7 +55,7 @@ function formatUptime(seconds: number): string {
  */
 function formatLastConnected(isoDate: string | null): string {
   if (!isoDate) return 'Never';
-  const date = new Date(isoDate);
+  const date = parseApiDate(isoDate)!;
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60000);

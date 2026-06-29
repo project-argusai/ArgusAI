@@ -544,13 +544,20 @@ class VisionAnalysisOrchestrator:
                 ocr_result=ocr_result
             )
 
-            # Check if rate limited (429) or transient error (500/503)
+            # Check if rate limited (429) or transient error (500/503).
+            # BUT a 429 from quota/billing exhaustion will not recover within the
+            # retry/SLA window — retrying it only burns the SLA budget and starves
+            # the fallback chain (e.g. a working Gemini never gets tried). Treat
+            # those as non-retryable so we fail fast to the next provider.
+            err_str = str(result.error) if result.error else ""
+            quota_exhausted = any(s in err_str.lower() for s in (
+                'insufficient_quota', 'exceeded your current quota', 'billing'))
             is_retryable = (
-                result.error and
+                result.error and not quota_exhausted and
                 (
-                    '429' in str(result.error) or
-                    '500' in str(result.error) or
-                    '503' in str(result.error)
+                    '429' in err_str or
+                    '500' in err_str or
+                    '503' in err_str
                 )
             )
             if is_retryable:
@@ -605,13 +612,17 @@ class VisionAnalysisOrchestrator:
                 ocr_result=ocr_result
             )
 
-            # Check if rate limited (429) or transient error (500/503)
+            # Check if rate limited (429) or transient error (500/503).
+            # Quota/billing 429s won't recover in-window — fail fast (see single-image path).
+            err_str = str(result.error) if result.error else ""
+            quota_exhausted = any(s in err_str.lower() for s in (
+                'insufficient_quota', 'exceeded your current quota', 'billing'))
             is_retryable = (
-                result.error and
+                result.error and not quota_exhausted and
                 (
-                    '429' in str(result.error) or
-                    '500' in str(result.error) or
-                    '503' in str(result.error)
+                    '429' in err_str or
+                    '500' in err_str or
+                    '503' in err_str
                 )
             )
             if is_retryable:

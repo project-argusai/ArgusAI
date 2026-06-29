@@ -52,7 +52,7 @@ jobs:
         image: [argusai-backend, argusai-frontend]
     steps:
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/project-argusai/${{ matrix.image }}:${{ env.IMAGE_TAG }}
           format: sarif

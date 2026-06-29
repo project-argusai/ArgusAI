@@ -33,6 +33,9 @@ jobs:
           # Use secret if available, otherwise use a valid test key
           # Note: This test key is intentionally hardcoded for CI - it's only used for testing
           ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY || 'YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=' }}
+          # JWT_SECRET_KEY is required (no default) — Settings() in conftest fails
+          # without it, breaking collection. Mirrors the startup-smoke job.
+          JWT_SECRET_KEY: ci-smoke-test-secret-not-for-production
           PYTHONPATH: .
 
       - name: Upload backend coverage to Codecov

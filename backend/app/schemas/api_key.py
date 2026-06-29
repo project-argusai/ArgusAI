@@ -4,7 +4,7 @@ Pydantic schemas for API Key management.
 Story P13-1.2: Implement API Key Generation Endpoint
 Story P13-1.3: Implement API Key List and Revoke Endpoints
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from app.schemas.types import UTCDateTime
 from typing import Optional
@@ -32,8 +32,8 @@ class APIKeyCreateRequest(BaseModel):
         description="Maximum requests per minute (1-10000)"
     )
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "Home Assistant Integration",
                 "scopes": ["read:events", "read:cameras"],
@@ -41,6 +41,7 @@ class APIKeyCreateRequest(BaseModel):
                 "rate_limit_per_minute": 100
             }
         }
+    )
 
 
 class APIKeyCreateResponse(BaseModel):
@@ -58,8 +59,7 @@ class APIKeyCreateResponse(BaseModel):
     rate_limit_per_minute: int
     created_at: UTCDateTime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class APIKeyListResponse(BaseModel):
@@ -76,8 +76,7 @@ class APIKeyListResponse(BaseModel):
     created_at: UTCDateTime
     revoked_at: Optional[UTCDateTime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class APIKeyUsageResponse(BaseModel):
@@ -91,8 +90,7 @@ class APIKeyUsageResponse(BaseModel):
     rate_limit_per_minute: int
     created_at: UTCDateTime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MessageResponse(BaseModel):

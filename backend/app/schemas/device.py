@@ -1,5 +1,5 @@
 """Device Pydantic schemas for request/response validation (Story P11-2.4, P11-2.5, P12-2.1)"""
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 from datetime import datetime, timezone
 from app.schemas.types import UTCDateTime
 from typing import Optional, List
@@ -143,8 +143,7 @@ class DeviceResponse(BaseModel):
     quiet_hours_timezone: str = Field("UTC", description="Timezone for quiet hours")
     quiet_hours_override_critical: bool = Field(True, description="Allow critical alerts during quiet hours")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DevicePreferencesUpdate(BaseModel):
@@ -214,5 +213,4 @@ class DeviceRegistrationResponse(BaseModel):
     created_at: UTCDateTime = Field(..., description="Registration timestamp")
     is_new: bool = Field(..., description="True if new device, False if updated existing")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

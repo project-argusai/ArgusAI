@@ -1742,8 +1742,11 @@ async def reanalyze_event(
             from app.models.protect_controller import ProtectController
 
             # Find controller by camera's protect_camera_id
+            # NOTE: the Camera column is `protect_controller_id` — reading
+            # `controller_id` always returned None, so multi_frame/video_native
+            # reanalyze 400'd ("not properly configured") for every Protect camera.
             protect_camera_id = getattr(camera, 'protect_camera_id', None)
-            controller_id = getattr(camera, 'controller_id', None)
+            controller_id = getattr(camera, 'protect_controller_id', None) or getattr(camera, 'controller_id', None)
 
             if not protect_camera_id or not controller_id:
                 raise HTTPException(

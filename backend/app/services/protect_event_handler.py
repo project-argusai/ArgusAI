@@ -62,6 +62,7 @@ from app.services.frame_storage_service import get_frame_storage_service
 from app.services.video_storage_service import get_video_storage_service
 from app.services.context_prompt_service import get_context_prompt_service
 from app.services.push_notification_service import send_event_notification
+from app.core.decorators import singleton
 from app.services.protect_event_filter import (
     ProtectEventFilter,
     get_protect_event_filter,
@@ -148,6 +149,7 @@ DOORBELL_RING_PROMPT = (
 )
 
 
+@singleton
 class ProtectEventHandler:
     """
     Handles real-time events from UniFi Protect WebSocket (Story P2-3.1).

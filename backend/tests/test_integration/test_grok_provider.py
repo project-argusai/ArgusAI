@@ -23,12 +23,9 @@ import os
 from main import app
 from app.core.database import Base, get_db
 from app.models.system_setting import SystemSetting
-from app.services.ai_service import (
-    AIService,
-    GrokProvider,
-    AIResult,
-    AIProvider as AIProviderEnum,
-)
+from app.services.ai_service import AIService
+from app.services.ai_providers.grok_provider import GrokProvider
+from app.services.ai_types import AIResult, AIProvider as AIProviderEnum
 
 
 # Create module-level temp database (file-based for isolation)
@@ -112,8 +109,14 @@ class TestGrokProviderConfiguration:
         assert grok_provider.client.base_url.host == "api.x.ai"
 
     def test_grok_uses_correct_model(self, grok_provider):
-        """Test Grok uses the current grok-4 multimodal model."""
-        assert grok_provider.model == "grok-4"
+        """Test Grok resolves to a grok-family multimodal model.
+
+        The model is resolved dynamically via resolve_model(); with no live
+        xAI API key it falls back to a known-good grok constant. Assert the
+        family rather than a pinned version.
+        """
+        assert isinstance(grok_provider.model, str)
+        assert grok_provider.model.startswith("grok")
 
     def test_grok_provider_instantiation(self):
         """Test Grok provider can be instantiated"""
@@ -270,55 +273,9 @@ class TestGrokDescriptionGeneration:
         assert result.error is not None
 
 
-class TestGrokRetryLogic:
-    """Tests for Grok-specific retry logic"""
-
-    @pytest.mark.asyncio
-    async def test_grok_retries_on_failure(self, ai_service, sample_frame):
-        """Test Grok uses retry logic with backoff"""
-        ai_service.configure_providers(grok_key="xai-test-key")
-        grok_provider = ai_service.providers.get(AIProviderEnum.GROK)
-
-        call_count = 0
-
-        async def mock_generate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                return AIResult(
-                    description="",
-                    confidence=0,
-                    objects_detected=[],
-                    provider="grok",
-                    tokens_used=0,
-                    response_time_ms=100,
-                    cost_estimate=0.0,
-                    success=False,
-                    error="429 Too Many Requests"
-                )
-            return AIResult(
-                description="Success on retry",
-                confidence=85,
-                objects_detected=["person"],
-                provider="grok",
-                tokens_used=100,
-                response_time_ms=400,
-                cost_estimate=0.015,
-                success=True
-            )
-
-        with patch.object(grok_provider, 'generate_description', new=mock_generate):
-            result = await ai_service._try_with_backoff(
-                grok_provider,
-                "base64_data",
-                "Camera",
-                "2025-12-05T10:00:00",
-                [],
-                provider_type=AIProviderEnum.GROK
-            )
-
-        # Should have called at least once
-        assert call_count >= 1
+# TestGrokRetryLogic removed: it exercised AIService._try_with_backoff, a
+# private retry helper removed during the ai_providers decomposition
+# (retry/resilience now lives in AIResilienceService, not AIService).
 
 
 class TestGrokObjectExtraction:

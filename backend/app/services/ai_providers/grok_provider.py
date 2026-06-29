@@ -43,7 +43,7 @@ class GrokProvider(AIProviderBase):
 
         try:
             if not custom_prompt:
-                custom_prompt = getattr(self, 'multi_frame_prompt', None) or MULTI_FRAME_SYSTEM_PROMPT.format(num_images=len(images_base64))
+                custom_prompt = getattr(self, 'multi_frame_prompt', None) or MULTI_FRAME_SYSTEM_PROMPT.format(num_frames=len(images_base64))
 
             user_prompt = custom_prompt
             content = [{"type": "text", "text": user_prompt}]

@@ -29,6 +29,25 @@ import tempfile
 
 
 # =============================================================================
+# Test Isolation
+# =============================================================================
+
+@pytest.fixture(autouse=True)
+def _reset_all_singletons():
+    """Reset every @singleton / SingletonMeta service before and after each test.
+
+    The service layer uses module-level singletons (counters, caches, connection
+    state). Without resetting, that state leaks across tests and causes
+    order-dependent failures when the full suite runs together (e.g. metric
+    counters accumulating). This keeps each test isolated.
+    """
+    from app.core.decorators import reset_all_singletons
+    reset_all_singletons()
+    yield
+    reset_all_singletons()
+
+
+# =============================================================================
 # Factory Functions for Test Objects
 # =============================================================================
 

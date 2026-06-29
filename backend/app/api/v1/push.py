@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.push_subscription import PushSubscription
 from app.models.notification_preference import NotificationPreference
 from app.utils.vapid import get_vapid_public_key
@@ -293,7 +294,7 @@ async def subscribe(
             return SubscriptionResponse(
                 id=existing.id,
                 endpoint=endpoint_truncated,
-                created_at=existing.created_at.isoformat()
+                created_at=iso_utc(existing.created_at)
             )
 
         # Create new subscription
@@ -330,7 +331,7 @@ async def subscribe(
         return SubscriptionResponse(
             id=subscription.id,
             endpoint=endpoint_truncated,
-            created_at=subscription.created_at.isoformat()
+            created_at=iso_utc(subscription.created_at)
         )
 
     except HTTPException:
@@ -472,8 +473,8 @@ async def list_subscriptions(
                 user_id=sub.user_id,
                 endpoint=_truncate_endpoint(sub.endpoint),
                 user_agent=sub.user_agent,
-                created_at=sub.created_at.isoformat() if sub.created_at else None,
-                last_used_at=sub.last_used_at.isoformat() if sub.last_used_at else None,
+                created_at=iso_utc(sub.created_at),
+                last_used_at=iso_utc(sub.last_used_at),
             ))
 
         return SubscriptionsListResponse(
@@ -770,8 +771,8 @@ async def get_preferences(
             quiet_hours_end=preference.quiet_hours_end,
             timezone=preference.timezone,
             sound_enabled=preference.sound_enabled,
-            created_at=preference.created_at.isoformat() if preference.created_at else None,
-            updated_at=preference.updated_at.isoformat() if preference.updated_at else None,
+            created_at=iso_utc(preference.created_at),
+            updated_at=iso_utc(preference.updated_at),
         )
 
     except HTTPException:
@@ -915,8 +916,8 @@ async def update_preferences(
             quiet_hours_end=preference.quiet_hours_end,
             timezone=preference.timezone,
             sound_enabled=preference.sound_enabled,
-            created_at=preference.created_at.isoformat() if preference.created_at else None,
-            updated_at=preference.updated_at.isoformat() if preference.updated_at else None,
+            created_at=iso_utc(preference.created_at),
+            updated_at=iso_utc(preference.updated_at),
         )
 
     except HTTPException:

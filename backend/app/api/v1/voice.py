@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.camera import Camera
+from app.schemas.types import iso_utc
 from app.services.voice_query_service import VoiceQueryService
 from app.services.service_container import container
 
@@ -173,8 +174,8 @@ async def voice_query(
             response=response_text,
             events_found=result.count,
             time_range=TimeRangeResponse(
-                start=parsed.time_range.start.isoformat(),
-                end=parsed.time_range.end.isoformat(),
+                start=iso_utc(parsed.time_range.start),
+                end=iso_utc(parsed.time_range.end),
                 description=parsed.time_range.description,
             ),
             cameras_involved=result.cameras_involved,

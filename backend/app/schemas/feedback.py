@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from typing import Literal, Optional, Dict, List
 from datetime import datetime
 from datetime import date as date_type
+from app.schemas.types import UTCDateTime
 
 
 class FeedbackCreate(BaseModel):
@@ -56,8 +57,8 @@ class FeedbackResponse(BaseModel):
     rating: str
     correction: Optional[str] = None
     correction_type: Optional[str] = None  # Story P9-3.3: Correction type
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    created_at: UTCDateTime
+    updated_at: Optional[UTCDateTime] = None
     was_edited: bool = False  # Story P10-4.3: Indicates if feedback was modified
 
     model_config = {"from_attributes": True}
@@ -190,7 +191,7 @@ class SummaryFeedbackResponse(BaseModel):
     summary_id: str
     rating: str
     correction_text: Optional[str] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    created_at: UTCDateTime
+    updated_at: Optional[UTCDateTime] = None
 
     model_config = {"from_attributes": True}

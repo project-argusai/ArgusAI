@@ -2,6 +2,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Literal, List, Dict
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 
 
 class BoundingBox(BaseModel):
@@ -109,14 +110,14 @@ class MotionEventResponse(BaseModel):
     """Schema for motion event API response"""
     id: str = Field(..., description="Event UUID")
     camera_id: str = Field(..., description="Camera UUID")
-    timestamp: datetime = Field(..., description="Motion detection timestamp")
+    timestamp: UTCDateTime = Field(..., description="Motion detection timestamp")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score")
     motion_intensity: Optional[float] = Field(None, description="Motion intensity metric")
     algorithm_used: str = Field(..., description="Algorithm that detected motion")
     bounding_box: Optional[Dict] = Field(None, description="Motion bounding box (JSON)")
     frame_thumbnail: Optional[str] = Field(None, description="Base64-encoded JPEG thumbnail")
     ai_event_id: Optional[str] = Field(None, description="Linked AI event ID (F3)")
-    created_at: datetime = Field(..., description="Record creation timestamp")
+    created_at: UTCDateTime = Field(..., description="Record creation timestamp")
 
     model_config = {
         "from_attributes": True,

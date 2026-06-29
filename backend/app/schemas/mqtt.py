@@ -10,6 +10,7 @@ Defines Pydantic schemas for MQTT payloads:
 All schemas serialize to JSON for MQTT publishing.
 """
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -32,7 +33,7 @@ class CameraStatusPayload(BaseModel):
     camera_name: str
     status: Literal["online", "offline", "unavailable"]
     source_type: str = Field(description="Camera type: rtsp, usb, or protect")
-    last_updated: datetime
+    last_updated: UTCDateTime
 
 
 class CameraCountsPayload(BaseModel):
@@ -52,7 +53,7 @@ class CameraCountsPayload(BaseModel):
     camera_name: str
     events_today: int = Field(ge=0, description="Events since midnight")
     events_this_week: int = Field(ge=0, description="Events since Monday")
-    last_updated: datetime
+    last_updated: UTCDateTime
 
 
 class CameraActivityPayload(BaseModel):
@@ -70,7 +71,7 @@ class CameraActivityPayload(BaseModel):
     """
     camera_id: str
     state: Literal["ON", "OFF"]
-    last_event_at: Optional[datetime] = None
+    last_event_at: Optional[UTCDateTime] = None
 
 
 class LastEventPayload(BaseModel):
@@ -90,6 +91,6 @@ class LastEventPayload(BaseModel):
     camera_id: str
     camera_name: str
     event_id: str
-    timestamp: datetime
+    timestamp: UTCDateTime
     description_snippet: str = Field(max_length=100, description="First 100 chars of description")
     smart_detection_type: Optional[str] = None

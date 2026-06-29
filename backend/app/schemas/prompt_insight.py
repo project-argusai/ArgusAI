@@ -10,6 +10,7 @@ Defines request/response models for:
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from enum import Enum
 
 
@@ -182,7 +183,7 @@ class PromptHistoryEntry(BaseModel):
         None,
         description="Camera ID if this is a camera-specific prompt"
     )
-    created_at: datetime = Field(..., description="When this version was created")
+    created_at: UTCDateTime = Field(..., description="When this version was created")
 
     model_config = {"from_attributes": True}
 

@@ -216,3 +216,5 @@ backend/data/clips/
 /services/
 
 /graphify-out
+# graphify graph built when running graphify from backend/ (regenerable artifact)
+/backend/graphify-out

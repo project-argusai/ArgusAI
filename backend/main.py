@@ -27,6 +27,7 @@ from app.core.config import settings
 from app.core.database import engine, Base
 from app.core.logging_config import setup_logging, get_logger
 from app.core.metrics import init_metrics, get_metrics, get_content_type, update_system_metrics
+from app.core.json_encoding import install_utc_datetime_encoder
 from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
 from app.middleware.last_seen import LastSeenMiddleware
@@ -874,6 +875,12 @@ OPENAPI_TAGS = [
     {"name": "System Notifications", "description": "System alerts and cost notifications"},
     {"name": "API Keys", "description": "API key management for external integrations"},
 ]
+
+# Make every datetime the API emits self-describing as UTC (...Z), so native
+# clients (web + the planned iOS app) never have to guess the time zone. Pydantic
+# response models use the UTCDateTime field type; this covers the dict/jsonable
+# paths. Installed before any request is served.
+install_utc_datetime_encoder()
 
 # Create FastAPI app with enhanced OpenAPI configuration
 app = FastAPI(

@@ -133,6 +133,7 @@ from app.schemas.system import (
 from app.services.backup_service import BackupResult, RestoreResult, BackupInfo, ValidationResult
 from app.services.service_container import container
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.system_setting import SystemSetting
 from app.models.user import User, UserRole
 from app.api.v1.auth import get_current_user
@@ -2252,8 +2253,8 @@ async def get_ai_provider_stats(
                 func.max(Event.timestamp)
             ).filter(Event.provider_used.isnot(None)).first()
             time_range_data = {
-                "start": min_max[0].isoformat() if min_max[0] else None,
-                "end": min_max[1].isoformat() if min_max[1] else None
+                "start": iso_utc(min_max[0]),
+                "end": iso_utc(min_max[1])
             }
 
         return AIProviderStatsResponse(

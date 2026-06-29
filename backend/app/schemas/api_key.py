@@ -6,6 +6,7 @@ Story P13-1.3: Implement API Key List and Revoke Endpoints
 """
 from pydantic import BaseModel, Field
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Optional
 
 
@@ -20,7 +21,7 @@ class APIKeyCreateRequest(BaseModel):
         default=["read:events"],
         description="Permission scopes: read:events, read:cameras, write:cameras, admin"
     )
-    expires_at: Optional[datetime] = Field(
+    expires_at: Optional[UTCDateTime] = Field(
         None,
         description="Optional expiration date for the key"
     )
@@ -53,9 +54,9 @@ class APIKeyCreateResponse(BaseModel):
     key: str = Field(..., description="Full API key - ONLY shown once, save it now!")
     prefix: str = Field(..., description="Key prefix for identification")
     scopes: list[str]
-    expires_at: Optional[datetime]
+    expires_at: Optional[UTCDateTime]
     rate_limit_per_minute: int
-    created_at: datetime
+    created_at: UTCDateTime
 
     class Config:
         from_attributes = True
@@ -68,12 +69,12 @@ class APIKeyListResponse(BaseModel):
     prefix: str = Field(..., description="Partial key for identification (argus_xxxxxxxx...)")
     scopes: list[str]
     is_active: bool
-    expires_at: Optional[datetime]
-    last_used_at: Optional[datetime]
+    expires_at: Optional[UTCDateTime]
+    last_used_at: Optional[UTCDateTime]
     usage_count: int
     rate_limit_per_minute: int
-    created_at: datetime
-    revoked_at: Optional[datetime]
+    created_at: UTCDateTime
+    revoked_at: Optional[UTCDateTime]
 
     class Config:
         from_attributes = True
@@ -85,10 +86,10 @@ class APIKeyUsageResponse(BaseModel):
     name: str
     prefix: str
     usage_count: int
-    last_used_at: Optional[datetime]
+    last_used_at: Optional[UTCDateTime]
     last_used_ip: Optional[str]
     rate_limit_per_minute: int
-    created_at: datetime
+    created_at: UTCDateTime
 
     class Config:
         from_attributes = True

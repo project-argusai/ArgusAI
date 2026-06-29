@@ -5,6 +5,7 @@ Pydantic schemas for the connectivity test endpoint that checks
 mDNS visibility and port accessibility for troubleshooting HomeKit discovery issues.
 """
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -47,7 +48,7 @@ class HomeKitConnectivityResponse(BaseModel):
         ...,
         description="Configured bridge name"
     )
-    test_timestamp: datetime = Field(
+    test_timestamp: UTCDateTime = Field(
         default_factory=datetime.utcnow,
         description="Timestamp when the connectivity test was performed"
     )

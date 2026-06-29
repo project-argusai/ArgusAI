@@ -2,6 +2,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Literal
 from datetime import datetime, timezone
+from app.schemas.types import UTCDateTime
 import uuid
 
 
@@ -53,10 +54,10 @@ class ProtectControllerResponse(ProtectControllerBase):
     id: str = Field(..., description="Controller UUID")
     username: str = Field(..., description="Protect authentication username")
     is_connected: bool = Field(..., description="Current connection status")
-    last_connected_at: Optional[datetime] = Field(None, description="Last successful connection timestamp")
+    last_connected_at: Optional[UTCDateTime] = Field(None, description="Last successful connection timestamp")
     last_error: Optional[str] = Field(None, description="Last connection error message")
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
     # Note: password field is intentionally omitted (write-only field)
 
@@ -86,7 +87,7 @@ class MetaResponse(BaseModel):
     """Standard meta response object"""
 
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique request identifier")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Response timestamp")
+    timestamp: UTCDateTime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Response timestamp")
     count: Optional[int] = Field(None, description="Number of items (for list responses)")
 
 
@@ -265,11 +266,11 @@ class ProtectCameraDiscoveryMeta(BaseModel):
     """Meta response for camera discovery (AC6)"""
 
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique request identifier")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Response timestamp")
+    timestamp: UTCDateTime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Response timestamp")
     count: int = Field(..., description="Number of cameras discovered")
     controller_id: str = Field(..., description="Controller ID that was queried")
     cached: bool = Field(..., description="Whether results were returned from cache")
-    cached_at: Optional[datetime] = Field(None, description="When results were cached (if cached)")
+    cached_at: Optional[UTCDateTime] = Field(None, description="When results were cached (if cached)")
     warning: Optional[str] = Field(None, description="Warning message if any issues occurred")
 
 
@@ -435,8 +436,8 @@ class TestClipDownloadRequest(BaseModel):
     """Request body for testing clip download (Story P3-1.5)"""
 
     camera_id: str = Field(..., description="Internal camera UUID (from cameras table)")
-    start_time: datetime = Field(..., description="Clip start time (ISO 8601 with timezone)")
-    end_time: datetime = Field(..., description="Clip end time (ISO 8601 with timezone)")
+    start_time: UTCDateTime = Field(..., description="Clip start time (ISO 8601 with timezone)")
+    end_time: UTCDateTime = Field(..., description="Clip end time (ISO 8601 with timezone)")
 
     @field_validator('end_time')
     @classmethod

@@ -25,6 +25,7 @@ import io
 import asyncio
 
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.event import Event
 from app.models.camera import Camera
 from app.schemas.event import (
@@ -841,13 +842,13 @@ async def export_events(
                     event_dict = {
                         "id": event.id,
                         "camera_id": event.camera_id,
-                        "timestamp": event.timestamp.isoformat(),
+                        "timestamp": iso_utc(event.timestamp),
                         "description": event.description,
                         "confidence": event.confidence,
                         "objects_detected": json.loads(event.objects_detected),
                         "thumbnail_path": event.thumbnail_path,
                         "alert_triggered": event.alert_triggered,
-                        "created_at": event.created_at.isoformat()
+                        "created_at": iso_utc(event.created_at)
                     }
                     yield json.dumps(event_dict) + "\n"
 
@@ -892,13 +893,13 @@ async def export_events(
                     writer.writerow({
                         "id": event.id,
                         "camera_id": event.camera_id,
-                        "timestamp": event.timestamp.isoformat(),
+                        "timestamp": iso_utc(event.timestamp),
                         "description": event.description,
                         "confidence": event.confidence,
                         "objects_detected": ",".join(json.loads(event.objects_detected)),
                         "thumbnail_path": event.thumbnail_path or "",
                         "alert_triggered": event.alert_triggered,
-                        "created_at": event.created_at.isoformat()
+                        "created_at": iso_utc(event.created_at)
                     })
 
                 yield buffer.getvalue()

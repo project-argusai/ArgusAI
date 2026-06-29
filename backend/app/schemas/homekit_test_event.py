@@ -6,6 +6,7 @@ Allows triggering motion/occupancy/vehicle/animal/package/doorbell events
 from the diagnostics UI to verify HomeKit event delivery.
 """
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Optional, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -73,7 +74,7 @@ class HomeKitTestEventResponse(BaseModel):
         0,
         description="Number of connected HomeKit clients that received the event"
     )
-    timestamp: datetime = Field(
+    timestamp: UTCDateTime = Field(
         default_factory=datetime.utcnow,
         description="When the event was triggered"
     )

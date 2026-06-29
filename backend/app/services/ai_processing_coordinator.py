@@ -31,6 +31,7 @@ import numpy as np
 
 from app.core.database import SessionLocal
 from app.core.decorators import singleton
+from app.models.event import Event
 
 if TYPE_CHECKING:
     from app.services.ai_service import AIService
@@ -677,6 +678,8 @@ class AIProcessingCoordinator:
         context_used = False
         ocr_used = False
         low_confidence = False
+        vague_reason = None
+        context_stats = None
         regenerated = False
 
         try:
@@ -781,6 +784,8 @@ class AIProcessingCoordinator:
             # Story P7-2.1: Extract delivery carrier from AI description
             delivery_carrier = None
             try:
+                from app.services.carrier_extractor import extract_carrier
+
                 delivery_carrier = extract_carrier(ai_result.description)
                 if delivery_carrier:
                     logger.info(
@@ -797,7 +802,6 @@ class AIProcessingCoordinator:
             has_annotations = False
             bounding_boxes_json = None
             if ai_result.bounding_boxes:
-                import json
                 has_annotations = True
                 bounding_boxes_json = json.dumps(ai_result.bounding_boxes)
 
@@ -900,13 +904,13 @@ class AIProcessingCoordinator:
                             import json as json_lib
                             if post_processing_summary:
                                 ev.post_processing_summary = json_lib.dumps(post_processing_summary)
-                            if final_link_result:
-                                ev.final_entity_similarity_score = getattr(final_link_result, 'similarity_score', None)
-                                ev.final_entity_occurrence_count = getattr(final_link_result, 'occurrence_count', None)
-                                ev.final_entity_is_new = getattr(final_link_result, 'is_new', None)
-                                ev.final_entity_id = getattr(final_link_result, 'entity_id', None)
-                                ev.final_entity_type = getattr(final_link_result, 'entity_type', None)
-                                ev.final_entity_name = getattr(final_link_result, 'name', None)
+                            if final_entity_link_result:
+                                ev.final_entity_similarity_score = getattr(final_entity_link_result, 'similarity_score', None)
+                                ev.final_entity_occurrence_count = getattr(final_entity_link_result, 'occurrence_count', None)
+                                ev.final_entity_is_new = getattr(final_entity_link_result, 'is_new', None)
+                                ev.final_entity_id = getattr(final_entity_link_result, 'entity_id', None)
+                                ev.final_entity_type = getattr(final_entity_link_result, 'entity_type', None)
+                                ev.final_entity_name = getattr(final_entity_link_result, 'name', None)
                             update_db.commit()
                 except Exception as summary_err:
                     logger.warning(
@@ -983,12 +987,12 @@ class AIProcessingCoordinator:
                     "is_new": getattr(entity_result, "is_new", None) if entity_result else None,
                 },
                 "entity_final": {
-                    "entity_id": getattr(final_link_result, "entity_id", None) if final_link_result else None,
-                    "entity_type": getattr(final_link_result, "entity_type", None) if final_link_result else None,
-                    "entity_name": getattr(final_link_result, "name", None) if final_link_result else None,
-                    "similarity_score": getattr(final_link_result, "similarity_score", None) if final_link_result else None,
-                    "occurrence_count": getattr(final_link_result, "occurrence_count", None) if final_link_result else None,
-                    "is_new": getattr(final_link_result, "is_new", None) if final_link_result else None,
+                    "entity_id": getattr(final_entity_link_result, "entity_id", None) if final_entity_link_result else None,
+                    "entity_type": getattr(final_entity_link_result, "entity_type", None) if final_entity_link_result else None,
+                    "entity_name": getattr(final_entity_link_result, "name", None) if final_entity_link_result else None,
+                    "similarity_score": getattr(final_entity_link_result, "similarity_score", None) if final_entity_link_result else None,
+                    "occurrence_count": getattr(final_entity_link_result, "occurrence_count", None) if final_entity_link_result else None,
+                    "is_new": getattr(final_entity_link_result, "is_new", None) if final_entity_link_result else None,
                 },
                 "post_processing_summary": post_processing_summary,
             }
@@ -1129,6 +1133,8 @@ class AIProcessingCoordinator:
             logger.debug(f"OCR setup failed (non-critical): {ocr_setup_err}")
 
         # Limit concurrent AI calls (Phase A.5)
+        from app.core.metrics import ai_concurrent_in_flight
+
         async with self.ai_semaphore:
             ai_concurrent_in_flight.inc()
             try:
@@ -1765,6 +1771,65 @@ class AIProcessingCoordinator:
                 extra={"error": str(entity_error), "event_id": event_id}
             )
             return None
+
+    async def _publish_camera_status_sensors(
+        self, event: ProcessingEvent, event_id: str, ai_result: Any
+    ) -> None:
+        """Publish last event timestamp, activity state, and event counts to MQTT."""
+        try:
+            from app.services.mqtt_status_service import get_camera_event_counts
+
+            mqtt_service = self.mqtt_service
+
+            if not mqtt_service or not mqtt_service.is_connected:
+                return
+
+            with SessionLocal() as sensor_db:
+                stored_event = sensor_db.query(Event).filter(Event.id == event_id).first()
+                if not stored_event:
+                    return
+
+                # Publish last event timestamp
+                asyncio.create_task(
+                    mqtt_service.publish_last_event_timestamp(
+                        camera_id=event.camera_id,
+                        camera_name=event.camera_name,
+                        event_id=str(event_id),
+                        timestamp=stored_event.timestamp,
+                        description=ai_result.description,
+                        smart_detection_type=stored_event.smart_detection_type
+                    )
+                )
+
+                # Publish activity state ON
+                asyncio.create_task(
+                    mqtt_service.publish_activity_state(
+                        camera_id=event.camera_id,
+                        state="ON",
+                        last_event_at=stored_event.timestamp
+                    )
+                )
+
+                # Publish updated event counts
+                counts = await get_camera_event_counts(event.camera_id)
+                asyncio.create_task(
+                    mqtt_service.publish_event_counts(
+                        camera_id=event.camera_id,
+                        camera_name=event.camera_name,
+                        events_today=counts["events_today"],
+                        events_this_week=counts["events_this_week"]
+                    )
+                )
+
+                logger.debug(
+                    f"Status sensor publish tasks created for event {event_id}",
+                    extra={"event_id": event_id, "camera_id": event.camera_id}
+                )
+        except Exception as status_error:
+            logger.warning(
+                f"Failed to publish status sensors: {status_error}",
+                extra={"error": str(status_error), "event_id": event_id}
+            )
 
     async def _publish_mqtt_event(self, event: ProcessingEvent, event_id: str) -> None:
         """Publish the event to MQTT (Home Assistant / external integrations)."""

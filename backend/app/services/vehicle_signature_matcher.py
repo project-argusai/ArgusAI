@@ -73,6 +73,7 @@ SKIP_WORDS = [
     "passing", "turning", "slowing", "speeding",
     # Common words
     "the", "and", "with", "from", "into", "on", "at", "by",
+    "just", "still", "now", "then", "here", "there", "this", "that",
 ]
 
 

@@ -68,6 +68,7 @@ logger = logging.getLogger(__name__)
 
 # Vehicle signature matching logic has been extracted to VehicleSignatureMatcher
 
+@dataclass
 class EntityMatchResult:
     """Result of entity matching operation."""
     entity_id: str

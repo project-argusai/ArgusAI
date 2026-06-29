@@ -2493,7 +2493,7 @@ async def get_stream_snapshot(
         404: Camera not found
         503: Camera not available for streaming
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
 
     camera_id_str = str(camera_id)
 
@@ -2517,7 +2517,7 @@ async def get_stream_snapshot(
     if not rtsp_url:
         return StreamSnapshotResponse(
             success=False,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             quality=quality,
             error="Camera does not have a stream URL configured"
         )
@@ -2529,14 +2529,14 @@ async def get_stream_snapshot(
         image_base64 = f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode('utf-8')}"
         return StreamSnapshotResponse(
             success=True,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             quality=quality,
             image_base64=image_base64
         )
     else:
         return StreamSnapshotResponse(
             success=False,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             quality=quality,
             error="Failed to capture snapshot from camera"
         )

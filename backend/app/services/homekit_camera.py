@@ -36,7 +36,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.core.metrics import (
     record_homekit_stream_start,
@@ -722,7 +722,7 @@ class HomeKitCameraAccessory:
         """
         if self._snapshot_cache is None or self._snapshot_timestamp is None:
             return False
-        age = (datetime.utcnow() - self._snapshot_timestamp).total_seconds()
+        age = (datetime.now(timezone.utc) - self._snapshot_timestamp).total_seconds()
         return age < SNAPSHOT_CACHE_SECONDS
 
     @property
@@ -761,7 +761,7 @@ class HomeKitCameraAccessory:
                 f"Snapshot cache hit for camera {self.camera_name}",
                 extra={
                     "camera_id": self.camera_id,
-                    "cache_age_seconds": (datetime.utcnow() - self._snapshot_timestamp).total_seconds()
+                    "cache_age_seconds": (datetime.now(timezone.utc) - self._snapshot_timestamp).total_seconds()
                     if self._snapshot_timestamp else 0
                 }
             )
@@ -797,7 +797,7 @@ class HomeKitCameraAccessory:
             if result.returncode == 0 and result.stdout:
                 # Story P7-3.2 AC3: Store in cache with timestamp
                 self._snapshot_cache = result.stdout
-                self._snapshot_timestamp = datetime.utcnow()
+                self._snapshot_timestamp = datetime.now(timezone.utc)
 
                 logger.debug(
                     f"Captured and cached snapshot for camera {self.camera_name}",

@@ -30,7 +30,7 @@ import base64
 import io
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 
 import numpy as np
@@ -118,7 +118,7 @@ class VisionAnalysisOrchestrator:
         start_time = time.time()
 
         if timestamp is None:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
         if detected_objects is None:
             detected_objects = []
 
@@ -275,7 +275,7 @@ class VisionAnalysisOrchestrator:
         start_time = time.time()
 
         if timestamp is None:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
         if detected_objects is None:
             detected_objects = []
 

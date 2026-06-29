@@ -1,5 +1,4 @@
 """Pydantic schemas for AI service endpoints"""
-from datetime import datetime
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 

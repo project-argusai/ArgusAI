@@ -1654,7 +1654,7 @@ async def reanalyze_event(
     """
     from app.models.camera import Camera
     from app.services.ai_service import AIService  # Thin facade; consider VisionAnalysisOrchestrator for multi-mode reanalysis in future
-    from app.services.clip_service import ClipService
+    from app.services.clip_service import ClipService, get_clip_service
     from app.services.protect_service import ProtectService
     from app.services.frame_extractor import FrameExtractor
     from app.services.vagueness_detector import VaguenessDetector
@@ -1754,11 +1754,12 @@ async def reanalyze_event(
                     detail="Camera is not properly configured for Protect integration"
                 )
 
-            # Download clip for re-analysis
-            protect_service = ProtectService()
-            await protect_service.load_controllers_from_db(db)
-
-            clip_service = ClipService(protect_service)
+            # Download clip for re-analysis using the SHARED, already-connected
+            # ClipService (same as the live pipeline). Constructing a fresh
+            # ProtectService() here was broken: it has no active controller
+            # connections, and ProtectService has no load_controllers_from_db
+            # method (that call raised AttributeError -> reanalyze 500).
+            clip_service = get_clip_service()
 
             # Determine clip time range (use event timestamp +/- 5 seconds)
             event_start = event.timestamp - timedelta(seconds=5)

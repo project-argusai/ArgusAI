@@ -27,7 +27,13 @@ import {
 import { parseApiDate, formatRelative } from '@/lib/datetime';
 
 import { apiClient } from '@/lib/api-client';
-import type { SystemHealth, LogEntry, LogsResponse } from '@/types/monitoring';
+import type {
+  SystemHealth,
+  LogEntry,
+  LogsResponse,
+  AIResilienceData,
+  CircuitBreakerStatus,
+} from '@/types/monitoring';
 import { useAuth } from '@/contexts/AuthContext';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,22 +61,11 @@ export default function StatusPage() {
   // AI Resilience reset tracking
   const [lastCircuitBreakerReset, setLastCircuitBreakerReset] = useState<string | null>(null);
 
+  // AI Resilience (Circuit Breaker) Status
+  const [aiResilience, setAiResilience] = useState<AIResilienceData | null>(null);
+
   const auth = useAuth();
   const isAdmin = auth.isAdmin;
-
-  // Load data on mount and set up refresh interval
-  useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 30000); // Refresh every 30s
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Reload logs when level filter changes
-  useEffect(() => {
-    loadLogs();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logLevel]);
 
   const loadData = async () => {
     setIsRefreshing(true);
@@ -119,6 +114,20 @@ export default function StatusPage() {
       setLogs([]);
     }
   };
+
+  // Load data on mount and set up refresh interval
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Reload logs when level filter changes
+  useEffect(() => {
+    loadLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logLevel]);
 
   const handleDownloadLogs = async () => {
     // TODO: Implement log download API endpoint (tracked in backlog)
@@ -179,9 +188,6 @@ export default function StatusPage() {
       description: 'Vision API providers',
     },
   ];
-
-  // AI Resilience (Circuit Breaker) Status
-  const [aiResilience, setAiResilience] = useState<any>(null);
 
   useEffect(() => {
     const loadResilience = async () => {
@@ -334,15 +340,16 @@ export default function StatusPage() {
 
           <CardContent>
             <div className="flex flex-wrap gap-3">
-              {Object.entries(aiResilience).map(([name, status]: [string, any]) => {
-                if (!status) return null;
-                const color = status.state === 'closed' ? 'bg-green-500' : 
-                             status.state === 'open' ? 'bg-red-500' : 'bg-yellow-500';
+              {Object.entries(aiResilience).map(([name, status]) => {
+                if (!status || typeof status !== 'object' || !('state' in status)) return null;
+                const { state } = status as CircuitBreakerStatus;
+                const color = state === 'closed' ? 'bg-green-500' :
+                             state === 'open' ? 'bg-red-500' : 'bg-yellow-500';
                 return (
                   <div key={name} className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm">
                     <span className="font-medium capitalize">{name}</span>
                     <div className={`h-2 w-2 rounded-full ${color}`} />
-                    <span className="text-xs text-muted-foreground capitalize">{status.state}</span>
+                    <span className="text-xs text-muted-foreground capitalize">{state}</span>
                   </div>
                 );
               })}

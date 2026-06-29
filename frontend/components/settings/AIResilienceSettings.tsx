@@ -10,41 +10,11 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Loader2, RefreshCw, Save, RotateCcw } from 'lucide-react';
 import { formatRelative } from '@/lib/datetime';
-
-interface CircuitBreakerConfig {
-  failure_threshold: number;
-  recovery_timeout: number;
-  half_open_max_calls: number;
-  failure_rate_threshold: number;
-  minimum_calls_in_window: number;
-  window_duration_seconds: number;
-}
-
-interface CircuitBreakerStatus {
-  provider: string;
-  config: CircuitBreakerConfig;
-  state: 'closed' | 'open' | 'half_open';
-  failure_count: number;
-  current_failure_rate: number | null;
-  recent_window_size: number;
-  last_failure_time: string | null;
-  recent_transitions?: Array<{
-    timestamp: number;
-    from_state?: string;
-    to_state?: string;
-    reason?: string;
-  }>;
-}
-
-interface AIResilienceData {
-  default: CircuitBreakerStatus;
-  openai?: CircuitBreakerStatus;
-  grok?: CircuitBreakerStatus;
-  claude?: CircuitBreakerStatus;
-  gemini?: CircuitBreakerStatus;
-}
-
-const PROVIDERS = ['default', 'openai', 'grok', 'claude', 'gemini'] as const;
+import type {
+  CircuitBreakerConfig,
+  CircuitBreakerStatus,
+  AIResilienceData,
+} from '@/types/monitoring';
 
 const STATE_COLORS = {
   closed: 'bg-green-100 text-green-800 border-green-200',
@@ -58,8 +28,196 @@ const STATE_LABELS = {
   half_open: 'Half-Open (Testing)',
 };
 
+interface ProviderCardProps {
+  provider: string;
+  status?: CircuitBreakerStatus;
+  saving: string | null;
+  resetting: string | null;
+  onSave: (provider: string, config: CircuitBreakerConfig) => void;
+  onReset: (provider: string) => void;
+}
+
+function ProviderCard({ provider, status, saving, resetting, onSave, onReset }: ProviderCardProps) {
+  // Seed the editable form once from the initial status. Subsequent refetches do
+  // not clobber in-progress edits — this matches the original render-helper, where
+  // useState(status.config) only applied the seed on first mount of each card.
+  const [localConfig, setLocalConfig] = useState<CircuitBreakerConfig | null>(status?.config ?? null);
+
+  if (!status || !localConfig) return null;
+
+  const hasChanges = JSON.stringify(localConfig) !== JSON.stringify(status.config);
+
+  return (
+    <Card key={provider} className="mb-6">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <div>
+          <CardTitle className="capitalize">{provider} Circuit Breaker</CardTitle>
+          <CardDescription>Failure detection and recovery settings</CardDescription>
+        </div>
+        <Badge className={STATE_COLORS[status.state]}>
+          {STATE_LABELS[status.state]}
+        </Badge>
+      </CardHeader>
+
+      <CardContent className="space-y-6">
+        {/* Live Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <div className="text-muted-foreground">State</div>
+            <div className="font-medium capitalize">{status.state}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Failure Count</div>
+            <div className="font-medium">{status.failure_count}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Failure Rate</div>
+            <div className="font-medium">
+              {status.current_failure_rate !== null
+                ? `${(status.current_failure_rate * 100).toFixed(1)}%`
+                : 'N/A'}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Window Size</div>
+            <div className="font-medium">{status.recent_window_size} calls</div>
+          </div>
+        </div>
+
+        {/* Config Form */}
+        <div className="space-y-4">
+          <div className="text-sm font-medium">Configuration</div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label>Failure Threshold (consecutive)</Label>
+              <Input
+                type="number"
+                value={localConfig.failure_threshold}
+                onChange={(e) => setLocalConfig({ ...localConfig, failure_threshold: parseInt(e.target.value) || 5 })}
+              />
+            </div>
+
+            <div>
+              <Label>Recovery Timeout (seconds)</Label>
+              <Input
+                type="number"
+                step="1"
+                value={localConfig.recovery_timeout}
+                onChange={(e) => setLocalConfig({ ...localConfig, recovery_timeout: parseFloat(e.target.value) || 90 })}
+              />
+            </div>
+
+            <div>
+              <Label>Failure Rate Threshold</Label>
+              <Input
+                type="number"
+                step="0.05"
+                value={localConfig.failure_rate_threshold}
+                onChange={(e) => setLocalConfig({ ...localConfig, failure_rate_threshold: parseFloat(e.target.value) || 0.5 })}
+              />
+            </div>
+
+            <div>
+              <Label>Window Duration (seconds)</Label>
+              <Input
+                type="number"
+                value={localConfig.window_duration_seconds}
+                onChange={(e) => setLocalConfig({ ...localConfig, window_duration_seconds: parseFloat(e.target.value) || 60 })}
+              />
+            </div>
+
+            <div>
+              <Label>Min Calls in Window</Label>
+              <Input
+                type="number"
+                value={localConfig.minimum_calls_in_window}
+                onChange={(e) => setLocalConfig({ ...localConfig, minimum_calls_in_window: parseInt(e.target.value) || 6 })}
+              />
+            </div>
+
+            <div>
+              <Label>Half-Open Max Calls</Label>
+              <Input
+                type="number"
+                value={localConfig.half_open_max_calls}
+                onChange={(e) => setLocalConfig({ ...localConfig, half_open_max_calls: parseInt(e.target.value) || 1 })}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2 pt-2">
+          <Button
+            onClick={() => onSave(provider, localConfig)}
+            disabled={!hasChanges || saving === provider}
+            className="flex-1"
+          >
+            {saving === provider ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Save Configuration
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={() => onReset(provider)}
+            disabled={resetting === provider}
+          >
+            {resetting === provider ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RotateCcw className="mr-2 h-4 w-4" />
+            )}
+            Reset Breaker
+          </Button>
+        </div>
+
+        {hasChanges && (
+          <p className="text-xs text-muted-foreground">You have unsaved changes.</p>
+        )}
+
+        {/* Recent Transitions History */}
+        {status.recent_transitions && status.recent_transitions.length > 0 && (
+          <details className="mt-4">
+            <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+              Recent Transitions ({status.recent_transitions.length})
+            </summary>
+            <div className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-muted-foreground">
+                    <th className="pb-1">Time</th>
+                    <th className="pb-1">From → To</th>
+                    <th className="pb-1">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {status.recent_transitions.slice(0, 8).map((t, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="py-1 font-mono text-[10px]">
+                        {new Date(t.timestamp * 1000).toLocaleTimeString()}
+                      </td>
+                      <td className="py-1">
+                        <span className="font-medium">{t.from_state}</span> → <span className="font-medium">{t.to_state}</span>
+                      </td>
+                      <td className="py-1 text-muted-foreground">{t.reason || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AIResilienceSettings() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<AIResilienceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [resetting, setResetting] = useState<string | null>(null);
@@ -91,9 +249,9 @@ export function AIResilienceSettings() {
       await apiClient.updateAIResilienceConfig(provider, config);
       toast.success(`Circuit breaker config for ${provider} saved`);
       await fetchStatus();
-    } catch (error: any) {
+    } catch (error) {
       toast.error(`Failed to save config for ${provider}`, {
-        description: error?.message || 'Unknown error',
+        description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
       setSaving(null);
@@ -140,181 +298,17 @@ export function AIResilienceSettings() {
     return <div className="text-red-500">Failed to load AI Resilience data.</div>;
   }
 
-  const renderProviderCard = (provider: string, status?: CircuitBreakerStatus) => {
-    if (!status) return null;
-
-    const [localConfig, setLocalConfig] = useState<CircuitBreakerConfig>(status.config);
-
-    const hasChanges = JSON.stringify(localConfig) !== JSON.stringify(status.config);
-
-    return (
-      <Card key={provider} className="mb-6">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <div>
-            <CardTitle className="capitalize">{provider} Circuit Breaker</CardTitle>
-            <CardDescription>Failure detection and recovery settings</CardDescription>
-          </div>
-          <Badge className={STATE_COLORS[status.state]}>
-            {STATE_LABELS[status.state]}
-          </Badge>
-        </CardHeader>
-
-        <CardContent className="space-y-6">
-          {/* Live Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <div className="text-muted-foreground">State</div>
-              <div className="font-medium capitalize">{status.state}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Failure Count</div>
-              <div className="font-medium">{status.failure_count}</div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Failure Rate</div>
-              <div className="font-medium">
-                {status.current_failure_rate !== null 
-                  ? `${(status.current_failure_rate * 100).toFixed(1)}%` 
-                  : 'N/A'}
-              </div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Window Size</div>
-              <div className="font-medium">{status.recent_window_size} calls</div>
-            </div>
-          </div>
-
-          {/* Config Form */}
-          <div className="space-y-4">
-            <div className="text-sm font-medium">Configuration</div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label>Failure Threshold (consecutive)</Label>
-                <Input
-                  type="number"
-                  value={localConfig.failure_threshold}
-                  onChange={(e) => setLocalConfig({ ...localConfig, failure_threshold: parseInt(e.target.value) || 5 })}
-                />
-              </div>
-
-              <div>
-                <Label>Recovery Timeout (seconds)</Label>
-                <Input
-                  type="number"
-                  step="1"
-                  value={localConfig.recovery_timeout}
-                  onChange={(e) => setLocalConfig({ ...localConfig, recovery_timeout: parseFloat(e.target.value) || 90 })}
-                />
-              </div>
-
-              <div>
-                <Label>Failure Rate Threshold</Label>
-                <Input
-                  type="number"
-                  step="0.05"
-                  value={localConfig.failure_rate_threshold}
-                  onChange={(e) => setLocalConfig({ ...localConfig, failure_rate_threshold: parseFloat(e.target.value) || 0.5 })}
-                />
-              </div>
-
-              <div>
-                <Label>Window Duration (seconds)</Label>
-                <Input
-                  type="number"
-                  value={localConfig.window_duration_seconds}
-                  onChange={(e) => setLocalConfig({ ...localConfig, window_duration_seconds: parseFloat(e.target.value) || 60 })}
-                />
-              </div>
-
-              <div>
-                <Label>Min Calls in Window</Label>
-                <Input
-                  type="number"
-                  value={localConfig.minimum_calls_in_window}
-                  onChange={(e) => setLocalConfig({ ...localConfig, minimum_calls_in_window: parseInt(e.target.value) || 6 })}
-                />
-              </div>
-
-              <div>
-                <Label>Half-Open Max Calls</Label>
-                <Input
-                  type="number"
-                  value={localConfig.half_open_max_calls}
-                  onChange={(e) => setLocalConfig({ ...localConfig, half_open_max_calls: parseInt(e.target.value) || 1 })}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-2 pt-2">
-            <Button
-              onClick={() => handleSave(provider, localConfig)}
-              disabled={!hasChanges || saving === provider}
-              className="flex-1"
-            >
-              {saving === provider ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="mr-2 h-4 w-4" />
-              )}
-              Save Configuration
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={() => handleReset(provider)}
-              disabled={resetting === provider}
-            >
-              {resetting === provider ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <RotateCcw className="mr-2 h-4 w-4" />
-              )}
-              Reset Breaker
-            </Button>
-          </div>
-
-          {hasChanges && (
-            <p className="text-xs text-muted-foreground">You have unsaved changes.</p>
-          )}
-
-          {/* Recent Transitions History */}
-          {status.recent_transitions && status.recent_transitions.length > 0 && (
-            <details className="mt-4">
-              <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-                Recent Transitions ({status.recent_transitions.length})
-              </summary>
-              <div className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/30 p-3 text-xs">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-muted-foreground">
-                      <th className="pb-1">Time</th>
-                      <th className="pb-1">From → To</th>
-                      <th className="pb-1">Reason</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {status.recent_transitions.slice(0, 8).map((t: any, idx: number) => (
-                      <tr key={idx} className="border-t">
-                        <td className="py-1 font-mono text-[10px]">
-                          {new Date(t.timestamp * 1000).toLocaleTimeString()}
-                        </td>
-                        <td className="py-1">
-                          <span className="font-medium">{t.from_state}</span> → <span className="font-medium">{t.to_state}</span>
-                        </td>
-                        <td className="py-1 text-muted-foreground">{t.reason || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </details>
-          )}
-        </CardContent>
-      </Card>
-    );
-  };
+  const renderCard = (provider: string, status?: CircuitBreakerStatus) => (
+    <ProviderCard
+      key={provider}
+      provider={provider}
+      status={status}
+      saving={saving}
+      resetting={resetting}
+      onSave={handleSave}
+      onReset={handleReset}
+    />
+  );
 
   return (
     <div className="space-y-6">
@@ -347,11 +341,11 @@ export function AIResilienceSettings() {
         </Button>
       </div>
 
-      {renderProviderCard('default', data.default)}
-      {renderProviderCard('openai', data.openai)}
-      {renderProviderCard('grok', data.grok)}
-      {renderProviderCard('claude', data.claude)}
-      {renderProviderCard('gemini', data.gemini)}
+      {renderCard('default', data.default)}
+      {renderCard('openai', data.openai)}
+      {renderCard('grok', data.grok)}
+      {renderCard('claude', data.claude)}
+      {renderCard('gemini', data.gemini)}
 
       <div className="flex justify-end">
         <Button variant="outline" onClick={fetchStatus}>

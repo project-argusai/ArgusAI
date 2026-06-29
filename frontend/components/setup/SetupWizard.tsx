@@ -150,11 +150,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const [savingProvider, setSavingProvider] = useState<AIProvider | null>(null);
   const [configuredProviders, setConfiguredProviders] = useState<Set<AIProvider>>(new Set());
 
-  // Load existing AI provider status on mount
-  useEffect(() => {
-    loadAIProvidersStatus();
-  }, []);
-
   const loadAIProvidersStatus = async () => {
     try {
       const response = await apiClient.settings.getAIProvidersStatus();
@@ -174,6 +169,11 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       console.error('Failed to load AI providers status:', error);
     }
   };
+
+  // Load existing AI provider status on mount
+  useEffect(() => {
+    loadAIProvidersStatus();
+  }, []);
 
   const currentStepData = SETUP_STEPS[currentStep];
   const progress = ((currentStep + 1) / SETUP_STEPS.length) * 100;

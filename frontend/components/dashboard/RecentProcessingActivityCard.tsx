@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Button } from '@/components/ui/button';
 import { RefreshCw, Clock, AlertTriangle, CheckCircle2, Pause, XCircle, ArrowRight } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import type { AIProcessingRecord } from '@/types/monitoring';
 
 interface RecentProcessingActivityCardProps {
   title?: string;
@@ -19,7 +20,7 @@ export function RecentProcessingActivityCard({
   variant = 'full',
   limit = variant === 'mini' ? 8 : 20,
 }: RecentProcessingActivityCardProps) {
-  const [records, setRecords] = useState<any[]>([]);
+  const [records, setRecords] = useState<AIProcessingRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLiveConnected, setIsLiveConnected] = useState(false);
@@ -32,7 +33,7 @@ export function RecentProcessingActivityCard({
     let skipped = 0;
     let errors = 0;
 
-    records.forEach((r: any) => {
+    records.forEach((r) => {
       if (r.analysis_skipped) {
         skipped++;
       } else if (r.success === false) {
@@ -55,8 +56,8 @@ export function RecentProcessingActivityCard({
     if (records.length < 2) return null;
 
     const timestamps = records
-      .map((r: any) => r.timestamp)
-      .filter((t: number) => typeof t === 'number');
+      .map((r) => r.timestamp)
+      .filter((t): t is number => typeof t === 'number');
 
     if (timestamps.length < 2) return null;
 
@@ -81,8 +82,11 @@ export function RecentProcessingActivityCard({
         setRecords(newRecords);
       } else {
         // Merge without duplicates (simple approach for manual refresh)
-        const existingIds = new Set(records.map((r: any) => r.timestamp + r.camera_id));
-        const merged = [...newRecords.filter((r: any) => !existingIds.has(r.timestamp + r.camera_id)), ...records];
+        const existingIds = new Set(records.map((r) => `${r.timestamp}-${r.camera_id}`));
+        const merged = [
+          ...newRecords.filter((r) => !existingIds.has(`${r.timestamp}-${r.camera_id}`)),
+          ...records,
+        ];
         setRecords(merged.slice(0, limit));
       }
     } catch (err) {
@@ -169,7 +173,7 @@ export function RecentProcessingActivityCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit]);
 
-  const getStatusInfo = (record: any) => {
+  const getStatusInfo = (record: AIProcessingRecord) => {
     if (record.analysis_skipped) {
       return {
         icon: <Pause className="h-4 w-4" />,
@@ -194,12 +198,12 @@ export function RecentProcessingActivityCard({
     };
   };
 
-  const formatCost = (cost?: number) => {
+  const formatCost = (cost?: number | null) => {
     if (cost == null) return '';
     return `$${cost.toFixed(4)}`;
   };
 
-  const formatLatency = (ms?: number) => {
+  const formatLatency = (ms?: number | null) => {
     if (ms == null) return '';
     return `${Math.round(ms)}ms`;
   };
@@ -300,7 +304,7 @@ export function RecentProcessingActivityCard({
         {/* Main List */}
         {!error && records.length > 0 && (
           <div className="space-y-2">
-            {records.map((record: any) => {
+            {records.map((record) => {
               const status = getStatusInfo(record);
               const time = record.timestamp
                 ? formatDistanceToNow(new Date(record.timestamp * 1000), { addSuffix: true })

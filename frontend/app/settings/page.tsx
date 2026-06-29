@@ -65,6 +65,7 @@ import { MotionEventsExport } from '@/components/settings/MotionEventsExport';
 import { PromptRefinementModal } from '@/components/settings/PromptRefinementModal';
 import { CostWarningModal } from '@/components/settings/CostWarningModal';
 import { AIResilienceSettings } from '@/components/settings/AIResilienceSettings';
+import { AIModelSettings } from '@/components/settings/AIModelSettings';
 import { VideoStorageWarningModal } from '@/components/settings/VideoStorageWarningModal';
 import { FrameSamplingStrategySelector, type FrameSamplingStrategy } from '@/components/settings/FrameSamplingStrategySelector';
 import { PasswordChangeForm } from '@/components/settings/PasswordChangeForm';
@@ -854,6 +855,9 @@ Keep the summary concise (2-3 paragraphs).`}
             <TabsContent value="ai-resilience" className="space-y-4">
               <ErrorBoundary context="AI Resilience">
                 <AIResilienceSettings />
+              </ErrorBoundary>
+              <ErrorBoundary context="AI Models">
+                <AIModelSettings />
               </ErrorBoundary>
             </TabsContent>
 

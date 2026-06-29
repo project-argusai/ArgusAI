@@ -168,7 +168,7 @@ class AIPromptService:
             objects_str = ", ".join(detected_objects)
             parts.append(f"Detected objects: {objects_str}")
 
-        if audio_transcription:
+        if audio_transcription and audio_transcription.strip():
             parts.append(f"Audio detected: \"{audio_transcription}\"")
 
         if ocr_result and ocr_result.text:

@@ -68,189 +68,71 @@ def regular_camera(test_db):
 
 
 class TestAIPromptWithAudio:
-    """Test AI prompts with audio transcription (AC1, AC2, AC3)"""
+    """Test AI prompts with audio transcription (AC1, AC2, AC3).
+
+    Refactor note (commit 1af9f8a): prompt assembly moved out of the per-provider
+    ``_build_user_prompt`` / ``_build_multi_image_prompt`` methods into the shared
+    ``AIPromptService.select_and_build_prompt``. The audio context line is now
+    rendered as ``Audio detected: "<text>"`` (previously ``Audio transcription:``).
+    """
+
+    def _build_prompt(self, audio_transcription, analysis_mode="single_image"):
+        from app.services.ai_prompt_service import AIPromptService
+
+        service = AIPromptService()
+        prompt, _ = service.select_and_build_prompt(
+            camera_id=None,
+            custom_prompt=None,
+            detected_objects=["person"],
+            timestamp="2025-12-08T10:00:00Z",
+            audio_transcription=audio_transcription,
+            analysis_mode=analysis_mode,
+        )
+        return prompt
 
     def test_prompt_includes_transcription_when_provided(self):
         """AC1: Prompt includes transcription when available"""
-        from app.services.ai_service import OpenAIProvider
-
-        provider = OpenAIProvider("test-api-key")
-        transcription = "Amazon delivery"
-
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-08T10:00:00Z",
-            detected_objects=["person"],
-            custom_prompt=None,
-            audio_transcription=transcription
-        )
-
-        assert 'Audio transcription: "Amazon delivery"' in prompt
+        prompt = self._build_prompt("Amazon delivery")
+        assert 'Audio detected: "Amazon delivery"' in prompt
 
     def test_prompt_includes_transcription_in_multi_image(self):
         """AC1: Multi-image prompt includes transcription"""
-        from app.services.ai_service import OpenAIProvider
-
-        provider = OpenAIProvider("test-api-key")
-        transcription = "Hello, this is your UPS delivery"
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-08T10:00:00Z",
-            detected_objects=["person"],
-            num_images=5,
-            custom_prompt=None,
-            audio_transcription=transcription
+        prompt = self._build_prompt(
+            "Hello, this is your UPS delivery", analysis_mode="multi_image"
         )
-
-        assert 'Audio transcription: "Hello, this is your UPS delivery"' in prompt
+        assert 'Audio detected: "Hello, this is your UPS delivery"' in prompt
 
     def test_prompt_omits_audio_when_none(self):
         """AC3: No audio section when transcription is None"""
-        from app.services.ai_service import OpenAIProvider
-
-        provider = OpenAIProvider("test-api-key")
-
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-08T10:00:00Z",
-            detected_objects=["person"],
-            custom_prompt=None,
-            audio_transcription=None
-        )
-
-        assert "Audio transcription" not in prompt
+        prompt = self._build_prompt(None)
+        assert "Audio detected" not in prompt
 
     def test_prompt_omits_audio_when_empty(self):
         """AC3: No audio section when transcription is empty string"""
-        from app.services.ai_service import OpenAIProvider
-
-        provider = OpenAIProvider("test-api-key")
-
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-08T10:00:00Z",
-            detected_objects=["person"],
-            custom_prompt=None,
-            audio_transcription=""
-        )
-
-        assert "Audio transcription" not in prompt
+        prompt = self._build_prompt("")
+        assert "Audio detected" not in prompt
 
     def test_prompt_omits_audio_when_whitespace(self):
         """AC3: No audio section when transcription is only whitespace"""
-        from app.services.ai_service import OpenAIProvider
-
-        provider = OpenAIProvider("test-api-key")
-
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-08T10:00:00Z",
-            detected_objects=["person"],
-            custom_prompt=None,
-            audio_transcription="   "
-        )
-
-        assert "Audio transcription" not in prompt
+        prompt = self._build_prompt("   ")
+        assert "Audio detected" not in prompt
 
     def test_transcription_is_quoted_in_prompt(self):
         """AC2: Transcription is properly quoted in prompt"""
-        from app.services.ai_service import OpenAIProvider
-
-        provider = OpenAIProvider("test-api-key")
-
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-08T10:00:00Z",
-            detected_objects=["person"],
-            custom_prompt=None,
-            audio_transcription="FedEx delivery"
-        )
-
+        prompt = self._build_prompt("FedEx delivery")
         # Should be quoted
         assert '"FedEx delivery"' in prompt
 
 
-class TestDoorbellAudioExtraction:
-    """Test audio extraction for doorbell vs non-doorbell cameras (AC4, AC5)"""
-
-    @pytest.mark.asyncio
-    async def test_doorbell_camera_triggers_audio_extraction(self, doorbell_camera):
-        """AC4: Doorbell camera triggers audio extraction"""
-        from app.services.protect_event_handler import ProtectEventHandler
-
-        handler = ProtectEventHandler()
-        clip_path = Path("/tmp/test_clip.mp4")
-
-        # Patch at the source module where get_audio_extractor is imported from
-        with patch("app.services.audio_extractor.get_audio_extractor") as mock_get_extractor:
-            mock_extractor = MagicMock()
-            mock_extractor.extract_audio = AsyncMock(return_value=b"fake_audio_bytes")
-            mock_extractor.transcribe = AsyncMock(return_value="Hello")
-            mock_get_extractor.return_value = mock_extractor
-
-            result = await handler._extract_and_transcribe_audio(clip_path, doorbell_camera)
-
-            # Audio extraction should be called
-            mock_extractor.extract_audio.assert_called_once_with(clip_path)
-            mock_extractor.transcribe.assert_called_once()
-            assert result == "Hello"
-
-    @pytest.mark.asyncio
-    async def test_audio_extraction_returns_none_on_no_audio(self, doorbell_camera):
-        """AC4: Returns None when no audio track in clip"""
-        from app.services.protect_event_handler import ProtectEventHandler
-
-        handler = ProtectEventHandler()
-        clip_path = Path("/tmp/test_clip.mp4")
-
-        with patch("app.services.audio_extractor.get_audio_extractor") as mock_get_extractor:
-            mock_extractor = MagicMock()
-            mock_extractor.extract_audio = AsyncMock(return_value=None)  # No audio
-            mock_get_extractor.return_value = mock_extractor
-
-            result = await handler._extract_and_transcribe_audio(clip_path, doorbell_camera)
-
-            assert result is None
-            mock_extractor.extract_audio.assert_called_once()
-            # Transcribe should NOT be called if no audio
-            mock_extractor.transcribe.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_audio_extraction_returns_none_on_silent_audio(self, doorbell_camera):
-        """AC4: Returns None for silent audio (empty transcription)"""
-        from app.services.protect_event_handler import ProtectEventHandler
-
-        handler = ProtectEventHandler()
-        clip_path = Path("/tmp/test_clip.mp4")
-
-        with patch("app.services.audio_extractor.get_audio_extractor") as mock_get_extractor:
-            mock_extractor = MagicMock()
-            mock_extractor.extract_audio = AsyncMock(return_value=b"fake_audio_bytes")
-            mock_extractor.transcribe = AsyncMock(return_value="")  # Silent/empty
-            mock_get_extractor.return_value = mock_extractor
-
-            result = await handler._extract_and_transcribe_audio(clip_path, doorbell_camera)
-
-            assert result is None  # Empty transcription returns None
-
-    @pytest.mark.asyncio
-    async def test_audio_extraction_continues_on_error(self, doorbell_camera):
-        """Audio failures should NOT block event processing"""
-        from app.services.protect_event_handler import ProtectEventHandler
-
-        handler = ProtectEventHandler()
-        clip_path = Path("/tmp/test_clip.mp4")
-
-        with patch("app.services.audio_extractor.get_audio_extractor") as mock_get_extractor:
-            mock_extractor = MagicMock()
-            mock_extractor.extract_audio = AsyncMock(side_effect=Exception("Audio extraction failed"))
-            mock_get_extractor.return_value = mock_extractor
-
-            # Should NOT raise exception - returns None instead
-            result = await handler._extract_and_transcribe_audio(clip_path, doorbell_camera)
-
-            assert result is None
+# NOTE: TestDoorbellAudioExtraction was removed (commit 1af9f8a refactor).
+# The clip-based audio path it exercised --
+# ``ProtectEventHandler._extract_and_transcribe_audio`` calling
+# ``AudioExtractor.extract_audio`` + ``.transcribe`` -- was deleted during the
+# ai_service / protect_event_handler decomposition. No production code calls that
+# method or that AudioExtractor path any longer (audio is now handled via the
+# real-time audio_stream_service / audio_event_handler), so there is no equivalent
+# symbol to repoint these tests to. The ``audio_transcription`` value still flows
+# through providers and prompts, which the remaining tests in this module cover.
 
 
 class TestEventStorageWithTranscription:
@@ -354,7 +236,7 @@ class TestAllProvidersAcceptAudioTranscription:
 
     def test_openai_provider_accepts_audio_transcription(self):
         """OpenAI provider accepts audio_transcription"""
-        from app.services.ai_service import OpenAIProvider
+        from app.services.ai_providers import OpenAIProvider
         import inspect
 
         sig = inspect.signature(OpenAIProvider.generate_description)
@@ -365,7 +247,7 @@ class TestAllProvidersAcceptAudioTranscription:
 
     def test_claude_provider_accepts_audio_transcription(self):
         """Claude provider accepts audio_transcription"""
-        from app.services.ai_service import ClaudeProvider
+        from app.services.ai_providers import ClaudeProvider
         import inspect
 
         sig = inspect.signature(ClaudeProvider.generate_description)
@@ -376,7 +258,7 @@ class TestAllProvidersAcceptAudioTranscription:
 
     def test_gemini_provider_accepts_audio_transcription(self):
         """Gemini provider accepts audio_transcription"""
-        from app.services.ai_service import GeminiProvider
+        from app.services.ai_providers import GeminiProvider
         import inspect
 
         sig = inspect.signature(GeminiProvider.generate_description)
@@ -387,7 +269,7 @@ class TestAllProvidersAcceptAudioTranscription:
 
     def test_grok_provider_accepts_audio_transcription(self):
         """Grok provider accepts audio_transcription"""
-        from app.services.ai_service import GrokProvider
+        from app.services.ai_providers import GrokProvider
         import inspect
 
         sig = inspect.signature(GrokProvider.generate_description)

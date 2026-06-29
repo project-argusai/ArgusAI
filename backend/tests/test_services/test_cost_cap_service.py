@@ -18,7 +18,6 @@ from app.services.cost_cap_service import (
     SETTING_MONTHLY_CAP,
 )
 from app.models.system_setting import SystemSetting
-from app.models.ai_usage import AIUsage
 
 
 class TestCostCapService:
@@ -34,40 +33,58 @@ class TestCostCapService:
         """Create a mock database session."""
         return MagicMock()
 
+    @pytest.fixture
+    def mock_tracker(self):
+        """Patch the AICostAndUsageTracker that CostCapService delegates cost
+        lookups to (#447). Daily/monthly costs no longer come from the passed-in
+        db session; they are fetched via get_ai_cost_and_usage_tracker().
+
+        Defaults both costs to 0.0; tests override per case.
+        """
+        with patch(
+            "app.services.cost_cap_service.get_ai_cost_and_usage_tracker"
+        ) as mock_get_tracker:
+            tracker = MagicMock()
+            tracker.get_daily_cost.return_value = 0.0
+            tracker.get_monthly_cost.return_value = 0.0
+            mock_get_tracker.return_value = tracker
+            yield tracker
+
     # =========================================================================
     # Get Daily/Monthly Cost Tests
     # =========================================================================
 
-    def test_get_daily_cost_returns_sum(self, service, mock_db):
+    def test_get_daily_cost_returns_sum(self, service, mock_db, mock_tracker):
         """Test get_daily_cost returns sum of today's costs."""
-        # Mock query result
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("1.50")
+        # Cost now comes from the tracker (#447), not the db session.
+        mock_tracker.get_daily_cost.return_value = 1.50
 
         cost = service.get_daily_cost(mock_db)
 
         assert cost == Decimal("1.50")
-        mock_db.query.assert_called_once()
+        mock_tracker.get_daily_cost.assert_called_once()
 
-    def test_get_daily_cost_returns_zero_when_no_data(self, service, mock_db):
+    def test_get_daily_cost_returns_zero_when_no_data(self, service, mock_db, mock_tracker):
         """Test get_daily_cost returns 0 when no usage data."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = None
+        mock_tracker.get_daily_cost.return_value = 0.0
 
         cost = service.get_daily_cost(mock_db)
 
         assert cost == Decimal("0")
 
-    def test_get_monthly_cost_returns_sum(self, service, mock_db):
+    def test_get_monthly_cost_returns_sum(self, service, mock_db, mock_tracker):
         """Test get_monthly_cost returns sum of this month's costs."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("15.00")
+        # Cost now comes from the tracker (#447), not the db session.
+        mock_tracker.get_monthly_cost.return_value = 15.00
 
         cost = service.get_monthly_cost(mock_db)
 
         assert cost == Decimal("15.00")
-        mock_db.query.assert_called_once()
+        mock_tracker.get_monthly_cost.assert_called_once()
 
-    def test_get_monthly_cost_returns_zero_when_no_data(self, service, mock_db):
+    def test_get_monthly_cost_returns_zero_when_no_data(self, service, mock_db, mock_tracker):
         """Test get_monthly_cost returns 0 when no usage data."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = None
+        mock_tracker.get_monthly_cost.return_value = 0.0
 
         cost = service.get_monthly_cost(mock_db)
 
@@ -175,10 +192,10 @@ class TestCostCapService:
     # Cap Status Tests
     # =========================================================================
 
-    def test_get_cap_status_returns_correct_structure(self, service, mock_db):
+    def test_get_cap_status_returns_correct_structure(self, service, mock_db, mock_tracker):
         """Test get_cap_status returns CostCapStatus with all fields."""
-        # Mock costs
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("2.50")
+        # Mock costs (from tracker, #447)
+        mock_tracker.get_daily_cost.return_value = 2.50
 
         # Mock caps
         mock_setting = Mock()
@@ -197,10 +214,10 @@ class TestCostCapService:
         assert hasattr(status, 'is_paused')
         assert hasattr(status, 'pause_reason')
 
-    def test_get_cap_status_calculates_percentage(self, service, mock_db):
+    def test_get_cap_status_calculates_percentage(self, service, mock_db, mock_tracker):
         """Test get_cap_status calculates correct percentage."""
         # Mock: $2.50 daily cost, $5.00 cap = 50%
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("2.50")
+        mock_tracker.get_daily_cost.return_value = 2.50
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -210,10 +227,10 @@ class TestCostCapService:
 
         assert status.daily_percent == 50.0
 
-    def test_get_cap_status_caps_percentage_at_100(self, service, mock_db):
+    def test_get_cap_status_caps_percentage_at_100(self, service, mock_db, mock_tracker):
         """Test percentage is capped at 100 even when exceeded."""
         # Mock: $7.50 daily cost, $5.00 cap = would be 150%, capped at 100%
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("7.50")
+        mock_tracker.get_daily_cost.return_value = 7.50
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -239,7 +256,7 @@ class TestCostCapService:
         assert status is cached_status
         mock_db.query.assert_not_called()
 
-    def test_get_cap_status_ignores_expired_cache(self, service, mock_db):
+    def test_get_cap_status_ignores_expired_cache(self, service, mock_db, mock_tracker):
         """Test get_cap_status ignores expired cache."""
         # Set up expired cache (10 seconds old)
         cached_status = CostCapStatus(
@@ -251,7 +268,7 @@ class TestCostCapService:
         service._cache_timestamp = time.time() - 10  # 10 seconds old
 
         # Mock fresh data
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("2.50")
+        mock_tracker.get_daily_cost.return_value = 2.50
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
         status = service.get_cap_status(mock_db, use_cache=True)
@@ -263,10 +280,10 @@ class TestCostCapService:
     # Pause/Resume Logic Tests
     # =========================================================================
 
-    def test_is_paused_when_daily_cap_exceeded(self, service, mock_db):
+    def test_is_paused_when_daily_cap_exceeded(self, service, mock_db, mock_tracker):
         """Test is_paused is True when daily cap exceeded."""
         # Mock: $6.00 daily cost, $5.00 cap
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("6.00")
+        mock_tracker.get_daily_cost.return_value = 6.00
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -277,34 +294,32 @@ class TestCostCapService:
         assert status.is_paused is True
         assert status.pause_reason == "cost_cap_daily"
 
-    def test_is_paused_when_monthly_cap_exceeded(self, service, mock_db):
+    def test_is_paused_when_monthly_cap_exceeded(self, service, mock_db, mock_tracker):
         """Test is_paused is True when monthly cap exceeded."""
-        # Daily under cap, monthly over cap
-        def mock_scalar():
-            if mock_db.query.call_count == 1:
-                return Decimal("1.00")  # Daily cost (under cap)
-            return Decimal("60.00")  # Monthly cost (over cap)
+        # Daily under cap, monthly over cap. Costs come from the tracker (#447);
+        # caps still come from the db session.
+        mock_tracker.get_daily_cost.return_value = 1.00  # under (no) daily cap
+        mock_tracker.get_monthly_cost.return_value = 60.00  # over $50 monthly cap
 
-        mock_db.query.return_value.filter.return_value.scalar.side_effect = mock_scalar
-
-        # No daily cap, monthly cap of $50
-        def mock_first():
-            if mock_db.query.call_count <= 2:
-                return None  # No daily cap
-            mock_setting = Mock()
-            mock_setting.value = "50.00"
-            return mock_setting
-
-        mock_db.query.return_value.filter.return_value.first.side_effect = mock_first
+        # No daily cap, monthly cap of $50. get_cap_status queries caps in order:
+        # daily cap first (None), then monthly cap ($50).
+        no_daily_cap = None
+        monthly_setting = Mock()
+        monthly_setting.value = "50.00"
+        mock_db.query.return_value.filter.return_value.first.side_effect = [
+            no_daily_cap,
+            monthly_setting,
+        ]
 
         status = service.get_cap_status(mock_db, use_cache=False)
 
         assert status.is_paused is True
         assert status.pause_reason == "cost_cap_monthly"
 
-    def test_is_not_paused_when_under_caps(self, service, mock_db):
+    def test_is_not_paused_when_under_caps(self, service, mock_db, mock_tracker):
         """Test is_paused is False when under all caps."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("1.00")
+        mock_tracker.get_daily_cost.return_value = 1.00
+        mock_tracker.get_monthly_cost.return_value = 1.00
 
         mock_setting = Mock()
         mock_setting.value = "10.00"
@@ -315,9 +330,10 @@ class TestCostCapService:
         assert status.is_paused is False
         assert status.pause_reason is None
 
-    def test_is_not_paused_when_no_caps_set(self, service, mock_db):
+    def test_is_not_paused_when_no_caps_set(self, service, mock_db, mock_tracker):
         """Test is_paused is False when no caps configured."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("100.00")
+        mock_tracker.get_daily_cost.return_value = 100.00
+        mock_tracker.get_monthly_cost.return_value = 100.00
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
         status = service.get_cap_status(mock_db, use_cache=False)
@@ -329,9 +345,10 @@ class TestCostCapService:
     # Can Analyze Tests
     # =========================================================================
 
-    def test_can_analyze_returns_true_when_not_paused(self, service, mock_db):
+    def test_can_analyze_returns_true_when_not_paused(self, service, mock_db, mock_tracker):
         """Test can_analyze returns (True, None) when not paused."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("1.00")
+        mock_tracker.get_daily_cost.return_value = 1.00
+        mock_tracker.get_monthly_cost.return_value = 1.00
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
         can_analyze, reason = service.can_analyze(mock_db)
@@ -339,9 +356,9 @@ class TestCostCapService:
         assert can_analyze is True
         assert reason is None
 
-    def test_can_analyze_returns_false_when_paused(self, service, mock_db):
+    def test_can_analyze_returns_false_when_paused(self, service, mock_db, mock_tracker):
         """Test can_analyze returns (False, reason) when paused."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("10.00")
+        mock_tracker.get_daily_cost.return_value = 10.00
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -356,10 +373,10 @@ class TestCostCapService:
     # Approaching Cap Tests
     # =========================================================================
 
-    def test_is_approaching_cap_at_80_percent(self, service, mock_db):
+    def test_is_approaching_cap_at_80_percent(self, service, mock_db, mock_tracker):
         """Test is_approaching_cap returns True at 80% threshold."""
         # Mock: $4.00 daily cost, $5.00 cap = 80%
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("4.00")
+        mock_tracker.get_daily_cost.return_value = 4.00
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -370,10 +387,10 @@ class TestCostCapService:
         assert approaching is True
         assert which_cap == "daily"
 
-    def test_is_approaching_cap_at_custom_threshold(self, service, mock_db):
+    def test_is_approaching_cap_at_custom_threshold(self, service, mock_db, mock_tracker):
         """Test is_approaching_cap works with custom threshold."""
         # Mock: $4.50 daily cost, $5.00 cap = 90%
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("4.50")
+        mock_tracker.get_daily_cost.return_value = 4.50
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -387,9 +404,9 @@ class TestCostCapService:
         approaching, _ = service.is_approaching_cap(mock_db, threshold=95.0)
         assert approaching is False
 
-    def test_is_approaching_cap_returns_false_when_under(self, service, mock_db):
+    def test_is_approaching_cap_returns_false_when_under(self, service, mock_db, mock_tracker):
         """Test is_approaching_cap returns False when under threshold."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("2.00")
+        mock_tracker.get_daily_cost.return_value = 2.00
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -404,9 +421,9 @@ class TestCostCapService:
     # Within Cap Tests
     # =========================================================================
 
-    def test_is_within_daily_cap_true_when_under(self, service, mock_db):
+    def test_is_within_daily_cap_true_when_under(self, service, mock_db, mock_tracker):
         """Test is_within_daily_cap returns True when under cap."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("2.00")
+        mock_tracker.get_daily_cost.return_value = 2.00
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -416,9 +433,9 @@ class TestCostCapService:
 
         assert within is True
 
-    def test_is_within_daily_cap_false_when_at_cap(self, service, mock_db):
+    def test_is_within_daily_cap_false_when_at_cap(self, service, mock_db, mock_tracker):
         """Test is_within_daily_cap returns False when at/over cap."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("5.00")
+        mock_tracker.get_daily_cost.return_value = 5.00
 
         mock_setting = Mock()
         mock_setting.value = "5.00"
@@ -428,9 +445,9 @@ class TestCostCapService:
 
         assert within is False
 
-    def test_is_within_daily_cap_true_when_no_cap(self, service, mock_db):
+    def test_is_within_daily_cap_true_when_no_cap(self, service, mock_db, mock_tracker):
         """Test is_within_daily_cap returns True when no cap set."""
-        mock_db.query.return_value.filter.return_value.scalar.return_value = Decimal("100.00")
+        mock_tracker.get_daily_cost.return_value = 100.00
         mock_db.query.return_value.filter.return_value.first.return_value = None
 
         within = service.is_within_daily_cap(mock_db)

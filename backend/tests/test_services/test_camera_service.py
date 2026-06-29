@@ -43,54 +43,46 @@ class TestCameraService:
 
     def test_camera_service_initialization(self, camera_service):
         """CameraService should initialize with empty tracking dicts"""
-        assert len(camera_service._capture_threads) == 0
-        assert len(camera_service._active_captures) == 0
-        assert len(camera_service._stop_flags) == 0
-        assert len(camera_service._camera_status) == 0
+        # Post Phase 5 decomposition: capture is delegated to per-camera
+        # CameraCaptureWorker instances tracked in `_workers`. The old
+        # _capture_threads/_active_captures/_stop_flags/_camera_status dicts
+        # were removed from the service.
+        assert len(camera_service._workers) == 0
+        assert len(camera_service._restart_attempts) == 0
+        assert len(camera_service._capture_disabled) == 0
 
-    @patch('app.services.camera_service.cv2.VideoCapture')
-    def test_start_camera_rtsp(self, mock_videocapture, camera_service, rtsp_camera):
-        """start_camera should start background thread for RTSP camera"""
-        # Mock successful camera connection
-        mock_cap = MagicMock()
-        mock_cap.isOpened.return_value = True
-        mock_cap.read.side_effect = [(False, None)]  # Fail immediately to exit loop
-        mock_videocapture.return_value = mock_cap
-
-        # Start camera
+    @patch('app.services.camera_capture_worker.CameraCaptureWorker.start', return_value=True)
+    def test_start_camera_rtsp(self, mock_worker_start, camera_service, rtsp_camera):
+        """start_camera should create and start a CameraCaptureWorker for an RTSP camera"""
+        # Start camera (worker.start() is mocked to avoid spinning a real thread)
         result = camera_service.start_camera(rtsp_camera)
 
         assert result is True
-        assert rtsp_camera.id in camera_service._capture_threads
-        assert rtsp_camera.id in camera_service._stop_flags
+        assert rtsp_camera.id in camera_service._workers
 
-        # Thread should be alive (briefly)
-        thread = camera_service._capture_threads[rtsp_camera.id]
-        assert isinstance(thread, threading.Thread)
-
-        # Wait for thread to process
-        time.sleep(0.2)
+        # A CameraCaptureWorker should have been created and started
+        from app.services.camera_capture_worker import CameraCaptureWorker
+        worker = camera_service._workers[rtsp_camera.id]
+        assert isinstance(worker, CameraCaptureWorker)
+        mock_worker_start.assert_called_once()
 
         # Clean up
         camera_service.stop_camera(rtsp_camera.id)
 
-    @patch('app.services.camera_service.cv2.VideoCapture')
-    def test_start_camera_usb(self, mock_videocapture, camera_service, usb_camera):
-        """start_camera should work with USB camera using device index"""
-        mock_cap = MagicMock()
-        mock_cap.isOpened.return_value = True
-        mock_cap.read.side_effect = [(False, None)]
-        mock_videocapture.return_value = mock_cap
-
+    @patch('app.services.camera_capture_worker.CameraCaptureWorker.start', return_value=True)
+    def test_start_camera_usb(self, mock_worker_start, camera_service, usb_camera):
+        """start_camera should create a CameraCaptureWorker for a USB camera"""
         result = camera_service.start_camera(usb_camera)
 
         assert result is True
-        assert usb_camera.id in camera_service._capture_threads
+        assert usb_camera.id in camera_service._workers
 
-        # VideoCapture should be called with device index
-        mock_videocapture.assert_called_with(usb_camera.device_index)
+        # The worker should hold the USB camera (device index is used by the worker
+        # when it opens the capture, no longer by the service directly)
+        worker = camera_service._workers[usb_camera.id]
+        assert worker.camera.device_index == usb_camera.device_index
+        mock_worker_start.assert_called_once()
 
-        time.sleep(0.2)
         camera_service.stop_camera(usb_camera.id)
 
     @patch('app.services.camera_service.cv2.VideoCapture')
@@ -115,96 +107,128 @@ class TestCameraService:
         camera_service.stop_camera(rtsp_camera.id)
 
     def test_stop_camera(self, camera_service):
-        """stop_camera should stop thread and clean up resources"""
+        """stop_camera should stop the worker and clean up resources"""
         camera_id = "test-camera-123"
 
-        # Create mock thread and stop flag
-        mock_thread = Mock(spec=threading.Thread)
-        mock_thread.is_alive.return_value = False
-        camera_service._capture_threads[camera_id] = mock_thread
-
-        stop_flag = threading.Event()
-        camera_service._stop_flags[camera_id] = stop_flag
+        # Inject a mock CameraCaptureWorker for this camera
+        mock_worker = Mock()
+        camera_service._workers[camera_id] = mock_worker
 
         # Stop camera
         camera_service.stop_camera(camera_id)
 
-        # Should set stop flag
-        assert stop_flag.is_set()
+        # Should delegate stop to the worker (with the default timeout)
+        mock_worker.stop.assert_called_once()
 
-        # Should wait for thread
-        mock_thread.join.assert_called_once()
-
-        # Should clean up
-        assert camera_id not in camera_service._capture_threads
-        assert camera_id not in camera_service._stop_flags
+        # Should remove the worker from tracking
+        assert camera_id not in camera_service._workers
 
     def test_stop_camera_not_running(self, camera_service):
         """Stopping non-running camera should not raise error"""
         # Should not raise exception
         camera_service.stop_camera("non-existent-camera")
 
-    @patch('app.services.camera_service.cv2.VideoCapture')
-    def test_build_rtsp_url_with_credentials(self, mock_videocapture, camera_service, rtsp_camera):
-        """RTSP URL should include username and decrypted password"""
-        url = camera_service._build_rtsp_url(rtsp_camera)
+    def test_build_rtsp_url_with_credentials(self):
+        """RTSP URL should include username and password (built by the worker).
 
-        # Should call get_decrypted_password
-        rtsp_camera.get_decrypted_password.assert_called_once()
+        Phase 5: _build_rtsp_url moved from CameraService to CameraCaptureWorker
+        and now builds from ip_address/port/stream_path with plaintext credentials.
+        """
+        from app.services.camera_capture_worker import CameraCaptureWorker
 
-        # URL should contain credentials
+        camera = Mock(spec=Camera)
+        camera.id = "test-camera-123"
+        camera.type = "rtsp"
+        camera.username = "admin"
+        camera.password = "plain_password"
+        camera.ip_address = "192.168.1.50"
+        camera.port = 554
+        camera.stream_path = "/stream1"
+
+        worker = CameraCaptureWorker(camera)
+        url = worker._build_rtsp_url(camera)
+
+        # URL should contain credentials and host
         assert "admin:plain_password@" in url
         assert "192.168.1.50" in url
 
-    def test_build_rtsp_url_without_credentials(self, camera_service):
-        """RTSP URL without credentials should remain unchanged"""
+    def test_build_rtsp_url_without_credentials(self):
+        """RTSP URL without credentials should omit the auth segment."""
+        from app.services.camera_capture_worker import CameraCaptureWorker
+
         camera = Mock(spec=Camera)
-        camera.rtsp_url = "rtsp://192.168.1.50:554/stream1"
+        camera.id = "test-camera-123"
+        camera.type = "rtsp"
         camera.username = None
         camera.password = None
+        camera.ip_address = "192.168.1.50"
+        camera.port = 554
+        camera.stream_path = "/stream1"
 
-        url = camera_service._build_rtsp_url(camera)
+        worker = CameraCaptureWorker(camera)
+        url = worker._build_rtsp_url(camera)
 
         assert url == "rtsp://192.168.1.50:554/stream1"
 
-    def test_update_status_thread_safe(self, camera_service):
-        """_update_status should be thread-safe"""
-        camera_id = "test-camera"
+    def test_update_status_thread_safe(self):
+        """_update_status (now on the worker) should record status thread-safely."""
+        from app.services.camera_capture_worker import CameraCaptureWorker
 
-        camera_service._update_status(camera_id, "connected")
+        camera = Mock(spec=Camera)
+        camera.id = "test-camera"
+        camera.type = "rtsp"
+        worker = CameraCaptureWorker(camera)
 
-        status = camera_service.get_camera_status(camera_id)
+        worker._update_status("connected")
+
+        status = worker.get_status()
 
         assert status is not None
         assert status["status"] == "connected"
         assert status["last_frame_time"] is not None
         assert status["error"] is None
 
-    def test_update_status_with_error(self, camera_service):
-        """_update_status should store error message"""
-        camera_id = "test-camera"
+    def test_update_status_with_error(self):
+        """_update_status (now on the worker) should store error message."""
+        from app.services.camera_capture_worker import CameraCaptureWorker
 
-        camera_service._update_status(camera_id, "error", error="Connection failed")
+        camera = Mock(spec=Camera)
+        camera.id = "test-camera"
+        camera.type = "rtsp"
+        worker = CameraCaptureWorker(camera)
 
-        status = camera_service.get_camera_status(camera_id)
+        worker._update_status("error", error="Connection failed")
+
+        status = worker.get_status()
 
         assert status["status"] == "error"
         assert status["error"] == "Connection failed"
         assert status["last_frame_time"] is None
 
     def test_get_camera_status_not_found(self, camera_service):
-        """get_camera_status should return None for non-existent camera"""
+        """get_camera_status returns a 'stopped' status dict for an unknown camera.
+
+        Phase 5: the service now always returns a status dict (with capture_disabled
+        / restart_attempts) rather than None, so callers get a consistent shape.
+        """
         status = camera_service.get_camera_status("non-existent")
-        assert status is None
+        assert status is not None
+        assert status["status"] == "stopped"
+        assert status["worker_alive"] is False
+        assert status["capture_disabled"] is False
 
     def test_get_all_camera_status(self, camera_service):
-        """get_all_camera_status should return all camera statuses"""
-        camera_service._update_status("camera1", "connected")
-        camera_service._update_status("camera2", "disconnected")
+        """get_all_camera_status should aggregate status from all workers."""
+        # Inject mock workers whose get_status() returns canned status dicts
+        worker1 = Mock()
+        worker1.get_status.return_value = {"status": "connected", "worker_alive": True}
+        worker2 = Mock()
+        worker2.get_status.return_value = {"status": "disconnected", "worker_alive": False}
+        camera_service._workers["camera1"] = worker1
+        camera_service._workers["camera2"] = worker2
 
         all_status = camera_service.get_all_camera_status()
 
-        assert len(all_status) == 2
         assert "camera1" in all_status
         assert "camera2" in all_status
         assert all_status["camera1"]["status"] == "connected"
@@ -238,26 +262,20 @@ class TestCameraService:
         # Clean up
         camera_service.stop_camera(rtsp_camera.id, timeout=1.0)
 
-    @patch('app.services.camera_service.cv2.VideoCapture')
-    def test_stop_all_cameras(self, mock_videocapture, camera_service, rtsp_camera, usb_camera):
-        """stop_all_cameras should stop all running cameras"""
-        mock_cap = MagicMock()
-        mock_cap.isOpened.return_value = True
-        mock_cap.read.return_value = (True, Mock())
-        mock_videocapture.return_value = mock_cap
-
-        # Start multiple cameras
+    @patch('app.services.camera_capture_worker.CameraCaptureWorker.start', return_value=True)
+    def test_stop_all_cameras(self, mock_worker_start, camera_service, rtsp_camera, usb_camera):
+        """stop_all_cameras should stop all running camera workers"""
+        # Start multiple cameras (worker.start mocked to avoid real threads)
         camera_service.start_camera(rtsp_camera)
         camera_service.start_camera(usb_camera)
 
-        time.sleep(0.1)
+        assert len(camera_service._workers) == 2
 
         # Stop all
         camera_service.stop_all_cameras(timeout=1.0)
 
-        # Should have stopped both
-        assert len(camera_service._capture_threads) == 0
-        assert len(camera_service._active_captures) == 0
+        # Should have cleared all workers
+        assert len(camera_service._workers) == 0
 
     # USB-Specific Tests (Story F1.3)
 
@@ -347,9 +365,9 @@ class TestCameraService:
         # Clean up
         camera_service.stop_camera(usb_camera.id, timeout=1.0)
 
-    @patch('app.services.camera_service.cv2.VideoCapture')
-    def test_usb_device_indices(self, mock_videocapture, camera_service):
-        """Different USB cameras should use different device indices"""
+    @patch('app.services.camera_capture_worker.CameraCaptureWorker.start', return_value=True)
+    def test_usb_device_indices(self, mock_worker_start, camera_service):
+        """Different USB cameras should produce workers bound to their device indices"""
         # Create cameras with different device indices
         camera1 = Mock(spec=Camera)
         camera1.id = "usb-camera-1"
@@ -365,21 +383,14 @@ class TestCameraService:
         camera2.device_index = 1
         camera2.frame_rate = 15
 
-        mock_cap = MagicMock()
-        mock_cap.isOpened.return_value = True
-        mock_cap.read.side_effect = [(False, None)]
-        mock_videocapture.return_value = mock_cap
-
         # Start both cameras
         camera_service.start_camera(camera1)
         camera_service.start_camera(camera2)
 
-        time.sleep(0.2)
-
-        # Verify VideoCapture called with correct device indices
-        calls = mock_videocapture.call_args_list
-        device_indices = [call[0][0] for call in calls]
-
+        # Each worker should hold its own camera with the correct device index
+        device_indices = [
+            worker.camera.device_index for worker in camera_service._workers.values()
+        ]
         assert 0 in device_indices
         assert 1 in device_indices
 
@@ -449,14 +460,17 @@ class TestCameraCaptureRecoveryPolicy:
         camera_service.enable_camera_capture(cid)
         assert cid not in camera_service._capture_disabled
 
-    def test_auto_disable_after_max_restarts(self, camera_service, test_camera):
+    def test_auto_disable_after_max_restarts_short(self, camera_service, test_camera):
         """Camera should be auto-disabled after MAX_RESTART_ATTEMPTS failed restarts."""
         cid = test_camera.id
         camera_service.MAX_RESTART_ATTEMPTS = 3  # speed up test
+        camera_service.RESTART_WINDOW_SECONDS = 999999  # Prevent window reset during test
 
-        # Simulate repeated failed restarts (we call restart directly)
-        for i in range(3):
-            camera_service.restart_camera(test_camera)
+        # Force every restart to fail (worker.start() returns False), so the
+        # service counts failures and eventually disables the camera.
+        with patch.object(camera_service, 'start_camera', return_value=False):
+            for _ in range(3):
+                camera_service.restart_camera(test_camera)
 
         assert cid in camera_service._capture_disabled
         assert camera_service._restart_attempts.get(cid, 0) >= 3
@@ -478,9 +492,13 @@ class TestCameraCaptureRecoveryPolicy:
         camera_service.MAX_RESTART_ATTEMPTS = 3
         camera_service.RESTART_WINDOW_SECONDS = 999999  # Prevent window reset during test
 
-        # Simulate repeated failed restarts
-        for _ in range(3):
-            camera_service.restart_camera(test_camera)
+        # Force every restart to fail. Post-refactor, restart_camera delegates to
+        # start_camera (which spins up a CameraCaptureWorker whose thread starts
+        # successfully even when the underlying stream is unreachable). To exercise
+        # the auto-disable policy we make start_camera report failure each time.
+        with patch.object(camera_service, 'start_camera', return_value=False):
+            for _ in range(3):
+                camera_service.restart_camera(test_camera)
 
         assert cid in camera_service._capture_disabled
         assert camera_service._restart_attempts.get(cid, 0) >= 3

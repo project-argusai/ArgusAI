@@ -24,10 +24,12 @@ from app.services.schedule_manager import schedule_manager
 from app.models.motion_event import MotionEvent
 from app.models.camera import Camera
 from app.core.database import get_db
+from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
 
+@singleton
 class MotionDetectionService:
     """
     Singleton service for managing motion detection across all cameras

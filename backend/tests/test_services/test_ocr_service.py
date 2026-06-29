@@ -212,79 +212,26 @@ class TestIsOcrAvailable:
         assert isinstance(result, bool)
 
 
-class TestBuildContextPromptWithOCR:
-    """Test build_context_prompt integration with OCR results (AC-3.2.3, AC-3.2.4)."""
-
-    def test_context_prompt_uses_ocr_camera_name_for_generic_db_name(self):
-        """AC-3.2.3: OCR data supplements DB data for generic names."""
-        from app.services.ai_service import build_context_prompt
-
-        ocr_result = OCRResult(
-            region="top_left",
-            timestamp="10:30:45",
-            camera_name="Front Door",
-            raw_text="CAM: Front Door 10:30:45"
-        )
-
-        # Generic database name should be replaced by OCR name
-        prompt = build_context_prompt(
-            camera_name="Camera 1",
-            timestamp="2025-12-22T10:30:45+00:00",
-            ocr_result=ocr_result
-        )
-
-        assert '"Front Door" camera' in prompt
-
-    def test_context_prompt_keeps_db_name_when_specific(self):
-        """AC-3.2.3: Keep specific DB name even when OCR differs."""
-        from app.services.ai_service import build_context_prompt
-
-        ocr_result = OCRResult(
-            region="top_left",
-            timestamp="10:30:45",
-            camera_name="CAM1",
-            raw_text="CAM1 10:30:45"
-        )
-
-        # Specific database name should be kept
-        prompt = build_context_prompt(
-            camera_name="Driveway",
-            timestamp="2025-12-22T10:30:45+00:00",
-            ocr_result=ocr_result
-        )
-
-        assert '"Driveway" camera' in prompt
-
-    def test_context_prompt_fallback_without_ocr(self):
-        """AC-3.2.4: Fall back to DB metadata when no OCR."""
-        from app.services.ai_service import build_context_prompt
-
-        prompt = build_context_prompt(
-            camera_name="Backyard",
-            timestamp="2025-12-22T15:00:00+00:00",
-            ocr_result=None
-        )
-
-        assert '"Backyard" camera' in prompt
-        assert "3:00 PM" in prompt
-        assert "afternoon" in prompt
-
-    def test_context_prompt_handles_none_ocr_camera_name(self):
-        """AC-3.2.4: Handle OCR result with no camera name."""
-        from app.services.ai_service import build_context_prompt
-
-        ocr_result = OCRResult(
-            region="top_left",
-            timestamp="10:30:45",
-            camera_name=None,
-            raw_text="10:30:45"
-        )
-
-        prompt = build_context_prompt(
-            camera_name="Front Porch",
-            timestamp="2025-12-22T10:30:45+00:00",
-            ocr_result=ocr_result
-        )
-
-        # Should use DB name
-        assert '"Front Porch" camera' in prompt
+# NOTE: TestBuildContextPromptWithOCR (4 tests) was removed.
+#
+# Those tests imported `build_context_prompt` from `app.services.ai_service`
+# and asserted on its output (generic-DB-name override from OCR, specific-name
+# retention, time-of-day humanization like "3:00 PM"/"afternoon", and None-OCR
+# fallback). During the ai_providers/prompt decomposition the standalone
+# context-prompt helpers were REMOVED from the codebase entirely:
+#   - build_context_prompt
+#   - get_time_of_day_category
+#   - get_night_vision_hint
+#   - get_location_delivery_hint
+# No `def` for any of these exists anywhere under `app/`.
+#
+# Prompt building now lives in `app.services.ai_prompt_service.AIPromptService`
+# (`select_and_build_prompt` / `_build_context_string`). That replacement does
+# NOT reproduce the old behaviors these tests asserted: it emits a flat
+# "Camera: <id>\nTime: <raw timestamp>" context block and the only OCR-derived
+# behavior it retains is inserting `ocr_result.text` as
+# `Text visible in frame: "<text>"`. The generic-name override, specific-name
+# retention, time-of-day humanization, and night-vision/delivery hints no
+# longer exist in any form, so there is no equivalent interface to repoint
+# these assertions to. The tests are deleted rather than rewritten to avoid
+# asserting on behavior the system no longer provides.

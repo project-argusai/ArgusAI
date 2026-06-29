@@ -4,9 +4,20 @@ Tests for VisionAnalysisOrchestrator (Phase 3.2 - ai_service decomposition)
 Comprehensive tests with mocked providers, resilience service, and prompt service.
 """
 
+import io
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import numpy as np
+from PIL import Image
+
+
+def _make_jpeg_bytes(width: int = 16, height: int = 16) -> bytes:
+    """Produce real, PIL-decodable JPEG bytes for preprocessing tests."""
+    img = Image.new("RGB", (width, height), color=(120, 120, 120))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    return buf.getvalue()
 
 from app.services.vision_analysis_orchestrator import (
     VisionAnalysisOrchestrator,
@@ -54,8 +65,8 @@ class TestVisionAnalysisOrchestratorBasic:
 
     def test_preprocess_image_bytes_basic(self):
         orchestrator = VisionAnalysisOrchestrator()
-        # Small valid JPEG bytes (minimal header)
-        fake_jpeg = b'\xff\xd8\xff\xe0' + b'\x00' * 100 + b'\xff\xd9'
+        # Real, PIL-decodable JPEG bytes
+        fake_jpeg = _make_jpeg_bytes()
         result = orchestrator._preprocess_image_bytes(fake_jpeg)
         assert isinstance(result, str)
 
@@ -149,7 +160,7 @@ class TestVisionAnalysisOrchestratorMultiFrame:
             resilience_service=mock_resilience,
         )
 
-        fake_images = [b'\xff\xd8\xff' + b'\x00' * 200 + b'\xff\xd9' for _ in range(3)]
+        fake_images = [_make_jpeg_bytes() for _ in range(3)]
 
         result = await orchestrator.analyze_images(fake_images, "Driveway")
 

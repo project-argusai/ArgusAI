@@ -1847,19 +1847,18 @@ async def reanalyze_event(
 
             frame_count_used = len(extracted_frames)
 
-            # Convert frames to base64 for multi-image analysis. FrameExtractor
-            # returns JPEG-encoded bytes, but guard for numpy arrays too (the
-            # previous code assumed numpy and cv2.imencode'd the bytes -> error).
-            frames_base64 = []
+            # describe_images() takes raw JPEG bytes (List[bytes]) and base64-
+            # encodes internally. FrameExtractor returns bytes; guard for numpy.
+            frame_bytes = []
             for frame in extracted_frames:
                 if isinstance(frame, (bytes, bytearray)):
-                    frames_base64.append(base64.b64encode(frame).decode('utf-8'))
+                    frame_bytes.append(bytes(frame))
                 else:
                     _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    frames_base64.append(base64.b64encode(buffer).decode('utf-8'))
+                    frame_bytes.append(buffer.tobytes())
 
             result = await ai_service.describe_images(
-                images_base64=frames_base64,
+                images=frame_bytes,
                 camera_name=camera.name,
                 timestamp=event.timestamp.isoformat(),
                 detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected

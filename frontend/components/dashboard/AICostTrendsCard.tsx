@@ -15,6 +15,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+import type { AICostTrendPoint } from '@/types/monitoring';
 
 interface AICostTrendsCardProps {
   title?: string;
@@ -30,7 +31,7 @@ export function AICostTrendsCard({
   bucket = 'day',
 }: AICostTrendsCardProps) {
   const [selectedDays, setSelectedDays] = useState(daysBack);
-  const [trends, setTrends] = useState<any[]>([]);
+  const [trends, setTrends] = useState<AICostTrendPoint[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [metric, setMetric] = useState<'cost' | 'tokens'>('cost'); // only used in full variant
 

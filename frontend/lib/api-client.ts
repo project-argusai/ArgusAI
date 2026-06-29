@@ -69,6 +69,12 @@ import type {
   LogsResponse,
   LogsQueryParams,
   LogFilesResponse,
+  AIResilienceData,
+  AIProcessingRecord,
+  HotCamera,
+  HotEntity,
+  CircuitBreakerConfig,
+  CircuitBreakerStatus,
 } from '@/types/monitoring';
 import type {
   IUser,
@@ -1313,11 +1319,14 @@ export const apiClient = {
   },
 
   // AI Resilience / Circuit Breakers (Phase A - A.5)
-  getAIResilience: async (): Promise<any> => {
+  getAIResilience: async (): Promise<AIResilienceData> => {
     return apiFetch('/system/ai-resilience');
   },
 
-  updateAIResilienceConfig: async (provider: string, config: any): Promise<any> => {
+  updateAIResilienceConfig: async (
+    provider: string,
+    config: CircuitBreakerConfig,
+  ): Promise<CircuitBreakerStatus> => {
     return apiFetch(`/system/ai-resilience/${provider}`, {
       method: 'PUT',
       body: JSON.stringify(config),
@@ -1343,9 +1352,9 @@ export const apiClient = {
     entity_types?: string;
   }): Promise<{
     status: string;
-    hot_cameras: any[];
-    top_recent_entities: any[];
-    filters_applied: Record<string, any>;
+    hot_cameras: HotCamera[];
+    top_recent_entities: HotEntity[];
+    filters_applied: Record<string, unknown>;
   }> => {
     const query = new URLSearchParams();
     if (params) {
@@ -1367,7 +1376,7 @@ export const apiClient = {
     limit?: number;
   }): Promise<{
     status: string;
-    recent_activity: any[];
+    recent_activity: AIProcessingRecord[];
     count: number;
     limit: number;
   }> => {

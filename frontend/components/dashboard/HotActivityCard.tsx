@@ -14,6 +14,7 @@ import {
   Activity,
   ArrowRight,
 } from 'lucide-react';
+import type { HotActivityData, HotCamera, HotEntity } from '@/types/monitoring';
 
 interface HotActivityCardProps {
   title?: string;
@@ -31,7 +32,7 @@ export function HotActivityCard({
   variant = 'full',
 }: HotActivityCardProps) {
   // Data and filter state
-  const [hotData, setHotData] = useState<any>(null);
+  const [hotData, setHotData] = useState<HotActivityData | null>(null);
   const [hotMinScore, setHotMinScore] = useState<number | ''>('');
   const [hotMinCameraScore, setHotMinCameraScore] = useState<number | ''>('');
   const [hotOnlyNew, setHotOnlyNew] = useState<boolean>(false);
@@ -67,7 +68,7 @@ export function HotActivityCard({
   const loadHotActivity = async () => {
     setIsLoadingHot(true);
     try {
-      const params: any = { limit };
+      const params: NonNullable<Parameters<typeof apiClient.getAIProcessingHot>[0]> = { limit };
       if (hotMinScore !== '') params.min_score = Number(hotMinScore);
       if (hotMinCameraScore !== '') params.min_camera_score = Number(hotMinCameraScore);
       if (hotOnlyNew) params.entity_is_new = true;
@@ -95,7 +96,7 @@ export function HotActivityCard({
     if (!hotData) return null;
     const camCount = hotData.hot_cameras?.length || 0;
     const entCount = hotData.top_recent_entities?.length || 0;
-    const newCount = (hotData.top_recent_entities || []).filter((e: any) => e.is_new).length;
+    const newCount = (hotData.top_recent_entities || []).filter((e) => e.is_new).length;
     const parts = [
       `${camCount} camera${camCount === 1 ? '' : 's'}`,
       `${entCount} ${entCount === 1 ? 'entity' : 'entities'}`,
@@ -110,7 +111,7 @@ export function HotActivityCard({
 
   // --- Live updates via hot-only WebSocket ---
   const buildCurrentFilters = () => {
-    const filters: Record<string, any> = {};
+    const filters: Record<string, number | boolean> = {};
     if (hotMinScore !== '') filters.min_score = Number(hotMinScore);
     if (hotMinCameraScore !== '') filters.min_camera_score = Number(hotMinCameraScore);
     if (hotOnlyNew) filters.entity_is_new = true;
@@ -359,7 +360,7 @@ export function HotActivityCard({
                 </div>
                 {hotData.hot_cameras?.length ? (
                   <ul className="space-y-1 text-sm">
-                    {hotData.hot_cameras.slice(0, displayLimit).map((cam: any, idx: number) => (
+                    {hotData.hot_cameras.slice(0, displayLimit).map((cam: HotCamera, idx: number) => (
                       <li key={idx} className="flex justify-between border-b pb-1">
                         <span>{cam.name || cam.camera_id}</span>
                         <span className="text-muted-foreground tabular-nums">
@@ -382,7 +383,7 @@ export function HotActivityCard({
                 </div>
                 {hotData.top_recent_entities?.length ? (
                   <ul className="space-y-1 text-sm">
-                    {hotData.top_recent_entities.slice(0, displayLimit).map((ent: any, idx: number) => (
+                    {hotData.top_recent_entities.slice(0, displayLimit).map((ent: HotEntity, idx: number) => (
                       <li key={idx} className="flex justify-between border-b pb-1">
                         <span>
                           {ent.name || ent.entity_id}

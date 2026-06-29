@@ -40,25 +40,6 @@ export function PromptRefinementModal({
   const [editedPrompt, setEditedPrompt] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  // Reset state when modal opens
-  const handleOpenChange = useCallback((newOpen: boolean) => {
-    if (newOpen) {
-      // Modal opening - reset state and start refinement
-      setRefinementResult(null);
-      setEditedPrompt('');
-      setError(null);
-      // Auto-start refinement when modal opens
-      handleRefine(currentPrompt);
-    } else {
-      // Modal closing - reset state
-      setRefinementResult(null);
-      setEditedPrompt('');
-      setError(null);
-      setIsLoading(false);
-    }
-    onOpenChange(newOpen);
-  }, [currentPrompt, onOpenChange]);
-
   // Call the refinement API
   const handleRefine = async (promptToRefine: string) => {
     setIsLoading(true);
@@ -92,6 +73,25 @@ export function PromptRefinementModal({
       setIsLoading(false);
     }
   };
+
+  // Reset state when modal opens
+  const handleOpenChange = useCallback((newOpen: boolean) => {
+    if (newOpen) {
+      // Modal opening - reset state and start refinement
+      setRefinementResult(null);
+      setEditedPrompt('');
+      setError(null);
+      // Auto-start refinement when modal opens
+      handleRefine(currentPrompt);
+    } else {
+      // Modal closing - reset state
+      setRefinementResult(null);
+      setEditedPrompt('');
+      setError(null);
+      setIsLoading(false);
+    }
+    onOpenChange(newOpen);
+  }, [currentPrompt, onOpenChange]);
 
   // Handle resubmit with edited prompt
   const handleResubmit = () => {

@@ -319,8 +319,12 @@ class VisionAnalysisOrchestrator:
         effective_prompt = custom_prompt
         if effective_prompt is None and self.prompt_service:
             # Use prompt service for consistency
+            # NOTE: select_and_build_prompt takes camera_id (optional), not
+            # camera_name (which this multi-image path doesn't have). Passing
+            # camera_name raised TypeError on every multi_frame analysis — the
+            # last bug keeping multi-frame from ever completing. Omit it; a
+            # missing camera_id just means no camera-specific prompt override.
             effective_prompt, _ = self.prompt_service.select_and_build_prompt(
-                camera_name=camera_name,
                 detected_objects=detected_objects,
                 timestamp=timestamp,
                 audio_transcription=audio_transcription,

@@ -3124,6 +3124,92 @@ async def update_ai_resilience_config(
         )
 
 
+_AI_MODEL_PROVIDERS = ["openai", "grok", "claude", "gemini"]
+
+
+@router.get("/ai-models")
+async def list_ai_models(db: Session = Depends(get_db)):
+    """List, per provider: whether it's configured, the currently-active model,
+    any admin model override, and the models the provider currently offers.
+
+    Powers the AI settings "choose a model" UI so an operator can pick from what
+    is actually available rather than relying on a hardcoded (and deprecating)
+    model id. Querying live model lists takes a few seconds (admin, on-demand).
+    """
+    from app.utils.encryption import decrypt_password
+    from app.models.system_setting import SystemSetting
+    from app.services.ai_providers.model_resolver import list_available_models
+
+    # Ensure providers are configured so we can report the active model.
+    if container.ai_service.resilience_service is None or not container.ai_service.providers:
+        try:
+            await container.ai_service.load_api_keys_from_db(db)
+        except Exception as e:
+            logger.warning(f"list_ai_models: provider configuration failed: {e}")
+
+    wanted = ([f"ai_api_key_{p}" for p in _AI_MODEL_PROVIDERS]
+              + [f"settings_{p}_model" for p in _AI_MODEL_PROVIDERS])
+    rows = {r.key: r.value for r in
+            db.query(SystemSetting).filter(SystemSetting.key.in_(wanted)).all()}
+
+    active = {}
+    try:
+        for prov_enum, prov in container.ai_service.providers.items():
+            active[prov_enum.value] = getattr(prov, "model_name", None) or getattr(prov, "model", None)
+    except Exception:
+        pass
+
+    providers = []
+    for p in _AI_MODEL_PROVIDERS:
+        enc = rows.get(f"ai_api_key_{p}")
+        key = decrypt_password(enc) if enc else None
+        providers.append({
+            "provider": p,
+            "configured": bool(key),
+            "active_model": active.get(p),
+            "override": rows.get(f"settings_{p}_model") or None,
+            "available_models": list_available_models(p, key) if key else [],
+        })
+    return {"providers": providers}
+
+
+@router.put("/ai-models/{provider}")
+async def set_ai_model(provider: str, payload: dict, db: Session = Depends(get_db)):
+    """Pin a provider's model, or clear the pin to revert to dynamic resolution.
+
+    Body: {"model": "<model-id>"} to pin, or {"model": null} to clear.
+    """
+    if provider not in _AI_MODEL_PROVIDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid provider. Must be one of {_AI_MODEL_PROVIDERS}",
+        )
+    from app.models.system_setting import SystemSetting
+    from app.services.ai_providers.model_resolver import clear_cache
+
+    model = (payload or {}).get("model")
+    key = f"settings_{provider}_model"
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if model:
+        if row:
+            row.value = model
+        else:
+            db.add(SystemSetting(key=key, value=model))
+    elif row:
+        db.delete(row)
+    db.commit()
+
+    # Drop cached resolutions and reconfigure so the change takes effect now.
+    clear_cache()
+    try:
+        await container.ai_service.load_api_keys_from_db(db)
+    except Exception as e:
+        logger.warning(f"set_ai_model: reconfigure failed: {e}")
+
+    return {"provider": provider, "model": model or None,
+            "status": "pinned" if model else "cleared (dynamic resolution)"}
+
+
 @router.post("/ai-resilience/{provider}/reset")
 async def reset_ai_circuit_breaker(provider: str, db: Session = Depends(get_db)):
     """Manually reset a circuit breaker to CLOSED state."""

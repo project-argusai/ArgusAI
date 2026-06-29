@@ -118,13 +118,14 @@ class TestSignedURLService:
 
     def test_different_secrets_produce_different_signatures(self, event_id):
         """Test that different secret keys produce different signatures."""
-        service1 = SignedURLService(secret_key=b"secret-key-1")
-        service2 = SignedURLService(secret_key=b"secret-key-2")
-
         expires = int(time.time()) + 60
 
-        sig1 = service1._create_signature(event_id, expires)
-        sig2 = service2._create_signature(event_id, expires)
+        # SignedURLService is a @singleton, so reset between instantiations to
+        # exercise two distinct secret keys.
+        SignedURLService._reset_instance()
+        sig1 = SignedURLService(secret_key=b"secret-key-1")._create_signature(event_id, expires)
+        SignedURLService._reset_instance()
+        sig2 = SignedURLService(secret_key=b"secret-key-2")._create_signature(event_id, expires)
 
         assert sig1 != sig2
 
@@ -170,19 +171,13 @@ class TestSignedURLServiceSingleton:
         assert service1 is service2
 
     def test_reset_clears_singleton(self):
-        """Test that reset_signed_url_service clears the singleton."""
-        # Create a service with custom key
-        from app.services.signed_url_service import _signed_url_service
-        import app.services.signed_url_service as module
-
-        # Manually set singleton
-        module._signed_url_service = SignedURLService(secret_key=b"custom")
-
-        # Reset
+        """Test that reset_signed_url_service clears the singleton (the next get
+        returns a fresh instance)."""
+        service1 = get_signed_url_service()
         reset_signed_url_service()
+        service2 = get_signed_url_service()
 
-        # Singleton should be None
-        assert module._signed_url_service is None
+        assert service1 is not service2
 
 
 class TestSignedURLTiming:

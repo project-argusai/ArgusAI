@@ -29,6 +29,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db_session
+from app.core.decorators import singleton
 from app.services.embedding_service import get_embedding_service
 from app.services.entity_service import get_entity_service
 from app.services.websocket_manager import get_websocket_manager
@@ -90,6 +91,7 @@ class ReprocessingJob:
         }
 
 
+@singleton
 class ReprocessingService:
     """
     Service for bulk entity reprocessing.
@@ -559,5 +561,3 @@ def get_reprocessing_service() -> ReprocessingService:
 def reset_reprocessing_service() -> None:
     """Reset the global ReprocessingService instance (for testing)."""
     ReprocessingService._reset_instance()
-
-    return _reprocessing_service

@@ -31,6 +31,7 @@ import numpy as np
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
+from app.core.decorators import singleton
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 
 logger = logging.getLogger(__name__)
@@ -145,6 +146,7 @@ def batch_cosine_similarity(query: list[float], candidates: list[list[float]]) -
     return similarities.tolist()
 
 
+@singleton
 class SimilarityService:
     """
     Find similar events using embedding cosine similarity.

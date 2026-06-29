@@ -358,28 +358,28 @@ class TestCameraHooks:
     @pytest.mark.asyncio
     async def test_on_camera_deleted_calls_remove(self):
         """on_camera_deleted triggers discovery removal."""
-        import app.services.mqtt_discovery_service as discovery_module
-
         mock_service = MagicMock()
         mock_service.remove_discovery_config = AsyncMock()
 
-        discovery_module._discovery_service = mock_service
-
-        await on_camera_deleted("camera-to-delete")
+        with patch(
+            'app.services.mqtt_discovery_service.get_discovery_service',
+            return_value=mock_service,
+        ):
+            await on_camera_deleted("camera-to-delete")
 
         mock_service.remove_discovery_config.assert_called_once_with("camera-to-delete")
 
     @pytest.mark.asyncio
     async def test_on_camera_disabled_calls_remove(self):
         """on_camera_disabled triggers discovery removal."""
-        import app.services.mqtt_discovery_service as discovery_module
-
         mock_service = MagicMock()
         mock_service.remove_discovery_config = AsyncMock()
 
-        discovery_module._discovery_service = mock_service
-
-        await on_camera_disabled("camera-to-disable")
+        with patch(
+            'app.services.mqtt_discovery_service.get_discovery_service',
+            return_value=mock_service,
+        ):
+            await on_camera_disabled("camera-to-disable")
 
         mock_service.remove_discovery_config.assert_called_once_with("camera-to-disable")
 
@@ -522,10 +522,8 @@ class TestInitializeDiscoveryService:
     @pytest.mark.asyncio
     async def test_initialize_captures_running_loop(self):
         """initialize_discovery_service captures the running event loop."""
-        import app.services.mqtt_discovery_service as discovery_module
-
         # Reset singleton
-        discovery_module._discovery_service = None
+        MQTTDiscoveryService._reset_instance()
 
         mock_mqtt = MagicMock()
         mock_mqtt.set_on_connect_callback = MagicMock()
@@ -536,7 +534,7 @@ class TestInitializeDiscoveryService:
             await initialize_discovery_service()
 
             # Get the service and verify loop was set
-            service = discovery_module._discovery_service
+            service = get_discovery_service()
             assert service._main_event_loop is not None
             assert service._main_event_loop.is_running()
 

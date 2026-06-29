@@ -4,6 +4,18 @@ FastAPI application entry point for ArgusAI
 Initializes the FastAPI app, registers routers, and sets up startup/shutdown events.
 """
 import os
+
+# --- SSL/CA trust fix (must run before importing app modules) ---
+# A dependency the app loads (google.generativeai / grpc) corrupts the process
+# default SSL trust store, so the httpx-based provider SDKs (OpenAI / xAI Grok /
+# Anthropic) fail every request with CERTIFICATE_VERIFY_FAILED — which silently
+# disabled AI description generation. Pinning the CA bundle to certifi keeps
+# certificate verification working for every HTTP client. setdefault() preserves
+# an explicit operator override (e.g. a corporate CA bundle).
+import certifi as _certifi
+os.environ.setdefault("SSL_CERT_FILE", _certifi.where())
+os.environ.setdefault("REQUESTS_CA_BUNDLE", _certifi.where())
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware

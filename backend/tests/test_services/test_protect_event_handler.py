@@ -210,7 +210,7 @@ class TestProtectEventHandlerInit:
 
     def test_init_empty_tracking(self, event_handler):
         """Test handler initializes with empty event tracking."""
-        assert len(event_handler._last_event_times) == 0
+        assert len(event_handler.event_filter._last_event_times) == 0
 
     def test_init_no_audio_transcription(self, event_handler):
         """Test handler initializes without audio transcription."""
@@ -311,38 +311,38 @@ class TestEventFiltering:
     def test_should_process_enabled_type(self, event_handler):
         """Test enabled event type passes filter."""
         smart_detection_types = ["person", "vehicle"]
-        result = event_handler._should_process_event("person", smart_detection_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event("person", smart_detection_types, "Test Camera")
         assert result is True
 
     def test_should_not_process_disabled_type(self, event_handler):
         """Test disabled event type is filtered out."""
         smart_detection_types = ["person", "vehicle"]
-        result = event_handler._should_process_event("package", smart_detection_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event("package", smart_detection_types, "Test Camera")
         assert result is False
 
     def test_should_process_motion_when_enabled(self, event_handler):
         """Test motion passes when in filter list."""
         smart_detection_types = ["motion", "person"]
-        result = event_handler._should_process_event("motion", smart_detection_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event("motion", smart_detection_types, "Test Camera")
         assert result is True
 
     def test_should_not_process_motion_when_disabled(self, event_handler):
         """Test motion filtered when not in list."""
         smart_detection_types = ["person", "vehicle"]
-        result = event_handler._should_process_event("motion", smart_detection_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event("motion", smart_detection_types, "Test Camera")
         assert result is False
 
     def test_empty_filter_list_is_all_motion_mode(self, event_handler):
         """Test empty filter list means 'all motion' mode - passes all events."""
         # Per AC8: Empty array means "all motion" mode - process everything
         smart_detection_types = []
-        result = event_handler._should_process_event("person", smart_detection_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event("person", smart_detection_types, "Test Camera")
         assert result is True
 
     def test_should_process_ring_event(self, event_handler):
         """Test ring event passes when enabled."""
         smart_detection_types = ["person", "ring"]
-        result = event_handler._should_process_event("ring", smart_detection_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event("ring", smart_detection_types, "Test Camera")
         assert result is True
 
     @pytest.mark.parametrize("event_type,filter_types,expected", [
@@ -357,7 +357,7 @@ class TestEventFiltering:
     ])
     def test_filter_scenarios(self, event_handler, event_type, filter_types, expected):
         """Parametrized test for various filter scenarios."""
-        result = event_handler._should_process_event(event_type, filter_types, "Test Camera")
+        result = event_handler.event_filter.should_process_event(event_type, filter_types, "Test Camera")
         assert result == expected
 
 
@@ -370,54 +370,54 @@ class TestEventDeduplication:
 
     def test_first_event_not_duplicate(self, event_handler):
         """Test first event from camera is not duplicate."""
-        result = event_handler._is_duplicate_event("cam-123", "Front Door")
+        result = event_handler.event_filter.is_duplicate_event("cam-123", "Front Door")
         assert result is False
 
     def test_event_within_cooldown_is_duplicate(self, event_handler):
         """Test event within cooldown window is duplicate."""
         # Record first event
-        event_handler._last_event_times["cam-123"] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times["cam-123"] = datetime.now(timezone.utc)
 
         # Check immediately - should be duplicate
-        result = event_handler._is_duplicate_event("cam-123", "Front Door")
+        result = event_handler.event_filter.is_duplicate_event("cam-123", "Front Door")
         assert result is True
 
     def test_event_after_cooldown_not_duplicate(self, event_handler):
         """Test event after cooldown window is not duplicate."""
         # Record event in the past (beyond cooldown)
         old_time = datetime.now(timezone.utc) - timedelta(seconds=EVENT_COOLDOWN_SECONDS + 10)
-        event_handler._last_event_times["cam-123"] = old_time
+        event_handler.event_filter._last_event_times["cam-123"] = old_time
 
-        result = event_handler._is_duplicate_event("cam-123", "Front Door")
+        result = event_handler.event_filter.is_duplicate_event("cam-123", "Front Door")
         assert result is False
 
     def test_different_camera_not_affected(self, event_handler):
         """Test different camera is not affected by another's cooldown."""
         # Record event for camera 1
-        event_handler._last_event_times["cam-123"] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times["cam-123"] = datetime.now(timezone.utc)
 
         # Camera 2 should not be blocked
-        result = event_handler._is_duplicate_event("cam-456", "Back Door")
+        result = event_handler.event_filter.is_duplicate_event("cam-456", "Back Door")
         assert result is False
 
     def test_clear_event_tracking_specific_camera(self, event_handler):
         """Test clearing tracking for specific camera."""
-        event_handler._last_event_times["cam-123"] = datetime.now(timezone.utc)
-        event_handler._last_event_times["cam-456"] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times["cam-123"] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times["cam-456"] = datetime.now(timezone.utc)
 
         event_handler.clear_event_tracking("cam-123")
 
-        assert "cam-123" not in event_handler._last_event_times
-        assert "cam-456" in event_handler._last_event_times
+        assert "cam-123" not in event_handler.event_filter._last_event_times
+        assert "cam-456" in event_handler.event_filter._last_event_times
 
     def test_clear_event_tracking_all(self, event_handler):
         """Test clearing all tracking."""
-        event_handler._last_event_times["cam-123"] = datetime.now(timezone.utc)
-        event_handler._last_event_times["cam-456"] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times["cam-123"] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times["cam-456"] = datetime.now(timezone.utc)
 
         event_handler.clear_event_tracking()
 
-        assert len(event_handler._last_event_times) == 0
+        assert len(event_handler.event_filter._last_event_times) == 0
 
 
 # =============================================================================
@@ -590,7 +590,7 @@ class TestHandleEventFlow:
 
         # First event should process (but we're not mocking full pipeline)
         # Record recent event to trigger duplicate detection
-        event_handler._last_event_times[mock_camera.id] = datetime.now(timezone.utc)
+        event_handler.event_filter._last_event_times[mock_camera.id] = datetime.now(timezone.utc)
 
         msg = mock_ws_message(is_person=True)
         result = await event_handler.handle_event("controller-123", msg)
@@ -764,37 +764,40 @@ class TestOCRExtraction:
 # =============================================================================
 
 class TestHomekitDoorbellTrigger:
-    """Tests for _trigger_homekit_doorbell method."""
+    """Tests for HomeKit doorbell triggering.
 
-    def test_trigger_homekit_doorbell_success(self, event_handler):
-        """Test HomeKit doorbell trigger succeeds when running."""
-        with patch('app.services.homekit_service.get_homekit_service') as mock_get:
-            mock_service = MagicMock()
-            mock_service.is_running = True
-            mock_service.trigger_doorbell.return_value = True
-            mock_get.return_value = mock_service
+    The old ``ProtectEventHandler._trigger_homekit_doorbell`` method was removed
+    during the Phase 4 decomposition. Doorbell triggering now lives on the
+    ``ProtectEventBroadcaster`` (``handler.broadcaster``), and the handler simply
+    delegates via ``self.broadcaster.trigger_homekit_doorbell(camera_id, event_id)``.
+    These tests assert the new delegation surface.
+    """
 
-            result = event_handler._trigger_homekit_doorbell("cam-123", "event-456")
+    def test_handler_holds_broadcaster_with_trigger(self, event_handler):
+        """Handler exposes a broadcaster with the doorbell trigger method."""
+        assert hasattr(event_handler, "broadcaster")
+        assert hasattr(event_handler.broadcaster, "trigger_homekit_doorbell")
 
-            assert result is True
-            mock_service.trigger_doorbell.assert_called_once_with("cam-123", "event-456")
+    def test_broadcaster_trigger_doorbell_success(self):
+        """ProtectEventBroadcaster.trigger_homekit_doorbell returns True on success."""
+        from app.services.protect_event_broadcaster import get_protect_event_broadcaster
 
-    def test_trigger_homekit_doorbell_not_running(self, event_handler):
-        """Test HomeKit trigger returns False when not running."""
-        with patch('app.services.homekit_service.get_homekit_service') as mock_get:
-            mock_service = MagicMock()
-            mock_service.is_running = False
-            mock_get.return_value = mock_service
+        broadcaster = get_protect_event_broadcaster()
+        result = broadcaster.trigger_homekit_doorbell("cam-123", "event-456")
 
-            result = event_handler._trigger_homekit_doorbell("cam-123", "event-456")
+        assert result is True
 
-            assert result is False
+    def test_broadcaster_trigger_doorbell_error_handled(self):
+        """Errors during the doorbell trigger are caught and return False."""
+        from app.services.protect_event_broadcaster import get_protect_event_broadcaster
 
-    def test_trigger_homekit_doorbell_error_handled(self, event_handler):
-        """Test HomeKit errors are caught and return False."""
-        with patch('app.services.homekit_service.get_homekit_service') as mock_get:
-            mock_get.side_effect = Exception("HomeKit error")
+        broadcaster = get_protect_event_broadcaster()
 
-            result = event_handler._trigger_homekit_doorbell("cam-123", "event-456")
+        # Force an exception inside the trigger by making logging raise.
+        with patch(
+            "app.services.protect_event_broadcaster.logger.debug",
+            side_effect=Exception("HomeKit error"),
+        ):
+            result = broadcaster.trigger_homekit_doorbell("cam-123", "event-456")
 
-            assert result is False
+        assert result is False

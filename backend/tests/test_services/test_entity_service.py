@@ -1059,8 +1059,9 @@ class TestVehicleSignatureMatching:
         mock_query.filter.return_value.first.return_value = mock_entity
         mock_db.query.return_value = mock_query
 
-        # Test signature lookup
-        entity_id = self.service._find_entity_by_vehicle_signature(
+        # Test signature lookup (logic moved to VehicleSignatureMatcher)
+        from app.services.vehicle_signature_matcher import VehicleSignatureMatcher
+        entity_id = VehicleSignatureMatcher().find_entity_by_signature(
             mock_db, "white-toyota-camry"
         )
 
@@ -1074,7 +1075,8 @@ class TestVehicleSignatureMatching:
         mock_query.filter.return_value.first.return_value = None
         mock_db.query.return_value = mock_query
 
-        result = self.service._find_entity_by_vehicle_signature(
+        from app.services.vehicle_signature_matcher import VehicleSignatureMatcher
+        result = VehicleSignatureMatcher().find_entity_by_signature(
             mock_db, "nonexistent-signature"
         )
 
@@ -1124,7 +1126,8 @@ class TestVehicleSignatureMatching:
         mock_query2.filter.return_value.first.return_value = mock_entity2
         mock_db2.query.return_value = mock_query2
 
-        result = self.service._find_entity_by_vehicle_signature(
+        from app.services.vehicle_signature_matcher import VehicleSignatureMatcher
+        result = VehicleSignatureMatcher().find_entity_by_signature(
             mock_db2, "white-toyota-camry"
         )
         assert result == "vehicle-123"

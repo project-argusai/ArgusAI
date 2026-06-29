@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useEntityEvents, useUnlinkEvent } from '@/hooks/useEntities';
 import type { IEvent } from '@/types/event';
+import { parseApiDate } from '@/lib/datetime';
 
 // P15-1.2: Threshold for enabling virtual scrolling
 const VIRTUAL_SCROLL_THRESHOLD = 50;
@@ -47,14 +48,6 @@ interface EntityEventListProps {
   entityId: string;
   /** Optional callback when event is clicked - P15-1.3: now passes full event data */
   onEventClick?: (eventId: string, event?: IEvent) => void;
-}
-
-// Parse timestamp as UTC
-function parseUTCTimestamp(timestamp: string): Date {
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
 }
 
 /**
@@ -215,7 +208,7 @@ export function EntityEventList({ entityId, onEventClick }: EntityEventListProps
         ? event.thumbnail_url
         : `${apiUrl}${event.thumbnail_url}`
       : null;
-    const eventDate = parseUTCTimestamp(event.timestamp);
+    const eventDate = parseApiDate(event.timestamp)!;
 
     return (
       <div

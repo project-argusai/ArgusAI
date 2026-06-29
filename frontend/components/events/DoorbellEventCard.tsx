@@ -16,6 +16,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Bell, Video, ChevronDown, ChevronUp } from 'lucide-react';
 import type { IEvent } from '@/types/event';
 import { Card } from '@/components/ui/card';
+import { parseApiDate } from '@/lib/datetime';
 
 interface DoorbellEventCardProps {
   event: IEvent;
@@ -29,14 +30,6 @@ const OBJECT_ICONS: Record<string, string> = {
   package: '📦',
   unknown: '❓',
 };
-
-// Parse timestamp as UTC (backend stores UTC without timezone indicator)
-function parseUTCTimestamp(timestamp: string): Date {
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
-}
 
 // Format relative time with "Just now" for very recent events
 function formatRelativeTime(date: Date): string {
@@ -57,7 +50,7 @@ export const DoorbellEventCard = memo(function DoorbellEventCard({
   const [isExpanded, setIsExpanded] = useState(false);
   const [imageError, setImageError] = useState(false);
 
-  const eventDate = parseUTCTimestamp(event.timestamp);
+  const eventDate = parseApiDate(event.timestamp)!;
   const relativeTime = formatRelativeTime(eventDate);
 
   // Determine thumbnail source

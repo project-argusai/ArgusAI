@@ -16,7 +16,7 @@ Extracted from ProtectEventHandler during Phase 4 decomposition.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -120,7 +120,11 @@ class ProtectMediaService:
                 protect_camera_id=protect_camera_id,
                 camera_id=camera_id,
                 camera_name=camera_name,
-                timestamp=datetime.now(),
+                # MUST be UTC: this becomes Event.timestamp. datetime.now() is
+                # local (server is US/Central), which stored event timestamps 5h
+                # off from the UTC convention used everywhere else (created_at,
+                # RTSP/USB events), causing the timezone display discrepancy.
+                timestamp=datetime.now(timezone.utc),
             )
             return result
         except Exception as e:

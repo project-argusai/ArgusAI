@@ -40,6 +40,7 @@ import { toast } from 'sonner';
 import { useSubmitFeedback, useUpdateFeedback, useDeleteFeedback } from '@/hooks/useFeedback';
 import type { IEventFeedback } from '@/types/event';
 import { cn } from '@/lib/utils';
+import { parseApiDate } from '@/lib/datetime';
 
 interface FeedbackButtonsProps {
   /** Event UUID to submit feedback for */
@@ -93,7 +94,7 @@ export const FeedbackButtons = memo(function FeedbackButtons({
   const editedTooltip = useMemo(() => {
     if (!wasEdited || !updatedAt) return null;
     try {
-      const date = new Date(updatedAt);
+      const date = parseApiDate(updatedAt)!;
       return `Edited on ${date.toLocaleDateString()} at ${date.toLocaleTimeString()}`;
     } catch {
       return 'Edited';

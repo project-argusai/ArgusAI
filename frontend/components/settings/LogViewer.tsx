@@ -8,6 +8,7 @@
 import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
+import { parseApiDate } from '@/lib/datetime';
 import {
   Search,
   Download,
@@ -56,9 +57,9 @@ function LogEntryRow({ entry, isExpanded, onToggle }: LogEntryRowProps) {
   let timestamp = '--';
   if (entry.timestamp) {
     try {
-      const date = new Date(entry.timestamp);
+      const date = parseApiDate(entry.timestamp);
       // Check if date is valid (Invalid Date has NaN for getTime())
-      if (!isNaN(date.getTime())) {
+      if (date && !isNaN(date.getTime())) {
         timestamp = format(date, 'HH:mm:ss.SSS');
       }
     } catch {

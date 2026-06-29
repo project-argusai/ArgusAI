@@ -14,7 +14,7 @@
  * - Test event trigger button (P7-1.3 AC5)
  */
 import React, { useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { parseApiDate, formatRelative } from '@/lib/datetime';
 import {
   useHomekitDiagnostics,
   useHomekitTestConnectivity,
@@ -80,7 +80,7 @@ const levelColors: Record<string, string> = {
 };
 
 function formatTimestamp(timestamp: string): string {
-  const date = new Date(timestamp);
+  const date = parseApiDate(timestamp)!;
   return date.toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit',
@@ -290,7 +290,7 @@ function ConnectivityTestPanel() {
  */
 function formatRelativeTime(timestamp: string): string {
   try {
-    return formatDistanceToNow(new Date(timestamp), { addSuffix: true });
+    return formatRelative(timestamp);
   } catch {
     return 'Unknown';
   }

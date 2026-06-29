@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '@/lib/datetime';
 import {
   Smartphone,
   Trash2,
@@ -243,7 +243,7 @@ export function DeviceManager() {
                       {device.last_seen_at && (
                         <>
                           {' • Last seen '}
-                          {formatDistanceToNow(new Date(device.last_seen_at), { addSuffix: true })}
+                          {formatRelative(device.last_seen_at)}
                         </>
                       )}
                     </div>

@@ -7,7 +7,8 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { formatDistanceToNow, format } from 'date-fns';
+import { format } from 'date-fns';
+import { formatRelative, formatDateTime } from '@/lib/datetime';
 import {
   Download,
   RefreshCw,
@@ -361,7 +362,7 @@ interface WebhookLogRowProps {
 }
 
 function WebhookLogRow({ log, showRule, compact, onClick }: WebhookLogRowProps) {
-  const timeAgo = formatDistanceToNow(new Date(log.created_at), { addSuffix: true });
+  const timeAgo = formatRelative(log.created_at);
 
   return (
     <tr
@@ -372,7 +373,7 @@ function WebhookLogRow({ log, showRule, compact, onClick }: WebhookLogRowProps) 
       <td className="p-3">
         <div className="text-sm">{timeAgo}</div>
         <div className="text-xs text-muted-foreground">
-          {format(new Date(log.created_at), 'HH:mm:ss')}
+          {formatDateTime(log.created_at, 'HH:mm:ss')}
         </div>
       </td>
 
@@ -470,7 +471,7 @@ function WebhookLogDetailDialog({ log, open, onClose }: WebhookLogDetailDialogPr
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Timestamp</span>
             <span className="text-sm text-muted-foreground">
-              {format(new Date(log.created_at), 'PPpp')}
+              {formatDateTime(log.created_at, 'PPpp')}
             </span>
           </div>
 

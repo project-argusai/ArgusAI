@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 
 import { apiClient, ApiError } from '@/lib/api-client';
+import { parseApiDate } from '@/lib/datetime';
 import type { IBackupListItem, IValidationResponse, IBackupOptions, IRestoreOptions } from '@/types/backup';
 
 import { Button } from '@/components/ui/button';
@@ -58,7 +59,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDate(isoString: string): string {
-  const date = new Date(isoString);
+  const date = parseApiDate(isoString)!;
   return date.toLocaleString(undefined, {
     year: 'numeric',
     month: 'short',

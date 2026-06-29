@@ -39,6 +39,7 @@ import { EntityAlertRules } from './EntityAlertRules';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { IEntity } from '@/types/entity';
+import { parseApiDate } from '@/lib/datetime';
 
 interface EntityDetailProps {
   /** The entity to display (basic info from list) */
@@ -49,14 +50,6 @@ interface EntityDetailProps {
   onClose: () => void;
   /** Callback when delete is requested */
   onDelete: (entity: IEntity) => void;
-}
-
-// Parse timestamp as UTC
-function parseUTCTimestamp(timestamp: string): Date {
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
 }
 
 /**
@@ -234,11 +227,11 @@ export function EntityDetail({
                     </p>
                     <p>
                       First seen:{' '}
-                      {parseUTCTimestamp(entityDetail.first_seen_at).toLocaleDateString()}
+                      {parseApiDate(entityDetail.first_seen_at)!.toLocaleDateString()}
                     </p>
                     <p>
                       Last seen:{' '}
-                      {formatDistanceToNow(parseUTCTimestamp(entityDetail.last_seen_at), {
+                      {formatDistanceToNow(parseApiDate(entityDetail.last_seen_at)!, {
                         addSuffix: true,
                       })}
                     </p>

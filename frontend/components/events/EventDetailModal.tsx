@@ -54,15 +54,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { AnnotationLegend } from './AnnotationLegend';
-
-// Parse timestamp as UTC (backend stores UTC without timezone indicator)
-function parseUTCTimestamp(timestamp: string): Date {
-  // If timestamp doesn't have timezone info, append 'Z' to interpret as UTC
-  const ts = timestamp.includes('Z') || timestamp.includes('+') || timestamp.includes('-', 10)
-    ? timestamp
-    : timestamp.replace(' ', 'T') + 'Z';
-  return new Date(ts);
-}
+import { parseApiDate } from '@/lib/datetime';
 
 interface EventDetailModalProps {
   event: IEvent | null;
@@ -153,7 +145,7 @@ export function EventDetailModal({
     }
   };
 
-  const eventDate = parseUTCTimestamp(event.timestamp);
+  const eventDate = parseApiDate(event.timestamp)!;
   const relativeTime = formatDistanceToNow(eventDate, {
     addSuffix: true,
   });
@@ -456,7 +448,7 @@ export function EventDetailModal({
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {event.correlated_events.map((relatedEvent) => {
-                  const relatedDate = parseUTCTimestamp(relatedEvent.timestamp);
+                  const relatedDate = parseApiDate(relatedEvent.timestamp)!;
                   const relatedRelativeTime = formatDistanceToNow(relatedDate, { addSuffix: true });
 
                   // Build full thumbnail URL

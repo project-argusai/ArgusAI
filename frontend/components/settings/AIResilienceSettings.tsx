@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Loader2, RefreshCw, Save, RotateCcw } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatRelative } from '@/lib/datetime';
 
 interface CircuitBreakerConfig {
   failure_threshold: number;
@@ -325,7 +325,7 @@ export function AIResilienceSettings() {
             Configure circuit breaker behavior for each AI provider. Changes take effect immediately after saving.
             {lastReset && (
               <span className="ml-2 text-xs text-muted-foreground">
-                Last reset: {formatDistanceToNow(new Date(lastReset), { addSuffix: true })}
+                Last reset: {formatRelative(lastReset)}
               </span>
             )}
           </p>

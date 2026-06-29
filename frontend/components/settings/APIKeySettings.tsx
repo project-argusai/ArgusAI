@@ -12,7 +12,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatRelative, formatDateTime } from '@/lib/datetime';
 import {
   Key,
   Plus,
@@ -260,13 +260,13 @@ export function APIKeySettings() {
                       <ScopesBadges scopes={apiKey.scopes} />
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      <span>Created {formatDistanceToNow(new Date(apiKey.created_at), { addSuffix: true })}</span>
+                      <span>Created {formatRelative(apiKey.created_at)}</span>
                       {apiKey.last_used_at && (
-                        <span> • Last used {formatDistanceToNow(new Date(apiKey.last_used_at), { addSuffix: true })}</span>
+                        <span> • Last used {formatRelative(apiKey.last_used_at)}</span>
                       )}
                       <span> • {apiKey.usage_count} requests</span>
                       {apiKey.expires_at && (
-                        <span> • Expires {format(new Date(apiKey.expires_at), 'MMM d, yyyy')}</span>
+                        <span> • Expires {formatDateTime(apiKey.expires_at, 'MMM d, yyyy')}</span>
                       )}
                     </div>
                   </div>
@@ -436,7 +436,7 @@ export function APIKeySettings() {
               <p><strong>Scopes:</strong> {newKeyResult?.scopes.join(', ')}</p>
               <p><strong>Rate Limit:</strong> {newKeyResult?.rate_limit_per_minute} requests/minute</p>
               {newKeyResult?.expires_at && (
-                <p><strong>Expires:</strong> {format(new Date(newKeyResult.expires_at), 'MMM d, yyyy')}</p>
+                <p><strong>Expires:</strong> {formatDateTime(newKeyResult.expires_at, 'MMM d, yyyy')}</p>
               )}
             </div>
           </div>

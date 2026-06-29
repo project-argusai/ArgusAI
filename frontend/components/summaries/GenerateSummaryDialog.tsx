@@ -17,6 +17,7 @@
 
 import { useState, useCallback } from 'react';
 import { format, subHours } from 'date-fns';
+import { parseApiDate } from '@/lib/datetime';
 import {
   Sparkles,
   Clock,
@@ -93,8 +94,8 @@ function StatItem({
  * SummaryResult - Display generated summary (AC11)
  */
 function SummaryResult({ summary }: { summary: SummaryGenerateResponse }) {
-  const periodStart = new Date(summary.period_start);
-  const periodEnd = new Date(summary.period_end);
+  const periodStart = parseApiDate(summary.period_start)!;
+  const periodEnd = parseApiDate(summary.period_end)!;
 
   return (
     <div className="space-y-4">

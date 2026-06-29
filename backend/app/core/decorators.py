@@ -13,6 +13,32 @@ import threading
 
 T = TypeVar('T')
 
+# Registry of every class decorated with @singleton, so tests can reset all
+# singleton state between cases (the suite otherwise leaks counters/caches across
+# tests, causing order-dependent failures). Populated at import time.
+_SINGLETON_CLASSES: list = []
+
+
+def reset_all_singletons() -> None:
+    """Reset every registered @singleton AND SingletonMeta instance.
+
+    For use by an autouse test fixture so each test starts from a clean slate.
+    Safe to call in production code paths too (it only clears cached instances).
+    """
+    for cls in list(_SINGLETON_CLASSES):
+        reset = getattr(cls, "_reset_instance", None)
+        if callable(reset):
+            try:
+                reset()
+            except Exception:
+                pass
+    # SingletonMeta-based singletons keep their instances in a shared dict.
+    for meta_cls in list(SingletonMeta._instances.keys()):
+        try:
+            SingletonMeta._reset_instance(meta_cls)
+        except Exception:
+            pass
+
 
 def singleton(cls: type[T]) -> type[T]:
     """
@@ -106,6 +132,8 @@ def singleton(cls: type[T]) -> type[T]:
     cls.__new__ = new_new
     cls._reset_instance = reset_instance
     cls._get_instance = get_instance
+
+    _SINGLETON_CLASSES.append(cls)
 
     return cls
 

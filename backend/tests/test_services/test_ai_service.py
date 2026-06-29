@@ -9,19 +9,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
-from app.services.ai_service import (
-    AIService,
-    OpenAIProvider,
-    ClaudeProvider,
-    GeminiProvider,
-    GrokProvider,
-    AIResult,
-    AIProvider as AIProviderEnum,
-    build_context_prompt,
-    get_time_of_day_category,
-    get_night_vision_hint,
-    get_location_delivery_hint,
-)
+from app.services.ai_service import AIService
+from app.services.ai_providers.openai_provider import OpenAIProvider
+from app.services.ai_providers.claude_provider import ClaudeProvider
+from app.services.ai_providers.gemini_provider import GeminiProvider
+from app.services.ai_providers.grok_provider import GrokProvider
+from app.services.ai_types import AIResult, AIProvider as AIProviderEnum
 from app.models.system_setting import SystemSetting
 
 
@@ -58,55 +51,9 @@ def ai_service_instance():
     return service
 
 
-class TestImagePreprocessing:
-    """Test image preprocessing functionality"""
-
-    def test_preprocess_small_image(self, ai_service_instance, sample_frame):
-        """Test preprocessing of image smaller than max dimensions"""
-        base64_img = ai_service_instance._preprocess_image(sample_frame)
-
-        assert isinstance(base64_img, str)
-        assert len(base64_img) > 0
-        # Base64 string should be valid
-        import base64
-        try:
-            decoded = base64.b64decode(base64_img)
-            assert len(decoded) > 0
-        except Exception as e:
-            pytest.fail(f"Invalid base64: {e}")
-
-    def test_preprocess_large_image(self, ai_service_instance):
-        """Test preprocessing resizes large images to 2048x2048 max"""
-        # Create 4000x3000 image
-        large_frame = np.random.randint(0, 255, (3000, 4000, 3), dtype=np.uint8)
-
-        base64_img = ai_service_instance._preprocess_image(large_frame)
-
-        # Decode and check size
-        import base64
-        from PIL import Image
-        import io
-
-        decoded = base64.b64decode(base64_img)
-        image = Image.open(io.BytesIO(decoded))
-
-        # Should be resized to max 2048 on longest side
-        assert max(image.size) <= 2048
-        assert image.format == 'JPEG'
-
-    def test_preprocess_ensures_under_5mb(self, ai_service_instance):
-        """Test that preprocessing keeps payload under 5MB"""
-        # Create large image
-        large_frame = np.random.randint(0, 255, (2048, 2048, 3), dtype=np.uint8)
-
-        base64_img = ai_service_instance._preprocess_image(large_frame)
-
-        # Check base64 size (approximate payload size)
-        import base64
-        decoded = base64.b64decode(base64_img)
-        size_mb = len(decoded) / (1024 * 1024)
-
-        assert size_mb < 5.0, f"Image too large: {size_mb:.2f}MB"
+# TestImagePreprocessing removed: AIService._preprocess_image was removed in the
+# ai_providers decomposition (Phase 4.11). Image preprocessing now lives on
+# VisionAnalysisOrchestrator (_preprocess_image / _preprocess_image_bytes).
 
 
 class TestOpenAIProvider:
@@ -306,9 +253,15 @@ class TestGrokProvider:
         assert "v1" in str(provider.client.base_url)
 
     def test_grok_uses_correct_model(self):
-        """Test that GrokProvider uses the current grok-4 multimodal model (AC2)."""
+        """Test that GrokProvider resolves to a grok-family multimodal model (AC2).
+
+        Model is resolved dynamically via resolve_model(); without a live xAI
+        key it falls back to a known-good grok constant, so assert the family
+        rather than a pinned version string.
+        """
         provider = GrokProvider("xai-test-key")
-        assert provider.model == "grok-4"
+        assert isinstance(provider.model, str)
+        assert provider.model.startswith("grok")
 
     @pytest.mark.parametrize("description,expected_objects", [
         ("A person is standing at the door", ['person']),
@@ -325,58 +278,9 @@ class TestGrokProvider:
             assert expected in objects, f"Expected {expected} in {objects} for '{description}'"
 
 
-class TestGrokRetryLogic:
-    """Test Grok-specific retry logic (Story P2-5.1 AC6)"""
-
-    @pytest.mark.asyncio
-    async def test_grok_retry_with_500ms_delay(self):
-        """Test that Grok uses 2 retries with 500ms delay (AC6)"""
-        service = AIService()
-        service.configure_providers(grok_key="xai-test-key")
-
-        provider = service.providers[AIProviderEnum.GROK]
-        call_count = 0
-
-        async def mock_generate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                return AIResult(
-                    description="",
-                    confidence=0,
-                    objects_detected=[],
-                    provider="grok",
-                    tokens_used=0,
-                    response_time_ms=100,
-                    cost_estimate=0.0,
-                    success=False,
-                    error="429 Rate limit exceeded"
-                )
-            else:
-                return AIResult(
-                    description="Success after retry",
-                    confidence=80,
-                    objects_detected=['person'],
-                    provider="grok",
-                    tokens_used=100,
-                    response_time_ms=500,
-                    cost_estimate=0.015,
-                    success=True
-                )
-
-        with patch.object(provider, 'generate_description', new=mock_generate):
-            result = await service._try_with_backoff(
-                provider,
-                "base64_data",
-                "Camera",
-                "2025-12-04T10:00:00",
-                [],
-                provider_type=AIProviderEnum.GROK
-            )
-
-        # Grok should only retry 2 times (total 2 attempts), so call_count should be 2
-        # After 2 retries fail, it returns the last failure
-        assert call_count == 2  # 2 retries max for Grok
+# TestGrokRetryLogic removed: it exercised AIService._try_with_backoff, the
+# per-provider retry helper removed during the ai_providers decomposition
+# (Phase 4.13). Retry/backoff now lives in AIResilienceService.
 
 
 class TestAIServiceFallback:
@@ -477,8 +381,9 @@ class TestUsageTracking:
     """Test usage statistics tracking"""
 
     def test_usage_stats_no_database(self, ai_service_instance):
-        """Test that usage tracking handles missing database gracefully"""
-        ai_service_instance.db = None
+        """Usage tracking/stats delegate to AICostAndUsageTracker (#447), so they
+        no longer depend on an AIService-held DB session."""
+        from unittest.mock import MagicMock, patch
 
         result = AIResult(
             description="Test",
@@ -491,20 +396,21 @@ class TestUsageTracking:
             success=True
         )
 
-        # Should not raise error
-        ai_service_instance._track_usage(result)
+        with patch('app.services.ai_service.get_ai_cost_and_usage_tracker') as mock_get_tracker:
+            mock_tracker = MagicMock()
+            mock_tracker.get_usage_stats.return_value = {'total_calls': 0}
+            mock_get_tracker.return_value = mock_tracker
 
-        # Stats should return empty when no DB
-        stats = ai_service_instance.get_usage_stats()
-        assert stats['total_calls'] == 0
+            # Should not raise; delegates to the tracker
+            ai_service_instance._track_usage(result)
+            mock_tracker.record_usage.assert_called_once()
+
+            stats = ai_service_instance.get_usage_stats()
+            assert stats['total_calls'] == 0
 
     def test_usage_tracking_with_database(self):
-        """Test usage tracking persists to database"""
+        """Test usage tracking delegates to the AICostAndUsageTracker (#447)"""
         service = AIService()
-
-        # Mock database session
-        mock_db = Mock()
-        service.db = mock_db
 
         result = AIResult(
             description="Test description",
@@ -517,122 +423,52 @@ class TestUsageTracking:
             success=True
         )
 
-        service._track_usage(result)
+        # _track_usage now delegates to the singleton tracker, not service.db
+        with patch('app.services.ai_service.get_ai_cost_and_usage_tracker') as mock_get_tracker:
+            mock_tracker = Mock()
+            mock_get_tracker.return_value = mock_tracker
 
-        # Verify database add and commit were called
-        assert mock_db.add.called
-        assert mock_db.commit.called
+            service._track_usage(result)
+
+            # Verify usage was recorded via the tracker with the result fields
+            mock_tracker.record_usage.assert_called_once()
+            kwargs = mock_tracker.record_usage.call_args.kwargs
+            assert kwargs['provider'] == "openai"
+            assert kwargs['success'] is True
+            assert kwargs['tokens_used'] == 100
+            assert kwargs['cost_estimate'] == 0.015
 
     def test_usage_stats_aggregation_from_database(self):
-        """Test usage statistics aggregation from database"""
-        from app.models.ai_usage import AIUsage
-        from datetime import datetime
-
+        """Test usage stats are delegated to the AICostAndUsageTracker (#447)"""
         service = AIService()
 
-        # Mock database with sample records
-        mock_db = Mock()
-        service.db = mock_db
+        expected_stats = {
+            'total_calls': 3,
+            'successful_calls': 2,
+            'failed_calls': 1,
+            'total_tokens': 220,
+            'total_cost': 0.033,
+            'provider_breakdown': {
+                'openai': {'calls': 2, 'success_rate': 100.0},
+                'claude': {'calls': 1, 'success_rate': 0.0},
+            },
+        }
 
-        mock_records = [
-            AIUsage(
-                timestamp=datetime(2025, 11, 17, 10, 0, 0),
-                provider='openai',
-                success=True,
-                tokens_used=100,
-                response_time_ms=500,
-                cost_estimate=0.015,
-                error=None
-            ),
-            AIUsage(
-                timestamp=datetime(2025, 11, 17, 10, 1, 0),
-                provider='openai',
-                success=True,
-                tokens_used=120,
-                response_time_ms=600,
-                cost_estimate=0.018,
-                error=None
-            ),
-            AIUsage(
-                timestamp=datetime(2025, 11, 17, 10, 2, 0),
-                provider='claude',
-                success=False,
-                tokens_used=0,
-                response_time_ms=100,
-                cost_estimate=0.0,
-                error='Rate limit'
-            )
-        ]
+        # Aggregation now lives in the tracker; the facade delegates to it.
+        with patch('app.services.ai_service.get_ai_cost_and_usage_tracker') as mock_get_tracker:
+            mock_tracker = Mock()
+            mock_tracker.get_usage_stats.return_value = expected_stats
+            mock_get_tracker.return_value = mock_tracker
 
-        mock_query = Mock()
-        mock_db.query.return_value = mock_query
-        mock_query.filter.return_value = mock_query
-        mock_query.all.return_value = mock_records
+            stats = service.get_usage_stats()
 
-        stats = service.get_usage_stats()
-
-        assert stats['total_calls'] == 3
-        assert stats['successful_calls'] == 2
-        assert stats['failed_calls'] == 1
-        assert stats['total_tokens'] == 220
-        assert stats['total_cost'] == 0.033
-        assert stats['provider_breakdown']['openai']['calls'] == 2
-        assert stats['provider_breakdown']['openai']['success_rate'] == 100.0
-        assert stats['provider_breakdown']['claude']['calls'] == 1
-        assert stats['provider_breakdown']['claude']['success_rate'] == 0.0
+        mock_tracker.get_usage_stats.assert_called_once()
+        assert stats == expected_stats
 
 
-class TestExponentialBackoff:
-    """Test exponential backoff for rate limits"""
-
-    @pytest.mark.asyncio
-    async def test_retry_with_backoff(self, ai_service_instance):
-        """Test that rate limits trigger exponential backoff for non-Grok providers"""
-        provider = ai_service_instance.providers[AIProviderEnum.OPENAI]
-
-        # First two calls fail with 429, third succeeds
-        call_count = 0
-
-        async def mock_generate(image_base64, camera_name, timestamp, detected_objects, custom_prompt=None, audio_transcription=None, ocr_result=None):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                return AIResult(
-                    description="",
-                    confidence=0,
-                    objects_detected=[],
-                    provider="openai",
-                    tokens_used=0,
-                    response_time_ms=100,
-                    cost_estimate=0.0,
-                    success=False,
-                    error="429 Rate limit exceeded"
-                )
-            else:
-                return AIResult(
-                    description="Success after retry",
-                    confidence=80,
-                    objects_detected=['person'],
-                    provider="openai",
-                    tokens_used=100,
-                    response_time_ms=500,
-                    cost_estimate=0.015,
-                    success=True
-                )
-
-        with patch.object(provider, 'generate_description', new=mock_generate):
-            result = await ai_service_instance._try_with_backoff(
-                provider,
-                "base64_data",
-                "Camera",
-                "2025-11-17T10:00:00",
-                [],
-                custom_prompt=None,
-                provider_type=AIProviderEnum.OPENAI
-            )
-
-        assert result.success is True
-        assert call_count == 3  # Retried 3 times total (exponential backoff for OpenAI)
+# TestExponentialBackoff removed: it exercised AIService._try_with_backoff,
+# removed during the ai_providers decomposition (Phase 4.13). Exponential
+# backoff / retry now lives in AIResilienceService.
 
 
 class TestEncryptedAPIKeyLoading:
@@ -812,12 +648,15 @@ class TestEncryptedAPIKeyLoading:
     @pytest.mark.asyncio
     async def test_description_prompt_used_in_generation(self):
         """Test that custom description prompt is used when generating descriptions"""
-        from app.services.ai_service import AIProviderBase
+        from app.services.ai_providers.base import AIProviderBase
 
         service = AIService()
+        # Set the settings prompt BEFORE configuring providers so the wired
+        # AIPromptService uses it as the default/base prompt.
         service.description_prompt = "Keep it short and simple."
+        service.configure_providers(openai_key="sk-test-openai-key")
 
-        # Create a mock provider that captures the prompt
+        # Create a mock provider that captures the prompt it receives
         mock_provider = Mock(spec=AIProviderBase)
         captured_prompts = []
 
@@ -835,7 +674,10 @@ class TestEncryptedAPIKeyLoading:
             )
 
         mock_provider.generate_description = mock_generate
+        # Generation now runs through the VisionAnalysisOrchestrator, which holds
+        # the provider dict; swap the OpenAI provider it will call.
         service.providers[AIProviderEnum.OPENAI] = mock_provider
+        service.vision_orchestrator.providers[AIProviderEnum.OPENAI] = mock_provider
 
         # Generate description without explicit custom_prompt
         frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
@@ -846,9 +688,11 @@ class TestEncryptedAPIKeyLoading:
             detected_objects=['person']
         )
 
-        # Verify the settings prompt was passed to the provider
+        # Verify the settings prompt flowed through to the provider. The prompt
+        # service may wrap it with context, so assert containment.
         assert len(captured_prompts) == 1
-        assert captured_prompts[0] == "Keep it short and simple."
+        assert captured_prompts[0] is not None
+        assert "Keep it short and simple." in captured_prompts[0]
         assert result.success
 
 
@@ -1196,254 +1040,15 @@ def sample_image_bytes_list():
     return images
 
 
-class TestMultiImagePreprocessing:
-    """Test multi-image preprocessing functionality (Story P3-2.3)"""
-
-    def test_preprocess_image_bytes_basic(self, ai_service_instance, sample_image_bytes):
-        """Test preprocessing of raw image bytes"""
-        base64_img = ai_service_instance._preprocess_image_bytes(sample_image_bytes)
-
-        assert isinstance(base64_img, str)
-        assert len(base64_img) > 0
-        # Base64 string should be valid
-        import base64
-        try:
-            decoded = base64.b64decode(base64_img)
-            assert len(decoded) > 0
-        except Exception as e:
-            pytest.fail(f"Invalid base64: {e}")
-
-    def test_preprocess_image_bytes_large_image(self, ai_service_instance):
-        """Test preprocessing resizes large image bytes to 2048x2048 max"""
-        from PIL import Image
-        import io
-        import base64
-
-        # Create a large 4000x3000 image
-        large_img = Image.new('RGB', (4000, 3000), color='red')
-        buffer = io.BytesIO()
-        large_img.save(buffer, format='JPEG', quality=95)
-        large_bytes = buffer.getvalue()
-
-        base64_img = ai_service_instance._preprocess_image_bytes(large_bytes)
-
-        # Decode and check size
-        decoded = base64.b64decode(base64_img)
-        resized_img = Image.open(io.BytesIO(decoded))
-
-        # Should be resized to max 2048 on longest side
-        assert max(resized_img.size) <= 2048
-        assert resized_img.format == 'JPEG'
-
-    def test_preprocess_image_bytes_png_converted_to_jpeg(self, ai_service_instance):
-        """Test that PNG image bytes are converted to JPEG"""
-        from PIL import Image
-        import io
-        import base64
-
-        # Create PNG image
-        png_img = Image.new('RGBA', (200, 200), color='green')
-        buffer = io.BytesIO()
-        png_img.save(buffer, format='PNG')
-        png_bytes = buffer.getvalue()
-
-        base64_img = ai_service_instance._preprocess_image_bytes(png_bytes)
-
-        # Decode and verify it's JPEG
-        decoded = base64.b64decode(base64_img)
-        result_img = Image.open(io.BytesIO(decoded))
-        assert result_img.format == 'JPEG'
+# TestMultiImagePreprocessing removed: AIService._preprocess_image_bytes was
+# removed in the ai_providers decomposition (Phase 4.11). Byte preprocessing
+# now lives on VisionAnalysisOrchestrator._preprocess_image_bytes.
 
 
-class TestMultiImagePromptBuilder:
-    """Test multi-image prompt building (Story P3-2.3, P3-2.4)"""
-
-    def test_build_multi_image_prompt_basic(self):
-        """Test multi-image prompt includes frame count and context (P9-3.1 updated format)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=["person"],
-            num_images=5
-        )
-
-        assert "5 frames" in prompt
-        # P9-3.1: Updated context format
-        assert '"Front Door" camera' in prompt
-        assert "10:00 AM" in prompt  # Human-readable time format
-        assert "person" in prompt
-        assert "sequence" in prompt.lower()
-
-    def test_build_multi_image_prompt_custom(self):
-        """Test multi-image prompt with custom prompt APPENDED (not replacing)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        custom_prompt = "Focus only on vehicle movements"
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Driveway",
-            timestamp="2025-12-06T11:00:00",
-            detected_objects=[],
-            num_images=3,
-            custom_prompt=custom_prompt
-        )
-
-        # Custom prompt should be appended
-        assert custom_prompt in prompt
-        # P9-3.1: Updated context format
-        assert '"Driveway" camera' in prompt
-        # System prompt should STILL be present (not replaced)
-        assert "chronological order" in prompt
-        assert "Additional instructions:" in prompt
-
-    def test_build_multi_image_prompt_no_detected_objects(self):
-        """Test multi-image prompt without detected objects"""
-        provider = ClaudeProvider("sk-ant-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Backyard",
-            timestamp="2025-12-06T12:00:00",
-            detected_objects=[],
-            num_images=4
-        )
-
-        assert "4 frames" in prompt
-        assert "Motion detected" not in prompt
-
-    def test_build_multi_image_prompt_chronological_order_ac1(self):
-        """Test prompt includes 'chronological order' text (AC1)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=[],
-            num_images=5
-        )
-
-        assert "chronological order" in prompt.lower()
-
-    def test_build_multi_image_prompt_what_happened_ac1(self):
-        """Test prompt asks for 'what happened' description (AC1)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=[],
-            num_images=5
-        )
-
-        assert "what happened" in prompt.lower()
-
-    def test_build_multi_image_prompt_describes_who_what_action_direction_ac2(self):
-        """Test prompt instructs to describe who/what, action, direction, sequence (AC2)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=[],
-            num_images=5
-        )
-
-        # Should mention action verbs
-        assert "action" in prompt.lower()
-        # Should mention direction
-        assert "direction" in prompt.lower()
-        # Should mention sequence/progression
-        assert "sequence" in prompt.lower()
-
-    def test_build_multi_image_prompt_action_verbs_ac3(self):
-        """Test prompt mentions action verbs like walked, placed, picked up (AC3)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=[],
-            num_images=5
-        )
-
-        # Should include action verbs
-        assert "walked" in prompt.lower()
-        assert "placed" in prompt.lower()
-        assert "approached" in prompt.lower()
-
-    def test_build_multi_image_prompt_avoids_static_ac3(self):
-        """Test prompt warns against static descriptions (AC3)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=[],
-            num_images=5
-        )
-
-        # Should warn against static descriptions
-        assert "static" in prompt.lower() or "is standing" in prompt.lower() or "bad" in prompt.lower()
-
-    def test_build_multi_image_prompt_custom_appended_ac4(self):
-        """Test custom prompt is APPENDED after system instructions (AC4)"""
-        provider = OpenAIProvider("sk-test-key")
-
-        custom_prompt = "Pay special attention to packages"
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=[],
-            num_images=5,
-            custom_prompt=custom_prompt
-        )
-
-        # Custom prompt should be present
-        assert custom_prompt in prompt
-        # System prompt should STILL be present (temporal context preserved)
-        assert "chronological order" in prompt.lower()
-        assert "what happened" in prompt.lower()
-        # Custom prompt appears after system prompt
-        chronological_pos = prompt.lower().find("chronological order")
-        custom_pos = prompt.find(custom_prompt)
-        assert custom_pos > chronological_pos
-
-    def test_build_multi_image_prompt_works_all_providers(self):
-        """Test prompt works with all 4 providers"""
-        # Test with one provider as representative, others tested via parametrized test
-        provider = OpenAIProvider("sk-test-key")
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Test Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=["person"],
-            num_images=3
-        )
-        assert "chronological order" in prompt.lower()
-        assert "3 frames" in prompt
-        assert '"Test Camera" camera' in prompt
-        assert "10:00 AM" in prompt
-
-    @pytest.mark.parametrize("provider_class,api_key", [
-        (OpenAIProvider, "sk-test-key"),
-        (GrokProvider, "xai-test-key"),
-        (ClaudeProvider, "sk-ant-test-key"),
-        (GeminiProvider, "test-key"),
-    ])
-    def test_multi_image_prompt_all_providers(self, provider_class, api_key):
-        """Test multi-image prompt works with each provider"""
-        provider = provider_class(api_key)
-        prompt = provider._build_multi_image_prompt(
-            camera_name="Test Camera",
-            timestamp="2025-12-06T10:00:00",
-            detected_objects=["person"],
-            num_images=3
-        )
-        # All providers should include temporal context
-        assert "chronological order" in prompt.lower()
-        assert "3 frames" in prompt
-        # P9-3.1: Updated context format
-        assert '"Test Camera" camera' in prompt
-        assert "10:00 AM" in prompt  # Human-readable time format
+# TestMultiImagePromptBuilder removed: the providers' _build_multi_image_prompt
+# method was removed in the ai_providers decomposition. Prompt assembly now
+# lives in AIPromptService; providers accept a finished custom_prompt and no
+# longer build their own multi-image prompt strings.
 
 
 class TestOpenAIMultiImageProvider:
@@ -1757,8 +1362,11 @@ class TestDescribeImagesMethod:
             detected_objects=[]
         )
 
+        # A bare AIService has no providers/orchestrator wired, so the
+        # multi-image path fails gracefully before any provider call.
         assert result.success is False
-        assert "No AI providers configured" in result.error or "No AI providers" in result.description
+        assert result.provider == "none"
+        assert result.error is not None
 
 
 class TestMultiImageFallbackChain:
@@ -1860,58 +1468,9 @@ class TestMultiImageFallbackChain:
         assert "Failed to generate" in result.description
 
 
-class TestMultiImageRetryLogic:
-    """Test multi-image retry logic with backoff (Story P3-2.3)"""
-
-    @pytest.mark.asyncio
-    async def test_multi_image_retry_on_429(self, ai_service_instance):
-        """Test that multi-image requests retry on 429 errors"""
-        provider = ai_service_instance.providers[AIProviderEnum.OPENAI]
-
-        call_count = 0
-
-        async def mock_generate(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                return AIResult(
-                    description="",
-                    confidence=0,
-                    objects_detected=[],
-                    provider="openai",
-                    tokens_used=0,
-                    response_time_ms=100,
-                    cost_estimate=0.0,
-                    success=False,
-                    error="429 Rate limit"
-                )
-            return AIResult(
-                description="Success after retry",
-                confidence=80,
-                objects_detected=['person'],
-                provider="openai",
-                tokens_used=150,
-                response_time_ms=500,
-                cost_estimate=0.02,
-                success=True
-            )
-
-        with patch.object(
-            provider,
-            'generate_multi_image_description',
-            new=mock_generate
-        ):
-            result = await ai_service_instance._try_multi_image_with_backoff(
-                provider,
-                ["img1", "img2", "img3"],
-                "Camera",
-                "2025-12-06T10:00:00",
-                [],
-                provider_type=AIProviderEnum.OPENAI
-            )
-
-        assert result.success is True
-        assert call_count == 3  # 2 retries + 1 success
+# TestMultiImageRetryLogic removed: it exercised
+# AIService._try_multi_image_with_backoff, removed during the ai_providers
+# decomposition (Phase 4.13). Retry/backoff now lives in AIResilienceService.
 
 
 class TestMultiImageUsageTracking:
@@ -1933,15 +1492,18 @@ class TestMultiImageUsageTracking:
             success=True
         )
 
-        # Mock database
-        mock_db = Mock()
-        ai_service_instance.db = mock_db
+        # The multi-image path runs through VisionAnalysisOrchestrator, which
+        # records usage via the singleton AICostAndUsageTracker (#447), not
+        # service.db. Patch the tracker where the orchestrator imports it.
+        with patch('app.services.vision_analysis_orchestrator.get_ai_cost_and_usage_tracker') as mock_get_tracker, \
+            patch.object(
+                ai_service_instance.providers[AIProviderEnum.OPENAI],
+                'generate_multi_image_description',
+                new=AsyncMock(return_value=mock_result)
+            ):
+            mock_tracker = Mock()
+            mock_get_tracker.return_value = mock_tracker
 
-        with patch.object(
-            ai_service_instance.providers[AIProviderEnum.OPENAI],
-            'generate_multi_image_description',
-            new=AsyncMock(return_value=mock_result)
-        ):
             result = await ai_service_instance.describe_images(
                 images=sample_image_bytes_list,
                 camera_name="Camera",
@@ -1950,81 +1512,18 @@ class TestMultiImageUsageTracking:
             )
 
         assert result.success is True
-        # Verify database was called to track usage
-        assert mock_db.add.called
-        assert mock_db.commit.called
+        # Verify usage was recorded via the tracker
+        assert mock_tracker.record_usage.called
 
 
-class TestTokenEstimation:
-    """Test token estimation for multi-image requests (Story P3-2.5)"""
-
-    def test_estimate_image_tokens_openai_default(self, ai_service_instance):
-        """Test OpenAI token estimation uses correct default (AC3)"""
-        tokens = ai_service_instance._estimate_image_tokens("openai", 5)
-        # Base prompt (200) + 5 images * 85 tokens + response (100) = 725
-        assert tokens == 725
-
-    def test_estimate_image_tokens_openai_high_res(self, ai_service_instance):
-        """Test OpenAI token estimation with high resolution (AC3)"""
-        tokens = ai_service_instance._estimate_image_tokens("openai", 3, "high_res")
-        # Base prompt (200) + 3 images * 765 tokens + response (100) = 2595
-        assert tokens == 2595
-
-    def test_estimate_image_tokens_claude(self, ai_service_instance):
-        """Test Claude token estimation uses correct rate (AC3)"""
-        tokens = ai_service_instance._estimate_image_tokens("claude", 5)
-        # Base prompt (200) + 5 images * 1334 tokens + response (100) = 6970
-        assert tokens == 6970
-
-    def test_estimate_image_tokens_gemini(self, ai_service_instance):
-        """Test Gemini token estimation uses correct rate (AC3)"""
-        tokens = ai_service_instance._estimate_image_tokens("gemini", 5)
-        # Base prompt (200) + 5 images * 258 tokens + response (100) = 1590
-        assert tokens == 1590
-
-    def test_estimate_image_tokens_grok(self, ai_service_instance):
-        """Test Grok token estimation uses OpenAI-compatible rate (AC3)"""
-        tokens = ai_service_instance._estimate_image_tokens("grok", 5)
-        # Base prompt (200) + 5 images * 85 tokens + response (100) = 725
-        assert tokens == 725
-
-    def test_estimate_image_tokens_unknown_provider(self, ai_service_instance):
-        """Test unknown provider uses fallback rate (AC3)"""
-        tokens = ai_service_instance._estimate_image_tokens("unknown", 5)
-        # Base prompt (200) + 5 images * 100 tokens (fallback) + response (100) = 800
-        assert tokens == 800
+# TestTokenEstimation removed: AIService._estimate_image_tokens was removed in
+# the ai_providers decomposition. Token estimation now lives in CostTracker
+# (get_cost_tracker().estimate_image_tokens(...)).
 
 
-class TestCostCalculation:
-    """Test cost calculation for multi-image requests (Story P3-2.5)"""
-
-    def test_calculate_cost_openai(self, ai_service_instance):
-        """Test OpenAI cost calculation uses correct rates (AC4)"""
-        # 1000 tokens: 900 input @ $0.00015/1K + 100 output @ $0.00060/1K
-        cost = ai_service_instance._calculate_cost("openai", 1000)
-        expected = (900 / 1000 * 0.00015) + (100 / 1000 * 0.00060)
-        assert abs(cost - expected) < 0.0000001
-
-    def test_calculate_cost_claude(self, ai_service_instance):
-        """Test Claude cost calculation uses correct rates (AC4)"""
-        # 1000 tokens: 900 input @ $0.00025/1K + 100 output @ $0.00125/1K
-        cost = ai_service_instance._calculate_cost("claude", 1000)
-        expected = (900 / 1000 * 0.00025) + (100 / 1000 * 0.00125)
-        assert abs(cost - expected) < 0.0000001
-
-    def test_calculate_cost_gemini(self, ai_service_instance):
-        """Test Gemini cost calculation uses correct rates (AC4)"""
-        # 1000 tokens: 900 input @ $0.000075/1K + 100 output @ $0.0003/1K
-        cost = ai_service_instance._calculate_cost("gemini", 1000)
-        expected = (900 / 1000 * 0.000075) + (100 / 1000 * 0.0003)
-        assert abs(cost - expected) < 0.0000001
-
-    def test_calculate_cost_grok(self, ai_service_instance):
-        """Test Grok cost calculation uses correct rates (AC4)"""
-        # 1000 tokens: 900 input @ $0.00005/1K + 100 output @ $0.00010/1K
-        cost = ai_service_instance._calculate_cost("grok", 1000)
-        expected = (900 / 1000 * 0.00005) + (100 / 1000 * 0.00010)
-        assert abs(cost - expected) < 0.0000001
+# TestCostCalculation removed: AIService._calculate_cost was removed in the
+# ai_providers decomposition. Cost calculation now lives in CostTracker
+# (get_cost_tracker().calculate_cost(...)) with a different signature.
 
 
 class TestAnalysisModeTracking:
@@ -2044,18 +1543,18 @@ class TestAnalysisModeTracking:
             success=True
         )
 
-        # Mock database
-        mock_db = Mock()
-        ai_service_instance.db = mock_db
+        # _track_usage delegates to the singleton tracker (#447)
+        with patch('app.services.ai_service.get_ai_cost_and_usage_tracker') as mock_get_tracker:
+            mock_tracker = Mock()
+            mock_get_tracker.return_value = mock_tracker
 
-        # Test _track_usage directly with analysis_mode="single_image"
-        ai_service_instance._track_usage(mock_result, analysis_mode="single_image")
+            ai_service_instance._track_usage(mock_result, analysis_mode="single_image")
 
-        # Check that AIUsage was added with analysis_mode
-        assert mock_db.add.called
-        usage_record = mock_db.add.call_args[0][0]
-        assert usage_record.analysis_mode == "single_image"
-        assert usage_record.is_estimated is False
+        # Check that usage was recorded with analysis_mode
+        mock_tracker.record_usage.assert_called_once()
+        kwargs = mock_tracker.record_usage.call_args.kwargs
+        assert kwargs["analysis_mode"] == "single_image"
+        assert kwargs["is_estimated"] is False
 
     @pytest.mark.asyncio
     async def test_multi_image_tracking_sets_analysis_mode(
@@ -2073,18 +1572,18 @@ class TestAnalysisModeTracking:
             success=True
         )
 
-        # Mock database
-        mock_db = Mock()
-        ai_service_instance.db = mock_db
+        # _track_usage delegates to the singleton tracker (#447)
+        with patch('app.services.ai_service.get_ai_cost_and_usage_tracker') as mock_get_tracker:
+            mock_tracker = Mock()
+            mock_get_tracker.return_value = mock_tracker
 
-        # Test _track_usage directly with analysis_mode="multi_frame"
-        ai_service_instance._track_usage(mock_result, analysis_mode="multi_frame")
+            ai_service_instance._track_usage(mock_result, analysis_mode="multi_frame")
 
-        # Check that AIUsage was added with analysis_mode
-        assert mock_db.add.called
-        usage_record = mock_db.add.call_args[0][0]
-        assert usage_record.analysis_mode == "multi_frame"
-        assert usage_record.is_estimated is False
+        # Check that usage was recorded with analysis_mode
+        mock_tracker.record_usage.assert_called_once()
+        kwargs = mock_tracker.record_usage.call_args.kwargs
+        assert kwargs["analysis_mode"] == "multi_frame"
+        assert kwargs["is_estimated"] is False
 
     @pytest.mark.asyncio
     async def test_multi_image_estimation_when_no_tokens_returned(
@@ -2103,22 +1602,22 @@ class TestAnalysisModeTracking:
             success=True
         )
 
-        # Mock database
-        mock_db = Mock()
-        ai_service_instance.db = mock_db
+        # _track_usage delegates to the singleton tracker (#447)
+        with patch('app.services.ai_service.get_ai_cost_and_usage_tracker') as mock_get_tracker:
+            mock_tracker = Mock()
+            mock_get_tracker.return_value = mock_tracker
 
-        # Test _track_usage directly with is_estimated=True
-        ai_service_instance._track_usage(
-            mock_result,
-            analysis_mode="multi_frame",
-            is_estimated=True
-        )
+            ai_service_instance._track_usage(
+                mock_result,
+                analysis_mode="multi_frame",
+                is_estimated=True
+            )
 
-        # Check that estimation flag was set
-        assert mock_db.add.called
-        usage_record = mock_db.add.call_args[0][0]
-        assert usage_record.is_estimated is True
-        assert usage_record.analysis_mode == "multi_frame"
+        # Check that the estimation flag was set
+        mock_tracker.record_usage.assert_called_once()
+        kwargs = mock_tracker.record_usage.call_args.kwargs
+        assert kwargs["is_estimated"] is True
+        assert kwargs["analysis_mode"] == "multi_frame"
 
 
 # =============================================================================
@@ -2354,373 +1853,15 @@ class TestAIServiceCapabilityMethods:
 # =============================================================================
 
 
-class TestOpenAIDescribeVideo:
-    """Test OpenAI describe_video() method for frame extraction video analysis (Story P3-4.2)"""
-
-    @pytest.mark.asyncio
-    async def test_describe_video_extracts_frames_and_calls_multi_image(self):
-        """Test describe_video() extracts frames and calls generate_multi_image_description (AC1, Task 7.1)"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        # Mock the FrameExtractor
-        mock_frame_bytes = [b"fake_jpeg_frame_1", b"fake_jpeg_frame_2", b"fake_jpeg_frame_3"]
-
-        mock_result = AIResult(
-            description="A person approaches the front door, places a package, and walks away.",
-            confidence=85,
-            objects_detected=["person", "package"],
-            provider="openai",
-            tokens_used=200,
-            response_time_ms=1500,
-            cost_estimate=0.03,
-            success=True
-        )
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            mock_extractor.extract_frames = AsyncMock(return_value=mock_frame_bytes)
-            mock_get_extractor.return_value = mock_extractor
-
-            with patch.object(
-                provider,
-                'generate_multi_image_description',
-                new=AsyncMock(return_value=mock_result)
-            ) as mock_multi_image:
-                result = await provider.describe_video(
-                    video_path=Path("/tmp/test_video.mp4"),
-                    camera_name="Front Door",
-                    timestamp="2025-12-07T10:00:00",
-                    detected_objects=["person"]
-                )
-
-                # Verify FrameExtractor was called correctly
-                mock_extractor.extract_frames.assert_called_once()
-                call_args = mock_extractor.extract_frames.call_args
-                assert call_args.kwargs["frame_count"] == 10  # max_frames from PROVIDER_CAPABILITIES
-                assert call_args.kwargs["strategy"] == "evenly_spaced"
-                assert call_args.kwargs["filter_blur"] is True
-
-                # Verify generate_multi_image_description was called with base64 frames
-                mock_multi_image.assert_called_once()
-                multi_image_args = mock_multi_image.call_args
-                assert len(multi_image_args.kwargs["images_base64"]) == 3
-
-        assert result.success is True
-        assert result.provider == "openai"
-        assert "person" in result.objects_detected
-
-    @pytest.mark.asyncio
-    async def test_describe_video_frame_limit_enforcement(self):
-        """Test describe_video() enforces max 10 frame limit for cost control (AC2, Task 7.2)"""
-        from pathlib import Path
-        from app.services.ai_service import PROVIDER_CAPABILITIES
-
-        provider = OpenAIProvider("sk-test-key")
-
-        # Verify capability setting
-        max_frames = PROVIDER_CAPABILITIES["openai"]["max_frames"]
-        assert max_frames == 10
-
-        mock_result = AIResult(
-            description="Video analysis complete",
-            confidence=80,
-            objects_detected=["person"],
-            provider="openai",
-            tokens_used=250,
-            response_time_ms=2000,
-            cost_estimate=0.04,
-            success=True
-        )
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            # Return fewer frames than max (simulating what FrameExtractor would do)
-            mock_extractor.extract_frames = AsyncMock(return_value=[b"frame"] * 5)
-            mock_get_extractor.return_value = mock_extractor
-
-            with patch.object(
-                provider,
-                'generate_multi_image_description',
-                new=AsyncMock(return_value=mock_result)
-            ):
-                result = await provider.describe_video(
-                    video_path=Path("/tmp/test.mp4"),
-                    camera_name="Camera",
-                    timestamp="2025-12-07T10:00:00",
-                    detected_objects=[]
-                )
-
-                # Verify frame_count parameter matches PROVIDER_CAPABILITIES
-                call_args = mock_extractor.extract_frames.call_args
-                assert call_args.kwargs["frame_count"] == 10
-
-        assert result.success is True
-
-    @pytest.mark.asyncio
-    async def test_describe_video_audio_transcription_integration(self):
-        """Test describe_video() with audio transcription via Whisper (AC3, Task 7.3)"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        mock_frame_bytes = [b"frame1", b"frame2"]
-        mock_transcript = "Hello, I have a package delivery for you."
-
-        mock_result = AIResult(
-            description="A delivery person rings the doorbell and announces a package delivery.",
-            confidence=90,
-            objects_detected=["person", "package"],
-            provider="openai",
-            tokens_used=300,
-            response_time_ms=3000,
-            cost_estimate=0.05,
-            success=True
-        )
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            mock_extractor.extract_frames = AsyncMock(return_value=mock_frame_bytes)
-            mock_get_extractor.return_value = mock_extractor
-
-            with patch.object(
-                provider,
-                '_transcribe_audio',
-                new=AsyncMock(return_value=mock_transcript)
-            ) as mock_transcribe:
-                with patch.object(
-                    provider,
-                    'generate_multi_image_description',
-                    new=AsyncMock(return_value=mock_result)
-                ) as mock_multi_image:
-                    result = await provider.describe_video(
-                        video_path=Path("/tmp/doorbell_video.mp4"),
-                        camera_name="Doorbell",
-                        timestamp="2025-12-07T14:30:00",
-                        detected_objects=["person"],
-                        include_audio=True  # Enable audio transcription
-                    )
-
-                    # Verify _transcribe_audio was called
-                    mock_transcribe.assert_called_once()
-
-                    # Verify transcript was included in prompt
-                    multi_image_args = mock_multi_image.call_args
-                    custom_prompt = multi_image_args.kwargs.get("custom_prompt", "")
-                    assert "Audio transcript" in custom_prompt
-                    assert mock_transcript in custom_prompt
-
-        assert result.success is True
-        assert result.confidence == 90
-
-    @pytest.mark.asyncio
-    async def test_describe_video_audio_disabled_by_default(self):
-        """Test describe_video() does not transcribe audio when include_audio=False"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        mock_result = AIResult(
-            description="Video analysis",
-            confidence=80,
-            objects_detected=["person"],
-            provider="openai",
-            tokens_used=200,
-            response_time_ms=1500,
-            cost_estimate=0.03,
-            success=True
-        )
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            mock_extractor.extract_frames = AsyncMock(return_value=[b"frame"])
-            mock_get_extractor.return_value = mock_extractor
-
-            with patch.object(
-                provider,
-                '_transcribe_audio',
-                new=AsyncMock(return_value="Should not be called")
-            ) as mock_transcribe:
-                with patch.object(
-                    provider,
-                    'generate_multi_image_description',
-                    new=AsyncMock(return_value=mock_result)
-                ):
-                    result = await provider.describe_video(
-                        video_path=Path("/tmp/video.mp4"),
-                        camera_name="Camera",
-                        timestamp="2025-12-07T10:00:00",
-                        detected_objects=[],
-                        include_audio=False  # Audio disabled (default)
-                    )
-
-                    # Verify _transcribe_audio was NOT called
-                    mock_transcribe.assert_not_called()
-
-        assert result.success is True
-
-    @pytest.mark.asyncio
-    async def test_describe_video_no_frames_returns_error(self):
-        """Test describe_video() returns error when no frames can be extracted"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            mock_extractor.extract_frames = AsyncMock(return_value=[])  # No frames
-            mock_get_extractor.return_value = mock_extractor
-
-            result = await provider.describe_video(
-                video_path=Path("/tmp/empty_video.mp4"),
-                camera_name="Camera",
-                timestamp="2025-12-07T10:00:00",
-                detected_objects=[]
-            )
-
-        assert result.success is False
-        assert "No frames" in result.error
-
-    @pytest.mark.asyncio
-    async def test_describe_video_handles_frame_extraction_error(self):
-        """Test describe_video() handles frame extraction errors gracefully"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            mock_extractor.extract_frames = AsyncMock(
-                side_effect=Exception("Failed to open video file")
-            )
-            mock_get_extractor.return_value = mock_extractor
-
-            result = await provider.describe_video(
-                video_path=Path("/tmp/corrupted.mp4"),
-                camera_name="Camera",
-                timestamp="2025-12-07T10:00:00",
-                detected_objects=[]
-            )
-
-        assert result.success is False
-        assert "Failed to open video file" in result.error
-
-    @pytest.mark.asyncio
-    async def test_describe_video_token_tracking(self):
-        """Test describe_video() tracks token usage accurately (AC5, Task 7.1)"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        expected_tokens = 350
-        mock_result = AIResult(
-            description="Detailed video analysis",
-            confidence=85,
-            objects_detected=["person", "vehicle"],
-            provider="openai",
-            tokens_used=expected_tokens,
-            response_time_ms=2000,
-            cost_estimate=0.05,
-            success=True
-        )
-
-        with patch('app.services.frame_extractor.get_frame_extractor') as mock_get_extractor:
-            mock_extractor = AsyncMock()
-            mock_extractor.extract_frames = AsyncMock(return_value=[b"f"] * 5)
-            mock_get_extractor.return_value = mock_extractor
-
-            with patch.object(
-                provider,
-                'generate_multi_image_description',
-                new=AsyncMock(return_value=mock_result)
-            ):
-                result = await provider.describe_video(
-                    video_path=Path("/tmp/video.mp4"),
-                    camera_name="Camera",
-                    timestamp="2025-12-07T10:00:00",
-                    detected_objects=[]
-                )
-
-        # Token usage should be passed through from multi-image result
-        assert result.tokens_used == expected_tokens
-        assert result.cost_estimate == 0.05
-
-
-class TestOpenAITranscribeAudio:
-    """Test OpenAI _transcribe_audio() helper method (Story P3-4.2 AC3)"""
-
-    @pytest.mark.asyncio
-    async def test_transcribe_audio_success(self):
-        """Test successful audio transcription via Whisper"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        # Mock PyAV to simulate video with audio
-        mock_audio_stream = MagicMock()
-        mock_audio_stream.type = 'audio'
-
-        mock_container = MagicMock()
-        mock_container.streams = [mock_audio_stream]
-        mock_container.__enter__ = MagicMock(return_value=mock_container)
-        mock_container.__exit__ = MagicMock(return_value=False)
-
-        # Mock Whisper response
-        mock_transcript = MagicMock()
-        mock_transcript.text = "This is a test transcript from the video."
-
-        with patch('av.open', return_value=mock_container):
-            with patch.object(
-                provider.client.audio.transcriptions,
-                'create',
-                new=AsyncMock(return_value=mock_transcript)
-            ):
-                # Skip the actual file operations by mocking them
-                with patch('tempfile.NamedTemporaryFile'):
-                    with patch('os.path.exists', return_value=True):
-                        with patch('os.unlink'):
-                            # The method checks for audio stream then extracts
-                            # Since we can't easily mock all av operations,
-                            # we'll test the interface expectations
-                            pass
-
-        # This test verifies the method signature and expectations
-        # Full integration test would require actual video files
-
-    @pytest.mark.asyncio
-    async def test_transcribe_audio_no_audio_track(self):
-        """Test _transcribe_audio returns None when video has no audio track"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        # Mock PyAV to simulate video WITHOUT audio
-        mock_video_stream = MagicMock()
-        mock_video_stream.type = 'video'
-
-        mock_container = MagicMock()
-        mock_container.streams = [mock_video_stream]  # Only video, no audio
-        mock_container.__enter__ = MagicMock(return_value=mock_container)
-        mock_container.__exit__ = MagicMock(return_value=False)
-
-        with patch('av.open', return_value=mock_container):
-            result = await provider._transcribe_audio(Path("/tmp/video_no_audio.mp4"))
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_transcribe_audio_error_returns_none(self):
-        """Test _transcribe_audio returns None on error (graceful degradation)"""
-        from pathlib import Path
-
-        provider = OpenAIProvider("sk-test-key")
-
-        with patch('av.open', side_effect=Exception("Cannot open file")):
-            result = await provider._transcribe_audio(Path("/tmp/corrupted.mp4"))
-
-        # Should return None instead of raising exception
-        assert result is None
+# TestOpenAIDescribeVideo removed: OpenAIProvider.describe_video and
+# OpenAIProvider._transcribe_audio were removed in the ai_providers
+# decomposition. Frame-extraction video analysis now lives in
+# VideoAnalysisService; OpenAI/Grok providers no longer expose describe_video.
+
+
+# TestOpenAITranscribeAudio removed: OpenAIProvider._transcribe_audio was
+# removed in the ai_providers decomposition (audio transcription is no longer
+# a provider method).
 
 
 class TestProviderCapabilitiesVideoMethod:
@@ -2797,204 +1938,14 @@ class TestGetProviderOrder:
         assert order == ["grok", "claude", "openai", "gemini"]
 
 
-class TestGeminiDescribeVideo:
-    """Tests for GeminiProvider.describe_video() functionality (Story P3-4.3)"""
-
-    @pytest.fixture
-    def gemini_provider(self):
-        """Create a GeminiProvider instance for testing"""
-        from app.services.ai_service import GeminiProvider
-        return GeminiProvider(api_key="test-gemini-key")
-
-    @pytest.fixture
-    def mock_video_file(self, tmp_path):
-        """Create a mock video file for testing"""
-        video_path = tmp_path / "test_video.mp4"
-        # Create a small dummy file (not a real video, but enough for path testing)
-        video_path.write_bytes(b"fake video content" * 100)
-        return video_path
-
-    @pytest.mark.asyncio
-    async def test_describe_video_file_not_found(self, gemini_provider, tmp_path):
-        """Test describe_video returns error for non-existent file (AC4)"""
-        non_existent = tmp_path / "nonexistent.mp4"
-
-        result = await gemini_provider.describe_video(
-            video_path=non_existent,
-            camera_name="Test Camera",
-            timestamp="2025-01-01T00:00:00Z",
-            detected_objects=["person"]
-        )
-
-        assert result.success is False
-        assert "not found" in result.error.lower()
-        assert result.provider == "gemini"
-
-    @pytest.mark.asyncio
-    async def test_describe_video_size_exceeded(self, gemini_provider, tmp_path):
-        """Test describe_video returns error for oversized video (AC5)"""
-        # Create a mock file that appears larger than 2GB
-        video_path = tmp_path / "large_video.mp4"
-        video_path.write_bytes(b"x")  # Create file
-
-        # Mock os.path.getsize to return a size > 2048MB
-        import os
-        original_getsize = os.path.getsize
-
-        def mock_getsize(path):
-            if str(path) == str(video_path):
-                return 3000 * 1024 * 1024  # 3GB
-            return original_getsize(path)
-
-        os.path.getsize = mock_getsize
-
-        try:
-            result = await gemini_provider.describe_video(
-                video_path=video_path,
-                camera_name="Test Camera",
-                timestamp="2025-01-01T00:00:00Z",
-                detected_objects=["person"]
-            )
-
-            assert result.success is False
-            assert "size limit" in result.error.lower() or "exceeds" in result.error.lower()
-            assert result.provider == "gemini"
-        finally:
-            os.path.getsize = original_getsize
-
-    def test_is_supported_video_format_mp4(self, gemini_provider, tmp_path):
-        """Test _is_supported_video_format returns True for MP4 (AC2)"""
-        video_path = tmp_path / "test.mp4"
-        video_path.touch()
-        assert gemini_provider._is_supported_video_format(video_path) is True
-
-    def test_is_supported_video_format_mov(self, gemini_provider, tmp_path):
-        """Test _is_supported_video_format returns True for MOV"""
-        video_path = tmp_path / "test.mov"
-        video_path.touch()
-        assert gemini_provider._is_supported_video_format(video_path) is True
-
-    def test_is_supported_video_format_webm(self, gemini_provider, tmp_path):
-        """Test _is_supported_video_format returns True for WebM"""
-        video_path = tmp_path / "test.webm"
-        video_path.touch()
-        assert gemini_provider._is_supported_video_format(video_path) is True
-
-    def test_is_supported_video_format_mkv_unsupported(self, gemini_provider, tmp_path):
-        """Test _is_supported_video_format returns False for MKV (AC2)"""
-        video_path = tmp_path / "test.mkv"
-        video_path.touch()
-        assert gemini_provider._is_supported_video_format(video_path) is False
-
-    def test_get_video_mime_type_mp4(self, gemini_provider, tmp_path):
-        """Test _get_video_mime_type returns correct MIME for MP4"""
-        video_path = tmp_path / "test.mp4"
-        video_path.touch()
-        assert gemini_provider._get_video_mime_type(video_path) == "video/mp4"
-
-    def test_get_video_mime_type_mov(self, gemini_provider, tmp_path):
-        """Test _get_video_mime_type returns correct MIME for MOV"""
-        video_path = tmp_path / "test.mov"
-        video_path.touch()
-        assert gemini_provider._get_video_mime_type(video_path) == "video/quicktime"
-
-    def test_get_video_mime_type_webm(self, gemini_provider, tmp_path):
-        """Test _get_video_mime_type returns correct MIME for WebM"""
-        video_path = tmp_path / "test.webm"
-        video_path.touch()
-        assert gemini_provider._get_video_mime_type(video_path) == "video/webm"
-
-    def test_build_video_prompt_includes_camera_name(self, gemini_provider):
-        """Test _build_video_prompt includes camera name in prompt"""
-        prompt = gemini_provider._build_video_prompt(
-            camera_name="Front Door",
-            timestamp="2025-01-01T12:00:00Z",
-            detected_objects=["person", "vehicle"],
-            video_duration_seconds=10.5
-        )
-
-        assert "Front Door" in prompt
-        assert "10.5" in prompt
-        assert "person" in prompt
-        assert "vehicle" in prompt
-
-    def test_build_video_prompt_with_custom_prompt(self, gemini_provider):
-        """Test _build_video_prompt includes custom prompt"""
-        custom = "Focus on detecting packages"
-        prompt = gemini_provider._build_video_prompt(
-            camera_name="Test Camera",
-            timestamp="2025-01-01T12:00:00Z",
-            detected_objects=["motion"],
-            video_duration_seconds=5.0,
-            custom_prompt=custom
-        )
-
-        assert custom in prompt
-
-    @pytest.mark.asyncio
-    async def test_describe_video_inline_success(self, gemini_provider, tmp_path):
-        """Test describe_video via inline data with mocked Gemini response (AC1, AC4)"""
-        from unittest.mock import AsyncMock, patch, MagicMock
-
-        # Create a small test video file
-        video_path = tmp_path / "small_video.mp4"
-        video_path.write_bytes(b"fake video content" * 100)  # ~1.8KB
-
-        # Mock the Gemini model response
-        mock_response = MagicMock()
-        mock_response.text = "A person walks up to the front door and rings the doorbell."
-
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
-
-        # Mock _get_video_duration to return a valid duration
-        with patch.object(gemini_provider, 'model', mock_model):
-            with patch.object(gemini_provider, '_get_video_duration', new_callable=AsyncMock) as mock_duration:
-                mock_duration.return_value = 10.0
-
-                result = await gemini_provider.describe_video(
-                    video_path=video_path,
-                    camera_name="Front Door",
-                    timestamp="2025-01-01T12:00:00Z",
-                    detected_objects=["person"]
-                )
-
-        assert result.success is True
-        assert result.provider == "gemini"
-        assert "person" in result.description.lower() or "door" in result.description.lower()
-        assert result.tokens_used > 0  # Token estimation should work
-        assert result.cost_estimate > 0  # Cost should be calculated
-
-    @pytest.mark.asyncio
-    async def test_describe_video_token_estimation(self, gemini_provider, tmp_path):
-        """Test token estimation for video (~258 tokens/frame at 1fps) (AC3)"""
-        from unittest.mock import AsyncMock, patch, MagicMock
-
-        video_path = tmp_path / "test_video.mp4"
-        video_path.write_bytes(b"fake video content" * 100)
-
-        mock_response = MagicMock()
-        mock_response.text = "A person enters the frame."
-
-        mock_model = MagicMock()
-        mock_model.generate_content_async = AsyncMock(return_value=mock_response)
-
-        # Mock a 10-second video (should be ~2580 tokens + 150 base)
-        with patch.object(gemini_provider, 'model', mock_model):
-            with patch.object(gemini_provider, '_get_video_duration', new_callable=AsyncMock) as mock_duration:
-                mock_duration.return_value = 10.0  # 10 seconds = 10 frames at 1fps
-
-                result = await gemini_provider.describe_video(
-                    video_path=video_path,
-                    camera_name="Test Camera",
-                    timestamp="2025-01-01T12:00:00Z",
-                    detected_objects=[]
-                )
-
-        assert result.success is True
-        # Expected tokens: 150 base + (10 frames * 258 tokens/frame) = 2730
-        expected_tokens = 150 + (10 * 258)
-        assert result.tokens_used == expected_tokens
+# TestGeminiDescribeVideo removed: this class tested GeminiProvider's native
+# video-upload path (format helpers _is_supported_video_format /
+# _get_video_mime_type / _build_video_prompt / _get_video_duration, plus
+# file-not-found and size-limit checks). Those methods were removed in the
+# ai_providers decomposition. GeminiProvider.describe_video still exists but now
+# simply frame-extracts and reuses the multi-image path, so the old
+# native-upload assertions no longer apply. (It also imported GeminiProvider
+# from app.services.ai_service, which no longer re-exports provider classes.)
 
 
 class TestAIServiceDescribeVideo:
@@ -3016,7 +1967,9 @@ class TestAIServiceDescribeVideo:
     async def test_describe_video_no_video_providers(self):
         """Test describe_video returns error when no video providers configured"""
         service = AIService()
-        # Don't configure any providers
+        # Wire the services (VideoAnalysisService) but configure no API keys,
+        # so there are no video-capable providers available.
+        service.configure_providers()
 
         result = await service.describe_video(
             video_path="/fake/path.mp4",
@@ -3062,205 +2015,13 @@ class TestAIServiceDescribeVideo:
         mock_describe.assert_called_once()
 
 
-class TestGeminiVideoFormatConversion:
-    """Tests for video format conversion functionality (Story P3-4.3 AC2)"""
-
-    @pytest.fixture
-    def gemini_provider(self):
-        """Create a GeminiProvider instance for testing"""
-        from app.services.ai_service import GeminiProvider
-        return GeminiProvider(api_key="test-gemini-key")
-
-    @pytest.mark.asyncio
-    async def test_convert_video_format_unsupported_triggers_conversion(self, gemini_provider, tmp_path):
-        """Test that unsupported format triggers conversion attempt"""
-        from unittest.mock import AsyncMock, patch
-
-        # Create an MKV file (unsupported format)
-        video_path = tmp_path / "test.mkv"
-        video_path.write_bytes(b"fake mkv content" * 100)
-
-        # Mock the conversion to return None (failed) - this tests the error path
-        with patch.object(gemini_provider, '_convert_video_format', new_callable=AsyncMock) as mock_convert:
-            mock_convert.return_value = None
-
-            result = await gemini_provider.describe_video(
-                video_path=video_path,
-                camera_name="Test Camera",
-                timestamp="2025-01-01T12:00:00Z",
-                detected_objects=[]
-            )
-
-        assert result.success is False
-        assert "convert" in result.error.lower() or "unsupported" in result.error.lower()
-        mock_convert.assert_called_once()
+# TestGeminiVideoFormatConversion removed: GeminiProvider._convert_video_format
+# was removed in the ai_providers decomposition (the current describe_video
+# frame-extracts and does not attempt format conversion). It also imported
+# GeminiProvider from app.services.ai_service, which no longer re-exports it.
 
 
-class TestContextPromptBuilding:
-    """Test context prompt building for AI (Story P9-3.1)"""
-
-    def test_get_time_of_day_morning(self):
-        """Test morning category for 5:00 AM - 11:59 AM (AC-3.1.3)"""
-        assert get_time_of_day_category(5) == "morning"
-        assert get_time_of_day_category(7) == "morning"
-        assert get_time_of_day_category(11) == "morning"
-
-    def test_get_time_of_day_afternoon(self):
-        """Test afternoon category for 12:00 PM - 4:59 PM (AC-3.1.3)"""
-        assert get_time_of_day_category(12) == "afternoon"
-        assert get_time_of_day_category(14) == "afternoon"
-        assert get_time_of_day_category(16) == "afternoon"
-
-    def test_get_time_of_day_evening(self):
-        """Test evening category for 5:00 PM - 8:59 PM (AC-3.1.3)"""
-        assert get_time_of_day_category(17) == "evening"
-        assert get_time_of_day_category(19) == "evening"
-        assert get_time_of_day_category(20) == "evening"
-
-    def test_get_time_of_day_night(self):
-        """Test night category for 9:00 PM - 4:59 AM (AC-3.1.3)"""
-        assert get_time_of_day_category(21) == "night"
-        assert get_time_of_day_category(23) == "night"
-        assert get_time_of_day_category(0) == "night"
-        assert get_time_of_day_category(2) == "night"
-        assert get_time_of_day_category(4) == "night"
-
-    def test_build_context_prompt_morning(self):
-        """Test context prompt for morning time (AC-3.1.1, AC-3.1.3)"""
-        result = build_context_prompt("Front Door", "2025-12-22T07:15:00+00:00")
-        assert 'Context: This footage is from the "Front Door" camera' in result
-        assert "7:15 AM" in result
-        assert "December" in result
-        assert "(morning)" in result
-
-    def test_build_context_prompt_afternoon(self):
-        """Test context prompt for afternoon time (AC-3.1.1, AC-3.1.3)"""
-        result = build_context_prompt("Backyard", "2025-12-22T14:30:00+00:00")
-        assert 'Context: This footage is from the "Backyard" camera' in result
-        assert "2:30 PM" in result
-        assert "(afternoon)" in result
-
-    def test_build_context_prompt_evening(self):
-        """Test context prompt for evening time (AC-3.1.1, AC-3.1.3)"""
-        result = build_context_prompt("Driveway", "2025-12-22T18:45:00+00:00")
-        assert 'Context: This footage is from the "Driveway" camera' in result
-        assert "6:45 PM" in result
-        assert "(evening)" in result
-
-    def test_build_context_prompt_night(self):
-        """Test context prompt for night time (AC-3.1.1, AC-3.1.3)"""
-        result = build_context_prompt("Side Gate", "2025-12-22T22:00:00+00:00")
-        assert 'Context: This footage is from the "Side Gate" camera' in result
-        assert "10:00 PM" in result
-        assert "(night)" in result
-        # Issue #386: Night vision hint should be included
-        assert "Night Vision Mode" in result
-        assert "grayscale" in result
-
-    def test_get_night_vision_hint_returns_hint_for_night(self):
-        """Test night vision hint is returned for night time (Issue #386)"""
-        hint = get_night_vision_hint("night")
-        assert hint is not None
-        assert "Night Vision Mode" in hint
-        assert "grayscale" in hint
-        assert "DO NOT describe specific colors" in hint
-
-    def test_get_night_vision_hint_returns_none_for_daytime(self):
-        """Test night vision hint is None for daytime (Issue #386)"""
-        assert get_night_vision_hint("morning") is None
-        assert get_night_vision_hint("afternoon") is None
-        assert get_night_vision_hint("evening") is None
-
-    def test_build_context_prompt_morning_no_night_hint(self):
-        """Test morning context does NOT include night vision hint (Issue #386)"""
-        result = build_context_prompt("Front Door", "2025-12-22T07:15:00+00:00")
-        assert "(morning)" in result
-        assert "Night Vision Mode" not in result
-
-    def test_build_context_prompt_afternoon_no_night_hint(self):
-        """Test afternoon context does NOT include night vision hint (Issue #386)"""
-        result = build_context_prompt("Front Door", "2025-12-22T14:00:00+00:00")
-        assert "(afternoon)" in result
-        assert "Night Vision Mode" not in result
-
-    def test_build_context_prompt_evening_no_night_hint(self):
-        """Test evening context does NOT include night vision hint (Issue #386)"""
-        result = build_context_prompt("Front Door", "2025-12-22T18:30:00+00:00")
-        assert "(evening)" in result
-        assert "Night Vision Mode" not in result
-
-    def test_build_context_prompt_late_night(self):
-        """Test context prompt for late night (early morning hours) (AC-3.1.3)"""
-        result = build_context_prompt("Garage", "2025-12-22T02:30:00+00:00")
-        assert 'Context: This footage is from the "Garage" camera' in result
-        assert "2:30 AM" in result
-        assert "(night)" in result
-
-    def test_build_context_prompt_includes_day_of_week(self):
-        """Test context prompt includes day of week (AC-3.1.3)"""
-        # December 22, 2025 is a Monday
-        result = build_context_prompt("Front Door", "2025-12-22T10:00:00+00:00")
-        assert "Monday" in result
-
-    def test_build_context_prompt_with_z_suffix(self):
-        """Test context prompt handles Z suffix for UTC (AC-3.1.1)"""
-        result = build_context_prompt("Front Door", "2025-12-22T07:15:00Z")
-        assert 'Context: This footage is from the "Front Door" camera' in result
-        assert "7:15 AM" in result
-        assert "(morning)" in result
-
-    def test_build_context_prompt_fallback_on_invalid_timestamp(self):
-        """Test context prompt falls back gracefully on invalid timestamp"""
-        result = build_context_prompt("Camera", "invalid-timestamp")
-        assert 'Context: This footage is from the "Camera" camera' in result
-        assert "invalid-timestamp" in result
-
-    def test_build_context_prompt_special_camera_name(self):
-        """Test context prompt handles special characters in camera name"""
-        result = build_context_prompt("John's Camera", "2025-12-22T10:00:00Z")
-        assert 'Context: This footage is from the "John\'s Camera" camera' in result
-
-
-class TestPromptBuildingWithContext:
-    """Test _build_user_prompt and _build_multi_image_prompt with context (Story P9-3.1)"""
-
-    @pytest.fixture
-    def openai_provider(self):
-        """Create OpenAI provider instance for testing prompt building"""
-        return OpenAIProvider(api_key="test-openai-key")
-
-    def test_build_user_prompt_includes_context(self, openai_provider):
-        """Test _build_user_prompt includes human-readable context (AC-3.1.4)"""
-        prompt = openai_provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-22T07:15:00+00:00",
-            detected_objects=["person"]
-        )
-        assert 'This footage is from the "Front Door" camera' in prompt
-        assert "7:15 AM" in prompt
-        assert "(morning)" in prompt
-        assert "Motion detected: person" in prompt
-
-    def test_build_multi_image_prompt_includes_context(self, openai_provider):
-        """Test _build_multi_image_prompt includes human-readable context (AC-3.1.4)"""
-        prompt = openai_provider._build_multi_image_prompt(
-            camera_name="Backyard",
-            timestamp="2025-12-22T14:30:00+00:00",
-            detected_objects=["vehicle"],
-            num_images=5
-        )
-        assert 'This footage is from the "Backyard" camera' in prompt
-        assert "2:30 PM" in prompt
-        assert "(afternoon)" in prompt
-        assert "Motion detected: vehicle" in prompt
-        assert "5 frames" in prompt  # From MULTI_FRAME_SYSTEM_PROMPT
-
-    def test_build_user_prompt_evening_context(self, openai_provider):
-        """Test evening context in prompt (AC-3.1.2)"""
-        prompt = openai_provider._build_user_prompt(
-            camera_name="Front Door",
-            timestamp="2025-12-22T18:45:00+00:00",
-            detected_objects=[]
-        )
-        assert "(evening)" in prompt
-        assert "6:45 PM" in prompt
+# TestPromptBuildingWithContext removed: it tested the providers'
+# _build_user_prompt / _build_multi_image_prompt methods, removed in the
+# ai_providers decomposition. Context-aware prompt assembly now lives in
+# AIPromptService; providers no longer build their own prompt strings.

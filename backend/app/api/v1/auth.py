@@ -1,5 +1,5 @@
 """Authentication API endpoints (Story 6.3, P15-2)"""
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, WebSocket
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -94,6 +94,47 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
             detail="User account disabled",
         )
 
+    return user
+
+
+def authenticate_websocket(
+    websocket: WebSocket, token: Optional[str] = None
+) -> Optional[User]:
+    """WebSocket-safe variant of get_current_user.
+
+    Resolves the authenticated user from (in order): an explicit ``?token=`` JWT
+    query param, the session cookie, or an ``Authorization: Bearer`` header.
+
+    A WebSocket route cannot depend on ``get_current_user``: that dependency
+    requires a ``Request`` (which FastAPI cannot inject for a WebSocket — it
+    raises ``get_current_user() missing 1 required positional argument:
+    'request'``) and it raises 401 instead of returning ``None``. This reads
+    straight from the ``WebSocket`` and returns ``None`` when unauthenticated so
+    the caller can ``websocket.close(...)`` with an appropriate code.
+    """
+    jwt_token = token or websocket.cookies.get(COOKIE_NAME)
+    if not jwt_token:
+        auth_header = websocket.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            jwt_token = auth_header[7:]
+    if not jwt_token:
+        return None
+
+    try:
+        payload = decode_access_token(jwt_token)
+    except TokenError:
+        return None
+
+    user_id = payload.get("user_id")
+    if not user_id:
+        return None
+
+    from app.core.database import get_db_session
+    with get_db_session() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+
+    if not user or not user.is_active:
+        return None
     return user
 
 

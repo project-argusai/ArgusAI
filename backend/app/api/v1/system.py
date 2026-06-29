@@ -136,7 +136,7 @@ from app.core.database import get_db
 from app.schemas.types import iso_utc
 from app.models.system_setting import SystemSetting
 from app.models.user import User, UserRole
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, authenticate_websocket
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 from app.core.config import settings
 
@@ -935,7 +935,6 @@ async def ai_processing_stream(
 async def ai_processing_ws(
     websocket: WebSocket,
     token: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
 ):
     """Bidirectional WebSocket for real-time AI event streaming + client commands.
 
@@ -978,17 +977,11 @@ async def ai_processing_ws(
 
     Recommended client behavior: implement exponential backoff reconnect + re-apply last filters on reconnect.
     """
-    # Support query-param token for non-browser clients
-    if not current_user and token:
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            username = payload.get("sub")
-            if username:
-                from app.core.database import get_db_session
-                with get_db_session() as db:
-                    current_user = db.query(User).filter(User.username == username).first()
-        except JWTError:
-            pass
+    # Resolve the user from the session cookie (browser), ?token= JWT (scripts),
+    # or an Authorization: Bearer header. A WebSocket route cannot use the
+    # get_current_user dependency (it needs a Request and raises 401), so we
+    # authenticate explicitly here.
+    current_user = authenticate_websocket(websocket, token)
 
     if not current_user or current_user.role != UserRole.ADMIN:
         await websocket.close(code=1008, reason="Admin role required")
@@ -1135,7 +1128,6 @@ async def ai_processing_ws(
 async def ai_processing_hot_ws(
     websocket: WebSocket,
     token: Optional[str] = Query(None),
-    current_user: User = Depends(get_current_user),
 ):
     """Lightweight bidirectional WebSocket that **only** streams hot list updates (`hot_update` messages).
 
@@ -1254,16 +1246,11 @@ async def ai_processing_hot_ws(
     connectHotWS();
     ```
     """
-    if not current_user and token:
-        try:
-            payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-            username = payload.get("sub")
-            if username:
-                from app.core.database import get_db_session
-                with get_db_session() as db:
-                    current_user = db.query(User).filter(User.username == username).first()
-        except JWTError:
-            pass
+    # Resolve the user from the session cookie (browser), ?token= JWT (scripts),
+    # or an Authorization: Bearer header. A WebSocket route cannot use the
+    # get_current_user dependency (it needs a Request and raises 401), so we
+    # authenticate explicitly here.
+    current_user = authenticate_websocket(websocket, token)
 
     if not current_user or current_user.role != UserRole.ADMIN:
         await websocket.close(code=1008, reason="Admin role required")

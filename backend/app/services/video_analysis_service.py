@@ -14,7 +14,7 @@ Extracted from ai_service.py during Phase 3.5 of the decomposition.
 
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Any
 
@@ -59,7 +59,7 @@ class VideoAnalysisService:
         start_time = time.time()
 
         if timestamp is None:
-            timestamp = datetime.utcnow().isoformat()
+            timestamp = datetime.now(timezone.utc).isoformat()
         if detected_objects is None:
             detected_objects = []
 

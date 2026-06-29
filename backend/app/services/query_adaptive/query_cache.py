@@ -22,7 +22,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -51,18 +51,18 @@ class CachedQueryResult:
     relevance_scores: List[float]
     quality_scores: List[float] = field(default_factory=list)
     combined_scores: List[float] = field(default_factory=list)
-    cached_at: datetime = field(default_factory=lambda: datetime.utcnow())
+    cached_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_seconds: int = 300  # 5 minutes (AC5)
 
     @property
     def is_expired(self) -> bool:
         """Check if this cache entry has expired."""
-        return datetime.utcnow() > self.cached_at + timedelta(seconds=self.ttl_seconds)
+        return datetime.now(timezone.utc) > self.cached_at + timedelta(seconds=self.ttl_seconds)
 
     @property
     def age_seconds(self) -> float:
         """Get the age of this cache entry in seconds."""
-        return (datetime.utcnow() - self.cached_at).total_seconds()
+        return (datetime.now(timezone.utc) - self.cached_at).total_seconds()
 
 
 class QueryCache:
@@ -179,7 +179,7 @@ class QueryCache:
                 relevance_scores=relevance_scores,
                 quality_scores=quality_scores or [],
                 combined_scores=combined_scores or [],
-                cached_at=datetime.utcnow(),
+                cached_at=datetime.now(timezone.utc),
                 ttl_seconds=self.ttl_seconds,
             )
 

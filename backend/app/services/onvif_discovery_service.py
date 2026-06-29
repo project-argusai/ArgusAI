@@ -21,7 +21,7 @@ import logging
 from app.core.decorators import singleton
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from urllib.parse import urlparse, urlunparse, quote
@@ -635,7 +635,7 @@ class ONVIFDiscoveryService:
                 profiles=profiles,
                 primary_rtsp_url=primary_rtsp_url,
                 requires_auth=len(profiles) == 0,  # Assume auth needed if no profiles
-                discovered_at=datetime.utcnow()
+                discovered_at=datetime.now(timezone.utc)
             )
 
             return DeviceDetailsResult(

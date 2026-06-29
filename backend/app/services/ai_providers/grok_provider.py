@@ -18,13 +18,14 @@ from app.services.prompt_templates import MULTI_FRAME_SYSTEM_PROMPT
 class GrokProvider(AIProviderBase):
     """xAI Grok vision provider (OpenAI-compatible API)"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)
         self.client = openai.AsyncOpenAI(
             api_key=api_key,
             base_url="https://api.x.ai/v1"
         )
-        self.model = "grok-2-vision-1212"
+        from app.services.ai_providers.model_resolver import resolve_model
+        self.model = resolve_model("grok", api_key, override=model)
         self.cost_per_1k_input_tokens = 0.00010
         self.cost_per_1k_output_tokens = 0.00040
 

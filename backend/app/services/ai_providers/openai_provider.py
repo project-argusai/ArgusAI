@@ -17,10 +17,11 @@ from app.services.ocr_service import OCRResult
 class OpenAIProvider(AIProviderBase):
     """OpenAI GPT-4o mini vision provider"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)
         self.client = openai.AsyncOpenAI(api_key=api_key)
-        self.model = "gpt-4o-mini"
+        from app.services.ai_providers.model_resolver import resolve_model
+        self.model = resolve_model("openai", api_key, override=model)
         self.cost_per_1k_input_tokens = 0.00015
         self.cost_per_1k_output_tokens = 0.00060
 

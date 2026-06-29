@@ -125,6 +125,12 @@ class AIService:
                     'settings_ab_test_prompt',  # Story P4-5.4: Experiment prompt
                     'enable_ai_annotations',  # Story P15-5.1: Enable bounding box annotations
                     'use_litellm',  # LiteLLM Integration: Use unified provider
+                    # Optional per-provider model overrides (pin a specific model);
+                    # when unset, each provider resolves a current model dynamically.
+                    'settings_openai_model',
+                    'settings_grok_model',
+                    'settings_claude_model',
+                    'settings_gemini_model',
                 ])
             ).all()
 
@@ -199,10 +205,16 @@ class AIService:
                 gemini_key = decrypt_password(keys['ai_api_key_gemini'])
                 logger.info("Gemini API key loaded from database")
 
-            # Load Claude model selection
-            claude_model = keys.get('settings_claude_model', None)
-            if claude_model:
-                logger.info(f"Claude model setting loaded: {claude_model}")
+            # Optional per-provider model overrides (pin a specific model).
+            # When unset, each provider dynamically resolves a current model.
+            openai_model = keys.get('settings_openai_model') or None
+            grok_model = keys.get('settings_grok_model') or None
+            claude_model = keys.get('settings_claude_model') or None
+            gemini_model = keys.get('settings_gemini_model') or None
+            for _name, _val in (("openai", openai_model), ("grok", grok_model),
+                                ("claude", claude_model), ("gemini", gemini_model)):
+                if _val:
+                    logger.info(f"{_name} model override loaded: {_val}")
 
             # Configure providers with decrypted keys
             self.configure_providers(
@@ -210,7 +222,10 @@ class AIService:
                 grok_key=grok_key,
                 claude_key=claude_key,
                 gemini_key=gemini_key,
-                claude_model=claude_model
+                claude_model=claude_model,
+                openai_model=openai_model,
+                grok_model=grok_model,
+                gemini_model=gemini_model,
             )
 
             logger.info(f"AI providers configured: {len(self.providers)} providers loaded")
@@ -248,7 +263,10 @@ class AIService:
         grok_key: Optional[str] = None,
         claude_key: Optional[str] = None,
         gemini_key: Optional[str] = None,
-        claude_model: Optional[str] = None
+        claude_model: Optional[str] = None,
+        openai_model: Optional[str] = None,
+        grok_model: Optional[str] = None,
+        gemini_model: Optional[str] = None,
     ):
         """
         Configure AI providers with API keys.
@@ -277,15 +295,18 @@ class AIService:
             ClaudeProvider,
             GeminiProvider,
         )
+        # Each provider resolves a current vision model dynamically (see
+        # ai_providers/model_resolver.py); the optional *_model overrides pin a
+        # specific model (from SystemSetting) when provided.
         self.providers = {}
         if openai_key:
-            self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key)
+            self.providers[AIProvider.OPENAI] = OpenAIProvider(openai_key, openai_model)
         if grok_key:
-            self.providers[AIProvider.GROK] = GrokProvider(grok_key)
+            self.providers[AIProvider.GROK] = GrokProvider(grok_key, grok_model)
         if claude_key:
             self.providers[AIProvider.CLAUDE] = ClaudeProvider(claude_key, claude_model)
         if gemini_key:
-            self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key)
+            self.providers[AIProvider.GEMINI] = GeminiProvider(gemini_key, gemini_model)
         logger.info(f"Constructed {len(self.providers)} AI provider client(s)")
 
         # Wire prompt service

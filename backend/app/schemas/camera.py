@@ -2,6 +2,7 @@
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal, Any, List
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 import json
 
 
@@ -173,8 +174,8 @@ class CameraResponse(CameraBase):
     device_index: Optional[int] = None
     detection_zones: Optional[Any] = Field(None, description="JSON array of DetectionZone objects")
     detection_schedule: Optional[Any] = Field(None, description="JSON object: DetectionSchedule schema")
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDateTime
+    updated_at: UTCDateTime
 
     # Phase 2: Source type and Protect integration fields
     source_type: Optional[Literal['rtsp', 'usb', 'protect']] = Field(None, description="Camera source: rtsp, usb, or protect")
@@ -423,7 +424,7 @@ class StreamSnapshotResponse(BaseModel):
     """Schema for stream snapshot response (GET /cameras/{id}/stream/snapshot)"""
 
     success: bool = Field(..., description="Whether snapshot capture succeeded")
-    timestamp: datetime = Field(..., description="Timestamp of snapshot capture")
+    timestamp: UTCDateTime = Field(..., description="Timestamp of snapshot capture")
     quality: str = Field(..., description="Quality level used for snapshot")
     image_base64: Optional[str] = Field(None, description="Base64-encoded JPEG image data")
     error: Optional[str] = Field(None, description="Error message if capture failed")
@@ -496,7 +497,7 @@ class StreamWebSocketResponse(BaseModel):
     type: Literal["quality_changed", "pong", "error", "info"] = Field(..., description="Response type")
     quality: Optional[str] = Field(None, description="Current quality level")
     message: Optional[str] = Field(None, description="Info or error message")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+    timestamp: UTCDateTime = Field(default_factory=datetime.utcnow, description="Response timestamp")
 
     model_config = {
         "json_schema_extra": {

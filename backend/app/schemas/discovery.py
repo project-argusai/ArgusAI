@@ -8,6 +8,7 @@ P5-2.2: Device details (StreamProfile, DeviceInfo, DiscoveredCameraDetails)
 """
 from typing import List, Optional
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -256,7 +257,7 @@ class DiscoveredCameraDetails(BaseModel):
         False,
         description="Whether the device requires authentication for ONVIF queries"
     )
-    discovered_at: datetime = Field(
+    discovered_at: UTCDateTime = Field(
         default_factory=datetime.utcnow,
         description="Timestamp when device details were retrieved"
     )

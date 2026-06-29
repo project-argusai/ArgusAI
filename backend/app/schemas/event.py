@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional, Literal
 from app.schemas.feedback import FeedbackResponse
 from app.schemas.ai import BoundingBox
+from app.schemas.types import UTCDateTime
 
 # Story P7-2.1: Human-readable display names for carriers
 CARRIER_DISPLAY_NAMES = {
@@ -20,7 +21,7 @@ class MatchedEntitySummary(BaseModel):
     id: str = Field(..., description="Entity UUID")
     entity_type: str = Field(..., description="Entity type: person, vehicle, or unknown")
     name: Optional[str] = Field(None, description="User-assigned name for the entity")
-    first_seen_at: datetime = Field(..., description="Timestamp of first occurrence")
+    first_seen_at: UTCDateTime = Field(..., description="Timestamp of first occurrence")
     occurrence_count: int = Field(..., ge=1, description="Number of times this entity has been seen")
     similarity_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="Match similarity score")
 
@@ -144,7 +145,7 @@ class ProcessingMetadata(BaseModel):
 class EventCreate(BaseModel):
     """Schema for creating a new event via POST /api/v1/events"""
     camera_id: str = Field(..., description="UUID of the camera that triggered the event")
-    timestamp: datetime = Field(..., description="When the event occurred (UTC with timezone)")
+    timestamp: UTCDateTime = Field(..., description="When the event occurred (UTC with timezone)")
     description: str = Field(..., min_length=1, max_length=5000, description="AI-generated natural language description")
     confidence: int = Field(..., ge=0, le=100, description="AI confidence score (0-100)")
     objects_detected: List[Literal["person", "vehicle", "animal", "package", "unknown"]] = Field(
@@ -205,7 +206,7 @@ class CorrelatedEventResponse(BaseModel):
     id: str = Field(..., description="Event UUID")
     camera_name: str = Field(..., description="Camera name for display")
     thumbnail_url: Optional[str] = Field(None, description="Full URL to thumbnail image")
-    timestamp: datetime = Field(..., description="Event timestamp (UTC)")
+    timestamp: UTCDateTime = Field(..., description="Event timestamp (UTC)")
 
     model_config = {
         "from_attributes": True,
@@ -217,7 +218,7 @@ class EventResponse(BaseModel):
     id: str = Field(..., description="Event UUID")
     camera_id: str = Field(..., description="Camera UUID")
     camera_name: Optional[str] = Field(None, description="Human-readable camera name for display")
-    timestamp: datetime = Field(..., description="Event timestamp (UTC with timezone)")
+    timestamp: UTCDateTime = Field(..., description="Event timestamp (UTC with timezone)")
     description: str = Field(..., description="AI-generated description")
     confidence: int = Field(..., ge=0, le=100, description="AI confidence score (0-100)")
     objects_detected: List[str] = Field(..., description="Detected object types")
@@ -229,7 +230,7 @@ class EventResponse(BaseModel):
     protect_event_id: Optional[str] = Field(None, description="UniFi Protect's native event ID")
     smart_detection_type: Optional[str] = Field(None, description="Protect smart detection type (person/vehicle/package/animal/motion/ring)")
     is_doorbell_ring: bool = Field(default=False, description="Whether event was triggered by doorbell ring")
-    created_at: datetime = Field(..., description="Record creation timestamp (UTC)")
+    created_at: UTCDateTime = Field(..., description="Record creation timestamp (UTC)")
     # Story P2-4.4: Multi-camera event correlation
     correlation_group_id: Optional[str] = Field(None, description="UUID linking correlated events across cameras")
     correlated_events: Optional[List["CorrelatedEventResponse"]] = Field(None, description="Related events from same correlation group")
@@ -248,7 +249,7 @@ class EventResponse(BaseModel):
     # Story P3-6.2: Vagueness detection
     vague_reason: Optional[str] = Field(None, description="Human-readable explanation of why description was flagged as vague")
     # Story P3-6.4: Re-analysis tracking
-    reanalyzed_at: Optional[datetime] = Field(None, description="Timestamp of last re-analysis (null = never re-analyzed)")
+    reanalyzed_at: Optional[UTCDateTime] = Field(None, description="Timestamp of last re-analysis (null = never re-analyzed)")
     reanalysis_count: int = Field(default=0, ge=0, description="Number of re-analyses performed")
     # Story P3-7.1: AI cost tracking
     ai_cost: Optional[float] = Field(None, description="Estimated cost in USD for AI analysis")
@@ -529,7 +530,7 @@ class EventStatsResponse(BaseModel):
     events_by_object_type: dict[str, int] = Field(..., description="Event count grouped by detected object type")
     average_confidence: float = Field(..., ge=0, le=100, description="Average confidence score")
     alerts_triggered: int = Field(..., ge=0, description="Number of events that triggered alerts")
-    time_range: dict[str, Optional[datetime]] = Field(
+    time_range: dict[str, Optional[UTCDateTime]] = Field(
         ...,
         description="Time range of queried events (start, end)"
     )
@@ -564,8 +565,8 @@ class EventStatsResponse(BaseModel):
 class EventFilterParams(BaseModel):
     """Query parameters for filtering events"""
     camera_id: Optional[str] = Field(None, description="Filter by camera UUID")
-    start_time: Optional[datetime] = Field(None, description="Filter events after this timestamp")
-    end_time: Optional[datetime] = Field(None, description="Filter events before this timestamp")
+    start_time: Optional[UTCDateTime] = Field(None, description="Filter events after this timestamp")
+    end_time: Optional[UTCDateTime] = Field(None, description="Filter events before this timestamp")
     min_confidence: Optional[int] = Field(None, ge=0, le=100, description="Minimum confidence score")
     object_types: Optional[List[str]] = Field(None, description="Filter by detected object types")
     alert_triggered: Optional[bool] = Field(None, description="Filter by alert status")
@@ -805,7 +806,7 @@ class QuerySuggestionsResponse(BaseModel):
 class PackageEventSummary(BaseModel):
     """Summary of a package delivery event for dashboard widget"""
     id: str = Field(..., description="Event UUID")
-    timestamp: datetime = Field(..., description="Event timestamp (UTC)")
+    timestamp: UTCDateTime = Field(..., description="Event timestamp (UTC)")
     delivery_carrier: Optional[str] = Field(None, description="Detected carrier code (fedex/ups/usps/amazon/dhl)")
     delivery_carrier_display: str = Field(..., description="Human-readable carrier name")
     camera_name: str = Field(..., description="Camera name for display")

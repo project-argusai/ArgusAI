@@ -20,6 +20,7 @@ import csv
 import io
 
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.motion_event import MotionEvent
 from app.models.camera import Camera
 from app.schemas.motion import MotionEventResponse, MotionEventStatsResponse
@@ -151,7 +152,7 @@ async def export_motion_events(
                             pass  # Leave as empty strings
 
                     writer.writerow({
-                        "timestamp": motion_event.timestamp.isoformat() if motion_event.timestamp else "",
+                        "timestamp": iso_utc(motion_event.timestamp, default=""),
                         "camera_id": motion_event.camera_id or "",
                         "camera_name": camera_name or motion_event.camera_id or "",  # Fallback to camera_id
                         "confidence": motion_event.confidence if motion_event.confidence is not None else "",

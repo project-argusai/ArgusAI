@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.mqtt_config import MQTTConfig
 from app.services.service_container import container
 
@@ -269,8 +270,8 @@ async def get_mqtt_config(db: Session = Depends(get_db)):
         birth_message=config.birth_message,
         will_message=config.will_message,
         has_password=bool(config.password),
-        created_at=config.created_at.isoformat() if config.created_at else None,
-        updated_at=config.updated_at.isoformat() if config.updated_at else None
+        created_at=iso_utc(config.created_at),
+        updated_at=iso_utc(config.updated_at)
     )
 
 
@@ -364,8 +365,8 @@ async def update_mqtt_config(
         birth_message=config.birth_message,
         will_message=config.will_message,
         has_password=bool(config.password),
-        created_at=config.created_at.isoformat() if config.created_at else None,
-        updated_at=config.updated_at.isoformat() if config.updated_at else None
+        created_at=iso_utc(config.created_at),
+        updated_at=iso_utc(config.updated_at)
     )
 
 

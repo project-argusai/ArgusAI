@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, ConfigDict
 
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.homekit import HomeKitConfig, HomeKitAccessory
 from app.models.camera import Camera
 from app.services.homekit_service import HomekitStatus
@@ -569,8 +570,8 @@ async def get_homekit_config(db: Session = Depends(get_db)):
             port=config.port,
             motion_reset_seconds=config.motion_reset_seconds,
             max_motion_duration=config.max_motion_duration,
-            created_at=config.created_at.isoformat() if config.created_at else None,
-            updated_at=config.updated_at.isoformat() if config.updated_at else None
+            created_at=iso_utc(config.created_at),
+            updated_at=iso_utc(config.updated_at)
         )
 
     except Exception as e:

@@ -1,6 +1,7 @@
 """Alert Rule API Pydantic schemas for request/response validation (Epic 5)"""
 from pydantic import BaseModel, Field, field_validator, model_validator
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import List, Optional, Dict, Any, Literal
 import re
 
@@ -273,10 +274,10 @@ class AlertRuleResponse(BaseModel):
     conditions: AlertRuleConditions = Field(..., description="Rule conditions")
     actions: AlertRuleActions = Field(..., description="Rule actions")
     cooldown_minutes: int = Field(..., description="Cooldown period in minutes")
-    last_triggered_at: Optional[datetime] = Field(None, description="When rule last triggered")
+    last_triggered_at: Optional[UTCDateTime] = Field(None, description="When rule last triggered")
     trigger_count: int = Field(..., description="Total trigger count")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    updated_at: datetime = Field(..., description="Last update timestamp")
+    created_at: UTCDateTime = Field(..., description="Creation timestamp")
+    updated_at: UTCDateTime = Field(..., description="Last update timestamp")
     # Story P12-1.1: Entity-based filtering
     entity_id: Optional[str] = Field(None, description="UUID of targeted entity")
     entity_match_mode: str = Field(default='any', description="Entity filter mode")
@@ -410,7 +411,7 @@ class WebhookLogResponse(BaseModel):
     retry_count: int = Field(..., description="Number of retry attempts")
     success: bool = Field(..., description="Whether webhook succeeded")
     error_message: Optional[str] = Field(None, description="Error details if failed")
-    created_at: datetime = Field(..., description="Execution timestamp")
+    created_at: UTCDateTime = Field(..., description="Execution timestamp")
 
     model_config = {
         "from_attributes": True,

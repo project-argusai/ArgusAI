@@ -1,6 +1,7 @@
 """Device Pydantic schemas for request/response validation (Story P11-2.4, P11-2.5, P12-2.1)"""
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
+from app.schemas.types import UTCDateTime
 from typing import Optional, List
 from enum import Enum
 import re
@@ -128,13 +129,13 @@ class DeviceResponse(BaseModel):
     device_id: str = Field(..., description="Device identifier")
     platform: str = Field(..., description="Device platform")
     name: Optional[str] = Field(None, description="Device name")
-    last_seen_at: Optional[datetime] = Field(None, description="Last activity timestamp")
-    created_at: datetime = Field(..., description="Registration timestamp")
+    last_seen_at: Optional[UTCDateTime] = Field(None, description="Last activity timestamp")
+    created_at: UTCDateTime = Field(..., description="Registration timestamp")
     # Story P12-2.1: Mobile device registration fields
     device_model: Optional[str] = Field(None, description="Device hardware model")
     pairing_confirmed: bool = Field(False, description="Whether pairing flow is complete")
     inactive_warning: bool = Field(False, description="True if device inactive 90+ days")
-    updated_at: Optional[datetime] = Field(None, description="Last update timestamp")
+    updated_at: Optional[UTCDateTime] = Field(None, description="Last update timestamp")
     # Quiet hours fields (Story P11-2.5)
     quiet_hours_enabled: bool = Field(False, description="Quiet hours enabled")
     quiet_hours_start: Optional[str] = Field(None, description="Quiet hours start (HH:MM)")
@@ -210,7 +211,7 @@ class DeviceRegistrationResponse(BaseModel):
     id: str = Field(..., description="Device UUID")
     device_id: str = Field(..., description="Device identifier")
     platform: str = Field(..., description="Device platform")
-    created_at: datetime = Field(..., description="Registration timestamp")
+    created_at: UTCDateTime = Field(..., description="Registration timestamp")
     is_new: bool = Field(..., description="True if new device, False if updated existing")
 
     class Config:

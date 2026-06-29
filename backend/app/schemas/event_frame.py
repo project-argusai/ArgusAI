@@ -4,6 +4,7 @@ Pydantic schemas for EventFrame API responses
 Story P8-2.1: Store All Analysis Frames During Event Processing
 """
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -22,7 +23,7 @@ class EventFrameResponse(BaseModel):
     width: Optional[int] = Field(None, ge=1, description="Frame width in pixels")
     height: Optional[int] = Field(None, ge=1, description="Frame height in pixels")
     file_size_bytes: Optional[int] = Field(None, ge=0, description="Frame file size in bytes")
-    created_at: datetime = Field(..., description="Record creation timestamp")
+    created_at: UTCDateTime = Field(..., description="Record creation timestamp")
 
     # Computed URL for frontend access
     url: Optional[str] = Field(None, description="URL to access the frame image")

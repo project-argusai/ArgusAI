@@ -19,6 +19,7 @@ from sqlalchemy import desc, and_
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.schemas.types import iso_utc
 from app.models.alert_rule import WebhookLog, AlertRule
 from app.services.webhook_service import (
     WebhookService,
@@ -290,7 +291,7 @@ async def export_webhook_logs(
     for log in logs:
         writer.writerow([
             log.id,
-            log.created_at.isoformat() if log.created_at else "",
+            iso_utc(log.created_at, default=""),
             log.alert_rule_id,
             rule_name_map.get(log.alert_rule_id, ""),
             log.event_id,

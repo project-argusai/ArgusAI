@@ -5,6 +5,7 @@ Pydantic schemas for system-level configuration and monitoring endpoints.
 """
 from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Optional, Literal
 
 
@@ -573,7 +574,7 @@ class CircuitBreakerStatusResponse(BaseModel):
     failure_count: int
     current_failure_rate: Optional[float] = None
     recent_window_size: int
-    last_failure_time: Optional[datetime] = None
+    last_failure_time: Optional[UTCDateTime] = None
 
 
 class AIResilienceResponse(BaseModel):
@@ -587,4 +588,4 @@ class AIResilienceResponse(BaseModel):
     grok: Optional[CircuitBreakerStatusResponse] = None
     claude: Optional[CircuitBreakerStatusResponse] = None
     gemini: Optional[CircuitBreakerStatusResponse] = None
-    last_reset: Optional[datetime] = None  # Global last reset timestamp (for all admins)
+    last_reset: Optional[UTCDateTime] = None  # Global last reset timestamp (for all admins)

@@ -4,6 +4,7 @@ Mobile Authentication Schemas (Story P12-3.1)
 Pydantic schemas for mobile device pairing and token management.
 """
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Optional, Literal
 from pydantic import BaseModel, Field
 
@@ -24,7 +25,7 @@ class PairingCodeResponse(BaseModel):
     """Response containing the generated pairing code."""
     code: str = Field(..., description="6-digit pairing code to display")
     expires_in: int = Field(..., description="Seconds until code expires")
-    expires_at: datetime = Field(..., description="Absolute expiration time")
+    expires_at: UTCDateTime = Field(..., description="Absolute expiration time")
 
 
 class PairingConfirmRequest(BaseModel):
@@ -97,8 +98,8 @@ class DeviceTokenInfo(BaseModel):
     device_name: Optional[str] = Field(None, description="Device name")
     platform: str = Field(..., description="Device platform")
     has_valid_token: bool = Field(..., description="Whether device has valid refresh token")
-    token_expires_at: Optional[datetime] = Field(None, description="Token expiration time")
-    last_used_at: Optional[datetime] = Field(None, description="Last token use time")
+    token_expires_at: Optional[UTCDateTime] = Field(None, description="Token expiration time")
+    last_used_at: Optional[UTCDateTime] = Field(None, description="Last token use time")
 
 
 class PendingPairingInfo(BaseModel):
@@ -107,8 +108,8 @@ class PendingPairingInfo(BaseModel):
     device_name: Optional[str] = Field(None, description="Requesting device name")
     device_model: Optional[str] = Field(None, description="Requesting device model")
     platform: str = Field(..., description="Requesting device platform")
-    expires_at: datetime = Field(..., description="Code expiration time")
-    created_at: datetime = Field(..., description="Request creation time")
+    expires_at: UTCDateTime = Field(..., description="Code expiration time")
+    created_at: UTCDateTime = Field(..., description="Request creation time")
 
 
 class PendingPairingsResponse(BaseModel):

@@ -1,6 +1,7 @@
 """Authentication Pydantic schemas for request/response validation (Story P15-2)"""
 from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import Optional, Literal
 
 
@@ -39,11 +40,11 @@ class UserResponse(BaseModel):
     role: str = Field(..., description="User role (admin, operator, viewer)")
     is_active: bool = Field(..., description="Account active status")
     must_change_password: bool = Field(default=False, description="Force password change on next login")
-    created_at: datetime = Field(..., description="Account creation timestamp")
-    last_login: Optional[datetime] = Field(None, description="Last login timestamp")
+    created_at: UTCDateTime = Field(..., description="Account creation timestamp")
+    last_login: Optional[UTCDateTime] = Field(None, description="Last login timestamp")
     # Story P16-1.1: Invitation tracking fields
     invited_by: Optional[str] = Field(None, description="User ID who created this account")
-    invited_at: Optional[datetime] = Field(None, description="Timestamp when user was invited")
+    invited_at: Optional[UTCDateTime] = Field(None, description="Timestamp when user was invited")
 
     class Config:
         from_attributes = True
@@ -76,11 +77,11 @@ class UserCreateResponse(BaseModel):
     email: Optional[str] = Field(None, description="Email address")
     role: str = Field(..., description="User role")
     temporary_password: Optional[str] = Field(None, description="Temporary password (if not sent via email)")
-    password_expires_at: Optional[datetime] = Field(None, description="Temporary password expiration")
-    created_at: datetime = Field(..., description="Account creation timestamp")
+    password_expires_at: Optional[UTCDateTime] = Field(None, description="Temporary password expiration")
+    created_at: UTCDateTime = Field(..., description="Account creation timestamp")
     # Story P16-1.1: Invitation tracking fields
     invited_by: Optional[str] = Field(None, description="User ID who created this account")
-    invited_at: Optional[datetime] = Field(None, description="Timestamp when user was invited")
+    invited_at: Optional[UTCDateTime] = Field(None, description="Timestamp when user was invited")
     # Story P16-1.7: Email sent indicator
     email_sent: bool = Field(default=False, description="Whether invitation email was sent")
 
@@ -98,7 +99,7 @@ class UserUpdate(BaseModel):
 class PasswordResetResponse(BaseModel):
     """Password reset response"""
     temporary_password: str = Field(..., description="New temporary password")
-    expires_at: datetime = Field(..., description="Temporary password expiration")
+    expires_at: UTCDateTime = Field(..., description="Temporary password expiration")
 
 
 # Session Management Schemas (Story P15-2.7)
@@ -107,8 +108,8 @@ class SessionResponse(BaseModel):
     id: str = Field(..., description="Session UUID")
     device_info: Optional[str] = Field(None, description="Device description")
     ip_address: Optional[str] = Field(None, description="Client IP address")
-    created_at: datetime = Field(..., description="Session creation timestamp")
-    last_active_at: datetime = Field(..., description="Last activity timestamp")
+    created_at: UTCDateTime = Field(..., description="Session creation timestamp")
+    last_active_at: UTCDateTime = Field(..., description="Last activity timestamp")
     is_current: bool = Field(default=False, description="Is this the current session")
 
     class Config:

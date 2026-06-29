@@ -6,6 +6,7 @@ Story P7-1.2 adds connectivity test response schema.
 Story P7-3.3 adds camera streaming diagnostics schemas.
 """
 from datetime import datetime
+from app.schemas.types import UTCDateTime
 from typing import List, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -22,7 +23,7 @@ class HomeKitDiagnosticEntry(BaseModel):
     - network: IP binding, port info
     - mdns: mDNS/Bonjour advertisement status
     """
-    timestamp: datetime = Field(..., description="When the event occurred")
+    timestamp: UTCDateTime = Field(..., description="When the event occurred")
     level: str = Field(
         ...,
         description="Log level: debug, info, warning, error",
@@ -74,7 +75,7 @@ class LastEventDeliveryInfo(BaseModel):
     camera_id: str = Field(..., description="Camera that triggered the event")
     camera_name: Optional[str] = Field(None, description="Human-readable camera name (Story P7-1.4)")
     sensor_type: str = Field(..., description="Type of sensor (motion, occupancy, vehicle, etc.)")
-    timestamp: datetime = Field(..., description="When the event was delivered")
+    timestamp: UTCDateTime = Field(..., description="When the event was delivered")
     delivered: bool = Field(..., description="Whether delivery was successful")
 
     model_config = ConfigDict(
@@ -199,7 +200,7 @@ class CameraStreamInfo(BaseModel):
         True,
         description="Whether snapshot capture is supported"
     )
-    last_snapshot: Optional[datetime] = Field(
+    last_snapshot: Optional[UTCDateTime] = Field(
         None,
         description="Timestamp of last snapshot capture"
     )

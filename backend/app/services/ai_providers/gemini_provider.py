@@ -19,10 +19,12 @@ from app.services.ocr_service import OCRResult
 class GeminiProvider(AIProviderBase):
     """Google Gemini Flash vision provider"""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        from app.services.ai_providers.model_resolver import resolve_model
+        self.model_name = resolve_model("gemini", api_key, override=model)
+        self.model = genai.GenerativeModel(self.model_name)
         self.cost_per_1k_input_tokens = 0.000075
         self.cost_per_1k_output_tokens = 0.0003
 

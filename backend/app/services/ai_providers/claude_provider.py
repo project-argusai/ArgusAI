@@ -20,7 +20,8 @@ class ClaudeProvider(AIProviderBase):
     def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)
         self.client = anthropic.AsyncAnthropic(api_key=api_key)
-        self.model = model or "claude-3-haiku-20240307"
+        from app.services.ai_providers.model_resolver import resolve_model
+        self.model = resolve_model("claude", api_key, override=model)
         self.cost_per_1k_input_tokens = 0.00025
         self.cost_per_1k_output_tokens = 0.00125
 

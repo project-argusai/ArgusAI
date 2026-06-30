@@ -809,7 +809,7 @@ class ProtectEventHandler:
                         thumbnail_url=snapshot_result.thumbnail_path,
                         timestamp=snapshot_result.timestamp
                     )
-                    self._trigger_homekit_doorbell(camera.id, generated_event_id)
+                    self.broadcaster.trigger_homekit_doorbell(camera.id, generated_event_id)
 
                 # Track processing time
                 pipeline_start = time.time()

@@ -31,13 +31,18 @@ class TestSSLSettings:
         """Test that SSL is disabled by default"""
         from app.core.config import Settings
 
-        # Create settings without SSL env vars
+        # Create settings without SSL env vars. Note: main.py sets a default
+        # SSL_CERT_FILE env var (certifi CA bundle) on import for AI-provider TLS,
+        # so SSL_CERT_FILE/SSL_KEY_FILE are passed explicitly here to assert the
+        # field-level defaults rather than the ambient process environment.
         with patch.dict(os.environ, {}, clear=False):
             # Don't validate cert files for this test
             settings = Settings(
                 _env_file=None,
-                ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
-                JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long"
+                ENCRYPTION_KEY="YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=",
+                JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
+                SSL_CERT_FILE=None,
+                SSL_KEY_FILE=None
             )
             assert settings.SSL_ENABLED is False
             assert settings.SSL_CERT_FILE is None
@@ -52,7 +57,7 @@ class TestSSLSettings:
 
         settings = Settings(
             _env_file=None,
-            ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            ENCRYPTION_KEY="YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=",
             JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_ENABLED=False
         )
@@ -64,7 +69,7 @@ class TestSSLSettings:
 
         settings = Settings(
             _env_file=None,
-            ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            ENCRYPTION_KEY="YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=",
             JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_ENABLED=True,
             SSL_CERT_FILE=None,
@@ -80,7 +85,7 @@ class TestSSLSettings:
         with pytest.raises(ValidationError) as exc_info:
             Settings(
                 _env_file=None,
-                ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+                ENCRYPTION_KEY="YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=",
                 JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
                 SSL_MIN_VERSION="TLSv1_0"  # Invalid
             )
@@ -93,7 +98,7 @@ class TestSSLSettings:
         # Test TLSv1_2
         settings = Settings(
             _env_file=None,
-            ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            ENCRYPTION_KEY="YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=",
             JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_MIN_VERSION="TLSv1_2"
         )
@@ -102,7 +107,7 @@ class TestSSLSettings:
         # Test TLSv1_3
         settings = Settings(
             _env_file=None,
-            ENCRYPTION_KEY="test-key-must-be-at-least-32-chars-long",
+            ENCRYPTION_KEY="YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=",
             JWT_SECRET_KEY="test-jwt-secret-for-testing-must-be-at-least-32-chars-long",
             SSL_MIN_VERSION="TLSv1_3"
         )

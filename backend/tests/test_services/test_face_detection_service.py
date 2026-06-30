@@ -299,12 +299,11 @@ class TestFaceDetectionServiceSingleton:
         """Test that get_face_detection_service returns singleton."""
         from app.services.face_detection_service import (
             get_face_detection_service,
-            _face_detection_service,
+            reset_face_detection_service,
         )
 
-        # Reset singleton for test
-        import app.services.face_detection_service as module
-        module._face_detection_service = None
+        # Reset singleton for test (service now uses the @singleton decorator)
+        reset_face_detection_service()
 
         service1 = get_face_detection_service()
         service2 = get_face_detection_service()

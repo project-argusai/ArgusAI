@@ -34,7 +34,7 @@ class TestAIPromptServiceBasic:
     def test_builds_context_string_with_objects_and_audio(self):
         service = AIPromptService(default_prompt="Base prompt")
         prompt, _ = service.select_and_build_prompt(
-            camera_name="Backyard",
+            camera_id="Backyard",
             detected_objects=["person", "package"],
             audio_transcription="Someone is at the door"
         )

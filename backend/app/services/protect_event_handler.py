@@ -185,6 +185,27 @@ class ProtectEventHandler:
         # Story P3-5.3: Track last audio transcription for passing to event storage
         self._last_audio_transcription: Optional[str] = None
 
+    def _persist_tracking_kwargs(self, media_fallback: Optional[str] = None) -> dict:
+        """Assemble the analysis-mode tracking fields for event persistence from the
+        AI pipeline's per-event state.
+
+        The Phase-4 decomposition dropped this wiring: persist_protect_event was
+        called without analysis_mode / frame_count_used, so every live event was
+        stored as single_frame regardless of what the pipeline actually did, and
+        pipeline-level fallback reasons (e.g. ``multi_frame_failed:...``) were never
+        persisted — only the media-layer reason (clip download) was.
+
+        The pipeline's own fallback reason takes precedence over the media-layer
+        reason because it is the most proximate explanation for the analysis outcome.
+        Capture this immediately after submit_snapshot_for_analysis returns, before
+        any further awaits, since ProtectAIPipeline tracks state on a singleton.
+        """
+        return {
+            "analysis_mode": self.ai_pipeline.last_analysis_mode or "single_frame",
+            "frame_count_used": self.ai_pipeline.last_frame_count,
+            "fallback_reason": self.ai_pipeline.last_fallback_reason or media_fallback,
+        }
+
     def _try_ocr_extraction(self, frame, db) -> Optional[str]:
         """Extract overlay text from a frame via OCR, if enabled in settings.
 
@@ -425,6 +446,10 @@ class ProtectEventHandler:
                         clip_path=clip_path
                     )
 
+                    # Capture the pipeline's ACTUAL analysis outcome now — singleton
+                    # state is per-event and must be read before any further awaits.
+                    persist_tracking = self._persist_tracking_kwargs(media_fallback)
+
                     # Story P3-1.4 AC3: Always cleanup clip after AI processing
                     if clip_path:
                         try:
@@ -473,6 +498,7 @@ class ProtectEventHandler:
                             event_type=filter_type,
                             is_doorbell_ring=is_doorbell_ring,
                             event_id_override=generated_event_id,
+                            **persist_tracking,
                         )
 
                         if stored_event:
@@ -494,8 +520,8 @@ class ProtectEventHandler:
                         protect_event_id=str(protect_event_id) if protect_event_id else None,
                         event_type=filter_type,
                         is_doorbell_ring=is_doorbell_ring,
-                        fallback_reason=media_fallback,
-                        event_id_override=generated_event_id
+                        event_id_override=generated_event_id,
+                        **persist_tracking,
                     )
 
                     if not stored_event:
@@ -825,6 +851,10 @@ class ProtectEventHandler:
                     clip_path=clip_path
                 )
 
+                # Capture the pipeline's ACTUAL analysis outcome now (singleton state
+                # is per-event and must be read before any further awaits).
+                persist_tracking = self._persist_tracking_kwargs(fallback_reason)
+
                 # Cleanup clip after AI processing
                 if clip_path:
                     try:
@@ -844,6 +874,7 @@ class ProtectEventHandler:
                         event_type=filter_type,
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
+                        **persist_tracking,
                     )
                     if stored_event:
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
@@ -861,8 +892,8 @@ class ProtectEventHandler:
                     protect_event_id=str(protect_event_id) if protect_event_id else None,
                     event_type=filter_type,
                     is_doorbell_ring=is_doorbell_ring,
-                    fallback_reason=fallback_reason,
                     event_id_override=generated_event_id,
+                    **persist_tracking,
                 )
 
                 if not stored_event:

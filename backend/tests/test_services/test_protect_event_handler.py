@@ -801,3 +801,42 @@ class TestHomekitDoorbellTrigger:
             result = broadcaster.trigger_homekit_doorbell("cam-123", "event-456")
 
         assert result is False
+
+
+class TestPersistTrackingKwargs:
+    """The handler must persist the AI pipeline's ACTUAL analysis_mode / frame_count
+    / fallback_reason onto the event. Regression: the Phase-4 decomposition dropped
+    this wiring, so every live event was stored as single_frame regardless of what
+    the pipeline actually did, and pipeline-level fallback reasons were never saved.
+    """
+
+    def _handler_with_pipeline(self, mode, frames, fallback):
+        h = ProtectEventHandler()
+        h.ai_pipeline = MagicMock()
+        h.ai_pipeline.last_analysis_mode = mode
+        h.ai_pipeline.last_frame_count = frames
+        h.ai_pipeline.last_fallback_reason = fallback
+        return h
+
+    def test_multi_frame_result_is_recorded(self):
+        h = self._handler_with_pipeline("multi_frame", 5, None)
+        kw = h._persist_tracking_kwargs(media_fallback=None)
+        assert kw["analysis_mode"] == "multi_frame"
+        assert kw["frame_count_used"] == 5
+        assert kw["fallback_reason"] is None
+
+    def test_unset_mode_defaults_to_single_frame(self):
+        h = self._handler_with_pipeline(None, None, None)
+        kw = h._persist_tracking_kwargs(media_fallback=None)
+        assert kw["analysis_mode"] == "single_frame"
+        assert kw["frame_count_used"] is None
+
+    def test_pipeline_fallback_reason_takes_precedence(self):
+        h = self._handler_with_pipeline("single_frame", 1, "multi_frame_failed:boom")
+        kw = h._persist_tracking_kwargs(media_fallback="clip_download_failed")
+        assert kw["fallback_reason"] == "multi_frame_failed:boom"
+
+    def test_media_fallback_used_when_pipeline_has_none(self):
+        h = self._handler_with_pipeline("single_frame", 1, None)
+        kw = h._persist_tracking_kwargs(media_fallback="clip_download_failed")
+        assert kw["fallback_reason"] == "clip_download_failed"

@@ -181,7 +181,6 @@ class ProtectAIPipeline:
             logger.error(f"AI pipeline submission failed: {e}")
             self._last_fallback_reason = f"exception:{str(e)}"
             return None
-            return None
 
     async def _extract_frames_from_clip(self, clip_path: Path, camera: Camera) -> tuple[List[bytes], List[float]]:
         """

@@ -449,6 +449,36 @@ class TestModeIsAuthoritative:
         assert pipeline._last_analysis_mode == "multi_frame"
 
 
+class TestFrameSettingsWiring:
+    """_extract_frames_from_clip honors admin-configured frame settings instead
+    of hardcoding 5/adaptive/0."""
+
+    @pytest.mark.asyncio
+    async def test_extract_passes_configured_settings_to_extractor(
+        self, pipeline, mock_camera_protect, temp_clip_file
+    ):
+        extractor = MagicMock()
+        extractor.extract_frames_with_timestamps = AsyncMock(return_value=([b"f1"], [0.0]))
+
+        fake_settings = MagicMock()
+        fake_settings.get_frame_extraction_config.return_value = {
+            "frame_count": 15,
+            "sampling_strategy": "hybrid",
+            "offset_ms": 3000,
+        }
+
+        with patch("app.services.frame_extractor.get_frame_extractor", return_value=extractor), \
+             patch("app.services.settings_service.SettingsService", return_value=fake_settings), \
+             patch("app.core.database.get_db_session"):
+            await pipeline._extract_frames_from_clip(temp_clip_file, mock_camera_protect)
+
+        extractor.extract_frames_with_timestamps.assert_called_once()
+        kwargs = extractor.extract_frames_with_timestamps.call_args.kwargs
+        assert kwargs["frame_count"] == 15
+        assert kwargs["sampling_strategy"] == "hybrid"
+        assert kwargs["offset_ms"] == 3000
+
+
 class TestCompleteFailure:
     """All paths raise -> submit returns None and records an exception reason (AC3)."""
 

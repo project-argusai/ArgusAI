@@ -190,12 +190,12 @@ async def get_feedback_stats(
             trend_end = end_date
         elif start_date:
             trend_start = start_date
-            trend_end = date.today()
+            trend_end = datetime.now(timezone.utc).date()
         elif end_date:
             trend_start = end_date - timedelta(days=30)
             trend_end = end_date
         else:
-            trend_end = date.today()
+            trend_end = datetime.now(timezone.utc).date()
             trend_start = trend_end - timedelta(days=30)
 
         trend_start_dt = datetime.combine(trend_start, datetime.min.time()).replace(tzinfo=timezone.utc)

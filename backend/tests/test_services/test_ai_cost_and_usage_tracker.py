@@ -3,6 +3,7 @@ Tests for AICostAndUsageTracker (#447)
 """
 
 import pytest
+from contextlib import contextmanager
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
@@ -24,7 +25,30 @@ class TestAICostAndUsageTracker:
         yield
         reset_ai_cost_and_usage_tracker()
 
-    def test_record_usage_creates_record(self, db_session):
+    @pytest.fixture
+    def tracker_db(self, db_session):
+        """Point the tracker's internal get_db_session() at the test session.
+
+        The tracker persists via its own get_db_session() context manager
+        (app.core.database), which targets the configured DATABASE_URL and has no
+        ai_usage table in the test environment. The conftest `db_session` fixture is
+        an isolated in-memory engine with all tables created, so we patch the
+        tracker module's get_db_session to yield it (without closing/committing it
+        away, so subsequent reads in the same test see the writes).
+        """
+
+        @contextmanager
+        def _fake_get_db_session():
+            yield db_session
+
+        with patch(
+            "app.services.ai_cost_and_usage_tracker.get_db_session",
+            _fake_get_db_session,
+        ):
+            yield db_session
+
+    def test_record_usage_creates_record(self, tracker_db):
+        db_session = tracker_db
         tracker = AICostAndUsageTracker()
 
         tracker.record_usage(
@@ -42,7 +66,7 @@ class TestAICostAndUsageTracker:
         assert records[0].tokens_used == 1500
         assert records[0].cost_estimate == 0.0123
 
-    def test_get_usage_stats_returns_aggregates(self, db_session):
+    def test_get_usage_stats_returns_aggregates(self, tracker_db):
         tracker = AICostAndUsageTracker()
 
         # Seed some data
@@ -62,7 +86,7 @@ class TestAICostAndUsageTracker:
         assert "grok" in stats["provider_breakdown"]
         assert "claude" in stats["provider_breakdown"]
 
-    def test_get_daily_breakdown(self, db_session):
+    def test_get_daily_breakdown(self, tracker_db):
         tracker = AICostAndUsageTracker()
         today = datetime.now(timezone.utc).date()
 

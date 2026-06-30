@@ -16,7 +16,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.core.decorators import singleton
@@ -234,7 +234,7 @@ class AICostAndUsageTracker:
                     func.count(AIUsage.id).label("calls"),
                     func.sum(AIUsage.tokens_used).label("tokens"),
                     func.sum(AIUsage.cost_estimate).label("cost"),
-                    func.sum(func.case((AIUsage.success == True, 1), else_=0)).label("successful"),
+                    func.sum(case((AIUsage.success == True, 1), else_=0)).label("successful"),
                 )
 
                 if start_date:

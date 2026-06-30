@@ -625,7 +625,7 @@ class TestSnapshotCaching:
     @pytest.mark.asyncio
     async def test_snapshot_cache_expires(self, mock_run, mock_camera_class):
         """AC3: Snapshot cache expires after 5 seconds."""
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
         jpeg_data = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10] + [0] * 100 + [0xFF, 0xD9])
         mock_run.return_value = Mock(returncode=0, stdout=jpeg_data)
@@ -640,8 +640,9 @@ class TestSnapshotCaching:
         # First call - populates cache
         await accessory._get_snapshot({"image-width": 640, "image-height": 480})
 
-        # Manually set timestamp to 6 seconds ago (beyond 5-second cache)
-        accessory._snapshot_timestamp = datetime.utcnow() - timedelta(seconds=6)
+        # Manually set timestamp to 6 seconds ago (beyond 5-second cache).
+        # Source compares against timezone-aware UTC now, so use an aware timestamp.
+        accessory._snapshot_timestamp = datetime.now(timezone.utc) - timedelta(seconds=6)
 
         # Cache should now be invalid
         assert accessory._is_snapshot_cache_valid() is False
@@ -650,7 +651,7 @@ class TestSnapshotCaching:
     @patch("app.services.homekit_camera.Camera")
     def test_snapshot_cache_validity_within_window(self, mock_camera_class):
         """AC3: Snapshot cache is valid within 5-second window."""
-        from datetime import datetime, timedelta
+        from datetime import datetime, timedelta, timezone
         mock_camera_class.return_value = Mock(get_service=Mock(return_value=Mock()))
 
         accessory = HomeKitCameraAccessory(
@@ -662,7 +663,8 @@ class TestSnapshotCaching:
 
         # Set cache with timestamp 2 seconds ago
         accessory._snapshot_cache = b"test-snapshot-data"
-        accessory._snapshot_timestamp = datetime.utcnow() - timedelta(seconds=2)
+        # Source compares against timezone-aware UTC now, so use an aware timestamp.
+        accessory._snapshot_timestamp = datetime.now(timezone.utc) - timedelta(seconds=2)
 
         assert accessory._is_snapshot_cache_valid() is True
 

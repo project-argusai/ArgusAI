@@ -94,7 +94,7 @@ class CameraTaskManager:
             pass
 
         # Clean up cooldown as well
-        self.camera_cooldowns.pop(camera_id, None)
+        self._camera_cooldowns.pop(camera_id, None)
 
         logger.info(f"Stopped monitoring camera: {camera_id}")
 

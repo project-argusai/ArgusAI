@@ -74,8 +74,11 @@ class Camera(Base):
     protect_camera_type = Column(String(20), nullable=True)  # 'camera', 'doorbell'
     smart_detection_types = Column(Text, nullable=True)  # JSON array: ["person", "vehicle", "package", "animal"]
     is_doorbell = Column(Boolean, default=False, nullable=False)
-    # Phase 3: Analysis mode for AI processing
-    analysis_mode = Column(String(20), default='single_frame', nullable=False, index=True)
+    # Phase 3: Analysis mode for AI processing.
+    # Default is multi_frame (balanced quality/cost) for clip-capable Protect
+    # cameras. RTSP/USB creation explicitly overrides this to single_frame at the
+    # schema layer since they cannot supply a motion clip.
+    analysis_mode = Column(String(20), default='multi_frame', nullable=False, index=True)
     # Phase 4 (P4-5.4): Per-camera custom prompt override based on feedback analysis
     prompt_override = Column(Text, nullable=True)
     # Phase 6 (P6-3.1): Audio stream extraction configuration

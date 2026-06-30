@@ -66,13 +66,17 @@ class ProtectMediaService:
         event_id: str,
         event_timestamp: datetime,
         is_doorbell_ring: bool = False,
+        analysis_mode: Optional[str] = None,
     ) -> MediaBundle:
         """
         Retrieve the best available media for AI analysis of this event.
 
         Strategy:
         - Always retrieve a snapshot (needed for thumbnail + fallback)
-        - Attempt clip download for non-ring events when useful
+        - Download a motion clip ONLY when the camera's configured analysis_mode
+          needs one (``multi_frame`` or ``video_native``). ``single_frame`` cameras
+          skip the clip entirely to avoid the bandwidth/latency cost of a clip the
+          pipeline will never use. An unset mode defaults to ``multi_frame``.
         - Return a MediaBundle the AI pipeline can use
         """
         bundle = MediaBundle()
@@ -86,9 +90,11 @@ class ProtectMediaService:
             bundle.fallback_reason = "snapshot_retrieval_failed"
             return bundle
 
-        # Decide whether to attempt clip download
-        # For now: attempt for most events, skip for simple doorbell rings if desired
-        should_attempt_clip = not is_doorbell_ring
+        # The configured mode is authoritative for clip retrieval. A clip is only
+        # useful for multi_frame (frames extracted from it) and video_native (sent
+        # whole). single_frame never needs one. Default unset -> multi_frame.
+        effective_mode = analysis_mode or "multi_frame"
+        should_attempt_clip = effective_mode in ("multi_frame", "video_native")
 
         if should_attempt_clip:
             clip_path, clip_fallback = await self._download_clip(

@@ -379,6 +379,7 @@ class ProtectEventHandler:
                         event_id=generated_event_id,
                         event_timestamp=event_timestamp,
                         is_doorbell_ring=is_doorbell_ring,
+                        analysis_mode=camera.analysis_mode,
                     )
 
                     snapshot_result = media.snapshot_result
@@ -786,6 +787,7 @@ class ProtectEventHandler:
                     event_id=generated_event_id,
                     event_timestamp=event_timestamp,
                     is_doorbell_ring=is_doorbell_ring,
+                    analysis_mode=camera.analysis_mode,
                 )
                 snapshot_result = media.snapshot_result
                 clip_path = media.clip_path

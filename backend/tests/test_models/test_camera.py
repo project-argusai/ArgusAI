@@ -245,8 +245,14 @@ class TestCameraModel:
 class TestCameraAnalysisModeField:
     """Test suite for Camera.analysis_mode field (Story P3-3.1)"""
 
-    def test_analysis_mode_default_is_single_frame(self, db_session):
-        """AC1, AC2: New camera defaults to 'single_frame' analysis mode"""
+    def test_analysis_mode_default_is_multi_frame(self, db_session):
+        """The model-level default is now 'multi_frame' (balanced quality/cost).
+
+        Contract change: multi_frame is the project default for clip-capable
+        cameras. RTSP/USB creation through the cameras API still overrides this to
+        single_frame at the schema layer (they cannot supply a motion clip), but
+        the bare ORM column default is multi_frame.
+        """
         camera = Camera(
             name="Test Camera",
             type="rtsp",
@@ -256,7 +262,7 @@ class TestCameraAnalysisModeField:
         db_session.add(camera)
         db_session.commit()
 
-        assert camera.analysis_mode == "single_frame"
+        assert camera.analysis_mode == "multi_frame"
 
     def test_analysis_mode_single_frame(self, db_session):
         """AC1: Camera can be created with analysis_mode='single_frame'"""

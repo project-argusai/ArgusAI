@@ -40,6 +40,7 @@ class ProtectAIPipeline:
 
     def __init__(self):
         self._last_analysis_mode: Optional[str] = None
+        self._last_requested_mode: Optional[str] = None
         self._last_frame_count: Optional[int] = None
         self._last_fallback_reason: Optional[str] = None
         self._last_audio_transcription: Optional[str] = None
@@ -61,6 +62,7 @@ class ProtectAIPipeline:
         """
         # Reset tracking state for this event
         self._last_analysis_mode = None
+        self._last_requested_mode = None
         self._last_frame_count = None
         self._last_fallback_reason = None
         self._last_audio_transcription = None
@@ -77,25 +79,27 @@ class ProtectAIPipeline:
             with get_db_session() as db:
                 await ai_service.load_api_keys_from_db(db)
 
-            # For now, delegate to the existing orchestrator (single frame path)
-            # Full multi-frame + video_native logic can be wired here later
-            # (the original complex logic lived in _submit_to_ai_pipeline)
-
-            # Convert snapshot to the format expected by the orchestrator
-            # (This is a simplified version — the full original logic was very long)
-
-            # Placeholder: In a full extraction we would replicate the fallback chain here
-            # For this micro-step, we delegate the core call
-
-            # TODO: Full extraction of the fallback chain from the old _submit_to_ai_pipeline
+            # The camera's configured analysis_mode is AUTHORITATIVE. The pipeline is
+            # NOT opportunistic: it does not silently upgrade a single_frame camera to
+            # multi_frame just because a clip happens to be present, nor escalate a
+            # multi_frame camera to video_native just because Gemini is available.
+            # An unset/blank mode defaults to multi_frame (the project default for
+            # balanced quality/cost on clip-capable cameras).
+            requested_mode = (getattr(camera, "analysis_mode", None) or "multi_frame")
+            self._last_requested_mode = requested_mode
 
             logger.info(
-                f"Submitting snapshot for AI analysis (camera={camera.name}, type={event_type})",
-                extra={"event_type": "protect_ai_submission"}
+                f"Submitting snapshot for AI analysis "
+                f"(camera={camera.name}, type={event_type}, requested_mode={requested_mode})",
+                extra={
+                    "event_type": "protect_ai_submission",
+                    "requested_mode": requested_mode,
+                    "clip_available": clip_path is not None,
+                }
             )
 
-            # === Video Native path (Gemini native video upload) ===
-            if clip_path:
+            # === Video Native path (only when explicitly configured) ===
+            if requested_mode == "video_native" and clip_path:
                 try:
                     video_result = await self._try_video_native_analysis(
                         clip_path, camera, event_type, is_doorbell_ring
@@ -112,8 +116,9 @@ class ProtectAIPipeline:
                     self._last_fallback_reason = f"video_native_failed:{str(e)}"
                     logger.warning(f"Video native analysis failed for camera '{camera.name}', falling back: {e}")
 
-            # === Multi-frame path (preferred when clip is available) ===
-            if clip_path:
+            # === Multi-frame path (for multi_frame OR as the documented fallback
+            #     step for a configured video_native camera) ===
+            if requested_mode in ("multi_frame", "video_native") and clip_path:
                 try:
                     frames, timestamps = await self._extract_frames_from_clip(clip_path, camera)
                     if frames:
@@ -138,7 +143,17 @@ class ProtectAIPipeline:
                     self._last_fallback_reason = f"multi_frame_failed:{str(e)}"
                     logger.warning(f"Multi-frame analysis failed for camera '{camera.name}', falling back to single frame: {e}")
 
-            # === Single-frame fallback path ===
+            # === Single-frame path ===
+            # Reached when the camera is configured single_frame, when no clip is
+            # available, or after a clip/extraction failure degraded the requested
+            # mode. Record WHY when we degraded below the requested mode so the
+            # silent-fallback can be observed per-event rather than only in logs.
+            if requested_mode != "single_frame" and self._last_fallback_reason is None:
+                self._last_fallback_reason = (
+                    f"{requested_mode}_unavailable:no_clip"
+                    if not clip_path
+                    else f"{requested_mode}_unavailable:no_frames"
+                )
             import base64
             import numpy as np
             from PIL import Image
@@ -258,6 +273,11 @@ class ProtectAIPipeline:
     @property
     def last_analysis_mode(self) -> Optional[str]:
         return self._last_analysis_mode
+
+    @property
+    def last_requested_mode(self) -> Optional[str]:
+        """The mode the camera was configured for, before any fallback."""
+        return self._last_requested_mode
 
     @property
     def last_frame_count(self) -> Optional[int]:

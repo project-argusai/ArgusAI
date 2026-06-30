@@ -263,6 +263,10 @@ class TestMultiFramePath:
     async def test_clip_with_frames_uses_multi_frame(
         self, pipeline, mock_camera_protect, mock_snapshot_result, temp_clip_file
     ):
+        # Mode is authoritative: the camera must be configured multi_frame for the
+        # multi-frame path to run (previously this path was opportunistic on clip
+        # presence regardless of configured mode).
+        mock_camera_protect.analysis_mode = "multi_frame"
         orch = MagicMock()
         orch.analyze_images = AsyncMock(
             return_value=MockAIResult(success=True, description="multi frame")
@@ -300,6 +304,7 @@ class TestMultiFramePath:
         self, pipeline, mock_camera_protect, mock_snapshot_result, temp_clip_file
     ):
         """AC2: clip present but frame extraction returns nothing -> single_frame."""
+        mock_camera_protect.analysis_mode = "multi_frame"
         orch = MagicMock()
         orch.analyze_images = AsyncMock(return_value=MockAIResult(success=True))
         orch.analyze_image = AsyncMock(
@@ -327,6 +332,121 @@ class TestMultiFramePath:
         orch.analyze_images.assert_not_called()
         orch.analyze_image.assert_called_once()
         assert pipeline._last_analysis_mode == "single_frame"
+
+
+class TestModeIsAuthoritative:
+    """camera.analysis_mode drives the pipeline; it is NOT opportunistic on clip
+    availability. Regression guard for: live events silently degrading to / from
+    the configured mode."""
+
+    @pytest.mark.asyncio
+    async def test_single_frame_camera_does_not_use_multi_frame_even_with_clip(
+        self, pipeline, mock_camera_protect, mock_snapshot_result, temp_clip_file
+    ):
+        """A camera configured single_frame must stay single_frame even when a
+        clip is present and frames are extractable. Previously the pipeline was
+        opportunistic and silently upgraded to multi_frame, ignoring the
+        configured mode (and the cost ceiling that implies)."""
+        mock_camera_protect.analysis_mode = "single_frame"
+
+        orch = MagicMock()
+        orch.analyze_images = AsyncMock(return_value=MockAIResult(success=True))
+        orch.analyze_image = AsyncMock(
+            return_value=MockAIResult(success=True, description="single frame")
+        )
+
+        p_orch, p_ai, p_db = _patch_pipeline_deps(orch)
+        with p_orch, p_ai as mock_ai, p_db, patch.object(
+            pipeline, "_try_video_native_analysis", new_callable=AsyncMock, return_value=None
+        ) as mock_video, patch.object(
+            pipeline,
+            "_extract_frames_from_clip",
+            new_callable=AsyncMock,
+            return_value=([b"f1", b"f2"], [0.0, 0.5]),
+        ) as mock_extract:
+            mock_ai.load_api_keys_from_db = AsyncMock()
+            result = await pipeline.submit_snapshot_for_analysis(
+                snapshot_result=mock_snapshot_result,
+                camera=mock_camera_protect,
+                event_type="person",
+                clip_path=temp_clip_file,
+            )
+
+        assert result is not None
+        # Configured single_frame -> no clip work attempted at all.
+        mock_video.assert_not_called()
+        mock_extract.assert_not_called()
+        orch.analyze_images.assert_not_called()
+        orch.analyze_image.assert_called_once()
+        assert pipeline._last_analysis_mode == "single_frame"
+
+    @pytest.mark.asyncio
+    async def test_unset_mode_defaults_to_multi_frame(
+        self, pipeline, mock_camera_protect, mock_snapshot_result, temp_clip_file
+    ):
+        """When a camera has no analysis_mode set, the default is multi_frame."""
+        mock_camera_protect.analysis_mode = None
+
+        orch = MagicMock()
+        orch.analyze_images = AsyncMock(
+            return_value=MockAIResult(success=True, description="multi frame")
+        )
+        orch.analyze_image = AsyncMock(return_value=MockAIResult(success=True))
+
+        p_orch, p_ai, p_db = _patch_pipeline_deps(orch)
+        with p_orch, p_ai as mock_ai, p_db, patch.object(
+            pipeline, "_try_video_native_analysis", new_callable=AsyncMock, return_value=None
+        ), patch.object(
+            pipeline,
+            "_extract_frames_from_clip",
+            new_callable=AsyncMock,
+            return_value=([b"f1", b"f2", b"f3"], [0.0, 0.5, 1.0]),
+        ):
+            mock_ai.load_api_keys_from_db = AsyncMock()
+            result = await pipeline.submit_snapshot_for_analysis(
+                snapshot_result=mock_snapshot_result,
+                camera=mock_camera_protect,
+                event_type="person",
+                clip_path=temp_clip_file,
+            )
+
+        assert result is not None
+        orch.analyze_images.assert_called_once()
+        assert pipeline._last_analysis_mode == "multi_frame"
+
+    @pytest.mark.asyncio
+    async def test_multi_frame_camera_does_not_attempt_video_native(
+        self, pipeline, mock_camera_protect, mock_snapshot_result, temp_clip_file
+    ):
+        """A multi_frame camera must not silently escalate to video_native just
+        because a Gemini provider happens to be available."""
+        mock_camera_protect.analysis_mode = "multi_frame"
+
+        orch = MagicMock()
+        orch.analyze_images = AsyncMock(
+            return_value=MockAIResult(success=True, description="multi frame")
+        )
+
+        p_orch, p_ai, p_db = _patch_pipeline_deps(orch)
+        with p_orch, p_ai as mock_ai, p_db, patch.object(
+            pipeline, "_try_video_native_analysis", new_callable=AsyncMock, return_value=MockAIResult(success=True, provider="gemini")
+        ) as mock_video, patch.object(
+            pipeline,
+            "_extract_frames_from_clip",
+            new_callable=AsyncMock,
+            return_value=([b"f1", b"f2", b"f3"], [0.0, 0.5, 1.0]),
+        ):
+            mock_ai.load_api_keys_from_db = AsyncMock()
+            result = await pipeline.submit_snapshot_for_analysis(
+                snapshot_result=mock_snapshot_result,
+                camera=mock_camera_protect,
+                event_type="person",
+                clip_path=temp_clip_file,
+            )
+
+        assert result is not None
+        mock_video.assert_not_called()
+        assert pipeline._last_analysis_mode == "multi_frame"
 
 
 class TestCompleteFailure:

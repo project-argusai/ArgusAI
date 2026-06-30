@@ -493,7 +493,7 @@ class ProtectEventHandler:
                         protect_event_id=str(protect_event_id) if protect_event_id else None,
                         event_type=filter_type,
                         is_doorbell_ring=is_doorbell_ring,
-                        fallback_reason=fallback_reason,
+                        fallback_reason=media_fallback,
                         event_id_override=generated_event_id
                     )
 

@@ -46,10 +46,19 @@ def setup_module_database():
     Base.metadata.create_all(bind=engine)
     # Apply override for all tests in this module
     app.dependency_overrides[get_db] = _override_get_db
-    # Override CleanupService to use test database
-    cleanup_service._cleanup_service = cleanup_service.CleanupService(session_factory=TestingSessionLocal)
+    # Override CleanupService (now a @singleton) to use the test database.
+    # The /system/storage and /events/cleanup endpoints resolve the service via
+    # container.cleanup_service -> get_cleanup_service() -> CleanupService(),
+    # which returns the cached singleton instance. We seed that instance with a
+    # CleanupService bound to the test session factory so the endpoints query the
+    # same temp DB the tests write to.
+    cleanup_service.CleanupService._reset_instance()
+    _test_cleanup = cleanup_service.CleanupService(session_factory=TestingSessionLocal)
+    cleanup_service.CleanupService._singleton_instance = _test_cleanup
+    cleanup_service.CleanupService._singleton_initialized = True
     yield
     # Drop tables after all tests in module complete
+    cleanup_service.CleanupService._reset_instance()
     Base.metadata.drop_all(bind=engine)
 
 
@@ -58,8 +67,20 @@ client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
-def cleanup_database():
-    """Clear database between tests"""
+def cleanup_database(setup_module_database):
+    """Clear database between tests and re-seed test-bound singletons.
+
+    The global autouse `_reset_all_singletons` fixture (tests/conftest.py) wipes
+    every @singleton before each test, which would otherwise replace our
+    test-DB-bound CleanupService with a default-DB instance. Re-seed it here so
+    container.cleanup_service keeps pointing at the temp test database for every
+    test in this module.
+    """
+    cleanup_service.CleanupService._reset_instance()
+    _test_cleanup = cleanup_service.CleanupService(session_factory=TestingSessionLocal)
+    cleanup_service.CleanupService._singleton_instance = _test_cleanup
+    cleanup_service.CleanupService._singleton_initialized = True
+
     # Clean up BEFORE the test to ensure isolation
     db = TestingSessionLocal()
     try:
@@ -224,7 +245,11 @@ class TestStorageEndpoint:
         assert data["event_count"] == 0
         assert data["database_mb"] >= 0
         assert data["thumbnails_mb"] >= 0
-        assert data["total_mb"] == data["database_mb"] + data["thumbnails_mb"]
+        # total_mb is round(database_mb + thumbnails_mb, 2) in the service, so
+        # compare with tolerance rather than exact float equality.
+        assert data["total_mb"] == pytest.approx(
+            data["database_mb"] + data["thumbnails_mb"], abs=0.01
+        )
 
     def test_get_storage_info_with_events(self):
         """Test GET /system/storage with events"""
@@ -1170,7 +1195,10 @@ class TestHotListFilters:
         result = _filter_hot_update(record, filters)
 
         ids = [e["entity_id"] for e in result["top_recent_entities"]]
-        assert ids == ["e1"]  # only the high-scoring new person
+        # min_score>=0.80 AND is_new=True keeps e1 (0.95, new) and e3 (0.88, new);
+        # e2 is filtered out by both score and is_new. No type filter is applied,
+        # so the vehicle e3 correctly remains.
+        assert ids == ["e1", "e3"]
 
     def test_filters_entities_by_type_and_specific_ids(self):
         record = {
@@ -1243,6 +1271,27 @@ class TestAIProcessingHotRestEndpoint:
         yield
         main_app.dependency_overrides.pop(get_current_user, None)
 
+    @pytest.fixture(autouse=True)
+    def stub_coordinator(self):
+        """Seed the AIProcessingCoordinator singleton with a mock.
+
+        The endpoint resolves the coordinator via
+        container.ai_processing_coordinator -> get_ai_processing_coordinator()
+        -> AIProcessingCoordinator(), which (after the autouse singleton reset)
+        would try to construct the real coordinator with no DI args and fail with
+        "missing 6 required positional arguments". Seeding a MagicMock instance as
+        the singleton lets the tests patch get_hot_cameras / get_top_recent_entities
+        on the same object the endpoint reads.
+        """
+        from unittest.mock import MagicMock
+        from app.services.ai_processing_coordinator import AIProcessingCoordinator
+
+        AIProcessingCoordinator._reset_instance()
+        AIProcessingCoordinator._singleton_instance = MagicMock()
+        AIProcessingCoordinator._singleton_initialized = True
+        yield
+        AIProcessingCoordinator._reset_instance()
+
     def test_hot_snapshot_no_filters(self):
         mock_cameras = [
             {"camera_id": "cam-living", "name": "Living Room", "score": 12.4, "count": 8},
@@ -1310,7 +1359,9 @@ class TestAIProcessingHotRestEndpoint:
             assert len(data["hot_cameras"]) == 1
             assert data["hot_cameras"][0]["camera_id"] == "c1"
             assert data["filters_applied"]["min_camera_score"] == 10
-            assert data["filters_applied"]["min_score"] is None  # not provided
+            # The endpoint only echoes filters that were actually provided, so an
+            # unprovided filter is absent from filters_applied (not present as None).
+            assert "min_score" not in data["filters_applied"]
 
     def test_hot_snapshot_combined_filters_echoed(self):
         with patch.object(

@@ -568,8 +568,16 @@ class ClipService:
         except Exception as e:
             # Classify unknown exceptions
             error_str = str(e).lower()
-            # Check for 404/not found errors - non-retriable
-            if "404" in error_str or "not found" in error_str:
+            # Protect's /video/export surfaces a transient gateway failure as
+            # "Status: 404 - Reason: 502" (also 503/504) when the motion clip is not
+            # yet finalized at request time. That is RETRIABLE — the existing backoff
+            # re-requests once the clip is ready — and must be checked BEFORE the
+            # plain-404 branch so it is not misclassified as a permanent not-found.
+            is_gateway_error = any(
+                f"reason: {code}" in error_str for code in ("502", "503", "504")
+            )
+            # Check for 404/not found errors - non-retriable (true not-found only)
+            if ("404" in error_str or "not found" in error_str) and not is_gateway_error:
                 raise NonRetriableClipError(f"Clip not found: {e}") from e
             # Check for authentication errors - non-retriable
             if "auth" in error_str or "unauthorized" in error_str or "403" in error_str:

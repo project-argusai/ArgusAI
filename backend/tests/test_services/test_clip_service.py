@@ -332,6 +332,52 @@ class TestDownloadClip:
         assert not output_path.exists()
 
     @pytest.mark.asyncio
+    async def test_gateway_404_502_is_retriable(self):
+        """A Protect export 'Status: 404 - Reason: 502' is a transient gateway
+        error (clip not finalized yet), NOT a true not-found. It must be classified
+        RetriableClipError so the existing backoff re-requests once the clip is
+        ready, instead of immediately degrading the event to single_frame."""
+        async def gateway_502(camera_id, start, end, output_file):
+            raise Exception(
+                "Request failed: https://10.0.1.254/proxy/protect/api/video/export"
+                "?camera=cam1&start=1&end=2&channel=0 - Status: 404 - Reason: 502"
+            )
+
+        self.mock_client.get_camera_video = gateway_502
+        output_path = self.service._get_clip_path(self.event_id)
+
+        with pytest.raises(RetriableClipError):
+            await self.service._download_clip_attempt(
+                client=self.mock_client,
+                camera_id=self.camera_id,
+                event_start=self.event_start,
+                event_end=self.event_end,
+                output_path=output_path,
+            )
+
+    @pytest.mark.asyncio
+    async def test_true_404_not_found_stays_non_retriable(self):
+        """A genuine 404 (no gateway reason) means the clip does not exist; it must
+        stay NonRetriableClipError so we fail fast instead of retrying pointlessly."""
+        async def real_404(camera_id, start, end, output_file):
+            raise Exception(
+                "Request failed: https://10.0.1.254/proxy/protect/api/video/export"
+                "?camera=cam1 - Status: 404 - Reason: Not Found"
+            )
+
+        self.mock_client.get_camera_video = real_404
+        output_path = self.service._get_clip_path(self.event_id)
+
+        with pytest.raises(NonRetriableClipError):
+            await self.service._download_clip_attempt(
+                client=self.mock_client,
+                camera_id=self.camera_id,
+                event_start=self.event_start,
+                event_end=self.event_end,
+                output_path=output_path,
+            )
+
+    @pytest.mark.asyncio
     async def test_download_clip_uses_correct_parameters(self):
         """AC2, AC6: Verify correct parameters passed to uiprotect"""
         self.mock_protect._connections[self.controller_id] = self.mock_client

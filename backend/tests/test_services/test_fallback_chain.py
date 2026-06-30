@@ -478,6 +478,33 @@ class TestFrameSettingsWiring:
         assert kwargs["sampling_strategy"] == "hybrid"
         assert kwargs["offset_ms"] == 3000
 
+    @pytest.mark.asyncio
+    async def test_extract_returns_frame_bytes_not_empty(
+        self, pipeline, mock_camera_protect, temp_clip_file
+    ):
+        """Regression: _extract_frames_from_clip must RETURN the extracted byte
+        frames. A missing `import numpy as np` made the np.ndarray isinstance check
+        raise NameError on every call, which was swallowed -> [] -> every
+        multi_frame event silently degraded to single_frame in production."""
+        extractor = MagicMock()
+        extractor.extract_frames_with_timestamps = AsyncMock(
+            return_value=([b"f1", b"f2", b"f3"], [0.0, 0.5, 1.0])
+        )
+        fake_settings = MagicMock()
+        fake_settings.get_frame_extraction_config.return_value = {
+            "frame_count": 5, "sampling_strategy": "adaptive", "offset_ms": 0,
+        }
+
+        with patch("app.services.frame_extractor.get_frame_extractor", return_value=extractor), \
+             patch("app.services.settings_service.SettingsService", return_value=fake_settings), \
+             patch("app.core.database.get_db_session"):
+            frames, timestamps = await pipeline._extract_frames_from_clip(
+                temp_clip_file, mock_camera_protect
+            )
+
+        assert frames == [b"f1", b"f2", b"f3"]
+        assert timestamps == [0.0, 0.5, 1.0]
+
 
 class TestCompleteFailure:
     """All paths raise -> submit returns None and records an exception reason (AC3)."""

@@ -109,6 +109,40 @@ def cleanup_database():
         db.close()
 
 
+@pytest.fixture(scope="function", autouse=True)
+def block_real_protect_connections():
+    """
+    Prevent any test from opening a real network connection to a UniFi Protect
+    controller.
+
+    The ``POST /api/v1/protect/controllers`` endpoint auto-connects to the
+    controller after creation (issue #450). With an unmocked
+    ``ProtectApiClient`` this performs a real ``client.update()`` against the
+    fake host in the test payload, blocking for the full ``CONNECTION_TIMEOUT``
+    (~10s) per create. Across the many ``create`` calls in this module those
+    real connections accumulate and cause the whole file to hang.
+
+    This autouse fixture installs a fast default mock of
+    ``app.services.protect_service.ProtectApiClient`` so no test ever touches
+    the network. Tests that need specific client behavior provide their own
+    ``@patch('app.services.protect_service.ProtectApiClient')`` (or a
+    ``with patch(...)`` block); those inner patches take precedence within the
+    test body, so this default only governs otherwise-unmocked code paths such
+    as the create endpoint's auto-connect.
+    """
+    with patch('app.services.protect_service.ProtectApiClient') as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.update = AsyncMock()
+        mock_client.close = AsyncMock()
+        mock_client.bootstrap = MagicMock()
+        mock_client.bootstrap.nvr = MagicMock()
+        mock_client.bootstrap.nvr.version = "3.0.16"
+        mock_client.bootstrap.cameras = []
+        mock_client.subscribe_websocket = MagicMock(return_value=MagicMock())
+        mock_client_class.return_value = mock_client
+        yield
+
+
 class TestProtectControllerModel:
     """Test suite for ProtectController model"""
 
@@ -2303,9 +2337,9 @@ class TestProtectEventHandlerInit:
         from app.services.protect_event_handler import ProtectEventHandler
 
         handler = ProtectEventHandler()
-        assert hasattr(handler, '_last_event_times')
-        assert isinstance(handler._last_event_times, dict)
-        assert len(handler._last_event_times) == 0
+        assert hasattr(handler.event_filter, '_last_event_times')
+        assert isinstance(handler.event_filter._last_event_times, dict)
+        assert len(handler.event_filter._last_event_times) == 0
 
     def test_singleton_returns_same_instance(self):
         """get_protect_event_handler returns singleton instance"""
@@ -2460,9 +2494,9 @@ class TestEventFiltering:
         handler = ProtectEventHandler()
 
         # Empty array should process all event types
-        assert handler._should_process_event("person", [], "Test Camera") == True
-        assert handler._should_process_event("vehicle", [], "Test Camera") == True
-        assert handler._should_process_event("motion", [], "Test Camera") == True
+        assert handler.event_filter.should_process_event("person", [], "Test Camera") == True
+        assert handler.event_filter.should_process_event("vehicle", [], "Test Camera") == True
+        assert handler.event_filter.should_process_event("motion", [], "Test Camera") == True
 
     def test_should_process_all_motion_mode_motion_only(self):
         """AC8: ["motion"] means all-motion mode - process all events"""
@@ -2471,9 +2505,9 @@ class TestEventFiltering:
         handler = ProtectEventHandler()
 
         # ["motion"] should also process all event types
-        assert handler._should_process_event("person", ["motion"], "Test Camera") == True
-        assert handler._should_process_event("vehicle", ["motion"], "Test Camera") == True
-        assert handler._should_process_event("motion", ["motion"], "Test Camera") == True
+        assert handler.event_filter.should_process_event("person", ["motion"], "Test Camera") == True
+        assert handler.event_filter.should_process_event("vehicle", ["motion"], "Test Camera") == True
+        assert handler.event_filter.should_process_event("motion", ["motion"], "Test Camera") == True
 
     def test_should_process_matching_filter(self):
         """AC6: Event type in filter list should pass"""
@@ -2481,8 +2515,8 @@ class TestEventFiltering:
 
         handler = ProtectEventHandler()
 
-        assert handler._should_process_event("person", ["person", "vehicle"], "Test Camera") == True
-        assert handler._should_process_event("vehicle", ["person", "vehicle"], "Test Camera") == True
+        assert handler.event_filter.should_process_event("person", ["person", "vehicle"], "Test Camera") == True
+        assert handler.event_filter.should_process_event("vehicle", ["person", "vehicle"], "Test Camera") == True
 
     def test_should_not_process_non_matching_filter(self):
         """AC7: Event type not in filter list should be discarded"""
@@ -2491,9 +2525,9 @@ class TestEventFiltering:
         handler = ProtectEventHandler()
 
         # Camera configured for person only, vehicle event should be filtered
-        assert handler._should_process_event("vehicle", ["person"], "Test Camera") == False
+        assert handler.event_filter.should_process_event("vehicle", ["person"], "Test Camera") == False
         # Camera configured for vehicles, person event should be filtered
-        assert handler._should_process_event("person", ["vehicle"], "Test Camera") == False
+        assert handler.event_filter.should_process_event("person", ["vehicle"], "Test Camera") == False
 
     def test_should_process_single_filter_type(self):
         """AC6, AC7: Single filter type only accepts that type"""
@@ -2502,9 +2536,9 @@ class TestEventFiltering:
         handler = ProtectEventHandler()
 
         # Only person configured
-        assert handler._should_process_event("person", ["person"], "Test Camera") == True
-        assert handler._should_process_event("vehicle", ["person"], "Test Camera") == False
-        assert handler._should_process_event("package", ["person"], "Test Camera") == False
+        assert handler.event_filter.should_process_event("person", ["person"], "Test Camera") == True
+        assert handler.event_filter.should_process_event("vehicle", ["person"], "Test Camera") == False
+        assert handler.event_filter.should_process_event("package", ["person"], "Test Camera") == False
 
     def test_load_smart_detection_types_valid_json(self):
         """AC5: Load smart_detection_types from valid JSON"""
@@ -2555,7 +2589,7 @@ class TestEventDeduplication:
         handler = ProtectEventHandler()
 
         # First event should not be duplicate
-        assert handler._is_duplicate_event("camera-1", "Test Camera") == False
+        assert handler.event_filter.is_duplicate_event("camera-1", "Test Camera") == False
 
     def test_event_within_cooldown_is_duplicate(self):
         """AC10: Event within 60 second cooldown is duplicate"""
@@ -2566,11 +2600,11 @@ class TestEventDeduplication:
         camera_id = "camera-duplicate-test"
 
         # Simulate an event that happened 30 seconds ago (within cooldown)
-        handler._last_event_times[camera_id] = (
+        handler.event_filter._last_event_times[camera_id] = (
             datetime.now(timezone.utc) - timedelta(seconds=30)
         )
 
-        assert handler._is_duplicate_event(camera_id, "Test Camera") == True
+        assert handler.event_filter.is_duplicate_event(camera_id, "Test Camera") == True
 
     def test_event_after_cooldown_is_not_duplicate(self):
         """AC10: Event after 60 second cooldown is not duplicate"""
@@ -2581,11 +2615,11 @@ class TestEventDeduplication:
         camera_id = "camera-after-cooldown"
 
         # Simulate an event that happened 65 seconds ago (past cooldown)
-        handler._last_event_times[camera_id] = (
+        handler.event_filter._last_event_times[camera_id] = (
             datetime.now(timezone.utc) - timedelta(seconds=EVENT_COOLDOWN_SECONDS + 5)
         )
 
-        assert handler._is_duplicate_event(camera_id, "Test Camera") == False
+        assert handler.event_filter.is_duplicate_event(camera_id, "Test Camera") == False
 
     def test_deduplication_exactly_at_boundary(self):
         """AC10: Event exactly at cooldown boundary is not duplicate"""
@@ -2596,12 +2630,12 @@ class TestEventDeduplication:
         camera_id = "camera-boundary"
 
         # Simulate an event that happened exactly at the cooldown boundary
-        handler._last_event_times[camera_id] = (
+        handler.event_filter._last_event_times[camera_id] = (
             datetime.now(timezone.utc) - timedelta(seconds=EVENT_COOLDOWN_SECONDS)
         )
 
         # Should be allowed (>= check)
-        assert handler._is_duplicate_event(camera_id, "Test Camera") == False
+        assert handler.event_filter.is_duplicate_event(camera_id, "Test Camera") == False
 
     def test_multiple_cameras_independent_deduplication(self):
         """AC9: Each camera has independent deduplication tracking"""
@@ -2611,19 +2645,19 @@ class TestEventDeduplication:
         handler = ProtectEventHandler()
 
         # Camera 1 had event 30 seconds ago (within cooldown)
-        handler._last_event_times["camera-1"] = (
+        handler.event_filter._last_event_times["camera-1"] = (
             datetime.now(timezone.utc) - timedelta(seconds=30)
         )
 
         # Camera 2 has never had an event
         # Camera 3 had event 120 seconds ago (past cooldown)
-        handler._last_event_times["camera-3"] = (
+        handler.event_filter._last_event_times["camera-3"] = (
             datetime.now(timezone.utc) - timedelta(seconds=120)
         )
 
-        assert handler._is_duplicate_event("camera-1", "Camera 1") == True   # Within cooldown
-        assert handler._is_duplicate_event("camera-2", "Camera 2") == False  # First event
-        assert handler._is_duplicate_event("camera-3", "Camera 3") == False  # Past cooldown
+        assert handler.event_filter.is_duplicate_event("camera-1", "Camera 1") == True   # Within cooldown
+        assert handler.event_filter.is_duplicate_event("camera-2", "Camera 2") == False  # First event
+        assert handler.event_filter.is_duplicate_event("camera-3", "Camera 3") == False  # Past cooldown
 
     def test_clear_event_tracking_specific_camera(self):
         """Clear event tracking for specific camera"""
@@ -2631,13 +2665,13 @@ class TestEventDeduplication:
         from datetime import datetime, timezone
 
         handler = ProtectEventHandler()
-        handler._last_event_times["camera-1"] = datetime.now(timezone.utc)
-        handler._last_event_times["camera-2"] = datetime.now(timezone.utc)
+        handler.event_filter._last_event_times["camera-1"] = datetime.now(timezone.utc)
+        handler.event_filter._last_event_times["camera-2"] = datetime.now(timezone.utc)
 
         handler.clear_event_tracking("camera-1")
 
-        assert "camera-1" not in handler._last_event_times
-        assert "camera-2" in handler._last_event_times
+        assert "camera-1" not in handler.event_filter._last_event_times
+        assert "camera-2" in handler.event_filter._last_event_times
 
     def test_clear_event_tracking_all_cameras(self):
         """Clear all event tracking data"""
@@ -2645,12 +2679,12 @@ class TestEventDeduplication:
         from datetime import datetime, timezone
 
         handler = ProtectEventHandler()
-        handler._last_event_times["camera-1"] = datetime.now(timezone.utc)
-        handler._last_event_times["camera-2"] = datetime.now(timezone.utc)
+        handler.event_filter._last_event_times["camera-1"] = datetime.now(timezone.utc)
+        handler.event_filter._last_event_times["camera-2"] = datetime.now(timezone.utc)
 
         handler.clear_event_tracking()
 
-        assert len(handler._last_event_times) == 0
+        assert len(handler.event_filter._last_event_times) == 0
 
 
 class TestHandleEventCameraLookup:
@@ -2804,13 +2838,16 @@ class TestHandleEventFullFlow:
             mock_ai_result.response_time_ms = 500
             mock_ai_result.error = None
 
-            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot, \
-                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
-                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
-                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
-                mock_service = MagicMock()
-                mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot_result)
-                mock_snapshot.return_value = mock_service
+            with patch.object(handler.media_service, 'get_media_for_event', new_callable=AsyncMock) as mock_media, \
+                 patch.object(handler.ai_pipeline, 'submit_snapshot_for_analysis', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler.storage_service, 'persist_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler.broadcaster, 'broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
+                # media_service returns a MediaBundle-like object with the snapshot
+                mock_bundle = MagicMock()
+                mock_bundle.snapshot_result = mock_snapshot_result
+                mock_bundle.clip_path = None
+                mock_bundle.fallback_reason = None
+                mock_media.return_value = mock_bundle
 
                 mock_ai_submit.return_value = mock_ai_result
 
@@ -2825,7 +2862,7 @@ class TestHandleEventFullFlow:
                 assert result == True
 
                 # Verify tracking was updated
-                assert camera.id in handler._last_event_times
+                assert camera.id in handler.event_filter._last_event_times
         finally:
             db.close()
 
@@ -2920,13 +2957,16 @@ class TestHandleEventFullFlow:
             mock_ai_result.response_time_ms = 500
             mock_ai_result.error = None
 
-            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot, \
-                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
-                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
-                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
-                mock_service = MagicMock()
-                mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot_result)
-                mock_snapshot.return_value = mock_service
+            with patch.object(handler.media_service, 'get_media_for_event', new_callable=AsyncMock) as mock_media, \
+                 patch.object(handler.ai_pipeline, 'submit_snapshot_for_analysis', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler.storage_service, 'persist_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler.broadcaster, 'broadcast_event_created', new_callable=AsyncMock) as mock_broadcast:
+                # media_service returns a MediaBundle-like object with the snapshot
+                mock_bundle = MagicMock()
+                mock_bundle.snapshot_result = mock_snapshot_result
+                mock_bundle.clip_path = None
+                mock_bundle.fallback_reason = None
+                mock_media.return_value = mock_bundle
 
                 mock_ai_submit.return_value = mock_ai_result
 
@@ -2968,7 +3008,7 @@ class TestHandleEventFullFlow:
             db.refresh(camera)
 
             # Simulate recent event (within cooldown)
-            handler._last_event_times[camera.id] = (
+            handler.event_filter._last_event_times[camera.id] = (
                 datetime.now(timezone.utc) - timedelta(seconds=30)
             )
 
@@ -3536,12 +3576,16 @@ class TestEventHandlerSnapshotIntegration:
         assert service is not None
 
     def test_event_handler_has_retrieve_snapshot_method(self):
-        """Event handler has _retrieve_snapshot method"""
+        """Media service (used by the event handler) has _retrieve_snapshot method
+
+        Phase 4 decomposition moved snapshot retrieval off ProtectEventHandler
+        and onto ProtectMediaService, accessed via handler.media_service.
+        """
         from app.services.protect_event_handler import ProtectEventHandler
 
         handler = ProtectEventHandler()
-        assert hasattr(handler, '_retrieve_snapshot')
-        assert callable(handler._retrieve_snapshot)
+        assert hasattr(handler.media_service, '_retrieve_snapshot')
+        assert callable(handler.media_service._retrieve_snapshot)
 
 
 # ==============================================================================
@@ -3706,12 +3750,16 @@ class TestDoorbellRingWebSocketBroadcast:
     """Test suite for doorbell ring WebSocket broadcast (Story P2-4.1 AC6)"""
 
     def test_event_handler_has_broadcast_doorbell_ring_method(self):
-        """Event handler has _broadcast_doorbell_ring method"""
+        """Broadcaster (used by the event handler) has broadcast_doorbell_ring method
+
+        Phase 4 decomposition moved WebSocket broadcasting off ProtectEventHandler
+        and onto ProtectEventBroadcaster, accessed via handler.broadcaster.
+        """
         from app.services.protect_event_handler import ProtectEventHandler
 
         handler = ProtectEventHandler()
-        assert hasattr(handler, '_broadcast_doorbell_ring')
-        assert callable(handler._broadcast_doorbell_ring)
+        assert hasattr(handler.broadcaster, 'broadcast_doorbell_ring')
+        assert callable(handler.broadcaster.broadcast_doorbell_ring)
 
     @pytest.mark.asyncio
     async def test_broadcast_doorbell_ring_sends_correct_message_type(self):
@@ -3727,7 +3775,7 @@ class TestDoorbellRingWebSocketBroadcast:
             mock_get_ws.return_value = mock_ws
 
             timestamp = datetime.now(timezone.utc)
-            clients = await handler._broadcast_doorbell_ring(
+            clients = await handler.broadcaster.broadcast_doorbell_ring(
                 camera_id="test-cam",
                 camera_name="Front Door",
                 thumbnail_url="/api/v1/thumbnails/2025-01-01/test.jpg",
@@ -3759,7 +3807,7 @@ class TestDoorbellRingWebSocketBroadcast:
             mock_get_ws.return_value = mock_ws
 
             # Should not raise, just return 0
-            clients = await handler._broadcast_doorbell_ring(
+            clients = await handler.broadcaster.broadcast_doorbell_ring(
                 camera_id="test-cam",
                 camera_name="Front Door",
                 thumbnail_url="/test.jpg",
@@ -3773,22 +3821,19 @@ class TestDoorbellRingAIPrompt:
     """Test suite for doorbell-specific AI prompt (Story P2-4.1 AC4, AC7, AC8)"""
 
     def test_ai_provider_base_build_user_prompt_with_custom_prompt(self):
-        """AC4: _build_user_prompt handles custom_prompt parameter"""
-        from app.services.ai_service import AIProviderBase
+        """AC4: prompt assembly handles custom_prompt parameter.
 
-        # Create a concrete implementation for testing
-        class TestProvider(AIProviderBase):
-            async def generate_description(self, *args, **kwargs):
-                pass
+        Refactor note: per-provider ``_build_user_prompt`` was removed; prompt
+        assembly moved to ``AIPromptService.select_and_build_prompt`` (which takes
+        ``camera_id`` rather than ``camera_name``). Mirrors test_audio_integration.py.
+        """
+        from app.services.ai_prompt_service import AIPromptService
 
-            async def generate_multi_image_description(self, *args, **kwargs):
-                pass
-
-        provider = TestProvider(api_key="test")
+        service = AIPromptService()
 
         # Test with custom prompt
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
+        prompt, _ = service.select_and_build_prompt(
+            camera_id=None,
             timestamp="2025-01-01T12:00:00Z",
             detected_objects=["person"],
             custom_prompt="Describe who is at the door."
@@ -3796,30 +3841,24 @@ class TestDoorbellRingAIPrompt:
 
         # Should use custom prompt, not default template
         assert "Describe who is at the door" in prompt
-        assert "Front Door" in prompt  # Camera context should still be present
+        # Context (detected objects) should still be appended
+        assert "person" in prompt
 
     def test_ai_provider_base_build_user_prompt_without_custom_prompt(self):
-        """_build_user_prompt uses default template without custom_prompt"""
-        from app.services.ai_service import AIProviderBase
+        """select_and_build_prompt uses default template without custom_prompt."""
+        from app.services.ai_prompt_service import AIPromptService
 
-        class TestProvider(AIProviderBase):
-            async def generate_description(self, *args, **kwargs):
-                pass
-
-            async def generate_multi_image_description(self, *args, **kwargs):
-                pass
-
-        provider = TestProvider(api_key="test")
+        service = AIPromptService()
 
         # Test without custom prompt
-        prompt = provider._build_user_prompt(
-            camera_name="Front Door",
+        prompt, _ = service.select_and_build_prompt(
+            camera_id=None,
             timestamp="2025-01-01T12:00:00Z",
             detected_objects=["person"]
         )
 
         # Should use default template
-        assert "WHO" in prompt or "Describe what you see" in prompt
+        assert "Describe what is happening" in prompt
 
     def test_ai_service_generate_description_signature_has_custom_prompt(self):
         """AC4: AIService.generate_description accepts custom_prompt parameter"""
@@ -3833,7 +3872,7 @@ class TestDoorbellRingAIPrompt:
 
     def test_openai_provider_signature_has_custom_prompt(self):
         """OpenAIProvider.generate_description accepts custom_prompt"""
-        from app.services.ai_service import OpenAIProvider
+        from app.services.ai_providers import OpenAIProvider
         import inspect
 
         sig = inspect.signature(OpenAIProvider.generate_description)
@@ -3843,7 +3882,7 @@ class TestDoorbellRingAIPrompt:
 
     def test_claude_provider_signature_has_custom_prompt(self):
         """ClaudeProvider.generate_description accepts custom_prompt"""
-        from app.services.ai_service import ClaudeProvider
+        from app.services.ai_providers import ClaudeProvider
         import inspect
 
         sig = inspect.signature(ClaudeProvider.generate_description)
@@ -3853,7 +3892,7 @@ class TestDoorbellRingAIPrompt:
 
     def test_gemini_provider_signature_has_custom_prompt(self):
         """GeminiProvider.generate_description accepts custom_prompt"""
-        from app.services.ai_service import GeminiProvider
+        from app.services.ai_providers import GeminiProvider
         import inspect
 
         sig = inspect.signature(GeminiProvider.generate_description)
@@ -3916,7 +3955,7 @@ class TestDoorbellRingEventStorage:
         mock_db.refresh = MagicMock()
 
         # Call with is_doorbell_ring=True
-        event = await handler._store_protect_event(
+        event = await handler.storage_service.persist_protect_event(
             db=mock_db,
             ai_result=mock_ai,
             snapshot_result=snapshot,
@@ -3967,7 +4006,7 @@ class TestDoorbellRingEventCreatedBroadcast:
             mock_ws.broadcast = AsyncMock(return_value=1)
             mock_get_ws.return_value = mock_ws
 
-            await handler._broadcast_event_created(mock_event, mock_camera)
+            await handler.broadcaster.broadcast_event_created(mock_event, mock_camera)
 
             # Verify is_doorbell_ring is in the message
             call_args = mock_ws.broadcast.call_args[0][0]
@@ -4050,15 +4089,18 @@ class TestDoorbellRingIntegration:
             mock_event.protect_event_id = "protect-123"
             mock_event.is_doorbell_ring = True
 
-            with patch('app.services.protect_event_handler.get_snapshot_service') as mock_snapshot_svc, \
-                 patch.object(handler, '_submit_to_ai_pipeline', new_callable=AsyncMock) as mock_ai_submit, \
-                 patch.object(handler, '_store_protect_event', new_callable=AsyncMock) as mock_store, \
-                 patch.object(handler, '_broadcast_doorbell_ring', new_callable=AsyncMock) as mock_doorbell_broadcast, \
-                 patch.object(handler, '_broadcast_event_created', new_callable=AsyncMock) as mock_event_broadcast:
+            with patch.object(handler.media_service, 'get_media_for_event', new_callable=AsyncMock) as mock_media, \
+                 patch.object(handler.ai_pipeline, 'submit_snapshot_for_analysis', new_callable=AsyncMock) as mock_ai_submit, \
+                 patch.object(handler.storage_service, 'persist_protect_event', new_callable=AsyncMock) as mock_store, \
+                 patch.object(handler.broadcaster, 'broadcast_doorbell_ring', new_callable=AsyncMock) as mock_doorbell_broadcast, \
+                 patch.object(handler.broadcaster, 'broadcast_event_created', new_callable=AsyncMock) as mock_event_broadcast:
 
-                mock_service = MagicMock()
-                mock_service.get_snapshot = AsyncMock(return_value=mock_snapshot)
-                mock_snapshot_svc.return_value = mock_service
+                # media_service returns a MediaBundle-like object with the snapshot
+                mock_bundle = MagicMock()
+                mock_bundle.snapshot_result = mock_snapshot
+                mock_bundle.clip_path = None
+                mock_bundle.fallback_reason = None
+                mock_media.return_value = mock_bundle
 
                 mock_ai_submit.return_value = mock_ai_result
                 mock_store.return_value = mock_event
@@ -4083,13 +4125,11 @@ class TestDoorbellRingIntegration:
                 assert ai_call_args[1]['is_doorbell_ring'] == True
 
                 # Verify: Event was stored with is_doorbell_ring=True
-                # _store_protect_event(db, ai_result, snapshot_result, camera, event_type, protect_event_id, is_doorbell_ring)
+                # storage_service.persist_protect_event(...) is called with all keyword args
                 mock_store.assert_called_once()
                 store_call_args = mock_store.call_args
-                # Check positional args: event_type is arg[4], is_doorbell_ring may be kwarg
-                store_args = store_call_args[0]  # positional args
                 store_kwargs = store_call_args[1]  # keyword args
-                assert store_args[4] == "ring"  # event_type
+                assert store_kwargs.get('event_type') == "ring"
                 assert store_kwargs.get('is_doorbell_ring', False) == True
 
                 # Verify: EVENT_CREATED broadcast was called
@@ -4230,7 +4270,7 @@ class TestClipDownloadEndpoint:
         assert data["success"] is False
         assert "not a Protect camera" in data["error"]
 
-    @patch('app.api.v1.protect.get_clip_service')
+    @patch('app.services.service_container.get_clip_service')
     def test_clip_download_success(self, mock_get_clip_service, protect_camera):
         """P3-1.5 AC1: Successful download returns file size and duration"""
         from pathlib import Path
@@ -4276,7 +4316,7 @@ class TestClipDownloadEndpoint:
         except Exception:
             pass
 
-    @patch('app.api.v1.protect.get_clip_service')
+    @patch('app.services.service_container.get_clip_service')
     def test_clip_download_failure(self, mock_get_clip_service, protect_camera):
         """P3-1.5 AC2: Download failure returns success=false with error"""
         camera_id, _ = protect_camera
@@ -4304,7 +4344,7 @@ class TestClipDownloadEndpoint:
         assert data["file_size_bytes"] is None
         assert data["duration_seconds"] is None
 
-    @patch('app.api.v1.protect.get_clip_service')
+    @patch('app.services.service_container.get_clip_service')
     def test_clip_cleanup_after_success(self, mock_get_clip_service, protect_camera):
         """P3-1.5 AC4: Cleanup is called after successful download"""
         from pathlib import Path
@@ -4344,7 +4384,7 @@ class TestClipDownloadEndpoint:
         except Exception:
             pass
 
-    @patch('app.api.v1.protect.get_clip_service')
+    @patch('app.services.service_container.get_clip_service')
     def test_clip_cleanup_after_metadata_failure(self, mock_get_clip_service, protect_camera):
         """P3-1.5 AC4: Cleanup is called even if duration extraction fails"""
         from pathlib import Path

@@ -22,6 +22,44 @@ from app.services.event_processor import (
     ProcessingMetrics,
     EventProcessor
 )
+from app.services.ai_worker_pool import AIWorkerPool
+from app.services.camera_task_manager import CameraTaskManager
+
+
+def _make_camera_task_manager(processor: EventProcessor) -> CameraTaskManager:
+    """
+    Build a CameraTaskManager wired to the processor's queue callback.
+
+    Cooldown tracking (formerly EventProcessor.camera_cooldowns / motion_tasks)
+    now lives on CameraTaskManager. The camera/motion services are mocked since
+    these tests only exercise the cooldown bookkeeping, not the capture loop.
+    """
+    return CameraTaskManager(
+        camera_service=MagicMock(),
+        motion_service=MagicMock(),
+        queue_event_callback=processor.queue_event,
+    )
+
+
+def _start_worker_pool(processor: EventProcessor, process_event) -> AIWorkerPool:
+    """
+    Attach and start an AIWorkerPool driving the given process_event callback.
+
+    AI worker tasks are no longer owned by EventProcessor (worker_tasks is a
+    read-only property delegating to the pool); the per-event work moved out of
+    EventProcessor._ai_worker into AIWorkerPool -> AIProcessingWorker.run, which
+    invokes the process_event callback (normally
+    AIProcessingCoordinator.process_event) and records success/failure metrics.
+    """
+    pool = AIWorkerPool(
+        worker_count=processor.worker_count,
+        event_queue=processor.event_queue,
+        process_event=process_event,
+        metrics=processor.metrics,
+        is_running=lambda: processor.running,
+    )
+    processor.ai_worker_pool = pool
+    return pool
 
 
 class TestProcessingEvent:
@@ -227,8 +265,10 @@ class TestEventProcessor:
         await event_processor.stop(timeout=1.0)
 
         assert event_processor.running == False
+        # AI worker tasks are now owned by AIWorkerPool; with no pool started this is empty
         assert len(event_processor.worker_tasks) == 0
-        assert len(event_processor.motion_tasks) == 0
+        # Motion detection tasks moved to CameraTaskManager (None until start())
+        assert event_processor.camera_task_manager is None
 
     async def test_queue_event(self, event_processor):
         """Test queuing an event"""
@@ -242,11 +282,15 @@ class TestEventProcessor:
             timestamp=timestamp
         )
 
+        # Cooldown tracking moved to CameraTaskManager; queue_event only records a
+        # cooldown when a manager is attached.
+        event_processor.camera_task_manager = _make_camera_task_manager(event_processor)
+
         await event_processor.queue_event(event)
 
         assert event_processor.event_queue.qsize() == 1
         assert event_processor.metrics.queue_depth == 1
-        assert event_processor.camera_cooldowns["camera-123"] > 0
+        assert event_processor.camera_task_manager.get_cooldown("camera-123") > 0
 
     async def test_queue_overflow_drops_oldest(self, event_processor):
         """Test queue overflow handling - drops oldest event"""
@@ -384,11 +428,13 @@ class TestEventProcessor:
             frame=frame,
             timestamp=timestamp
         )
+        # Cooldown tracking moved to CameraTaskManager.
+        event_processor.camera_task_manager = _make_camera_task_manager(event_processor)
+
         await event_processor.queue_event(event1)
 
-        # Check cooldown was set
-        assert "camera-123" in event_processor.camera_cooldowns
-        cooldown_time = event_processor.camera_cooldowns["camera-123"]
+        # Check cooldown was set on the manager
+        cooldown_time = event_processor.camera_task_manager.get_cooldown("camera-123")
         assert cooldown_time > 0
 
     async def test_drain_queue(self, event_processor):
@@ -471,13 +517,16 @@ class TestEventProcessorIntegration:
         mock_ai_result.bounding_boxes = None  # Story P15-5.1: No bounding boxes in this test
         processor.ai_service.generate_description = AsyncMock(return_value=mock_ai_result)
 
+        # Per-event processing moved to AIProcessingCoordinator.process_event, which is
+        # driven by AIWorkerPool. Stub the coordinator callback so this integration test
+        # exercises the queue -> worker pool -> metrics pipeline (the coordinator has its
+        # own unit tests for the AI/DB internals).
+        process_event = AsyncMock(return_value=True)
+        pool = _start_worker_pool(processor, process_event)
+
         # Start processor (without database initialization)
         processor.running = True
-
-        # Start workers manually
-        for i in range(processor.worker_count):
-            worker_task = asyncio.create_task(processor._ai_worker(worker_id=i))
-            processor.worker_tasks.append(worker_task)
+        await pool.start()
 
         # Queue test event
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -493,12 +542,9 @@ class TestEventProcessorIntegration:
         # Wait for processing
         await asyncio.sleep(0.5)
 
-        # Verify event was processed
+        # Verify event flowed through the pool and was counted as processed
         assert processor.metrics.events_processed_success >= 1
-        processor.ai_service.generate_description.assert_called()
-        # Verify event was stored via database (not HTTP)
-        mock_db.add.assert_called()
-        mock_db.commit.assert_called()
+        process_event.assert_called()
 
         # Stop processor
         await processor.stop(timeout=1.0)
@@ -542,11 +588,14 @@ class TestEventProcessorIntegration:
         mock_ai_result.bounding_boxes = None  # Story P15-5.1: No bounding boxes in this test
         processor.ai_service.generate_description = AsyncMock(return_value=mock_ai_result)
 
+        # Drive the queue via the AIWorkerPool with a fast stub process_event callback
+        # (per-event work now lives in AIProcessingCoordinator.process_event).
+        process_event = AsyncMock(return_value=True)
+        pool = _start_worker_pool(processor, process_event)
+
         # Start processor
         processor.running = True
-        for i in range(processor.worker_count):
-            worker_task = asyncio.create_task(processor._ai_worker(worker_id=i))
-            processor.worker_tasks.append(worker_task)
+        await pool.start()
 
         # Queue 20 events
         frame = np.zeros((480, 640, 3), dtype=np.uint8)

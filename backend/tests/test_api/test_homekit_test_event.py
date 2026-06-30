@@ -51,7 +51,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_camera_not_found(self, client):
         """Test event trigger returns 404 when camera not found."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             mock_service.return_value.is_running = True
 
             response = client.post(
@@ -67,7 +67,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_bridge_not_running(self, client, test_camera):
         """Test event trigger returns 400 when bridge is not running."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             mock_service.return_value.is_running = False
 
             response = client.post(
@@ -83,7 +83,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_invalid_event_type(self, client, test_camera):
         """Test event trigger returns 422 for invalid event type."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             mock_service.return_value.is_running = True
 
             response = client.post(
@@ -98,7 +98,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_motion_success(self, client, test_camera):
         """Test successful motion event trigger."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {
@@ -128,7 +128,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_occupancy_success(self, client, test_camera):
         """Test successful occupancy event trigger."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {
@@ -154,7 +154,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_doorbell_success(self, client, test_camera):
         """Test successful doorbell event trigger."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {
@@ -181,7 +181,7 @@ class TestHomekitTestEventEndpoint:
 
     def test_test_event_sensor_not_found(self, client, test_camera):
         """Test event trigger returns 400 when sensor not found for camera."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {
@@ -207,7 +207,7 @@ class TestHomekitTestEventEndpoint:
         """Test all valid event types are accepted."""
         valid_types = ["motion", "occupancy", "vehicle", "animal", "package", "doorbell"]
 
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {
@@ -234,7 +234,7 @@ class TestHomekitTestEventSchema:
 
     def test_request_schema_minimum_fields(self, client, test_camera):
         """Test request accepts minimum required fields."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {
@@ -269,7 +269,7 @@ class TestHomekitTestEventSchema:
 
     def test_response_schema_contains_all_fields(self, client, test_camera):
         """Test response contains all expected fields."""
-        with patch('app.api.v1.homekit.get_homekit_service') as mock_service:
+        with patch('app.services.service_container.get_homekit_service') as mock_service:
             service_mock = MagicMock()
             service_mock.is_running = True
             service_mock.trigger_test_event.return_value = {

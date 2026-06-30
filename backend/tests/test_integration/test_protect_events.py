@@ -225,8 +225,9 @@ class TestEventHandler:
 
     def test_handler_has_event_tracking(self, event_handler):
         """Test handler has event time tracking dictionary"""
-        assert hasattr(event_handler, '_last_event_times')
-        assert isinstance(event_handler._last_event_times, dict)
+        # Event-time tracking moved to ProtectEventFilter (Phase 4 decomposition)
+        assert hasattr(event_handler.event_filter, '_last_event_times')
+        assert isinstance(event_handler.event_filter._last_event_times, dict)
 
     @pytest.mark.asyncio
     async def test_handle_event_returns_bool(self, event_handler):
@@ -540,21 +541,21 @@ class TestClipDownloadIntegration:
 
     @pytest.mark.asyncio
     async def test_download_clip_for_event_method_exists(self, event_handler):
-        """P3-1.4 AC1: Test that handler has _download_clip_for_event method"""
-        assert hasattr(event_handler, '_download_clip_for_event')
-        assert callable(getattr(event_handler, '_download_clip_for_event'))
+        """P3-1.4 AC1: Test clip download exists (moved to ProtectMediaService in Phase 4)"""
+        assert hasattr(event_handler.media_service, '_download_clip')
+        assert callable(getattr(event_handler.media_service, '_download_clip'))
 
     @pytest.mark.asyncio
     async def test_download_clip_returns_tuple(self, event_handler):
         """P3-1.4 AC1, AC2: Test download returns (clip_path, fallback_reason) tuple"""
         from pathlib import Path
 
-        with patch('app.services.protect_event_handler.get_clip_service') as mock_get_clip:
+        with patch('app.services.protect_media_service.get_clip_service') as mock_get_clip:
             mock_clip_service = MagicMock()
             mock_clip_service.download_clip = AsyncMock(return_value=None)
             mock_get_clip.return_value = mock_clip_service
 
-            result = await event_handler._download_clip_for_event(
+            result = await event_handler.media_service._download_clip(
                 controller_id="test-ctrl",
                 protect_camera_id="test-cam",
                 camera_id="cam-001",
@@ -575,13 +576,13 @@ class TestClipDownloadIntegration:
         """P3-1.4 AC1: Test successful download returns path and no fallback"""
         from pathlib import Path
 
-        with patch('app.services.protect_event_handler.get_clip_service') as mock_get_clip:
+        with patch('app.services.protect_media_service.get_clip_service') as mock_get_clip:
             mock_clip_service = MagicMock()
             mock_path = Path("/tmp/clips/event-001.mp4")
             mock_clip_service.download_clip = AsyncMock(return_value=mock_path)
             mock_get_clip.return_value = mock_clip_service
 
-            result = await event_handler._download_clip_for_event(
+            result = await event_handler.media_service._download_clip(
                 controller_id="test-ctrl",
                 protect_camera_id="test-cam",
                 camera_id="cam-001",
@@ -608,12 +609,13 @@ class TestClipCleanup:
         """P3-1.4 AC3: Test cleanup is called after event processing"""
         from pathlib import Path
 
-        with patch('app.services.protect_event_handler.get_clip_service') as mock_get_clip, \
+        # Phase 4 decomposition: clip lives in ProtectMediaService; AI/storage/broadcast
+        # delegate to ai_pipeline / storage_service / broadcaster.
+        with patch('app.services.protect_media_service.get_clip_service') as mock_get_clip, \
              patch('app.services.protect_event_handler.get_snapshot_service') as mock_get_snapshot, \
-             patch.object(event_handler, '_submit_to_ai_pipeline') as mock_ai, \
-             patch.object(event_handler, '_store_protect_event') as mock_store, \
-             patch.object(event_handler, '_broadcast_event_created') as mock_broadcast, \
-             patch.object(event_handler, '_process_correlation') as mock_correlation:
+             patch.object(event_handler.ai_pipeline, 'submit_snapshot_for_analysis') as mock_ai, \
+             patch.object(event_handler.storage_service, 'persist_protect_event') as mock_store, \
+             patch.object(event_handler.broadcaster, 'broadcast_event_created') as mock_broadcast:
 
             # Setup mocks
             mock_clip_service = MagicMock()
@@ -672,7 +674,7 @@ class TestConcurrentClipDownloads:
         from pathlib import Path
         import asyncio
 
-        with patch('app.services.protect_event_handler.get_clip_service') as mock_get_clip:
+        with patch('app.services.protect_media_service.get_clip_service') as mock_get_clip:
             mock_clip_service = MagicMock()
 
             # Simulate one download succeeding, one failing
@@ -691,7 +693,7 @@ class TestConcurrentClipDownloads:
 
             # Start concurrent downloads
             results = await asyncio.gather(
-                event_handler._download_clip_for_event(
+                event_handler.media_service._download_clip(
                     controller_id="ctrl-1",
                     protect_camera_id="cam-1",
                     camera_id="id-1",
@@ -699,7 +701,7 @@ class TestConcurrentClipDownloads:
                     event_id="event-1",
                     event_timestamp=datetime.now(timezone.utc)
                 ),
-                event_handler._download_clip_for_event(
+                event_handler.media_service._download_clip(
                     controller_id="ctrl-2",
                     protect_camera_id="cam-2",
                     camera_id="id-2",
@@ -728,7 +730,7 @@ class TestConcurrentClipDownloads:
         from pathlib import Path
         import asyncio
 
-        with patch('app.services.protect_event_handler.get_clip_service') as mock_get_clip:
+        with patch('app.services.protect_media_service.get_clip_service') as mock_get_clip:
             mock_clip_service = MagicMock()
 
             # All downloads fail
@@ -737,7 +739,7 @@ class TestConcurrentClipDownloads:
 
             # Start multiple concurrent downloads
             results = await asyncio.gather(
-                event_handler._download_clip_for_event(
+                event_handler.media_service._download_clip(
                     controller_id="ctrl-1",
                     protect_camera_id="cam-1",
                     camera_id="id-1",
@@ -745,7 +747,7 @@ class TestConcurrentClipDownloads:
                     event_id="event-1",
                     event_timestamp=datetime.now(timezone.utc)
                 ),
-                event_handler._download_clip_for_event(
+                event_handler.media_service._download_clip(
                     controller_id="ctrl-2",
                     protect_camera_id="cam-2",
                     camera_id="id-2",
@@ -753,7 +755,7 @@ class TestConcurrentClipDownloads:
                     event_id="event-2",
                     event_timestamp=datetime.now(timezone.utc)
                 ),
-                event_handler._download_clip_for_event(
+                event_handler.media_service._download_clip(
                     controller_id="ctrl-3",
                     protect_camera_id="cam-3",
                     camera_id="id-3",

@@ -189,6 +189,7 @@ class ProtectAIPipeline:
         Returns (frames_as_bytes, timestamps)
         """
         try:
+            import numpy as np  # used by the np.ndarray byte-conversion check below
             from app.services.frame_extractor import get_frame_extractor
             from app.services.settings_service import SettingsService
             from app.core.database import get_db_session

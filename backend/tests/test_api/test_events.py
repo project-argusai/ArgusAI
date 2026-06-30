@@ -2219,7 +2219,7 @@ class TestSignedThumbnailEndpoint:
         mock_service = MagicMock()
         mock_service.verify_signed_url.return_value = True
 
-        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+        with patch("app.services.service_container.get_signed_url_service", return_value=mock_service):
             response = client.get(
                 f"/api/v1/events/{event_id}/thumbnail",
                 params={"signature": signature, "expires": expires}
@@ -2241,7 +2241,7 @@ class TestSignedThumbnailEndpoint:
         mock_service = MagicMock()
         mock_service.verify_signed_url.return_value = False
 
-        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+        with patch("app.services.service_container.get_signed_url_service", return_value=mock_service):
             response = client.get(
                 f"/api/v1/events/{event_id}/thumbnail",
                 params={"signature": invalid_signature, "expires": expires}
@@ -2264,7 +2264,7 @@ class TestSignedThumbnailEndpoint:
         mock_service = MagicMock()
         mock_service.verify_signed_url.return_value = False
 
-        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+        with patch("app.services.service_container.get_signed_url_service", return_value=mock_service):
             response = client.get(
                 f"/api/v1/events/{event_id}/thumbnail",
                 params={"signature": signature, "expires": expires}
@@ -2284,7 +2284,7 @@ class TestSignedThumbnailEndpoint:
         mock_service = MagicMock()
         mock_service.verify_signed_url.return_value = True
 
-        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+        with patch("app.services.service_container.get_signed_url_service", return_value=mock_service):
             response = client.get(
                 "/api/v1/events/nonexistent-event-id/thumbnail",
                 params={"signature": signature, "expires": expires}
@@ -2305,7 +2305,7 @@ class TestSignedThumbnailEndpoint:
         mock_service = MagicMock()
         mock_service.verify_signed_url.return_value = True
 
-        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+        with patch("app.services.service_container.get_signed_url_service", return_value=mock_service):
             response = client.get(
                 f"/api/v1/events/{event_id}/thumbnail",
                 params={"signature": signature, "expires": expires}
@@ -2326,7 +2326,7 @@ class TestSignedThumbnailEndpoint:
         mock_service = MagicMock()
         mock_service.verify_signed_url.return_value = True
 
-        with patch("app.services.signed_url_service.get_signed_url_service", return_value=mock_service):
+        with patch("app.services.service_container.get_signed_url_service", return_value=mock_service):
             response = client.get(
                 f"/api/v1/events/{event_id}/thumbnail",
                 params={"signature": signature, "expires": expires}

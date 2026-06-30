@@ -202,7 +202,7 @@ class TestVehicleMatchingService:
         mock_vehicle.first_seen_at = datetime.now(timezone.utc)
         mock_vehicle.last_seen_at = datetime.now(timezone.utc)
         mock_vehicle.occurrence_count = 5
-        mock_vehicle.metadata = '{"detected_type": "car", "primary_color": "blue"}'
+        mock_vehicle.entity_metadata = '{"detected_type": "car", "primary_color": "blue"}'
 
         mock_db = MagicMock()
         mock_query = MagicMock()

@@ -312,14 +312,14 @@ class TestProtectEventHandlerDoorbellIntegration:
     """Test protect_event_handler doorbell trigger integration (AC2, AC3)."""
 
     def test_trigger_homekit_doorbell_success(self):
-        """_trigger_homekit_doorbell triggers HomeKit when service is running."""
+        """broadcaster.trigger_homekit_doorbell triggers HomeKit when service is running."""
         with patch.dict("sys.modules", {"app.services.homekit_service": MagicMock()}):
             from app.services.protect_event_handler import ProtectEventHandler
 
             handler = ProtectEventHandler()
 
-            # Patch the import inside the method
-            with patch.object(handler, "_trigger_homekit_doorbell") as mock_trigger:
+            # The doorbell trigger was extracted onto the broadcaster collaborator.
+            with patch.object(handler.broadcaster, "trigger_homekit_doorbell") as mock_trigger:
                 mock_trigger.return_value = True
                 result = mock_trigger("cam-123", "event-456")
                 assert result is True

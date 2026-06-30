@@ -1832,11 +1832,16 @@ async def reanalyze_event(
             )
 
         elif analysis_mode == 'multi_frame' and video_path:
-            # Extract frames and analyze
+            # Extract frames and analyze. Honor the admin-configured frame_count
+            # (the AI cost driver) instead of hardcoding. extract_frames does not
+            # take sampling_strategy/offset_ms, so only the count is wired here;
+            # the live WS pipeline (extract_frames_with_timestamps) honors all three.
+            from app.services.settings_service import SettingsService
+            frame_cfg = SettingsService(db).get_frame_extraction_config()
             frame_extractor = FrameExtractor()
             extracted_frames = await frame_extractor.extract_frames(
                 clip_path=video_path,
-                frame_count=5,
+                frame_count=frame_cfg["frame_count"],
                 filter_blur=True
             )
 

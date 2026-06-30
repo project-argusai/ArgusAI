@@ -191,6 +191,14 @@ class ProtectAIPipeline:
         """
         try:
             from app.services.frame_extractor import get_frame_extractor
+            from app.services.settings_service import SettingsService
+            from app.core.database import get_db_session
+
+            # Honor the admin-configured frame settings (count / sampling strategy /
+            # offset) instead of hardcoding. Falls back to schema defaults when
+            # unset or invalid. These directly drive multi-frame AI cost.
+            with get_db_session() as db:
+                frame_cfg = SettingsService(db).get_frame_extraction_config()
 
             extractor = get_frame_extractor()
             # Use extract_frames_with_timestamps (returns a (frames, timestamps)
@@ -201,8 +209,9 @@ class ProtectAIPipeline:
             # degraded to single-frame even when a clip was available.
             frames, timestamps = await extractor.extract_frames_with_timestamps(
                 clip_path=clip_path,
-                frame_count=5,                 # Reasonable default for cost control
-                sampling_strategy="adaptive",  # content-aware selection
+                frame_count=frame_cfg["frame_count"],
+                sampling_strategy=frame_cfg["sampling_strategy"],
+                offset_ms=frame_cfg["offset_ms"],
             )
 
             # Convert to bytes if they come back as numpy arrays

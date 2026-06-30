@@ -1981,17 +1981,17 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
             detail="No snapshot available from Protect camera"
         )
 
-    # Use the protect event handler to process through AI pipeline
-    # This reuses the same code path as WebSocket events.
-    # TODO (decomposition): Now that ProtectAIPipeline and ProtectEventStorageService exist,
-    # this could eventually call the services directly for better architectural consistency
-    # instead of private handler methods.
+    # Reuse the decomposed Protect services (same path as live WebSocket events):
+    # ProtectAIPipeline → ProtectEventStorageService → ProtectEventBroadcaster.
+    # (The old private handler methods _submit_to_ai_pipeline/_store_protect_event/
+    # _broadcast_event_created were removed in the Phase-4 decomposition.)
     event_handler = container.protect_event_handler
+    pipeline = event_handler.ai_pipeline
 
     # Submit to AI pipeline
     try:
         logger.debug(f"Submitting to AI pipeline for camera {camera_id}")
-        ai_result = await event_handler._submit_to_ai_pipeline(
+        ai_result = await pipeline.submit_snapshot_for_analysis(
             snapshot_result=snapshot_result,
             camera=camera,
             event_type="manual_trigger"
@@ -2023,13 +2023,17 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
     # Store the event
     try:
         logger.debug(f"Storing event for camera {camera_id}")
-        stored_event = await event_handler._store_protect_event(
+        stored_event = await event_handler.storage_service.persist_protect_event(
             db=db,
-            ai_result=ai_result,
-            snapshot_result=snapshot_result,
             camera=camera,
+            snapshot_result=snapshot_result,
+            ai_result=ai_result,
+            protect_event_id=None,  # Manual trigger has no Protect event ID
             event_type="manual_trigger",
-            protect_event_id=None  # Manual trigger has no Protect event ID
+            analysis_mode=pipeline.last_analysis_mode or "single_frame",
+            frame_count_used=pipeline.last_frame_count,
+            fallback_reason=pipeline.last_fallback_reason,
+            audio_transcription=pipeline.last_audio_transcription,
         )
     except Exception as e:
         logger.error(f"Failed to store event for camera {camera_id}: {e}", exc_info=True)
@@ -2046,7 +2050,7 @@ async def _analyze_protect_camera(camera: Camera, db: Session):
 
     # Broadcast event
     try:
-        await event_handler._broadcast_event_created(stored_event, camera)
+        await event_handler.broadcaster.broadcast_event_created(stored_event, camera)
     except Exception as e:
         logger.warning(f"Failed to broadcast event {stored_event.id}: {e}")
         # Don't fail the request if broadcast fails

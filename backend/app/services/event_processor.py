@@ -995,15 +995,16 @@ class EventProcessor:
                         extra={"event_id": event_id, "camera_id": event_data["camera_id"]}
                     )
 
-                    # Story P4-7.1: Update activity baseline incrementally (non-blocking)
-                    # Spawn as background task with its own session since this db will be closed
+                    # Story P4-7.1 / P4-7.2: incremental activity baseline + anomaly
+                    # scoring (non-blocking, own session). Delegated to
+                    # EventAnomalyScorer (extracted during #530 / #443 decomposition).
+                    from app.services.event_anomaly_scorer import get_event_anomaly_scorer
+                    _anomaly_scorer = get_event_anomaly_scorer()
                     asyncio.create_task(
-                        self._update_activity_baseline(event_data["camera_id"], event)
+                        _anomaly_scorer.update_activity_baseline(event_data["camera_id"], event)
                     )
-
-                    # Story P4-7.2: Calculate and persist anomaly score (non-blocking)
                     asyncio.create_task(
-                        self._calculate_anomaly_score(event)
+                        _anomaly_scorer.calculate_anomaly_score(event)
                     )
 
                     return event_id  # Return event_id instead of True
@@ -1076,83 +1077,6 @@ class EventProcessor:
                     "event_type": "mqtt_event_publish_error",
                     "event_id": event_id,
                     "topic": topic,
-                    "error": str(e)
-                }
-            )
-
-    async def _update_activity_baseline(
-        self,
-        camera_id: str,
-        event: Event
-    ) -> None:
-        """
-        Update activity baseline for a camera (Story P4-7.1).
-
-        This is a fire-and-forget async task. Errors are logged but not propagated.
-        Uses its own database session since the caller's session may be closed.
-
-        Args:
-            camera_id: Camera identifier
-            event: Event that triggered this update
-
-        Note:
-            - Non-blocking, runs as background task (AC3)
-            - Target completion time <50ms (AC2)
-            - Errors don't propagate to caller (AC3)
-        """
-        try:
-            pattern_service = _get_container().pattern_service
-
-            # Use own session since caller's may be closed
-            with get_db_session() as db:
-                await pattern_service.update_baseline_incremental(db, camera_id, event)
-
-        except Exception as e:
-            # Baseline errors must not propagate (AC3)
-            logger.warning(
-                f"Activity baseline update failed for camera {camera_id}: {e}",
-                extra={
-                    "event_type": "baseline_update_error",
-                    "camera_id": camera_id,
-                    "error": str(e)
-                }
-            )
-
-    async def _calculate_anomaly_score(
-        self,
-        event: Event
-    ) -> None:
-        """
-        Calculate and persist anomaly score for an event (Story P4-7.2).
-
-        This is a fire-and-forget async task. Errors are logged but not propagated.
-        Uses its own database session since the caller's session may be closed.
-
-        Args:
-            event: Event to score
-
-        Note:
-            - Non-blocking, runs as background task (AC7)
-            - Errors don't propagate to caller (AC7)
-            - Uses AnomalyScoringService for calculation (AC2)
-        """
-        try:
-            anomaly_service = _get_container().anomaly_scoring_service
-
-            # Use own session since caller's may be closed
-            with get_db_session() as db:
-                # Re-fetch event in new session
-                event_in_session = db.query(Event).filter_by(id=event.id).first()
-                if event_in_session:
-                    await anomaly_service.score_event(db, event_in_session)
-
-        except Exception as e:
-            # Anomaly scoring errors must not propagate (AC7)
-            logger.warning(
-                f"Anomaly scoring failed for event {event.id}: {e}",
-                extra={
-                    "event_type": "anomaly_scoring_error",
-                    "event_id": event.id,
                     "error": str(e)
                 }
             )

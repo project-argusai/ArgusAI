@@ -1,10 +1,10 @@
 # FastAPI and Web Framework
-fastapi[standard]==0.138.1
-uvicorn[standard]==0.49.0
+fastapi[standard]==0.139.0
+uvicorn[standard]==0.51.0
 python-multipart>=0.0.32
 
 # Task Scheduling
-apscheduler>=3.11.2
+apscheduler>=3.11.3
 
 # Retry Logic (Phase 3)
 tenacity>=9.1.4
@@ -18,8 +18,8 @@ pydantic>=2.13.4
 pydantic-settings>=2.14.2
 
 # Camera and Image Processing
-opencv-python-headless>=4.13.0.92  # Headless version for servers (no GUI/libGL dependency)
-av>=17.1.0  # PyAV for secure RTSP (rtsps://) streams
+opencv-python-headless>=5.0.0.93  # Headless version for servers (no GUI/libGL dependency)
+av>=18.0.0  # PyAV for secure RTSP (rtsps://) streams
 
 # Security and Encryption
 cryptography==49.0.0
@@ -28,15 +28,15 @@ bcrypt>=5.0.0
 slowapi>=0.1.10
 
 # AI Vision APIs
-openai>=2.44.0
-anthropic>=0.112.0
+openai>=2.45.0
+anthropic>=0.116.0
 google-generativeai>=0.8.6
 litellm>=1.83.7  # Unified LLM gateway SDK with fallbacks and cost tracking
-pillow>=12.2.0
+pillow>=12.3.0
 pytesseract>=0.3.13  # OCR for frame overlay text extraction (optional, requires tesseract binary)
 
 # UniFi Protect Integration (Phase 2)
-uiprotect>=15.3.0  # UniFi Protect API client
+uiprotect>=15.9.0  # UniFi Protect API client
 
 # Web Push Notifications (Phase 4)
 pywebpush>=2.3.0  # Web Push with VAPID authentication
@@ -68,7 +68,7 @@ httpx[http2]>=0.28.1  # HTTP/2 client for APNS
 PyJWT>=2.13.0  # JWT generation for APNS authentication
 
 # FCM Push Notifications (Phase 11 - Story P11-2.2)
-firebase-admin>=7.4.0  # Firebase Admin SDK for FCM
+firebase-admin>=7.5.0  # Firebase Admin SDK for FCM
 
 # Development and Testing
 pytest==9.1.1

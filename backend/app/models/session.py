@@ -2,6 +2,7 @@
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from app.core.database import Base
+from app.models.consumed_refresh_token import ConsumedRefreshToken  # noqa: F401
 import uuid
 from datetime import datetime, timezone
 import hashlib
@@ -64,6 +65,13 @@ class Session(Base):
     # Relationship to User
     user = relationship("User", back_populates="sessions")
 
+    # Consumed refresh-token hashes for this session (reuse detection, Issue #520)
+    consumed_refresh_tokens = relationship(
+        "ConsumedRefreshToken",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
     # Composite indexes for common queries
     __table_args__ = (
         Index('idx_sessions_user_expires', 'user_id', 'expires_at'),
@@ -123,7 +131,12 @@ class Session(Base):
         self.refresh_revoked_reason = reason
 
     def set_refresh_token(self, refresh_token: str, family: str, expires_at: datetime) -> None:
-        """Set a new refresh token on this session (hashed)."""
+        """Set a new refresh token on this session (hashed).
+
+        Overwrites ``refresh_token_hash``. Callers that are rotating an existing
+        token MUST persist the previous hash (see ConsumedRefreshToken) before
+        calling this, or replay of the old token cannot be detected.
+        """
         self.refresh_token_hash = Session.hash_token(refresh_token)
         self.refresh_token_family = family
         self.refresh_expires_at = expires_at

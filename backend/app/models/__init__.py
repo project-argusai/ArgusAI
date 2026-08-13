@@ -10,6 +10,7 @@ from app.models.alert_rule import AlertRule, WebhookLog
 from app.models.notification import Notification
 from app.models.user import User, UserRole
 from app.models.session import Session
+from app.models.consumed_refresh_token import ConsumedRefreshToken
 from app.models.system_notification import SystemNotification
 from app.models.push_subscription import PushSubscription
 from app.models.notification_preference import NotificationPreference
@@ -47,6 +48,7 @@ __all__ = [
     "User",
     "UserRole",
     "Session",
+    "ConsumedRefreshToken",
     "SystemNotification",
     "PushSubscription",
     "NotificationPreference",

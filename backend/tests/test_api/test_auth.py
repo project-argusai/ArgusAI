@@ -101,6 +101,10 @@ def cleanup_database():
     client.cookies.clear()
     db = TestingSessionLocal()
     try:
+        from app.models.consumed_refresh_token import ConsumedRefreshToken
+        from app.models.session import Session
+        db.query(ConsumedRefreshToken).delete()
+        db.query(Session).delete()
         db.query(User).delete()
         db.commit()
     finally:
@@ -495,7 +499,13 @@ class TestWebRefreshTokens:
         assert me_resp.status_code == 200
 
     def test_old_refresh_token_is_invalidated_after_use(self, test_user):
-        """After refreshing, the old refresh token should no longer work."""
+        """After refreshing, the rotated token is the live credential.
+
+        Replay of the original is a reuse attack and is covered by
+        test_replayed_rotated_token_revokes_family — presenting the old token
+        here would revoke the family, so this test only checks that rotation
+        issued a working replacement.
+        """
         login_resp = client.post(
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
@@ -509,31 +519,21 @@ class TestWebRefreshTokens:
         )
         assert first_refresh.status_code == 200
         new_refresh = first_refresh.json()["refresh_token"]
+        assert new_refresh != old_refresh
 
-        # Old refresh should now be invalid
-        bad_resp = client.post(
-            "/api/v1/auth/refresh",
-            json={"refresh_token": old_refresh}
-        )
-        assert bad_resp.status_code == 401
-
-        # New refresh should still work
+        # Rotated token is valid (do not present the old token first)
         good_resp = client.post(
             "/api/v1/auth/refresh",
             json={"refresh_token": new_refresh}
         )
         assert good_resp.status_code == 200
 
-    def test_reused_original_refresh_token_is_rejected(self, test_user):
-        """A consumed (rotated) refresh token cannot be replayed.
+    def test_replayed_rotated_token_revokes_family(self, test_user):
+        """Replay of a consumed refresh token returns 401 and revokes the family.
 
-        Contract note: the current single-row rotation model overwrites the
-        session's refresh-token hash on rotation, so a replayed *original*
-        token matches no session and is rejected with a generic 401. The
-        previously-asserted "revoke the entire family" behavior is NOT
-        implemented in this rotation design (the rotated token remains valid).
-        This test verifies the security property that actually holds today:
-        the original token is single-use and rejected once rotated.
+        After a legitimate rotation, presenting the original token must:
+        - fail with 401 and the suspicious-activity message
+        - revoke the rotated token so it also fails with 401
         """
         login_resp = client.post(
             "/api/v1/auth/login",
@@ -541,19 +541,39 @@ class TestWebRefreshTokens:
         )
         original_refresh = login_resp.json()["refresh_token"]
 
-        # First refresh (consumes/rotates the original)
         first = client.post("/api/v1/auth/refresh", json={"refresh_token": original_refresh})
         assert first.status_code == 200
         new_refresh = first.json()["refresh_token"]
-        assert new_refresh != original_refresh  # rotated
+        assert new_refresh != original_refresh
 
-        # Replaying the original (now-consumed) token must be rejected.
         attack_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": original_refresh})
         assert attack_resp.status_code == 401
+        assert "suspicious activity" in attack_resp.json()["detail"].lower()
 
-        # The rotated token is the live one and still works.
-        good = client.post("/api/v1/auth/refresh", json={"refresh_token": new_refresh})
-        assert good.status_code == 200
+        rotated_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": new_refresh})
+        assert rotated_resp.status_code == 401
+
+    def test_replay_of_older_generation_still_revokes_family(self, test_user):
+        """Consumed hashes from earlier generations remain detectable.
+
+        After T0 → T1 → T2, replaying T0 must still revoke the live T2 token.
+        """
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "testuser", "password": "TestPass123!"}
+        )
+        t0 = login_resp.json()["refresh_token"]
+
+        t1 = client.post("/api/v1/auth/refresh", json={"refresh_token": t0}).json()["refresh_token"]
+        t2_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": t1})
+        assert t2_resp.status_code == 200
+        t2 = t2_resp.json()["refresh_token"]
+
+        attack_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": t0})
+        assert attack_resp.status_code == 401
+        assert "suspicious activity" in attack_resp.json()["detail"].lower()
+
+        assert client.post("/api/v1/auth/refresh", json={"refresh_token": t2}).status_code == 401
 
     def test_refresh_with_invalid_token(self):
         """Using a completely fake refresh token returns 401."""

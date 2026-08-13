@@ -11,12 +11,14 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from sqlalchemy.orm import Session as DBSession
 from sqlalchemy import desc
+from sqlalchemy.exc import IntegrityError
 from fastapi import Request
 import logging
 import re
 import uuid
 
 from app.models.session import Session
+from app.models.consumed_refresh_token import ConsumedRefreshToken
 from app.models.user import User
 from app.core.config import settings
 from app.utils.auth import generate_refresh_token, REFRESH_TOKEN_LENGTH
@@ -170,25 +172,44 @@ class SessionService:
         - Family tracking
         - **Reuse detection**: If a previously used/revoked refresh token from an active
           family is presented, the *entire family* is immediately revoked.
+
+        Rotation records the consumed hash in ``consumed_refresh_tokens`` before
+        overwriting ``session.refresh_token_hash``. Replay of the old token can
+        therefore still be recognized (Issue #520).
         """
         refresh_hash = Session.hash_token(plain_refresh_token)
+        client_ip = request.client.host if request.client else "unknown"
 
-        # Find session by refresh token hash
+        # Find session by the *current* refresh token hash
         session = self.db.query(Session).filter(
             Session.refresh_token_hash == refresh_hash
         ).first()
 
         if not session:
+            # Not the live hash — a previously rotated token is a reuse attack.
+            consumed = self.db.query(ConsumedRefreshToken).filter(
+                ConsumedRefreshToken.token_hash == refresh_hash
+            ).first()
+            if consumed:
+                family_session = self.db.query(Session).filter(
+                    Session.id == consumed.session_id
+                ).first()
+                self._handle_refresh_reuse(
+                    family=consumed.token_family,
+                    session_id=consumed.session_id,
+                    user_id=family_session.user_id if family_session else None,
+                    ip=client_ip,
+                )
             logger.warning(
                 "Refresh attempt with unknown refresh token",
                 extra={"event_type": "refresh_token_unknown"}
             )
             raise ValueError("Invalid refresh token")
 
-        # === Critical: Reuse Detection ===
+        # Session found by current hash but the refresh side is already revoked
+        # (e.g. family kill left the row in place). Treat as reuse if any
+        # sibling in the family is still live.
         if session.refresh_revoked_at is not None and session.refresh_token_family:
-            # This refresh token has already been used/revoked.
-            # Check if any *other* tokens in this family are still valid.
             active_in_family = self.db.query(Session).filter(
                 Session.refresh_token_family == session.refresh_token_family,
                 Session.refresh_revoked_at.is_(None),
@@ -196,23 +217,12 @@ class SessionService:
             ).count()
 
             if active_in_family > 0:
-                # Reuse attack detected!
-                self._revoke_refresh_family(
-                    session.refresh_token_family,
-                    reason="reuse_detected"
+                self._handle_refresh_reuse(
+                    family=session.refresh_token_family,
+                    session_id=session.id,
+                    user_id=session.user_id,
+                    ip=client_ip,
                 )
-                logger.warning(
-                    "REFRESH TOKEN REUSE DETECTED — Entire family revoked",
-                    extra={
-                        "event_type": "refresh_token_reuse_detected",
-                        "user_id": session.user_id,
-                        "session_id": session.id,
-                        "family": session.refresh_token_family,
-                        "ip": request.client.host if request.client else "unknown",
-                    }
-                )
-                # Specific error code so frontend can show a better message
-                raise ValueError("refresh_token_reuse_detected")
 
         # Normal validation
         if not session.is_refresh_valid:
@@ -238,14 +248,15 @@ class SessionService:
         # === Token Rotation ===
         old_family = session.refresh_token_family
 
+        # Persist the consumed hash *before* overwriting so a later replay of
+        # this token can be recognized as reuse.
+        self._record_consumed_refresh_token(session)
+
         # Generate new refresh token (same family)
         new_plain_refresh = generate_refresh_token()
         new_refresh_expires = datetime.now(timezone.utc) + timedelta(days=30)
 
-        # Revoke the old refresh token
-        session.revoke_refresh("rotation")
-
-        # Set the new refresh token on the same session
+        # Set the new refresh token on the same session (clears revoked_at)
         session.set_refresh_token(new_plain_refresh, old_family, new_refresh_expires)
 
         # Create new short-lived access token
@@ -269,6 +280,56 @@ class SessionService:
         )
 
         return new_access_token, new_plain_refresh, user
+
+    def _record_consumed_refresh_token(self, session: Session) -> None:
+        """Record the current refresh hash as consumed before rotation overwrites it.
+
+        A unique-constraint collision means another request already consumed this
+        hash (concurrent refresh or a race with an attacker). That is treated as
+        reuse: the whole family is revoked.
+        """
+        if not session.refresh_token_hash or not session.refresh_token_family:
+            return
+
+        family = session.refresh_token_family
+        session_id = session.id
+        user_id = session.user_id
+
+        self.db.add(ConsumedRefreshToken(
+            token_hash=session.refresh_token_hash,
+            token_family=family,
+            session_id=session_id,
+        ))
+        try:
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            self._handle_refresh_reuse(
+                family=family,
+                session_id=session_id,
+                user_id=user_id,
+            )
+
+    def _handle_refresh_reuse(
+        self,
+        family: str,
+        session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        ip: str = "unknown",
+    ) -> None:
+        """Revoke the token family and raise the reuse-detection error."""
+        self._revoke_refresh_family(family, reason="reuse_detected")
+        logger.warning(
+            "REFRESH TOKEN REUSE DETECTED — Entire family revoked",
+            extra={
+                "event_type": "refresh_token_reuse_detected",
+                "user_id": user_id,
+                "session_id": session_id,
+                "family": family,
+                "ip": ip,
+            }
+        )
+        raise ValueError("refresh_token_reuse_detected")
 
     def _revoke_refresh_family(self, family: str, reason: str = "reuse_detected") -> int:
         """

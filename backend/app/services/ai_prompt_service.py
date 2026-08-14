@@ -69,12 +69,14 @@ class AIPromptService:
         self,
         *,
         camera_id: Optional[str] = None,
+        camera_name: Optional[str] = None,
         custom_prompt: Optional[str] = None,
         detected_objects: Optional[List[str]] = None,
         timestamp: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
         analysis_mode: str = "single_image",
+        num_frames: Optional[int] = None,
     ) -> Tuple[str, Optional[str]]:
         """
         Selects the appropriate base prompt and enriches it with available context.
@@ -88,11 +90,13 @@ class AIPromptService:
             camera_id=camera_id,
             custom_prompt=custom_prompt,
             analysis_mode=analysis_mode,
+            num_frames=num_frames,
         )
 
         # 2. Build context string
         context_str = self._build_context_string(
             camera_id=camera_id,
+            camera_name=camera_name,
             detected_objects=detected_objects,
             timestamp=timestamp,
             audio_transcription=audio_transcription,
@@ -114,6 +118,7 @@ class AIPromptService:
         camera_id: Optional[str] = None,
         custom_prompt: Optional[str] = None,
         analysis_mode: str = "single_image",
+        num_frames: Optional[int] = None,
     ) -> Tuple[str, Optional[str]]:
         """Select the base system prompt and determine A/B variant."""
 
@@ -137,7 +142,11 @@ class AIPromptService:
 
         # Priority 4: Default prompt based on analysis mode
         if analysis_mode == "multi_frame":
-            return MULTI_FRAME_SYSTEM_PROMPT, None
+            frames_label = str(num_frames) if num_frames else "several"
+            try:
+                return MULTI_FRAME_SYSTEM_PROMPT.format(num_frames=frames_label), None
+            except (KeyError, ValueError):
+                return MULTI_FRAME_SYSTEM_PROMPT.replace("{num_frames}", frames_label), None
 
         # Default single-image prompt (can be set via settings)
         if self.default_prompt:
@@ -150,6 +159,7 @@ class AIPromptService:
         self,
         *,
         camera_id: Optional[str] = None,
+        camera_name: Optional[str] = None,
         detected_objects: Optional[List[str]] = None,
         timestamp: Optional[str] = None,
         audio_transcription: Optional[str] = None,
@@ -158,11 +168,12 @@ class AIPromptService:
         """Builds a natural language context string from available signals."""
         parts = []
 
-        if camera_id:
-            parts.append(f"Camera: {camera_id}")
+        location = camera_name or camera_id
+        if location:
+            parts.append(f"Camera/location: {location}")
 
         if timestamp:
-            parts.append(f"Time: {timestamp}")
+            parts.append(f"Local time: {timestamp}")
 
         if detected_objects:
             objects_str = ", ".join(detected_objects)

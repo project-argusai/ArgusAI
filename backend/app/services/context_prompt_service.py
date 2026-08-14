@@ -128,6 +128,7 @@ class ContextEnhancedPromptService:
         camera_id: str,
         event_time: datetime,
         matched_entity: Optional[EntityMatchResult] = None,
+        query_embedding: Optional[list[float]] = None,
     ) -> ContextEnhancedPromptResult:
         """
         Build an AI prompt enhanced with historical context.
@@ -136,11 +137,16 @@ class ContextEnhancedPromptService:
 
         Args:
             db: SQLAlchemy database session
-            event_id: UUID of the event being described
+            event_id: UUID of the event being described (may be a pre-generated
+                id that is not persisted yet — do not look up embeddings by it)
             base_prompt: Original AI prompt without context
             camera_id: UUID of the camera
             event_time: When the event occurred
-            matched_entity: Optional EntityMatchResult from entity matching step
+            matched_entity: Optional EntityMatchResult from entity matching step.
+                Only *named* entities are injected into the prompt.
+            query_embedding: In-memory CLIP vector for similar-event search.
+                Required on the live path; looking up a not-yet-persisted
+                event_id always fails.
 
         Returns:
             ContextEnhancedPromptResult with enhanced prompt and metadata
@@ -206,13 +212,25 @@ class ContextEnhancedPromptService:
 
         # 3b: Similar events context (from SimilarityService)
         try:
-            similar_events = await self._similarity_service.find_similar_events(
-                db=db,
-                event_id=event_id,
-                limit=10,
-                min_similarity=threshold,
-                time_window_days=time_window_days,
-            )
+            if query_embedding:
+                similar_events = await self._similarity_service.find_similar_events_by_embedding(
+                    db=db,
+                    embedding=query_embedding,
+                    exclude_event_id=event_id,
+                    limit=10,
+                    min_similarity=threshold,
+                    time_window_days=time_window_days,
+                )
+            else:
+                # Persisted-event callers (API / reprocess) may look up by id.
+                # Live vision must pass query_embedding — a temp UUID has no row.
+                similar_events = await self._similarity_service.find_similar_events(
+                    db=db,
+                    event_id=event_id,
+                    limit=10,
+                    min_similarity=threshold,
+                    time_window_days=time_window_days,
+                )
             if similar_events:
                 similarity_context = self._format_similarity_context(
                     similar_events, time_window_days
@@ -301,7 +319,13 @@ class ContextEnhancedPromptService:
 
         if context_parts:
             context_section = "HISTORICAL CONTEXT:\n" + "\n".join(f"- {part}" for part in context_parts)
-            context_section += "\n\nPlease incorporate this context naturally into your description if relevant. For example, refer to recognized visitors by name and mention if this is a regular occurrence."
+            context_section += (
+                "\n\nUse HISTORICAL CONTEXT names when the image matches a listed "
+                "person or vehicle. If a vehicle is listed, use its color/make/model. "
+                "If a delivery uniform or logo is visible, name the carrier "
+                "(UPS/FedEx/USPS/Amazon/DHL). State local time and camera/location "
+                "naturally. Do not invent names that are not in HISTORICAL CONTEXT."
+            )
             enhanced_prompt = f"{base_prompt}\n\n{context_section}"
         else:
             enhanced_prompt = base_prompt
@@ -360,11 +384,12 @@ class ContextEnhancedPromptService:
         if not entity:
             return None
 
-        # Build visitor name part
-        if entity.name:
-            visitor_name = f'Known visitor: "{entity.name}" (named by user)'
-        else:
-            visitor_name = f"Recognized visitor (unnamed {entity.entity_type})"
+        # Only inject user-assigned names. Unnamed CLIP/face matches must not
+        # become "Recognized visitor (unnamed person)" in the vision prompt.
+        if not entity.name or not str(entity.name).strip():
+            return None
+
+        visitor_name = f'Known visitor: "{entity.name}" (named by user)'
 
         # Format dates naturally
         first_seen_str = self._format_relative_date(entity.first_seen_at)
@@ -680,20 +705,6 @@ def get_context_prompt_service() -> ContextEnhancedPromptService:
           New code should prefer ContextEnhancedPromptService() directly.
     """
     return ContextEnhancedPromptService()
-
-
-def reset_context_prompt_service() -> None:
-    """Reset the global ContextEnhancedPromptService instance (for testing)."""
-    ContextEnhancedPromptService._reset_instance()
-
-    if _context_prompt_service is None:
-        _context_prompt_service = ContextEnhancedPromptService()
-        logger.info(
-            "Global ContextEnhancedPromptService instance created",
-            extra={"event_type": "context_prompt_service_singleton_created"}
-        )
-
-    return _context_prompt_service
 
 
 def reset_context_prompt_service() -> None:

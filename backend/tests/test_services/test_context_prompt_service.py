@@ -189,9 +189,8 @@ class TestEntityContextFormatting:
 
         result = self.service._format_entity_context(entity)
 
-        assert "Recognized visitor" in result
-        assert "(unnamed person)" in result
-        assert "5 times total" in result
+        # Unnamed matches must not be injected as prompt names
+        assert result is None
 
     def test_format_entity_first_visit(self):
         """Test formatting entity on first visit."""
@@ -199,7 +198,7 @@ class TestEntityContextFormatting:
         entity = EntityMatchResult(
             entity_id="test-id",
             entity_type="person",
-            name=None,
+            name="Isaac",
             first_seen_at=now,
             last_seen_at=now,
             occurrence_count=1,
@@ -217,7 +216,7 @@ class TestEntityContextFormatting:
         entity = EntityMatchResult(
             entity_id="test-id",
             entity_type="vehicle",
-            name=None,
+            name="Red BMW",
             first_seen_at=now - timedelta(days=3),
             last_seen_at=now,
             occurrence_count=2,
@@ -717,6 +716,7 @@ class TestBuildContextEnhancedPrompt:
         # Check format structure
         assert "HISTORICAL CONTEXT:" in result.prompt
         assert "- " in result.prompt  # Bullet points
-        assert "incorporate this context naturally" in result.prompt
+        assert "Use HISTORICAL CONTEXT names" in result.prompt
+        assert "name the carrier" in result.prompt
         # Base prompt should come first
         assert result.prompt.index(base_prompt) < result.prompt.index("HISTORICAL CONTEXT:")

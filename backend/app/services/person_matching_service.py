@@ -127,6 +127,60 @@ class PersonMatchingService:
             extra={"event_type": "person_cache_invalidated"}
         )
 
+    async def match_named_person_by_embedding(
+        self,
+        db: Session,
+        embedding: list[float],
+        threshold: float = DEFAULT_THRESHOLD,
+    ) -> Optional["EntityMatchResult"]:
+        """
+        Read-only match of an in-memory face embedding to a *named* person.
+
+        Used on the pre-AI path. Does not persist FaceEmbedding rows, does not
+        create unnamed persons, and does not update occurrence counts.
+        """
+        from app.models.recognized_entity import RecognizedEntity
+        from app.services.entity_service import EntityMatchResult
+
+        if not embedding:
+            return None
+
+        if not self._cache_loaded:
+            self._load_person_cache(db)
+        if not self._person_cache:
+            return None
+
+        person_ids = list(self._person_cache.keys())
+        person_embeddings = [self._person_cache[pid] for pid in person_ids]
+        similarities = batch_cosine_similarity(embedding, person_embeddings)
+
+        best_idx = -1
+        best_score = -1.0
+        for i, score in enumerate(similarities):
+            if score >= threshold and score > best_score:
+                best_idx = i
+                best_score = score
+
+        if best_idx < 0:
+            return None
+
+        person = db.query(RecognizedEntity).filter(
+            RecognizedEntity.id == person_ids[best_idx]
+        ).first()
+        if not person or not person.name or not str(person.name).strip():
+            return None
+
+        return EntityMatchResult(
+            entity_id=person.id,
+            entity_type="person",
+            name=person.name,
+            first_seen_at=person.first_seen_at,
+            last_seen_at=person.last_seen_at,
+            occurrence_count=person.occurrence_count,
+            similarity_score=best_score,
+            is_new=False,
+        )
+
     async def match_faces_to_persons(
         self,
         db: Session,

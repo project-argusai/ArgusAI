@@ -565,36 +565,28 @@ class EventProcessor:
                     extra={"camera_id": event.camera_id}
                 )
 
-            # Build context-enhanced prompt (Story P4-3.4)
+            # Build context-enhanced prompt via the shared pre-AI helper
             context_enhanced_prompt = None
             context_result = None
 
             try:
-                context_service = _get_container().context_prompt_service
-
-                # Build default base prompt
-                base_prompt = (
-                    "Describe what you see in this image. Include: "
-                    "WHO (people, their appearance, clothing), "
-                    "WHAT (objects, vehicles, packages), "
-                    "WHERE (location in frame), "
-                    "and ACTIONS (what is happening). "
-                    "Be specific and detailed."
-                )
-
-                # Use a temporary event ID for context lookup
-                # We're looking up HISTORICAL context, not the current event
-                temp_event_id = str(uuid.uuid4())
+                from app.core.database import SessionLocal
+                from app.services.pre_ai_context_service import get_pre_ai_context_service
 
                 with SessionLocal() as context_db:
-                    context_result = await context_service.build_context_enhanced_prompt(
+                    pre_ai_bundle = await get_pre_ai_context_service().gather(
                         db=context_db,
-                        event_id=temp_event_id,
-                        base_prompt=base_prompt,
                         camera_id=event.camera_id,
+                        camera_name=event.camera_name,
                         event_time=event.timestamp,
-                        matched_entity=entity_result,  # From Step 3
+                        detected_objects=event.detected_objects,
+                        thumbnail_base64=thumbnail_base64,
+                        embedding_vector=embedding_vector,
+                        event_type=getattr(event, "smart_detection_type", None),
+                        clip_scene_entity=entity_result,
                     )
+                context_result = pre_ai_bundle.context_result
+                context_enhanced_prompt = pre_ai_bundle.custom_prompt
 
                 if context_result and context_result.context_included:
                     context_enhanced_prompt = context_result.prompt

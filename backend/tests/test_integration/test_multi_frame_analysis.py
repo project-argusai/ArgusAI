@@ -38,10 +38,9 @@ REMOVED_TESTS (behaviour genuinely gone from source — not a relocation):
         the no-clip path is already covered by
         test_single_frame_analysis_when_no_clip_available.
     - test_doorbell_prompt_used_in_multi_frame_analysis:
-        The pipeline passes ``custom_prompt=None`` to ``analyze_images`` (the
-        doorbell-prompt wiring is an explicit ``TODO`` in source). No "front door"
-        prompt is threaded through the multi-frame path, so the asserted
-        behaviour does not exist anywhere in app/.
+        Replaced by the shared pre-AI context path: ``submit_snapshot_for_analysis``
+        now always builds a context-enhanced ``custom_prompt`` (doorbell vs default
+        base prompt plus HISTORICAL CONTEXT) and forwards it to ``analyze_images``.
 
     The fallback-reason *vocabulary* the old tests asserted
     (``frame_extraction_failed``, ``ai_failed``) was likewise dropped: when frame
@@ -309,6 +308,9 @@ class TestMultiFrameAnalysisIntegration:
         # Verify frames were passed to analyze_images
         call_args = orch.analyze_images.call_args
         assert call_args.kwargs["images"] == mock_frames
+        # Pre-AI context must reach vision (the old bug was custom_prompt=None)
+        assert call_args.kwargs.get("custom_prompt") is not None
+        assert call_args.kwargs.get("camera_id") == test_camera_multi_frame.id
 
     @pytest.mark.asyncio
     async def test_fallback_to_single_frame_when_extraction_fails(

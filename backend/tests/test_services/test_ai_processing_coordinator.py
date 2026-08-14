@@ -724,9 +724,13 @@ class TestAIProcessingCoordinator:
 
         assert result is True
         coordinator._generate_ai_description.assert_awaited_once()
-        # The call to generate_ai_description should have received None for context prompt
+        # Fail-open: vision still gets the shared base prompt (naming/carrier
+        # instructions) rather than HISTORICAL CONTEXT from the failed gather.
         call = coordinator._generate_ai_description.call_args
-        assert call.kwargs["context_enhanced_prompt"] is None
+        prompt = call.kwargs["context_enhanced_prompt"]
+        assert prompt is not None
+        assert "HISTORICAL CONTEXT:" not in prompt
+        assert "name the carrier" in prompt.lower()
 
     @pytest.mark.asyncio
     async def test_cost_alert_service_called_on_success_path(self, coordinator, mock_services, sample_event):
@@ -1161,7 +1165,9 @@ class TestAIProcessingCoordinator:
         await coordinator.process_event(sample_event, worker_id=0)
 
         ctx_call = ctx.build_context_enhanced_prompt.call_args
-        assert ctx_call.kwargs.get("matched_entity") is fake_entity
+        # CLIP-scene matches without a user-assigned name are not injected
+        assert ctx_call.kwargs.get("query_embedding") == b"emb-bytes"
+        assert ctx_call.kwargs.get("matched_entity") is None
 
     @pytest.mark.asyncio
     async def test_link_entity_to_event_with_embedding_calls_entity_service(self, coordinator, sample_event):

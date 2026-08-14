@@ -189,31 +189,16 @@ class SimilarityService:
         camera_id: Optional[str] = None,
     ) -> list[SimilarEvent]:
         """
-        Find visually similar past events.
+        Find visually similar past events for a persisted event id.
 
-        Args:
-            db: SQLAlchemy database session
-            event_id: UUID of the source event to find similar events for
-            limit: Maximum number of results to return (default 10)
-            min_similarity: Minimum similarity threshold (default 0.7)
-            time_window_days: Number of days to look back (default 30)
-            camera_id: Optional camera ID to filter results
-
-        Returns:
-            List of SimilarEvent objects sorted by similarity (highest first)
-            Returns empty list if no similar events found above threshold
+        Looks up the stored embedding for ``event_id`` then delegates to
+        ``find_similar_events_by_embedding``. Pre-persist callers (Protect/RTSP
+        vision path) must pass the in-memory CLIP vector instead of a
+        throwaway UUID — a not-yet-stored id has no embedding.
 
         Raises:
             ValueError: If source event has no embedding
         """
-        start_time = time.time()
-
-        # Import models here to avoid circular imports
-        from app.models.event import Event
-        from app.models.event_embedding import EventEmbedding
-        from app.models.camera import Camera
-
-        # Step 1: Get source event embedding
         source_embedding = await self._embedding_service.get_embedding_vector(
             db, event_id
         )
@@ -225,11 +210,43 @@ class SimilarityService:
             )
             raise ValueError(f"No embedding found for event {event_id}")
 
-        # Step 2: Calculate time window cutoff
+        return await self.find_similar_events_by_embedding(
+            db=db,
+            embedding=source_embedding,
+            exclude_event_id=event_id,
+            limit=limit,
+            min_similarity=min_similarity,
+            time_window_days=time_window_days,
+            camera_id=camera_id,
+        )
+
+    async def find_similar_events_by_embedding(
+        self,
+        db: Session,
+        embedding: list[float],
+        exclude_event_id: Optional[str] = None,
+        limit: int = DEFAULT_LIMIT,
+        min_similarity: float = DEFAULT_MIN_SIMILARITY,
+        time_window_days: int = DEFAULT_TIME_WINDOW_DAYS,
+        camera_id: Optional[str] = None,
+    ) -> list[SimilarEvent]:
+        """
+        Find visually similar past events from an in-memory CLIP vector.
+
+        Use this on the live vision path: the current event is not persisted
+        yet, so there is no event_id to look up.
+        """
+        if not embedding:
+            raise ValueError("Query embedding cannot be empty")
+
+        start_time = time.time()
+
+        from app.models.event import Event
+        from app.models.event_embedding import EventEmbedding
+        from app.models.camera import Camera
+
         cutoff_time = datetime.now(timezone.utc) - timedelta(days=time_window_days)
 
-        # Step 3: Query candidate embeddings within time window
-        # Filter by Event.timestamp (when event occurred), not embedding creation time
         query = db.query(
             EventEmbedding.event_id,
             EventEmbedding.embedding,
@@ -244,11 +261,12 @@ class SimilarityService:
         ).join(
             Camera, Camera.id == Event.camera_id
         ).filter(
-            EventEmbedding.event_id != event_id,  # Exclude source event
-            Event.timestamp >= cutoff_time,  # Filter by event occurrence time
+            Event.timestamp >= cutoff_time,
         )
 
-        # Apply camera filter if provided
+        if exclude_event_id:
+            query = query.filter(EventEmbedding.event_id != exclude_event_id)
+
         if camera_id:
             query = query.filter(Event.camera_id == camera_id)
 
@@ -256,35 +274,30 @@ class SimilarityService:
 
         if not candidates:
             logger.debug(
-                f"No candidate embeddings found for event {event_id}",
+                "No candidate embeddings found for in-memory similarity search",
                 extra={
                     "event_type": "similarity_no_candidates",
-                    "event_id": event_id,
+                    "event_id": exclude_event_id,
                     "time_window_days": time_window_days,
                     "camera_id": camera_id,
                 }
             )
             return []
 
-        # Step 4: Calculate batch similarities
         candidate_embeddings = [
             json.loads(c.embedding) for c in candidates
         ]
-        similarities = batch_cosine_similarity(source_embedding, candidate_embeddings)
+        similarities = batch_cosine_similarity(embedding, candidate_embeddings)
 
-        # Step 5: Filter by threshold and build results
         results = []
         for i, similarity in enumerate(similarities):
             if similarity >= min_similarity:
                 candidate = candidates[i]
 
-                # Build thumbnail URL
                 thumbnail_url = None
                 if candidate.thumbnail_path:
                     thumbnail_url = candidate.thumbnail_path
                 elif candidate.thumbnail_base64:
-                    # For base64, we'd typically return the full data URI
-                    # but for API responses, just indicate it exists
                     thumbnail_url = f"/api/v1/events/{candidate.event_id}/thumbnail"
 
                 results.append(SimilarEvent(
@@ -297,16 +310,15 @@ class SimilarityService:
                     camera_id=candidate.camera_id,
                 ))
 
-        # Step 6: Sort by similarity (highest first) and limit
         results.sort(key=lambda x: x.similarity_score, reverse=True)
         results = results[:limit]
 
         query_time_ms = (time.time() - start_time) * 1000
         logger.info(
-            f"Similarity search completed for event {event_id}",
+            "Similarity search completed from in-memory embedding",
             extra={
                 "event_type": "similarity_search_complete",
-                "event_id": event_id,
+                "event_id": exclude_event_id,
                 "candidates_checked": len(candidates),
                 "results_found": len(results),
                 "query_time_ms": round(query_time_ms, 2),

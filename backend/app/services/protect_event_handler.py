@@ -44,8 +44,6 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
-from zoneinfo import ZoneInfo
-
 import numpy as np
 from PIL import Image
 from sqlalchemy.orm import Session
@@ -60,7 +58,6 @@ from app.services.clip_service import get_clip_service
 from app.services.frame_extractor import get_frame_extractor
 from app.services.frame_storage_service import get_frame_storage_service
 from app.services.video_storage_service import get_video_storage_service
-from app.services.context_prompt_service import get_context_prompt_service
 from app.services.push_notification_service import send_event_notification
 from app.core.decorators import singleton
 from app.services.protect_event_filter import (
@@ -83,43 +80,11 @@ def _format_timestamp_for_ai(timestamp: datetime, db: Session) -> str:
     """
     Format a timestamp for AI prompt using user's configured timezone.
 
-    Reads the timezone setting from system settings and converts the UTC
-    timestamp to local time for more natural AI descriptions.
-
-    Args:
-        timestamp: UTC datetime to format
-        db: Database session for reading settings
-
-    Returns:
-        ISO format string in user's local timezone
+    Delegates to the shared pre-AI helper so Protect and RTSP stay aligned.
     """
-    try:
-        from app.models.system_setting import SystemSetting
+    from app.services.pre_ai_context_service import format_timestamp_for_ai
 
-        # Get timezone from system settings (key: settings_timezone)
-        setting = db.query(SystemSetting).filter(
-            SystemSetting.key == "settings_timezone"
-        ).first()
-
-        tz_name = setting.value if setting else "UTC"
-
-        # Ensure timestamp is timezone-aware (assume UTC if naive)
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-
-        # Convert to user's timezone
-        try:
-            user_tz = ZoneInfo(tz_name)
-            local_time = timestamp.astimezone(user_tz)
-            return local_time.isoformat()
-        except Exception:
-            # Invalid timezone, fall back to UTC
-            logger.warning(f"Invalid timezone '{tz_name}', using UTC")
-            return timestamp.isoformat()
-
-    except Exception as e:
-        logger.warning(f"Error formatting timestamp for AI: {e}")
-        return timestamp.isoformat()
+    return format_timestamp_for_ai(timestamp, db)
 
 
 # EVENT_COOLDOWN_SECONDS moved to ProtectEventFilter (Phase 4)
@@ -205,6 +170,84 @@ class ProtectEventHandler:
             "frame_count_used": self.ai_pipeline.last_frame_count,
             "fallback_reason": self.ai_pipeline.last_fallback_reason or media_fallback,
         }
+
+    def _post_ai_context_fields(self, ai_result: Optional["AIResult"], event_type: str) -> dict:
+        """Carrier extract + named rewrite before first persist/notify."""
+        import json
+        from app.services.carrier_extractor import extract_carrier
+        from app.services.entity_alert_service import get_entity_alert_service
+
+        bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
+        delivery_carrier = None
+        enriched = None
+        recognition_status = None
+        matched_ids = []
+        description = getattr(ai_result, "description", None) if ai_result else None
+
+        if description:
+            try:
+                delivery_carrier = extract_carrier(description)
+            except Exception as e:
+                logger.debug(f"Carrier extraction failed: {e}")
+
+        named = list(getattr(bundle, "named_identities", None) or [])
+        if named and description:
+            try:
+                # Build lightweight entity-like objects for the rewriter
+                class _E:
+                    pass
+
+                entities = []
+                for match in named:
+                    if not match.name:
+                        continue
+                    e = _E()
+                    e.name = match.name
+                    e.entity_type = match.entity_type
+                    e.vehicle_color = getattr(match, "vehicle_color", None)
+                    e.vehicle_make = getattr(match, "vehicle_make", None)
+                    e.vehicle_model = getattr(match, "vehicle_model", None)
+                    entities.append(e)
+                    matched_ids.append(match.entity_id)
+                if entities:
+                    enriched = get_entity_alert_service().enrich_description(
+                        description, entities
+                    )
+                    if enriched and enriched != description and ai_result is not None:
+                        ai_result.description = enriched
+                    recognition_status = "known"
+            except Exception as e:
+                logger.debug(f"Pre-notify description rewrite failed: {e}")
+
+        context_stats = None
+        if getattr(bundle, "context_stats", None):
+            context_stats = json.dumps(bundle.context_stats)
+
+        return {
+            "delivery_carrier": delivery_carrier,
+            "context_included": bool(getattr(bundle, "context_included", False)),
+            "context_stats": context_stats,
+            "recognition_status": recognition_status,
+            "enriched_description": enriched or description,
+            "matched_entity_ids": json.dumps(matched_ids) if matched_ids else None,
+        }
+
+    async def _store_protect_embedding(self, event_id: str) -> None:
+        """Persist the in-memory CLIP vector so Protect events become RAG candidates."""
+        bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
+        embedding = getattr(bundle, "embedding_vector", None)
+        if not embedding or not event_id:
+            return
+        try:
+            from app.services.embedding_service import get_embedding_service
+
+            with get_db_session() as embed_db:
+                await get_embedding_service().store_embedding(embed_db, event_id, embedding)
+        except Exception as e:
+            logger.warning(
+                f"Protect embedding store failed for event {event_id}: {e}",
+                extra={"event_id": event_id, "error": str(e)},
+            )
 
     def _try_ocr_extraction(self, frame, db) -> Optional[str]:
         """Extract overlay text from a frame via OCR, if enabled in settings.
@@ -522,10 +565,13 @@ class ProtectEventHandler:
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
                         **persist_tracking,
+                        **self._post_ai_context_fields(ai_result, filter_type),
                     )
 
                     if not stored_event:
                         return False
+
+                    await self._store_protect_embedding(stored_event.id)
 
                     # Track and log processing time (AC10, AC11)
                     processing_time_ms = int((time.time() - pipeline_start) * 1000)
@@ -894,10 +940,13 @@ class ProtectEventHandler:
                     is_doorbell_ring=is_doorbell_ring,
                     event_id_override=generated_event_id,
                     **persist_tracking,
+                    **self._post_ai_context_fields(ai_result, filter_type),
                 )
 
                 if not stored_event:
                     return False
+
+                await self._store_protect_embedding(stored_event.id)
 
                 # Log processing time
                 processing_time_ms = int((time.time() - pipeline_start) * 1000)

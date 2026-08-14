@@ -713,44 +713,50 @@ class AIProcessingCoordinator:
                     extra={"camera_id": event.camera_id}
                 )
 
-            # Build context-enhanced prompt (Story P4-3.4)
+            # Build context-enhanced prompt via the shared pre-AI helper
+            # (same path as Protect — in-memory CLIP vector, named entities only)
             context_enhanced_prompt = None
             context_result = None
+            pre_ai_bundle = None
 
             try:
-                context_service = self.context_prompt_service
-
-                base_prompt = (
-                    "Describe what you see in this image. Include: "
-                    "WHO (people, their appearance, clothing), "
-                    "WHAT (objects, vehicles, packages), "
-                    "WHERE (location in frame), "
-                    "and ACTIONS (what is happening). "
-                    "Be specific and detailed."
-                )
-
-                temp_event_id = str(uuid.uuid4())
+                from app.services.pre_ai_context_service import get_pre_ai_context_service
 
                 with SessionLocal() as context_db:
-                    context_result = await context_service.build_context_enhanced_prompt(
+                    pre_ai_bundle = await get_pre_ai_context_service().gather(
                         db=context_db,
-                        event_id=temp_event_id,
-                        base_prompt=base_prompt,
                         camera_id=event.camera_id,
+                        camera_name=event.camera_name,
                         event_time=event.timestamp,
-                        matched_entity=entity_result,
+                        detected_objects=event.detected_objects,
+                        thumbnail_base64=thumbnail_base64,
+                        embedding_vector=embedding_vector,
+                        event_type=getattr(event, "smart_detection_type", None),
+                        clip_scene_entity=entity_result,
+                        event_id=pre_generated_event_id,
+                        context_service=self.context_prompt_service,
                     )
 
+                context_result = pre_ai_bundle.context_result
+                context_enhanced_prompt = pre_ai_bundle.custom_prompt
+                if pre_ai_bundle.embedding_vector and embedding_vector is None:
+                    embedding_vector = pre_ai_bundle.embedding_vector
+
                 if context_result and context_result.context_included:
-                    context_enhanced_prompt = context_result.prompt
+                    stats = (pre_ai_bundle.context_stats or {}) if pre_ai_bundle else {}
+                    gather_ms = stats.get("context_gather_time_ms", 0)
+                    try:
+                        gather_ms = round(float(gather_ms), 2)
+                    except (TypeError, ValueError):
+                        gather_ms = 0.0
                     logger.info(
                         f"Context-enhanced prompt built for camera {event.camera_name}",
                         extra={
                             "camera_id": event.camera_id,
-                            "entity_context": context_result.entity_context_included,
-                            "similar_events": context_result.similar_events_count,
-                            "time_pattern": context_result.time_pattern_included,
-                            "context_gather_time_ms": round(context_result.context_gather_time_ms, 2),
+                            "entity_context": getattr(context_result, "entity_context_included", False),
+                            "similar_events": getattr(context_result, "similar_events_count", 0),
+                            "time_pattern": getattr(context_result, "time_pattern_included", False),
+                            "context_gather_time_ms": gather_ms,
                         }
                     )
 
@@ -770,6 +776,34 @@ class AIProcessingCoordinator:
 
             if ai_result is None:
                 return False
+
+            # Named rewrite before first persist / push (safety net + compose)
+            if pre_ai_bundle and pre_ai_bundle.named_identities and ai_result.description:
+                try:
+                    from app.services.entity_alert_service import get_entity_alert_service
+
+                    class _E:
+                        pass
+
+                    entities = []
+                    for match in pre_ai_bundle.named_identities:
+                        if not match.name:
+                            continue
+                        e = _E()
+                        e.name = match.name
+                        e.entity_type = match.entity_type
+                        e.vehicle_color = getattr(match, "vehicle_color", None)
+                        e.vehicle_make = getattr(match, "vehicle_make", None)
+                        e.vehicle_model = getattr(match, "vehicle_model", None)
+                        entities.append(e)
+                    if entities:
+                        rewritten = get_entity_alert_service().enrich_description(
+                            ai_result.description, entities
+                        )
+                        if rewritten:
+                            ai_result.description = rewritten
+                except Exception as rewrite_err:
+                    logger.debug(f"Pre-notify description rewrite failed: {rewrite_err}")
 
             logger.debug(
                 f"Worker {worker_id}: AI description generated",
@@ -1138,14 +1172,24 @@ class AIProcessingCoordinator:
         async with self.ai_semaphore:
             ai_concurrent_in_flight.inc()
             try:
+                from app.services.pre_ai_context_service import format_timestamp_for_ai
+
+                local_ts = event.timestamp.isoformat()
+                try:
+                    with SessionLocal() as ts_db:
+                        local_ts = format_timestamp_for_ai(event.timestamp, ts_db)
+                except Exception:
+                    pass
+
                 ai_result = await self.ai_service.generate_description(
                     frame=event.frame,
                     camera_name=event.camera_name,
-                    timestamp=event.timestamp.isoformat(),
+                    timestamp=local_ts,
                     detected_objects=event.detected_objects,
                     sla_timeout_ms=5000,
                     custom_prompt=context_enhanced_prompt,
                     ocr_result=ocr_result,
+                    camera_id=event.camera_id,
                 )
             finally:
                 ai_concurrent_in_flight.dec()

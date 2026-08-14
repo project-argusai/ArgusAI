@@ -236,6 +236,26 @@ class TestDescriptionEnrichment:
         enriched = entity_alert_service.enrich_description(original, [sample_vehicle_entity])
         assert enriched == "Family Car's vehicle is entering the driveway."
 
+    def test_enrich_composes_person_and_vehicle(
+        self, entity_alert_service, sample_entity_john
+    ):
+        """Named person + vehicle should compose, not only swap the sentence start."""
+        vehicle = MagicMock(spec=RecognizedEntity)
+        vehicle.name = "BMW X3"
+        vehicle.entity_type = "vehicle"
+        vehicle.vehicle_color = "red"
+        vehicle.vehicle_make = "BMW"
+        vehicle.vehicle_model = "X3"
+
+        original = "A person arrives in a vehicle at the driveway."
+        enriched = entity_alert_service.enrich_description(
+            original, [sample_entity_john, vehicle]
+        )
+        assert "John Smith" in enriched
+        assert "BMW" in enriched or "X3" in enriched
+        assert "a person" not in enriched.lower()
+        assert "a vehicle" not in enriched.lower()
+
     def test_enrich_no_match_no_change(self, entity_alert_service, sample_entity_john):
         """Test that descriptions without matching patterns are unchanged."""
         original = "Motion detected in backyard."

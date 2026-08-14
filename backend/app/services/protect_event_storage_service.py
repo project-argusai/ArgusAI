@@ -58,6 +58,12 @@ class ProtectEventStorageService:
         frame_timestamps: Optional[List[float]] = None,
         bounding_boxes: Optional[List[Dict[str, Any]]] = None,
         event_id_override: Optional[str] = None,
+        delivery_carrier: Optional[str] = None,
+        context_included: bool = False,
+        context_stats: Optional[str] = None,
+        recognition_status: Optional[str] = None,
+        enriched_description: Optional[str] = None,
+        matched_entity_ids: Optional[str] = None,
     ) -> Event:
         """
         Construct and persist a fully enriched Protect Event record.
@@ -88,6 +94,12 @@ class ProtectEventStorageService:
             frame_timestamps=frame_timestamps,
             bounding_boxes=json.dumps(bounding_boxes) if bounding_boxes else None,
             has_annotations=bool(bounding_boxes),
+            delivery_carrier=delivery_carrier,
+            context_included=context_included,
+            context_stats=context_stats,
+            recognition_status=recognition_status,
+            enriched_description=enriched_description,
+            matched_entity_ids=matched_entity_ids,
         )
 
         if event_id_override:

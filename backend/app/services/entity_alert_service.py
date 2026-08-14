@@ -169,41 +169,95 @@ class EntityAlertService:
         if not named_entities:
             return original_description
 
+        named_persons = [
+            e for e in named_entities
+            if getattr(e, "entity_type", None) == "person"
+        ]
+        named_vehicles = [
+            e for e in named_entities
+            if getattr(e, "entity_type", None) == "vehicle"
+        ]
+        # Fall back to the old "all named entities" list when type is missing
+        # (some callers/tests only set .name).
+        if not named_persons and not named_vehicles:
+            named_persons = named_entities
+
+        person_str = self._join_entity_names(named_persons)
+        vehicle_phrase = self._format_vehicle_phrase(named_vehicles, person_str)
+
         enriched = original_description
 
-        # Build name list for replacement
-        entity_names = [entity.name for entity in named_entities]
+        if vehicle_phrase:
+            vehicle_patterns = [
+                r'\b[Aa] vehicle\b',
+                r'\b[Vv]ehicle\b',
+                r'\b[Aa] car\b',
+                r'\b[Cc]ar\b',
+                r'\b[Aa] (?:red|blue|white|black|silver|gray|grey|green)\s+(?:suv|sedan|truck|van|coupe|hatchback)\b',
+            ]
+            for pattern in vehicle_patterns:
+                updated = re.sub(pattern, vehicle_phrase, enriched, count=1, flags=re.IGNORECASE)
+                if updated != enriched:
+                    enriched = updated
+                    break
 
-        if len(entity_names) == 1:
-            name_str = entity_names[0]
-        elif len(entity_names) == 2:
-            name_str = f"{entity_names[0]} and {entity_names[1]}"
-        else:
-            name_str = ", ".join(entity_names[:-1]) + f", and {entity_names[-1]}"
-
-        # Replace common generic terms at the start of descriptions
-        # Patterns to replace: "A person", "Person", "A man", "A woman", "Someone", etc.
-        patterns = [
-            (r'^A person\b', name_str),
-            (r'^Person\b', name_str),
-            (r'^A man\b', name_str),
-            (r'^A woman\b', name_str),
-            (r'^Someone\b', name_str),
-            (r'^An individual\b', name_str),
-            (r'^A visitor\b', name_str),
-            # Vehicle patterns
-            (r'^A vehicle\b', f"{name_str}'s vehicle"),
-            (r'^Vehicle\b', f"{name_str}'s vehicle"),
-            (r'^A car\b', f"{name_str}'s car"),
-            (r'^Car\b', f"{name_str}'s car"),
-        ]
-
-        for pattern, replacement in patterns:
-            enriched = re.sub(pattern, replacement, enriched, flags=re.IGNORECASE)
-            if enriched != original_description:
-                break  # Only apply first matching pattern
+        if person_str:
+            person_patterns = [
+                (r'\b[Aa] person\b', person_str),
+                (r'\b[Pp]erson\b', person_str),
+                (r'\b[Aa] man\b', person_str),
+                (r'\b[Aa] woman\b', person_str),
+                (r'\b[Ss]omeone\b', person_str),
+                (r'\b[Aa]n individual\b', person_str),
+                (r'\b[Aa] visitor\b', person_str),
+            ]
+            for pattern, replacement in person_patterns:
+                updated = re.sub(pattern, replacement, enriched, count=1, flags=re.IGNORECASE)
+                if updated != enriched:
+                    enriched = updated
+                    break
 
         return enriched
+
+    @staticmethod
+    def _optional_str(value) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        return value or None
+
+    def _join_entity_names(self, entities: List[RecognizedEntity]) -> Optional[str]:
+        names = [e.name for e in entities if e.name and str(e.name).strip()]
+        if not names:
+            return None
+        if len(names) == 1:
+            return names[0]
+        if len(names) == 2:
+            return f"{names[0]} and {names[1]}"
+        return ", ".join(names[:-1]) + f", and {names[-1]}"
+
+    def _format_vehicle_phrase(
+        self,
+        vehicles: List[RecognizedEntity],
+        person_str: Optional[str],
+    ) -> Optional[str]:
+        if not vehicles:
+            return None
+        vehicle = vehicles[0]
+        color = self._optional_str(getattr(vehicle, "vehicle_color", None))
+        make = self._optional_str(getattr(vehicle, "vehicle_make", None))
+        model = self._optional_str(getattr(vehicle, "vehicle_model", None))
+        details = " ".join(p for p in (color, make, model) if p)
+        if details and person_str:
+            return f"{person_str}'s {details}"
+        if details:
+            return details
+        name = vehicle.name
+        if person_str and name:
+            return f"{person_str}'s {name}"
+        if name:
+            return f"{name}'s vehicle"
+        return None
 
     async def should_suppress_alert(
         self, db: Session, matched_entity_ids: List[str]

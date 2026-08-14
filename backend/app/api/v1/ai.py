@@ -540,7 +540,7 @@ async def get_context_metrics():
             "cache_misses": 250,
             "timeouts": 2,
             "cache_ttl_seconds": 30,
-            "timeout_threshold_ms": 80,
+            "timeout_threshold_ms": 250,
             "cache_size": 5
         }
     """

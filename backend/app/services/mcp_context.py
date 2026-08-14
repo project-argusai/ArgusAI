@@ -158,6 +158,8 @@ class AIContext:
     entity: Optional[EntityContext] = None
     camera: Optional[CameraContext] = None
     time_pattern: Optional[TimePatternContext] = None
+    # Longer-lived per-camera hints (named VIPs, household vehicles, carriers)
+    warm_hints: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -202,7 +204,8 @@ class MCPContextProvider:
         MAX_FALSE_POSITIVES: Maximum false positive patterns to include (3)
         CACHE_TTL_SECONDS: Cache TTL in seconds (30 - reduced for better freshness P14-6.5)
         SLOW_QUERY_THRESHOLD_MS: Threshold for slow query warning (50)
-        CONTEXT_TIMEOUT_SECONDS: Hard timeout for context gathering (0.08 - 80ms P14-6.4)
+        CONTEXT_TIMEOUT_SECONDS: Hard timeout for context gathering (0.25s; 80ms
+            was too tight for four SQL queries and fail-opened every miss)
         MAX_ADJUSTMENTS: Maximum recent adjustments per entity (10 P14-6.1)
         MIN_PATTERN_FREQUENCY: Minimum frequency for pattern extraction (3 P14-6.6)
     """
@@ -214,8 +217,9 @@ class MCPContextProvider:
     MAX_TYPICAL_OBJECTS = 3
     MAX_FALSE_POSITIVES = 3
     CACHE_TTL_SECONDS = 30  # P14-6.5: Reduced from 60 for better freshness
+    WARM_PACK_TTL_SECONDS = 300  # Named VIPs / vehicles / carriers; survives 30s cache expiry
     SLOW_QUERY_THRESHOLD_MS = 50
-    CONTEXT_TIMEOUT_SECONDS = 0.08  # P14-6.4: 80ms hard timeout
+    CONTEXT_TIMEOUT_SECONDS = 0.25  # Live queries run in the executor; 80ms always timed out
     MAX_ADJUSTMENTS = 10  # P14-6.1: Max adjustments per entity
     MIN_PATTERN_FREQUENCY = 3  # P14-6.6: Minimum frequency for patterns
 
@@ -246,6 +250,7 @@ class MCPContextProvider:
         """
         self._db = db
         self._cache: Dict[str, CachedContext] = {}
+        self._warm_packs: Dict[str, CachedContext] = {}
         # P14-6.3: Thread pool executor for running sync DB queries
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcp_ctx")
         # P14-6.8: Metrics tracking for dashboard
@@ -283,6 +288,7 @@ class MCPContextProvider:
         Useful for testing and manual cache invalidation.
         """
         self._cache.clear()
+        self._warm_packs.clear()
         logger.debug(
             "MCP context cache cleared",
             extra={"event_type": "mcp.cache_cleared"}
@@ -314,6 +320,132 @@ class MCPContextProvider:
             "cache_size": len(self._cache),
         }
 
+    async def _run_in_executor(self, fn, *args):
+        """Run a sync DB helper on the MCP thread pool (off the event loop)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._executor, fn, *args)
+
+    def _context_from_warm_pack(
+        self,
+        camera_id: str,
+        entity_id: Optional[str] = None,
+    ) -> AIContext:
+        """Return cached warm-pack context, or empty AIContext if none/expired."""
+        warm = self._warm_packs.get(camera_id)
+        if not warm or warm.is_expired(self.WARM_PACK_TTL_SECONDS):
+            return AIContext()
+        return AIContext(
+            feedback=warm.context.feedback,
+            entity=warm.context.entity if entity_id else None,
+            camera=warm.context.camera,
+            time_pattern=warm.context.time_pattern,
+            warm_hints=list(warm.context.warm_hints or []),
+        )
+
+    def _load_warm_pack_sync(self, camera_id: str) -> Optional[AIContext]:
+        """
+        Build a per-camera pack that does not need four live hot-path queries.
+
+        Named VIPs, frequent named vehicles, known carriers, and camera location
+        are enough for the model to name people/vehicles/carriers on the next event.
+        Uses a fresh session because this may run after the request session closed.
+        """
+        from app.core.database import get_db_session
+        from app.models.recognized_entity import RecognizedEntity
+        from app.models.event import Event
+        from app.models.camera import Camera
+        from sqlalchemy import desc
+
+        try:
+            with get_db_session() as db:
+                camera = db.query(Camera).filter(Camera.id == camera_id).first()
+                camera_ctx = None
+                if camera:
+                    camera_ctx = CameraContext(
+                        camera_id=camera.id,
+                        location_hint=camera.name,
+                        typical_objects=[],
+                        false_positive_patterns=[],
+                    )
+
+                vips = (
+                    db.query(RecognizedEntity)
+                    .filter(
+                        RecognizedEntity.is_vip == True,  # noqa: E712
+                        RecognizedEntity.name.isnot(None),
+                        RecognizedEntity.name != "",
+                    )
+                    .order_by(desc(RecognizedEntity.occurrence_count))
+                    .limit(8)
+                    .all()
+                )
+                vehicles = (
+                    db.query(RecognizedEntity)
+                    .filter(
+                        RecognizedEntity.entity_type == "vehicle",
+                        RecognizedEntity.name.isnot(None),
+                        RecognizedEntity.name != "",
+                    )
+                    .order_by(desc(RecognizedEntity.occurrence_count))
+                    .limit(8)
+                    .all()
+                )
+                carriers = (
+                    db.query(Event.delivery_carrier)
+                    .filter(
+                        Event.camera_id == camera_id,
+                        Event.delivery_carrier.isnot(None),
+                    )
+                    .distinct()
+                    .limit(5)
+                    .all()
+                )
+
+                # Encode VIP / vehicle / carrier hints on camera.false_positive_patterns
+                # would be wrong. Attach them as typical_objects-style location extras
+                # via a synthetic CameraContext plus FeedbackContext.common_corrections
+                # is also wrong. Use camera.typical_objects for carriers and stash
+                # names in a dedicated CameraContext.location_hint suffix instead.
+                extra_hints = []
+                vip_names = [e.name for e in vips if e.name]
+                if vip_names:
+                    extra_hints.append(f"Known VIP people: {', '.join(vip_names)}")
+                vehicle_labels = []
+                for v in vehicles:
+                    parts = [p for p in (v.vehicle_color, v.vehicle_make, v.vehicle_model) if p]
+                    label = v.name
+                    if parts:
+                        label = f"{v.name} ({' '.join(parts)})"
+                    vehicle_labels.append(label)
+                if vehicle_labels:
+                    extra_hints.append(f"Known household vehicles: {', '.join(vehicle_labels)}")
+                carrier_names = [c[0] for c in carriers if c and c[0]]
+                if carrier_names:
+                    extra_hints.append(f"Carriers seen at this camera: {', '.join(carrier_names)}")
+
+                return AIContext(camera=camera_ctx, warm_hints=extra_hints)
+        except Exception as e:
+            logger.debug(
+                f"Warm pack load failed for camera {camera_id}: {e}",
+                extra={"event_type": "mcp.warm_pack_error", "camera_id": camera_id},
+            )
+            return None
+
+    async def _refresh_warm_pack(self, camera_id: str, event_time: datetime) -> None:
+        """Refresh the 5-minute per-camera pack off the hot path."""
+        try:
+            packed = await self._run_in_executor(self._load_warm_pack_sync, camera_id)
+            if packed:
+                self._warm_packs[camera_id] = CachedContext(
+                    context=packed,
+                    created_at=datetime.now(timezone.utc),
+                )
+        except Exception as e:
+            logger.debug(
+                f"Warm pack refresh failed for camera {camera_id}: {e}",
+                extra={"event_type": "mcp.warm_pack_refresh_error", "camera_id": camera_id},
+            )
+
     async def get_context(
         self,
         camera_id: str,
@@ -327,7 +459,8 @@ class MCPContextProvider:
         Uses caching with 30-second TTL for performance (P14-6.5).
         Uses parallel queries with asyncio.gather (P14-6.2).
         Uses run_in_executor for async-safe DB calls (P14-6.3).
-        Enforces 80ms hard timeout with fail-open (P14-6.4).
+        Enforces a bounded timeout with fail-open (P14-6.4).
+        Sync SQL runs in the thread-pool executor so the event loop is not blocked.
         Uses fail-open design: if any context component fails, returns
         partial context with None for failed components.
 
@@ -380,6 +513,7 @@ class MCPContextProvider:
                     entity=entity_ctx,
                     camera=cached.context.camera,
                     time_pattern=cached.context.time_pattern,
+                    warm_hints=list(cached.context.warm_hints or []),
                 )
 
             return cached.context
@@ -397,7 +531,8 @@ class MCPContextProvider:
         )
 
         # P14-6.2: Parallel query execution with asyncio.gather
-        # P14-6.4: Wrap in timeout for 80ms fail-open behavior
+        # Queries run in the thread-pool executor (P14-6.3) so they are not
+        # sync db.query() on the event loop. Timeout is a last-resort fail-open.
         try:
             context = await asyncio.wait_for(
                 self._gather_context_parallel(session, camera_id, entity_id, event_time),
@@ -405,7 +540,7 @@ class MCPContextProvider:
             )
             feedback_ctx, entity_ctx, camera_ctx, time_ctx = context
         except asyncio.TimeoutError:
-            # P14-6.4: Timeout - return partial/empty context (fail-open)
+            # P14-6.4: Timeout - prefer a warm per-camera pack over empty context
             self._timeouts += 1
             MCP_CONTEXT_TIMEOUTS.inc()
             logger.warning(
@@ -416,8 +551,8 @@ class MCPContextProvider:
                     "timeout_ms": int(self.CONTEXT_TIMEOUT_SECONDS * 1000),
                 }
             )
-            # Return empty context on timeout
-            return AIContext()
+            asyncio.create_task(self._refresh_warm_pack(camera_id, event_time))
+            return self._context_from_warm_pack(camera_id, entity_id=None)
 
         context_gather_time_ms = (time.time() - start_time) * 1000
 
@@ -455,6 +590,12 @@ class MCPContextProvider:
             context=cached_context,
             created_at=datetime.now(timezone.utc),
         )
+        # Keep a longer-lived pack so the next miss does not start from zero.
+        self._warm_packs[camera_id] = CachedContext(
+            context=cached_context,
+            created_at=datetime.now(timezone.utc),
+        )
+        asyncio.create_task(self._refresh_warm_pack(camera_id, event_time))
 
         # P14-6.8: Update component availability metrics
         MCP_COMPONENT_AVAILABILITY.labels(component="feedback").set(1 if feedback_ctx else 0)
@@ -554,7 +695,7 @@ class MCPContextProvider:
             FeedbackContext or None if error occurs
         """
         try:
-            return await self._get_feedback_context(db, camera_id)
+            return await self._run_in_executor(self._get_feedback_context_sync, db, camera_id)
         except Exception as e:
             logger.warning(
                 f"Failed to get feedback context for camera {camera_id}: {e}",
@@ -568,6 +709,14 @@ class MCPContextProvider:
             return None
 
     async def _get_feedback_context(
+        self,
+        db: Session,
+        camera_id: str,
+    ) -> Optional[FeedbackContext]:
+        """Async wrapper so existing tests can await this method."""
+        return await self._run_in_executor(self._get_feedback_context_sync, db, camera_id)
+
+    def _get_feedback_context_sync(
         self,
         db: Session,
         camera_id: str,
@@ -647,7 +796,7 @@ class MCPContextProvider:
             EntityContext or None if error occurs
         """
         try:
-            return await self._get_entity_context(db, entity_id)
+            return await self._run_in_executor(self._get_entity_context_sync, db, entity_id)
         except Exception as e:
             logger.warning(
                 f"Failed to get entity context for entity {entity_id}: {e}",
@@ -661,6 +810,14 @@ class MCPContextProvider:
             return None
 
     async def _get_entity_context(
+        self,
+        db: Session,
+        entity_id: str,
+    ) -> Optional[EntityContext]:
+        """Async wrapper so existing tests can await this method."""
+        return await self._run_in_executor(self._get_entity_context_sync, db, entity_id)
+
+    def _get_entity_context_sync(
         self,
         db: Session,
         entity_id: str,
@@ -709,12 +866,12 @@ class MCPContextProvider:
             attributes['model'] = entity.vehicle_model
 
         # Get similar entities (for context)
-        similar_entities = await self._get_similar_entities(
+        similar_entities = self._get_similar_entities_sync(
             db, entity_id, entity.entity_type, entity.vehicle_signature
         )
 
         # P14-6.1: Get recent manual adjustments for this entity
-        recent_adjustments = await self._get_entity_adjustments(db, entity_id)
+        recent_adjustments = self._get_entity_adjustments_sync(db, entity_id)
 
         # Use display_name if name is not set
         name = entity.name or entity.display_name
@@ -750,6 +907,13 @@ class MCPContextProvider:
         )
 
     async def _get_entity_adjustments(
+        self,
+        db: Session,
+        entity_id: str,
+    ) -> List[Dict[str, Any]]:
+        return self._get_entity_adjustments_sync(db, entity_id)
+
+    def _get_entity_adjustments_sync(
         self,
         db: Session,
         entity_id: str,
@@ -807,6 +971,15 @@ class MCPContextProvider:
         return result
 
     async def _get_similar_entities(
+        self,
+        db: Session,
+        entity_id: str,
+        entity_type: str,
+        vehicle_signature: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return self._get_similar_entities_sync(db, entity_id, entity_type, vehicle_signature)
+
+    def _get_similar_entities_sync(
         self,
         db: Session,
         entity_id: str,
@@ -884,7 +1057,7 @@ class MCPContextProvider:
             CameraContext or None if error occurs
         """
         try:
-            return await self._get_camera_context(db, camera_id)
+            return await self._run_in_executor(self._get_camera_context_sync, db, camera_id)
         except Exception as e:
             logger.warning(
                 f"Failed to get camera context for camera {camera_id}: {e}",
@@ -898,6 +1071,14 @@ class MCPContextProvider:
             return None
 
     async def _get_camera_context(
+        self,
+        db: Session,
+        camera_id: str,
+    ) -> Optional[CameraContext]:
+        """Async wrapper so existing tests can await this method."""
+        return await self._run_in_executor(self._get_camera_context_sync, db, camera_id)
+
+    def _get_camera_context_sync(
         self,
         db: Session,
         camera_id: str,
@@ -1010,7 +1191,9 @@ class MCPContextProvider:
             TimePatternContext or None if error occurs
         """
         try:
-            return await self._get_time_pattern_context(db, camera_id, event_time)
+            return await self._run_in_executor(
+                self._get_time_pattern_context_sync, db, camera_id, event_time
+            )
         except Exception as e:
             logger.warning(
                 f"Failed to get time pattern context for camera {camera_id}: {e}",
@@ -1024,6 +1207,17 @@ class MCPContextProvider:
             return None
 
     async def _get_time_pattern_context(
+        self,
+        db: Session,
+        camera_id: str,
+        event_time: datetime,
+    ) -> Optional[TimePatternContext]:
+        """Async wrapper so existing tests can await this method."""
+        return await self._run_in_executor(
+            self._get_time_pattern_context_sync, db, camera_id, event_time
+        )
+
+    def _get_time_pattern_context_sync(
         self,
         db: Session,
         camera_id: str,
@@ -1208,6 +1402,9 @@ class MCPContextProvider:
         if context.time_pattern:
             time_parts = self._format_time_pattern_context(context.time_pattern)
             parts.extend(time_parts)
+
+        if context.warm_hints:
+            parts.extend(context.warm_hints)
 
         return "\n".join(parts) if parts else ""
 

@@ -126,6 +126,7 @@ class VisionAnalysisOrchestrator:
         if self.prompt_service:
             effective_prompt, prompt_variant = self.prompt_service.select_and_build_prompt(
                 camera_id=camera_id,
+                camera_name=camera_name,
                 custom_prompt=custom_prompt,
                 detected_objects=detected_objects,
                 timestamp=timestamp,
@@ -263,6 +264,7 @@ class VisionAnalysisOrchestrator:
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        camera_id: Optional[str] = None,
     ) -> AIResult:
         """
         Multi-frame / multi-image analysis (Phase 3.2).
@@ -325,11 +327,15 @@ class VisionAnalysisOrchestrator:
             # last bug keeping multi-frame from ever completing. Omit it; a
             # missing camera_id just means no camera-specific prompt override.
             effective_prompt, _ = self.prompt_service.select_and_build_prompt(
+                camera_id=camera_id,
+                camera_name=camera_name,
+                custom_prompt=custom_prompt,
                 detected_objects=detected_objects,
                 timestamp=timestamp,
                 audio_transcription=audio_transcription,
                 ocr_result=ocr_result,
                 analysis_mode="multi_frame",
+                num_frames=len(images_base64),
             )
 
         # Provider order + fallback loop

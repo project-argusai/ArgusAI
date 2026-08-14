@@ -46,6 +46,7 @@ class ProtectAIPipeline:
         self._last_audio_transcription: Optional[str] = None
         self._last_extracted_frames: List[bytes] = []
         self._last_frame_timestamps: List[float] = []
+        self._last_context_bundle = None
 
     async def submit_snapshot_for_analysis(
         self,
@@ -68,16 +69,41 @@ class ProtectAIPipeline:
         self._last_audio_transcription = None
         self._last_extracted_frames = []
         self._last_frame_timestamps = []
+        self._last_context_bundle = None
 
         # Lazy import to avoid circular dependency
         from app.services.vision_analysis_orchestrator import get_vision_analysis_orchestrator
         from app.services.ai_service import ai_service
         from app.core.database import get_db_session
+        from app.services.pre_ai_context_service import get_pre_ai_context_service
 
         try:
-            # Ensure AI keys are loaded
+            # Ensure AI keys are loaded and gather shared pre-AI context
+            event_timestamp = snapshot_result.timestamp
+            custom_prompt = None
+            local_timestamp = event_timestamp.isoformat() if event_timestamp else datetime.now(timezone.utc).isoformat()
             with get_db_session() as db:
                 await ai_service.load_api_keys_from_db(db)
+                try:
+                    context_bundle = await get_pre_ai_context_service().gather(
+                        db=db,
+                        camera_id=camera.id,
+                        camera_name=camera.name,
+                        event_time=event_timestamp or datetime.now(timezone.utc),
+                        detected_objects=[event_type] if event_type else None,
+                        thumbnail_base64=snapshot_result.image_base64,
+                        event_type=event_type,
+                        is_doorbell_ring=is_doorbell_ring,
+                    )
+                    self._last_context_bundle = context_bundle
+                    custom_prompt = context_bundle.custom_prompt
+                    if context_bundle.local_timestamp:
+                        local_timestamp = context_bundle.local_timestamp
+                except Exception as ctx_err:
+                    logger.warning(
+                        f"Pre-AI context failed for camera '{camera.name}' (continuing): {ctx_err}",
+                        extra={"camera_id": camera.id, "error": str(ctx_err)},
+                    )
 
             # The camera's configured analysis_mode is AUTHORITATIVE. The pipeline is
             # NOT opportunistic: it does not silently upgrade a single_frame camera to
@@ -125,9 +151,10 @@ class ProtectAIPipeline:
                         ai_result = await get_vision_analysis_orchestrator().analyze_images(
                             images=frames,  # List[bytes] or List[np.ndarray] depending on orchestrator signature
                             camera_name=camera.name,
-                            timestamp=datetime.now(timezone.utc).isoformat(),
+                            timestamp=local_timestamp,
                             detected_objects=[event_type] if event_type else None,
-                            custom_prompt=None,
+                            custom_prompt=custom_prompt,
+                            camera_id=camera.id,
                         )
                         self._last_analysis_mode = "multi_frame"
                         self._last_frame_count = len(frames)
@@ -166,9 +193,10 @@ class ProtectAIPipeline:
             ai_result = await get_vision_analysis_orchestrator().analyze_image(
                 frame=frame,
                 camera_name=camera.name,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=local_timestamp,
                 detected_objects=[event_type] if event_type else None,
-                custom_prompt=None,
+                custom_prompt=custom_prompt,
+                camera_id=camera.id,
             )
 
             self._last_analysis_mode = "single_frame"
@@ -255,12 +283,16 @@ class ProtectAIPipeline:
             return None
 
         try:
+            bundle = self._last_context_bundle
             result = await gemini_provider.describe_video(
                 video_path=clip_path,
                 camera_name=camera.name,
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=(
+                    getattr(bundle, "local_timestamp", None)
+                    or datetime.now(timezone.utc).isoformat()
+                ),
                 detected_objects=[event_type] if event_type else None,
-                custom_prompt=None,  # Can be enhanced later with doorbell prompt
+                custom_prompt=getattr(bundle, "custom_prompt", None),
             )
 
             if result and result.success:
@@ -299,6 +331,10 @@ class ProtectAIPipeline:
     @property
     def last_audio_transcription(self) -> Optional[str]:
         return self._last_audio_transcription
+
+    @property
+    def last_context_bundle(self):
+        return self._last_context_bundle
 
 
 # Backward compatible getter (delegates to @singleton decorator)

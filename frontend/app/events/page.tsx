@@ -247,9 +247,11 @@ export default function EventsPage() {
   useEffect(() => {
     const params = filtersToURLParams(filters);
     const queryString = params.toString();
+    // Skip replace when the URL already matches to avoid a remount loop.
+    if (queryString === searchParams.toString()) return;
     const newURL = queryString ? `${pathname}?${queryString}` : pathname;
     router.replace(newURL, { scroll: false });
-  }, [filters, pathname, router]);
+  }, [filters, pathname, router, searchParams]);
 
   // Fetch cameras for filter
   useEffect(() => {

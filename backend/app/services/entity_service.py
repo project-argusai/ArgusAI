@@ -81,6 +81,34 @@ class EntityMatchResult:
     is_new: bool
 
 
+def apply_event_thumbnail_to_entity(entity, event) -> None:
+    """Copy a sighting thumbnail onto the entity so it survives event retention.
+
+    Writes ``recognized_entities.thumbnail_path`` when the event has a path.
+    Prefers the most recent sighting: a newer (or equally recent) event with
+    a thumbnail overwrites the stored path. An event without a thumbnail
+    never clears an existing path.
+    """
+    if entity is None or event is None:
+        return
+
+    thumbnail = getattr(event, "thumbnail_path", None)
+    if not isinstance(thumbnail, str) or not thumbnail.strip():
+        return
+
+    event_ts = getattr(event, "timestamp", None)
+    last_seen = getattr(entity, "last_seen_at", None)
+    if entity.thumbnail_path and event_ts is not None and last_seen is not None:
+        try:
+            if event_ts < last_seen:
+                return
+        except TypeError:
+            # Mixed aware/naive datetimes — still prefer this sighting.
+            pass
+
+    entity.thumbnail_path = thumbnail
+
+
 @singleton
 class EntityService:
     """
@@ -214,8 +242,8 @@ class EntityService:
         if not self._cache_loaded:
             self._load_entity_cache(db)
 
-        # Get event timestamp for temporal tracking
-        event = db.query(Event.timestamp).filter(Event.id == event_id).first()
+        # Get event timestamp and thumbnail for temporal tracking / durable copy
+        event = db.query(Event).filter(Event.id == event_id).first()
         event_timestamp = event.timestamp if event else datetime.now(timezone.utc)
 
         # If no entities exist, create first one
@@ -423,8 +451,8 @@ class EntityService:
 
         start_time = time.time()
 
-        # Get event timestamp
-        event = db.query(Event.timestamp).filter(Event.id == event_id).first()
+        # Get event timestamp and thumbnail for temporal tracking / durable copy
+        event = db.query(Event).filter(Event.id == event_id).first()
         event_timestamp = event.timestamp if event else datetime.now(timezone.utc)
 
         # Try to extract vehicle info from description
@@ -530,12 +558,17 @@ class EntityService:
         entity_type: str,
         event_timestamp: datetime,
         vehicle_info: Optional[VehicleEntityInfo] = None,
+        event=None,
     ) -> EntityMatchResult:
         """Create a new entity and link it to the event."""
         from app.models.recognized_entity import RecognizedEntity, EntityEvent
+        from app.models.event import Event
 
         entity_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc)
+
+        if event is None:
+            event = db.query(Event).filter(Event.id == event_id).first()
 
         # Create entity with vehicle fields if applicable (P9-4.1)
         new_entity = RecognizedEntity(
@@ -549,6 +582,7 @@ class EntityService:
             created_at=now,
             updated_at=now,
         )
+        apply_event_thumbnail_to_entity(new_entity, event)
 
         # Set vehicle-specific fields if available
         if vehicle_info and entity_type == "vehicle":
@@ -591,9 +625,11 @@ class EntityService:
         event_id: str,
         similarity_score: float,
         event_timestamp: datetime,
+        event=None,
     ) -> EntityMatchResult:
         """Update an existing entity with new occurrence and link to event."""
         from app.models.recognized_entity import RecognizedEntity, EntityEvent
+        from app.models.event import Event
 
         now = datetime.now(timezone.utc)
 
@@ -604,6 +640,12 @@ class EntityService:
 
         if not entity:
             raise ValueError(f"Entity {entity_id} not found")
+
+        if event is None:
+            event = db.query(Event).filter(Event.id == event_id).first()
+
+        # Copy thumbnail before last_seen so an older sighting cannot overwrite
+        apply_event_thumbnail_to_entity(entity, event)
 
         entity.occurrence_count += 1
         entity.last_seen_at = event_timestamp
@@ -1145,6 +1187,10 @@ class EntityService:
         """
         Get the thumbnail path for an entity (Story P7-4.1).
 
+        Prefers the durable column on recognized_entities, then falls back
+        to the latest live Event.thumbnail_path via EntityEvent (same as
+        get_all_entities). The column is what survives event retention.
+
         Args:
             db: SQLAlchemy database session
             entity_id: UUID of the entity
@@ -1152,16 +1198,32 @@ class EntityService:
         Returns:
             Thumbnail file path, or None if entity not found or has no thumbnail
         """
-        from app.models.recognized_entity import RecognizedEntity
+        from app.models.recognized_entity import RecognizedEntity, EntityEvent
+        from app.models.event import Event
 
-        entity = db.query(RecognizedEntity.thumbnail_path).filter(
+        entity = db.query(RecognizedEntity).filter(
             RecognizedEntity.id == entity_id
         ).first()
 
-        if not entity or not entity.thumbnail_path:
+        if not entity:
             return None
 
-        return entity.thumbnail_path
+        if entity.thumbnail_path:
+            return entity.thumbnail_path
+
+        most_recent_event = db.query(Event.thumbnail_path).join(
+            EntityEvent, EntityEvent.event_id == Event.id
+        ).filter(
+            EntityEvent.entity_id == entity_id,
+            Event.thumbnail_path.isnot(None)
+        ).order_by(
+            desc(Event.timestamp)
+        ).first()
+
+        if most_recent_event and most_recent_event.thumbnail_path:
+            return most_recent_event.thumbnail_path
+
+        return None
 
     async def unlink_event(
         self,
@@ -1439,6 +1501,7 @@ class EntityService:
             )
 
         # Increment target entity occurrence count
+        apply_event_thumbnail_to_entity(target_entity, event)
         target_entity.occurrence_count += 1
         target_entity.last_seen_at = event.timestamp
         target_entity.updated_at = datetime.now(timezone.utc)
@@ -1540,6 +1603,10 @@ class EntityService:
         # Update last_seen_at if secondary was seen more recently
         if secondary.last_seen_at > primary.last_seen_at:
             primary.last_seen_at = secondary.last_seen_at
+            if secondary.thumbnail_path:
+                primary.thumbnail_path = secondary.thumbnail_path
+        elif not primary.thumbnail_path and secondary.thumbnail_path:
+            primary.thumbnail_path = secondary.thumbnail_path
 
         # Update first_seen_at if secondary was seen earlier
         if secondary.first_seen_at < primary.first_seen_at:

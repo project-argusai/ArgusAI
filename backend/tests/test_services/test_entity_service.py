@@ -25,6 +25,7 @@ from app.services.entity_service import (
     get_entity_service,
     reset_entity_service,
     EntityMatchResult,
+    apply_event_thumbnail_to_entity,
 )
 
 
@@ -1781,3 +1782,76 @@ class TestEntityServiceExportAdjustments:
 
         # Verify filter was called for both dates
         assert mock_query.filter.call_count >= 2
+
+
+class TestApplyEventThumbnailToEntity:
+    """Unit tests for durable thumbnail copy onto recognized_entities."""
+
+    def test_copies_thumbnail_when_entity_has_none(self):
+        entity = MagicMock()
+        entity.thumbnail_path = None
+        entity.last_seen_at = datetime.now(timezone.utc) - timedelta(days=1)
+        event = MagicMock()
+        event.thumbnail_path = "/api/v1/thumbnails/2026-08-15/new.jpg"
+        event.timestamp = datetime.now(timezone.utc)
+
+        apply_event_thumbnail_to_entity(entity, event)
+
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-15/new.jpg"
+
+    def test_newer_event_updates_existing_path(self):
+        now = datetime.now(timezone.utc)
+        entity = MagicMock()
+        entity.thumbnail_path = "/api/v1/thumbnails/2026-08-13/old.jpg"
+        entity.last_seen_at = now - timedelta(days=2)
+        event = MagicMock()
+        event.thumbnail_path = "/api/v1/thumbnails/2026-08-15/new.jpg"
+        event.timestamp = now
+
+        apply_event_thumbnail_to_entity(entity, event)
+
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-15/new.jpg"
+
+    def test_older_event_does_not_overwrite_newer_path(self):
+        now = datetime.now(timezone.utc)
+        entity = MagicMock()
+        entity.thumbnail_path = "/api/v1/thumbnails/2026-08-15/new.jpg"
+        entity.last_seen_at = now
+        event = MagicMock()
+        event.thumbnail_path = "/api/v1/thumbnails/2026-06-28/old.jpg"
+        event.timestamp = now - timedelta(days=10)
+
+        apply_event_thumbnail_to_entity(entity, event)
+
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-15/new.jpg"
+
+    def test_missing_thumbnail_does_not_clear_existing_path(self):
+        entity = MagicMock()
+        entity.thumbnail_path = "/api/v1/thumbnails/2026-08-14/keep.jpg"
+        entity.last_seen_at = datetime.now(timezone.utc) - timedelta(days=1)
+        event = MagicMock()
+        event.thumbnail_path = None
+        event.timestamp = datetime.now(timezone.utc)
+
+        apply_event_thumbnail_to_entity(entity, event)
+
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-14/keep.jpg"
+
+    def test_empty_or_non_string_thumbnail_is_ignored(self):
+        entity = MagicMock()
+        entity.thumbnail_path = "/api/v1/thumbnails/keep.jpg"
+        entity.last_seen_at = datetime.now(timezone.utc)
+        event = MagicMock()
+        event.thumbnail_path = "   "
+        event.timestamp = datetime.now(timezone.utc)
+
+        apply_event_thumbnail_to_entity(entity, event)
+        assert entity.thumbnail_path == "/api/v1/thumbnails/keep.jpg"
+
+        event.thumbnail_path = MagicMock()
+        apply_event_thumbnail_to_entity(entity, event)
+        assert entity.thumbnail_path == "/api/v1/thumbnails/keep.jpg"
+
+    def test_none_entity_or_event_is_noop(self):
+        apply_event_thumbnail_to_entity(None, MagicMock())
+        apply_event_thumbnail_to_entity(MagicMock(), None)

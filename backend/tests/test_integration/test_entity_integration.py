@@ -75,6 +75,7 @@ def create_event(
     camera_id: str,
     description: str = "Test event",
     days_ago: int = 0,
+    thumbnail_path=None,
 ):
     """Helper to create an event."""
     timestamp = datetime.now(timezone.utc) - timedelta(days=days_ago)
@@ -87,6 +88,7 @@ def create_event(
         confidence=85,
         objects_detected=json.dumps(["person"]),
         source_type="rtsp",
+        thumbnail_path=thumbnail_path,
     )
     db_session.add(event)
     db_session.commit()
@@ -525,3 +527,190 @@ class TestGracefulDegradation:
         # For now, this tests that the entity was properly created
         assert links_before == 1
         assert result1.entity_id is not None
+
+
+class TestEntityThumbnailPersistence:
+    """Durable entity thumbnails must survive event retention."""
+
+    @pytest.mark.asyncio
+    async def test_linking_event_with_thumbnail_writes_entity_path(
+        self, db_session, test_camera, entity_service
+    ):
+        """Linking an event with a thumbnail writes recognized_entities.thumbnail_path."""
+        event = create_event(
+            db_session,
+            "event-thumb-001",
+            test_camera.id,
+            thumbnail_path="/api/v1/thumbnails/2026-08-15/event-thumb-001.jpg",
+        )
+        np.random.seed(42)
+        embedding = np.random.randn(512).tolist()
+
+        result = await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event.id,
+            embedding=embedding,
+            entity_type="person",
+        )
+
+        entity = db_session.query(RecognizedEntity).filter(
+            RecognizedEntity.id == result.entity_id
+        ).first()
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-15/event-thumb-001.jpg"
+
+    @pytest.mark.asyncio
+    async def test_later_event_with_thumbnail_updates_entity_path(
+        self, db_session, test_camera, entity_service
+    ):
+        """A later event with a thumbnail updates the stored path."""
+        event1 = create_event(
+            db_session,
+            "event-thumb-old",
+            test_camera.id,
+            days_ago=2,
+            thumbnail_path="/api/v1/thumbnails/2026-08-13/old.jpg",
+        )
+        event2 = create_event(
+            db_session,
+            "event-thumb-new",
+            test_camera.id,
+            days_ago=0,
+            thumbnail_path="/api/v1/thumbnails/2026-08-15/new.jpg",
+        )
+        np.random.seed(7)
+        embedding = np.random.randn(512).tolist()
+
+        first = await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event1.id,
+            embedding=embedding,
+            entity_type="person",
+        )
+        similar = (np.array(embedding) + np.random.randn(512) * 0.01).tolist()
+        second = await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event2.id,
+            embedding=similar,
+            entity_type="person",
+        )
+
+        assert second.entity_id == first.entity_id
+        entity = db_session.query(RecognizedEntity).filter(
+            RecognizedEntity.id == first.entity_id
+        ).first()
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-15/new.jpg"
+
+    @pytest.mark.asyncio
+    async def test_event_without_thumbnail_does_not_clear_existing_path(
+        self, db_session, test_camera, entity_service
+    ):
+        """An event without a thumbnail does not clear an existing path."""
+        event1 = create_event(
+            db_session,
+            "event-with-thumb",
+            test_camera.id,
+            days_ago=1,
+            thumbnail_path="/api/v1/thumbnails/2026-08-14/keep.jpg",
+        )
+        event2 = create_event(
+            db_session,
+            "event-no-thumb",
+            test_camera.id,
+            days_ago=0,
+            thumbnail_path=None,
+        )
+        np.random.seed(11)
+        embedding = np.random.randn(512).tolist()
+
+        first = await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event1.id,
+            embedding=embedding,
+            entity_type="person",
+        )
+        similar = (np.array(embedding) + np.random.randn(512) * 0.01).tolist()
+        await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event2.id,
+            embedding=similar,
+            entity_type="person",
+        )
+
+        entity = db_session.query(RecognizedEntity).filter(
+            RecognizedEntity.id == first.entity_id
+        ).first()
+        assert entity.thumbnail_path == "/api/v1/thumbnails/2026-08-14/keep.jpg"
+
+    @pytest.mark.asyncio
+    async def test_list_entities_returns_stored_path_after_event_retention(
+        self, db_session, test_camera, entity_service
+    ):
+        """get_all_entities still returns the stored path when the Event row is gone."""
+        stored_path = "/api/v1/thumbnails/2026-06-28/retained.jpg"
+        event = create_event(
+            db_session,
+            "event-retained-thumb",
+            test_camera.id,
+            thumbnail_path=stored_path,
+        )
+        np.random.seed(21)
+        embedding = np.random.randn(512).tolist()
+
+        result = await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event.id,
+            embedding=embedding,
+            entity_type="person",
+        )
+        entity_id = result.entity_id
+
+        # Simulate retention: drop the Event row and its EntityEvent link
+        link = db_session.query(EntityEvent).filter(
+            EntityEvent.event_id == event.id
+        ).first()
+        db_session.delete(link)
+        db_session.delete(event)
+        db_session.commit()
+
+        entities, total = await entity_service.get_all_entities(db_session)
+        assert total == 1
+        listed = next(e for e in entities if e["id"] == entity_id)
+        assert listed["thumbnail_path"] == stored_path
+
+        thumbnail = await entity_service.get_entity_thumbnail_path(
+            db_session, entity_id
+        )
+        assert thumbnail == stored_path
+
+    @pytest.mark.asyncio
+    async def test_get_entity_thumbnail_path_falls_back_to_live_event(
+        self, db_session, test_camera, entity_service
+    ):
+        """When the column is empty, use the latest linked Event.thumbnail_path."""
+        event = create_event(
+            db_session,
+            "event-fallback-thumb",
+            test_camera.id,
+            thumbnail_path="/api/v1/thumbnails/2026-08-15/fallback.jpg",
+        )
+        np.random.seed(33)
+        embedding = np.random.randn(512).tolist()
+
+        result = await entity_service.match_or_create_entity(
+            db=db_session,
+            event_id=event.id,
+            embedding=embedding,
+            entity_type="person",
+        )
+
+        entity = db_session.query(RecognizedEntity).filter(
+            RecognizedEntity.id == result.entity_id
+        ).first()
+        # Simulate the production rows that never had the column written
+        entity.thumbnail_path = None
+        db_session.commit()
+
+        thumbnail = await entity_service.get_entity_thumbnail_path(
+            db_session, result.entity_id
+        )
+        assert thumbnail == "/api/v1/thumbnails/2026-08-15/fallback.jpg"

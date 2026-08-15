@@ -31,6 +31,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.services.similarity_service import batch_cosine_similarity
+from app.services.entity_service import apply_event_thumbnail_to_entity
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +422,7 @@ class PersonMatchingService:
             created_at=now,
             updated_at=now,
         )
+        apply_event_thumbnail_to_entity(new_person, face_embedding.event)
         db.add(new_person)
 
         # Link face embedding to person
@@ -508,6 +510,7 @@ class PersonMatchingService:
                 )
 
         # Update person metadata
+        apply_event_thumbnail_to_entity(person, face_embedding.event)
         person.occurrence_count += 1
         person.last_seen_at = event_timestamp
         person.updated_at = now

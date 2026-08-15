@@ -33,6 +33,7 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.services.similarity_service import batch_cosine_similarity
+from app.services.entity_service import apply_event_thumbnail_to_entity
 
 logger = logging.getLogger(__name__)
 
@@ -693,6 +694,7 @@ class VehicleMatchingService:
             created_at=now,
             updated_at=now,
         )
+        apply_event_thumbnail_to_entity(new_vehicle, vehicle_embedding.event)
         db.add(new_vehicle)
 
         # Link vehicle embedding to entity
@@ -798,6 +800,7 @@ class VehicleMatchingService:
             vehicle.metadata = json.dumps(existing_metadata)
 
         # Update vehicle metadata
+        apply_event_thumbnail_to_entity(vehicle, vehicle_embedding.event)
         vehicle.occurrence_count += 1
         vehicle.last_seen_at = event_timestamp
         vehicle.updated_at = now

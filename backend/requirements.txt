@@ -1,6 +1,6 @@
 # FastAPI and Web Framework
 fastapi[standard]==0.141.1
-uvicorn[standard]==0.52.1
+uvicorn[standard]==0.52.4
 python-multipart>=0.0.32
 
 # Task Scheduling
@@ -10,36 +10,36 @@ apscheduler>=3.11.3
 tenacity>=9.1.4
 
 # Database
-sqlalchemy>=2.0.51
-alembic>=1.19.0
+sqlalchemy>=2.0.52
+alembic>=1.19.1
 
 # Data Validation
 pydantic>=2.13.4
-pydantic-settings>=2.14.2
+pydantic-settings>=2.15.0
 
 # Camera and Image Processing
 opencv-python-headless>=5.0.0.93  # Headless version for servers (no GUI/libGL dependency)
-av>=18.0.0  # PyAV for secure RTSP (rtsps://) streams
+av>=18.1.0  # PyAV for secure RTSP (rtsps://) streams
 
 # Security and Encryption
-cryptography==50.0.0
+cryptography==50.0.1
 python-jose[cryptography]==3.5.0
 bcrypt>=5.0.0
 slowapi>=0.1.10
 
 # AI Vision APIs
-openai>=2.53.0
-anthropic>=0.120.2
+openai>=3.4.0
+anthropic>=1.1.0
 google-generativeai>=0.8.6
-litellm>=1.95.0  # Unified LLM gateway SDK with fallbacks and cost tracking
+litellm>=1.98.0  # Unified LLM gateway SDK with fallbacks and cost tracking
 pillow>=12.3.0
 pytesseract>=0.3.13  # OCR for frame overlay text extraction (optional, requires tesseract binary)
 
 # UniFi Protect Integration (Phase 2)
-uiprotect>=15.14.2  # UniFi Protect API client
+uiprotect>=16.1.0  # UniFi Protect API client
 
 # Web Push Notifications (Phase 4)
-pywebpush>=2.3.0  # Web Push with VAPID authentication
+pywebpush>=2.4.0  # Web Push with VAPID authentication
 
 # Email Delivery (Phase 4 - Story P4-4.3)
 aiosmtplib>=5.1.2  # Async SMTP client for digest email delivery
@@ -52,14 +52,14 @@ HAP-python>=5.0.0  # HomeKit Accessory Protocol for Apple Home integration
 qrcode>=8.2  # QR code generation for HomeKit pairing
 
 # Temporal Context Engine (Phase 4 - Story P4-3.1)
-sentence-transformers>=5.6.1  # CLIP model for image embeddings
+sentence-transformers>=6.0.0  # CLIP model for image embeddings
 
 # ONVIF Camera Discovery (Phase 5 - Story P5-2.1)
 WSDiscovery>=2.1.2  # WS-Discovery protocol for camera auto-discovery
 onvif-zeep>=0.2.12  # ONVIF SOAP client for camera capabilities
 
 # Logging and Monitoring
-python-json-logger>=4.1.0
+python-json-logger>=4.2.0
 prometheus_client>=0.26.0
 psutil>=7.2.2
 

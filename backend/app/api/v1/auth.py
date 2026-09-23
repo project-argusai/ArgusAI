@@ -138,6 +138,30 @@ def authenticate_websocket(
     return user
 
 
+async def require_websocket_user(websocket: WebSocket) -> Optional[User]:
+    """Authorize a browser or API WebSocket before its handshake is accepted.
+
+    Browsers send an Origin header and authenticate with the same HttpOnly
+    cookie as HTTP requests. An absent Origin is only supported for API clients
+    using an Authorization header. Query-string JWTs are deliberately excluded:
+    URLs are routinely captured in proxy and access logs.
+    """
+    origin = websocket.headers.get("origin")
+    allowed_origins = settings.cors_origins_list
+    if origin:
+        if origin not in allowed_origins:
+            await websocket.close(code=1008, reason="Origin not allowed")
+            return None
+    elif not websocket.headers.get("authorization", "").startswith("Bearer "):
+        await websocket.close(code=1008, reason="Origin required")
+        return None
+
+    user = authenticate_websocket(websocket)
+    if user is None:
+        await websocket.close(code=1008, reason="Authentication required")
+    return user
+
+
 def ensure_admin_exists(db: Session) -> tuple[bool, str]:
     """
     Ensure default admin user exists on first startup

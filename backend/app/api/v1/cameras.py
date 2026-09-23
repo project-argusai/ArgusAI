@@ -26,6 +26,7 @@ except ImportError:
     PYAV_AVAILABLE = False
 
 from app.core.database import get_db
+from app.api.v1.auth import require_websocket_user
 from app.core.validators import CameraUUID
 from app.models.camera import Camera
 from app.schemas.camera import (
@@ -2575,7 +2576,9 @@ async def stream_camera(
     """
     from app.core.database import SessionLocal
 
-    # Accept WebSocket connection FIRST (must accept before close to avoid 403)
+    if await require_websocket_user(websocket) is None:
+        return
+
     await websocket.accept()
 
     # Get camera from database

@@ -16,6 +16,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.websocket_manager import get_websocket_manager
+from app.api.v1.auth import require_websocket_user
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,9 @@ async def websocket_endpoint(websocket: WebSocket):
     - Client should respond with pong (handled automatically by browsers)
     - Server broadcasts notifications as JSON: {"type": "notification", "data": {...}}
     """
+    if await require_websocket_user(websocket) is None:
+        return
+
     manager = get_websocket_manager()
     await manager.connect(websocket)
 

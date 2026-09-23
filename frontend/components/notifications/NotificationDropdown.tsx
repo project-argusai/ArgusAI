@@ -10,6 +10,7 @@
 
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { parseApiDate, formatRelative } from '@/lib/datetime';
 import { Check, Trash2, Loader2, Bell } from 'lucide-react';
@@ -140,6 +141,7 @@ interface NotificationItemProps {
 }
 
 function NotificationItem({ notification, onClick, onDelete }: NotificationItemProps) {
+  const [imageUnavailable, setImageUnavailable] = useState(false);
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
   const isDoorbellRing = notification.is_doorbell_ring;
 
@@ -173,7 +175,7 @@ function NotificationItem({ notification, onClick, onDelete }: NotificationItemP
 
       {/* Thumbnail */}
       <div className="flex-shrink-0">
-        {thumbnailUrl ? (
+        {thumbnailUrl && !imageUnavailable ? (
           <img
             src={thumbnailUrl}
             alt="Notification event thumbnail"
@@ -181,19 +183,17 @@ function NotificationItem({ notification, onClick, onDelete }: NotificationItemP
               'h-16 w-16 rounded object-cover bg-muted',
               isDoorbellRing && 'ring-2 ring-cyan-400'
             )}
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            onError={() => setImageUnavailable(true)}
           />
         ) : (
           <div className={cn(
             'h-16 w-16 rounded bg-muted flex items-center justify-center',
             isDoorbellRing && 'bg-cyan-100'
-          )}>
+          )} title={imageUnavailable ? 'Image unavailable; sign in again if your session expired' : 'No image available'}>
             {isDoorbellRing ? (
               <Bell className="h-6 w-6 text-cyan-400" />
             ) : (
-              <span className="text-xs text-muted-foreground">No image</span>
+              <span className="text-xs text-muted-foreground">{imageUnavailable ? 'Unavailable' : 'No image'}</span>
             )}
           </div>
         )}

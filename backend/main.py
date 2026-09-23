@@ -46,7 +46,7 @@ from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.websocket import router as websocket_router
 from app.api.v1.logs import router as logs_router
-from app.api.v1.auth import router as auth_router, ensure_admin_exists, limiter
+from app.api.v1.auth import router as auth_router, ensure_admin_exists, limiter, get_media_principal
 from app.api.v1.protect import router as protect_router  # Story P2-1.1: UniFi Protect
 from app.api.v1.system_notifications import router as system_notifications_router  # Story P3-7.4: Cost Alerts
 from app.api.v1.push import router as push_router  # Story P4-1.1: Web Push
@@ -1074,45 +1074,25 @@ app.include_router(mobile_auth_router, prefix=settings.API_V1_PREFIX)  # Story P
 app.include_router(api_keys_router, prefix=settings.API_V1_PREFIX)  # Story P13-1 - API Key Management
 app.include_router(users_router, prefix=settings.API_V1_PREFIX)  # Story P15-2.3 - User Management
 
-# Thumbnail serving endpoint (with CORS support)
-from fastapi.responses import FileResponse, Response as FastAPIResponse
+# Thumbnail serving endpoint. Browser image tags send the same httpOnly session
+# cookie used for API requests when the frontend uses the API proxy.
+from fastapi import Depends
+from fastapi.responses import FileResponse
+from pathlib import Path
+
+THUMBNAIL_DIR = Path(__file__).resolve().parent / "data" / "thumbnails"
 
 @app.get("/api/v1/thumbnails/{date}/{filename}")
-async def get_thumbnail(date: str, filename: str, request: Request):
-    """Serve thumbnail images with CORS headers"""
-    thumbnail_dir = os.path.join(os.path.dirname(__file__), 'data', 'thumbnails')
-    file_path = os.path.join(thumbnail_dir, date, filename)
-
-    # Get origin for CORS - validate against allowed origins
-    origin = request.headers.get("origin", "")
-    if origin and origin in settings.cors_origins_list:
-        allowed_origin = origin
-    elif origin:
-        # Origin provided but not in allowed list - use first allowed origin
-        allowed_origin = settings.cors_origins_list[0] if settings.cors_origins_list else "*"
-    else:
-        # No origin header (direct image load) - allow all
-        allowed_origin = "*"
-
-    cors_headers = {
-        "Access-Control-Allow-Origin": allowed_origin,
-        "Access-Control-Allow-Credentials": "true" if allowed_origin != "*" else "false",
-        "Cache-Control": "public, max-age=86400"
-    }
-
-    if os.path.exists(file_path):
-        with open(file_path, "rb") as f:
-            content = f.read()
-        return FastAPIResponse(
-            content=content,
-            media_type="image/jpeg",
-            headers=cors_headers
-        )
-
-    return FastAPIResponse(
-        content=b"",
-        status_code=404,
-        headers=cors_headers
+async def get_thumbnail(date: str, filename: str, principal: object = Depends(get_media_principal)):
+    """Serve a private thumbnail after validating the current session."""
+    thumbnail_dir = THUMBNAIL_DIR.resolve()
+    file_path = (thumbnail_dir / date / filename).resolve()
+    if not file_path.is_relative_to(thumbnail_dir) or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(
+        file_path,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"},
     )
 
 

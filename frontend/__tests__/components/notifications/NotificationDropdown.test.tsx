@@ -11,7 +11,7 @@
  * - Testing delete functionality
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { NotificationDropdown } from '@/components/notifications/NotificationDropdown'
 import { useNotifications } from '@/contexts/NotificationContext'
@@ -127,6 +127,22 @@ describe('NotificationDropdown', () => {
   })
 
   describe('notification list', () => {
+    it('shows an unavailable placeholder when private image access fails', () => {
+      mockUseNotifications.mockReturnValue({
+        notifications: [createMockNotification()],
+        unreadCount: 1,
+        isLoading: false,
+        markAsRead: mockMarkAsRead,
+        markAllAsRead: mockMarkAllAsRead,
+        deleteNotification: mockDeleteNotification,
+      })
+
+      render(<NotificationDropdown />)
+      fireEvent.error(screen.getByAltText('Notification event thumbnail'))
+      expect(screen.getByText('Unavailable')).toBeInTheDocument()
+      expect(screen.queryByAltText('Notification event thumbnail')).not.toBeInTheDocument()
+    })
+
     it('renders notifications list', () => {
       const notifications = [
         createMockNotification({ id: 'notif-1', rule_name: 'Motion Alert' }),

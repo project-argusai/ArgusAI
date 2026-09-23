@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, ApiError } from '@/lib/api-client';
 
 interface FrameGalleryModalProps {
   /** Event ID to fetch frames for */
@@ -40,6 +40,7 @@ function formatTimestampOffset(offsetMs: number): string {
 
 export function FrameGalleryModal({ eventId, open, onOpenChange }: FrameGalleryModalProps) {
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [failedFrames, setFailedFrames] = useState<number[]>([]);
 
   // Fetch frames when modal opens
   const {
@@ -61,6 +62,7 @@ export function FrameGalleryModal({ eventId, open, onOpenChange }: FrameGalleryM
   useEffect(() => {
     if (open) {
       setSelectedIndex(0);
+      setFailedFrames([]);
     }
   }, [open, eventId]);
 
@@ -139,9 +141,15 @@ export function FrameGalleryModal({ eventId, open, onOpenChange }: FrameGalleryM
         {error && !isLoading && (
           <div className="flex flex-col items-center justify-center py-16">
             <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
-            <p className="text-red-600 font-medium mb-2">Failed to load frames</p>
+            <p className="text-red-600 font-medium mb-2">
+              {error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403)
+                ? 'Your session cannot access these frames'
+                : 'Failed to load frames'}
+            </p>
             <p className="text-sm text-muted-foreground mb-4">
-              {error instanceof Error ? error.message : 'Unknown error'}
+              {error instanceof ApiError && (error.statusCode === 401 || error.statusCode === 403)
+                ? 'Sign in again or ask an administrator for access.'
+                : error instanceof Error ? error.message : 'Unknown error'}
             </p>
             <Button variant="outline" onClick={() => refetch()}>
               Try Again
@@ -169,12 +177,23 @@ export function FrameGalleryModal({ eventId, open, onOpenChange }: FrameGalleryM
           <>
             {/* Main frame view */}
             <div className="relative bg-black rounded-lg overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={getFrameImageUrl(currentFrame.frame_number)}
-                alt={`Analysis frame ${currentFrame.frame_number}`}
-                className="w-full h-auto max-h-[50vh] object-contain mx-auto"
-              />
+              {failedFrames.includes(currentFrame.frame_number) ? (
+                <div className="flex flex-col items-center justify-center gap-3 min-h-64 text-white">
+                  <AlertCircle className="w-8 h-8" />
+                  <p>Frame unavailable. Your session may have expired.</p>
+                  <Button variant="outline" onClick={() => { setFailedFrames([]); void refetch(); }}>
+                    Try Again
+                  </Button>
+                </div>
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={getFrameImageUrl(currentFrame.frame_number)}
+                  alt={`Analysis frame ${currentFrame.frame_number}`}
+                  className="w-full h-auto max-h-[50vh] object-contain mx-auto"
+                  onError={() => setFailedFrames((previous) => [...new Set([...previous, currentFrame.frame_number])])}
+                />
+              )}
 
               {/* Navigation arrows (AC2.3) */}
               {frames.length > 1 && (
@@ -237,12 +256,17 @@ export function FrameGalleryModal({ eventId, open, onOpenChange }: FrameGalleryM
                     }`}
                     aria-label={`Select frame ${frame.frame_number}`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={getFrameImageUrl(frame.frame_number)}
-                      alt={`Thumbnail ${frame.frame_number}`}
-                      className="w-full h-full object-cover"
-                    />
+                    {failedFrames.includes(frame.frame_number) ? (
+                      <span className="text-xs text-muted-foreground">Unavailable</span>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={getFrameImageUrl(frame.frame_number)}
+                        alt={`Thumbnail ${frame.frame_number}`}
+                        className="w-full h-full object-cover"
+                        onError={() => setFailedFrames((previous) => [...new Set([...previous, frame.frame_number])])}
+                      />
+                    )}
                   </button>
                 ))}
               </div>

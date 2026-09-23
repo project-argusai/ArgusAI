@@ -81,6 +81,16 @@ def test_corrupt_archive_is_rejected_without_extraction(backup_service, tmp_path
     assert not list(backup_service.backup_dir.glob("restore-*"))
 
 
+def test_invalid_metadata_types_are_rejected(backup_service, tmp_path):
+    archive = tmp_path / "metadata.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("database.db", b"SQLite format 3\x00")
+        zf.writestr("metadata.json", '{"app_version":{},"timestamp":"test"}')
+    result = backup_service.validate_backup(archive)
+    assert not result.valid
+    assert "invalid version" in result.message
+
+
 def test_member_size_limit_is_checked_before_decompression(backup_service, tmp_path, monkeypatch):
     archive = make_zip(tmp_path / "large.zip", [("thumbnails/a.jpg", b"123456")])
     monkeypatch.setattr(settings, "BACKUP_MAX_MEMBER_BYTES", 5)

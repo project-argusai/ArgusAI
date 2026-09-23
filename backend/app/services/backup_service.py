@@ -569,6 +569,9 @@ class BackupService:
 
                 backup_version = metadata.get("app_version", "unknown")
                 backup_timestamp = metadata.get("timestamp", "unknown")
+                if (not isinstance(backup_version, str) or len(backup_version) > 100
+                        or not isinstance(backup_timestamp, str) or len(backup_timestamp) > 100):
+                    raise BackupArchiveError("Backup metadata has invalid version or timestamp")
 
                 # Version compatibility check
                 if backup_version != APP_VERSION:
@@ -581,6 +584,13 @@ class BackupService:
                 includes = metadata.get("includes", {})
                 if not isinstance(includes, dict):
                     raise BackupArchiveError("Backup metadata has invalid contents")
+                if any(key in includes and type(includes[key]) is not bool
+                       for key in ("database", "thumbnails", "settings")):
+                    raise BackupArchiveError("Backup metadata has invalid contents")
+                for key in ("database_size_bytes", "thumbnails_count", "settings_count"):
+                    value = metadata.get(key, 0)
+                    if type(value) is not int or value < 0:
+                        raise BackupArchiveError("Backup metadata has invalid counts")
                 # Check file list for backwards compatibility with old backups
                 has_database = "database.db" in file_list
                 has_thumbnails = any(f.startswith("thumbnails/") for f in file_list)

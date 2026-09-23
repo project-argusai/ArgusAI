@@ -27,6 +27,11 @@ import json
 import shutil
 import zipfile
 import logging
+import stat
+import tempfile
+import time
+import errno
+import struct
 from app.core.decorators import singleton
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
@@ -35,12 +40,18 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
+from app.core.config import settings
 from app.models.system_setting import SystemSetting
 
 logger = logging.getLogger(__name__)
 
 # Application version for backup compatibility
 APP_VERSION = "1.0.0"
+ZIP_CHUNK_BYTES = 1024 * 1024
+
+
+class BackupArchiveError(ValueError):
+    """The uploaded archive exceeds a limit or violates backup topology."""
 
 
 @dataclass
@@ -126,6 +137,104 @@ class BackupService:
     # Required files in a valid backup ZIP
     REQUIRED_FILES = ["database.db", "metadata.json"]
     OPTIONAL_FILES = ["settings.json", "thumbnails/"]
+
+    def _preflight_zip_directory(self, zip_path: Path) -> None:
+        """Bound central-directory parsing before ZipFile allocates member objects."""
+        size = zip_path.stat().st_size
+        if size > settings.BACKUP_MAX_UPLOAD_BYTES:
+            raise BackupArchiveError("Backup exceeds the upload size limit")
+        with zip_path.open("rb") as source:
+            source.seek(max(0, size - 65557))
+            tail = source.read()
+        marker = b"PK\x05\x06"
+        offset = tail.rfind(marker)
+        while offset >= 0:
+            if len(tail) - offset >= 22:
+                fields = struct.unpack_from("<IHHHHIIH", tail, offset)
+                if offset + 22 + fields[-1] == len(tail):
+                    break
+            offset = tail.rfind(marker, 0, offset)
+        if offset < 0:
+            raise BackupArchiveError("File is not a valid ZIP archive")
+        _, disk, directory_disk, disk_count, count, directory_size, _, _ = fields
+        if disk or directory_disk or disk_count != count:
+            raise BackupArchiveError("File is not a supported ZIP archive")
+        if count == 0xffff or count > settings.BACKUP_MAX_MEMBERS:
+            raise BackupArchiveError("Backup has too many files")
+        if directory_size > size:
+            raise BackupArchiveError("File is not a valid ZIP archive")
+
+    def _approved_members(self, zf: zipfile.ZipFile) -> List[zipfile.ZipInfo]:
+        """Reject dangerous ZIP metadata before reading or extracting any member."""
+        members = zf.infolist()
+        if len(members) > settings.BACKUP_MAX_MEMBERS:
+            raise BackupArchiveError("Backup has too many files")
+
+        seen = set()
+        total_size = 0
+        approved = []
+        for info in members:
+            name = info.filename
+            parts = name.rstrip("/").split("/")
+            if (not name or len(name) > 255 or "\\" in name or "\x00" in name
+                    or name.startswith("/") or any(p in ("", ".", "..") for p in parts)
+                    or ":" in parts[0]):
+                raise BackupArchiveError("Backup contains an invalid path")
+            key = name.rstrip("/").casefold()
+            if key in seen:
+                raise BackupArchiveError("Backup contains duplicate paths")
+            seen.add(key)
+
+            mode = stat.S_IFMT(info.external_attr >> 16)
+            if mode not in (0, stat.S_IFREG, stat.S_IFDIR):
+                raise BackupArchiveError("Backup contains a special file")
+            is_dir = info.is_dir()
+            if is_dir != (mode == stat.S_IFDIR) and mode != 0:
+                raise BackupArchiveError("Backup contains an invalid file type")
+
+            if is_dir:
+                if parts[0] != "thumbnails" or info.file_size:
+                    raise BackupArchiveError("Backup contains an unexpected directory")
+                continue
+            if name not in ("database.db", "metadata.json", "settings.json"):
+                if (parts[0] != "thumbnails" or len(parts) < 2
+                        or Path(name).suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp")):
+                    raise BackupArchiveError("Backup contains an unexpected file")
+
+            member_limit = settings.BACKUP_MAX_MEMBER_BYTES
+            if name == "metadata.json":
+                member_limit = min(member_limit, 1024 * 1024)
+            elif name == "settings.json":
+                member_limit = min(member_limit, 10 * 1024 * 1024)
+            elif parts[0] == "thumbnails":
+                member_limit = min(member_limit, 20 * 1024 * 1024)
+            if info.file_size > member_limit:
+                raise BackupArchiveError("Backup contains an oversized file")
+            if info.file_size > max(1, info.compress_size) * settings.BACKUP_MAX_COMPRESSION_RATIO:
+                raise BackupArchiveError("Backup compression ratio exceeds the limit")
+            total_size += info.file_size
+            if total_size > settings.BACKUP_MAX_EXPANDED_BYTES:
+                raise BackupArchiveError("Backup expands beyond the size limit")
+            approved.append(info)
+
+        if not set(self.REQUIRED_FILES).issubset({item.filename for item in approved}):
+            raise BackupArchiveError("Backup is missing a required file")
+        return approved
+
+    def _read_member(self, zf: zipfile.ZipFile, info: zipfile.ZipInfo, output=None, deadline=None) -> None:
+        """Read with a fixed buffer and verify actual expanded size and CRC."""
+        count = 0
+        with zf.open(info) as source:
+            while chunk := source.read(ZIP_CHUNK_BYTES):
+                if deadline is not None and time.monotonic() > deadline:
+                    raise BackupArchiveError("Backup processing exceeded the time limit")
+                count += len(chunk)
+                if count > info.file_size or count > settings.BACKUP_MAX_MEMBER_BYTES:
+                    raise BackupArchiveError("Backup file expands beyond its declared size")
+                if output is not None:
+                    output.write(chunk)
+        if count != info.file_size:
+            raise BackupArchiveError("Backup file size does not match its header")
 
     def __init__(self, session_factory=None):
         """
@@ -443,35 +552,20 @@ class BackupService:
         """
         warnings = []
 
-        # Check if valid ZIP
-        if not zipfile.is_zipfile(zip_path):
-            return ValidationResult(
-                valid=False,
-                message="File is not a valid ZIP archive"
-            )
-
         try:
+            self._preflight_zip_directory(zip_path)
             with zipfile.ZipFile(zip_path, "r") as zf:
-                # Test ZIP integrity
-                bad_file = zf.testzip()
-                if bad_file:
-                    return ValidationResult(
-                        valid=False,
-                        message=f"ZIP archive is corrupted: {bad_file}"
-                    )
-
-                # Check required files
-                file_list = zf.namelist()
-                for required in self.REQUIRED_FILES:
-                    if required not in file_list:
-                        return ValidationResult(
-                            valid=False,
-                            message=f"Missing required file: {required}"
-                        )
+                approved = self._approved_members(zf)
+                file_list = [info.filename for info in approved]
+                deadline = time.monotonic() + settings.BACKUP_UPLOAD_TIMEOUT_SECONDS
+                for info in approved:
+                    self._read_member(zf, info, deadline=deadline)
 
                 # Read and validate metadata
                 with zf.open("metadata.json") as mf:
                     metadata = json.load(mf)
+                if not isinstance(metadata, dict):
+                    raise BackupArchiveError("Backup metadata must be an object")
 
                 backup_version = metadata.get("app_version", "unknown")
                 backup_timestamp = metadata.get("timestamp", "unknown")
@@ -485,6 +579,8 @@ class BackupService:
 
                 # FF-007: Determine what's in the backup
                 includes = metadata.get("includes", {})
+                if not isinstance(includes, dict):
+                    raise BackupArchiveError("Backup metadata has invalid contents")
                 # Check file list for backwards compatibility with old backups
                 has_database = "database.db" in file_list
                 has_thumbnails = any(f.startswith("thumbnails/") for f in file_list)
@@ -514,15 +610,19 @@ class BackupService:
                     contents=contents
                 )
 
+        except BackupArchiveError as e:
+            return ValidationResult(valid=False, message=str(e))
+        except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, OSError):
+            return ValidationResult(valid=False, message="File is not a valid ZIP archive")
         except json.JSONDecodeError:
             return ValidationResult(
                 valid=False,
                 message="Invalid metadata.json format"
             )
-        except Exception as e:
+        except Exception:
             return ValidationResult(
                 valid=False,
-                message=f"Validation error: {str(e)}"
+                message="Backup validation failed"
             )
 
     async def restore_from_backup(
@@ -556,7 +656,7 @@ class BackupService:
             RestoreResult with restore status
         """
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
-        temp_dir = self.backup_dir / f"restore-{timestamp}"
+        temp_dir: Optional[Path] = None
         warnings = []
 
         logger.info(
@@ -582,6 +682,14 @@ class BackupService:
             if validation.warnings:
                 warnings.extend(validation.warnings)
 
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                approved = self._approved_members(zf)
+            expanded_bytes = sum(info.file_size for info in approved)
+            current_db_bytes = self.database_path.stat().st_size if restore_database and self.database_path.exists() else 0
+            # Allow room for extraction, the pre-restore DB copy, and filesystem overhead.
+            if shutil.disk_usage(self.backup_dir).free < expanded_bytes + current_db_bytes + 10 * 1024 * 1024:
+                return RestoreResult(success=False, message="Insufficient free disk space for restore")
+
             # FF-007: Check if requested components exist in backup
             if validation.contents:
                 if restore_database and not validation.contents.has_database:
@@ -593,6 +701,15 @@ class BackupService:
                 if restore_settings and not validation.contents.has_settings:
                     warnings.append("Settings not included in this backup, skipping")
                     restore_settings = False
+
+            # Extract approved members into a private directory before touching live data.
+            temp_dir = Path(tempfile.mkdtemp(prefix="restore-", dir=self.backup_dir))
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                for info in approved:
+                    destination = temp_dir / info.filename
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    with destination.open("wb") as output:
+                        self._read_member(zf, info, output=output)
 
             # 2. Stop background tasks
             if stop_tasks_callback:
@@ -606,13 +723,7 @@ class BackupService:
                     shutil.copy2(self.database_path, backup_db_path)
                     logger.info(f"Current database backed up to {backup_db_path}")
 
-                # 4. Extract ZIP to temp directory
-                temp_dir.mkdir(parents=True, exist_ok=True)
-
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    zf.extractall(temp_dir)
-
-                # 5. Replace database (if selected)
+                # 4. Replace database (if selected)
                 events_restored = 0
                 if restore_database and (temp_dir / "database.db").exists():
                     shutil.copy2(temp_dir / "database.db", self.database_path)
@@ -679,12 +790,14 @@ class BackupService:
             logger.error(f"Restore failed: {e}", exc_info=True)
 
             # Cleanup temp directory on failure
-            if temp_dir.exists():
+            if temp_dir is not None and temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
             return RestoreResult(
                 success=False,
-                message=f"Restore failed: {str(e)}",
+                message=("Insufficient free disk space for restore"
+                         if isinstance(e, OSError) and e.errno == errno.ENOSPC
+                         else "Restore failed; live data may have changed"),
                 warnings=warnings
             )
 

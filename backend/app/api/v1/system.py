@@ -20,6 +20,8 @@ import logging
 import tempfile
 import shutil
 import time
+import errno
+from contextlib import asynccontextmanager
 
 
 def _matches_filters(record: dict, filters: dict) -> bool:
@@ -140,6 +142,41 @@ from app.api.v1.auth import get_current_user, authenticate_websocket
 from app.core.permissions import require_admin
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 from app.core.config import settings
+from app.middleware.rate_limit import limit_custom
+
+
+@asynccontextmanager
+async def _staged_backup_upload(file: UploadFile):
+    """Copy a multipart backup to disk with a fixed memory and disk budget."""
+    limit = settings.BACKUP_MAX_UPLOAD_BYTES
+    path = None
+    try:
+        if not file.filename or not file.filename.lower().endswith(".zip"):
+            raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+        if file.size is not None and file.size > limit:
+            raise HTTPException(status_code=413, detail="Backup exceeds the upload size limit")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            path = Path(tmp.name)
+            written = 0
+            async with asyncio.timeout(settings.BACKUP_UPLOAD_TIMEOUT_SECONDS):
+                while chunk := await file.read(min(1024 * 1024, limit - written + 1)):
+                    written += len(chunk)
+                    if written > limit:
+                        raise HTTPException(status_code=413, detail="Backup exceeds the upload size limit")
+                    if shutil.disk_usage(path.parent).free < len(chunk) + 10 * 1024 * 1024:
+                        raise HTTPException(status_code=507, detail="Insufficient disk space for backup upload")
+                    tmp.write(chunk)
+        yield path
+    except TimeoutError as e:
+        raise HTTPException(status_code=408, detail="Backup upload timed out") from e
+    except OSError as e:
+        if e.errno == errno.ENOSPC:
+            raise HTTPException(status_code=507, detail="Insufficient disk space for backup upload") from e
+        raise
+    finally:
+        if path is not None:
+            path.unlink(missing_ok=True)
+        await file.close()
 
 def require_debug_access(
     request: Request,
@@ -2743,8 +2780,13 @@ async def list_backups():
         )
 
 
-@router.post("/backup/validate", response_model=ValidationResponse, dependencies=[Depends(require_admin())])
-async def validate_backup(file: UploadFile = File(...)):
+@router.post(
+    "/backup/validate",
+    response_model=ValidationResponse,
+    dependencies=[Depends(require_admin())],
+)
+@limit_custom("2/minute")
+async def validate_backup(request: Request, file: UploadFile = File(...)):
     """
     Validate a backup file before restore
 
@@ -2774,20 +2816,7 @@ async def validate_backup(file: UploadFile = File(...)):
     - 500: Internal server error
     """
     try:
-        # Check file type
-        if not file.filename or not file.filename.endswith('.zip'):
-            return ValidationResponse(
-                valid=False,
-                message="File must be a ZIP archive"
-            )
-
-        # Save to temp file for validation
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-
-        try:
+        async with _staged_backup_upload(file) as tmp_path:
             backup_service = container.backup_service
             result = backup_service.validate_backup(tmp_path)
 
@@ -2811,20 +2840,25 @@ async def validate_backup(file: UploadFile = File(...)):
                 warnings=result.warnings or [],
                 contents=contents
             )
-        finally:
-            # Cleanup temp file
-            tmp_path.unlink(missing_ok=True)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error validating backup: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to validate backup: {str(e)}"
+            detail="Failed to validate backup"
         )
 
 
-@router.post("/restore", response_model=RestoreResponse, dependencies=[Depends(require_admin())])
+@router.post(
+    "/restore",
+    response_model=RestoreResponse,
+    dependencies=[Depends(require_admin())],
+)
+@limit_custom("2/minute")
 async def restore_from_backup(
+    request: Request,
     file: UploadFile = File(...),
     restore_database: bool = Form(default=True),
     restore_thumbnails: bool = Form(default=True),
@@ -2867,20 +2901,7 @@ async def restore_from_backup(
     - 500: Restore failed
     """
     try:
-        # Check file type
-        if not file.filename or not file.filename.endswith('.zip'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be a ZIP archive"
-            )
-
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-
-        try:
+        async with _staged_backup_upload(file) as tmp_path:
             backup_service = container.backup_service
 
             # Validate first
@@ -2935,7 +2956,7 @@ async def restore_from_backup(
 
             if not result.success:
                 raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    status_code=507 if result.message == "Insufficient free disk space for restore" else status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=result.message
                 )
 
@@ -2948,17 +2969,13 @@ async def restore_from_backup(
                 warnings=result.warnings or []
             )
 
-        finally:
-            # Cleanup temp file
-            tmp_path.unlink(missing_ok=True)
-
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error restoring backup: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Restore failed: {str(e)}"
+            detail="Restore failed"
         )
 
 

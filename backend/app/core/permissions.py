@@ -72,10 +72,8 @@ def require_role(*allowed_roles: UserRole):
 
     async def check_role(
         request: Request,
-        db: Session = Depends(get_db)
+        current_user: User = Depends(get_current_user),
     ) -> User:
-        # Get current user using existing auth mechanism
-        current_user = get_current_user(request, db)
 
         # Check if user's role is in allowed roles
         if current_user.role not in allowed_roles:

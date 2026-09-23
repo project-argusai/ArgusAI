@@ -9,6 +9,21 @@ Tests cover:
 """
 
 import pytest
+from types import SimpleNamespace
+
+from main import app
+from app.api.v1.auth import get_current_user
+from app.models.user import UserRole
+
+
+@pytest.fixture(autouse=True)
+def authenticated_admin():
+    """These settings behavior tests exercise an authorized administrator."""
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id="analysis-settings-admin", username="analysis-settings-admin", role=UserRole.ADMIN
+    )
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
 
 
 class TestAnalysisFrameCountSettings:

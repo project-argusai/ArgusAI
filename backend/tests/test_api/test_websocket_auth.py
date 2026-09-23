@@ -5,8 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.api.v1.auth import authenticate_websocket, require_websocket_user
-from app.api.v1.websocket import websocket_endpoint, stream_camera_ws
+from app.api.v1.auth import (
+    authenticate_websocket,
+    require_websocket_user,
+    websocket_session_is_active,
+)
+from app.api.v1.websocket import websocket_endpoint, stream_camera_ws, send_heartbeat
 from app.api.v1.cameras import stream_camera
 from fastapi import WebSocketDisconnect
 
@@ -49,7 +53,8 @@ async def test_cookie_without_origin_is_rejected_but_api_bearer_is_allowed():
 
     bearer_socket = socket(origin=None, bearer="valid-bearer")
     user = MagicMock(is_active=True)
-    with patch("app.api.v1.auth.authenticate_websocket", return_value=user):
+    with patch("app.api.v1.auth.authenticate_websocket", return_value=user), \
+         patch("app.api.v1.auth.websocket_session_is_active", return_value=True):
         assert await require_websocket_user(bearer_socket) is user
     bearer_socket.close.assert_not_awaited()
 
@@ -78,6 +83,55 @@ async def test_disabled_user_is_rejected():
         assert authenticate_websocket(websocket) is None
         assert await require_websocket_user(websocket) is None
     websocket.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_revoked_session_is_rejected_before_accept():
+    websocket = socket(cookie="valid-jwt-with-revoked-session")
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
+
+    @contextmanager
+    def db_session():
+        yield db
+
+    with patch("app.api.v1.auth.decode_access_token", return_value={"user_id": "user-1"}), \
+         patch("app.core.database.get_db_session", db_session), \
+         patch("app.api.v1.auth.authenticate_websocket", return_value=MagicMock()):
+        assert websocket_session_is_active(websocket) is False
+        assert await require_websocket_user(websocket) is None
+    websocket.close.assert_awaited_once()
+    websocket.accept.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_active_session_and_user_are_allowed():
+    websocket = socket(cookie="valid-jwt-and-session")
+    session = MagicMock(user_id="user-1")
+    session.is_expired.return_value = False
+    user = MagicMock(is_active=True)
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.side_effect = [session, user]
+
+    @contextmanager
+    def db_session():
+        yield db
+
+    with patch("app.api.v1.auth.decode_access_token", return_value={"user_id": "user-1"}), \
+         patch("app.core.database.get_db_session", db_session), \
+         patch("app.api.v1.auth.authenticate_websocket", return_value=user):
+        assert await require_websocket_user(websocket) is user
+    websocket.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_closes_socket_after_session_revocation():
+    websocket = socket(cookie="valid-jwt-then-revoked")
+    with patch("app.api.v1.websocket.HEARTBEAT_INTERVAL", 0), \
+         patch("app.api.v1.websocket.websocket_session_is_active", return_value=False):
+        await send_heartbeat(websocket)
+    websocket.close.assert_awaited_once()
+    websocket.send_text.assert_not_called()
 
 
 @pytest.mark.asyncio

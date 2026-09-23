@@ -26,7 +26,7 @@ except ImportError:
     PYAV_AVAILABLE = False
 
 from app.core.database import get_db
-from app.api.v1.auth import require_websocket_user
+from app.api.v1.auth import require_websocket_user, websocket_session_is_active
 from app.core.validators import CameraUUID
 from app.models.camera import Camera
 from app.schemas.camera import (
@@ -2660,8 +2660,14 @@ async def stream_camera(
         async def send_frames():
             """Background task to send frames to client"""
             last_frame_time = 0
+            next_auth_check = asyncio.get_running_loop().time() + 30
             while True:
                 try:
+                    if asyncio.get_running_loop().time() >= next_auth_check:
+                        if not websocket_session_is_active(websocket):
+                            await websocket.close(code=1008, reason="Session expired")
+                            break
+                        next_auth_check = asyncio.get_running_loop().time() + 30
                     # Get latest frame for this client
                     frame_data = stream_service.get_client_frame(camera_id, client_id)
                     if frame_data and frame_data["timestamp"] > last_frame_time:

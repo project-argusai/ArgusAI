@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.websocket_manager import get_websocket_manager
-from app.api.v1.auth import require_websocket_user
+from app.api.v1.auth import require_websocket_user, websocket_session_is_active
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +89,9 @@ async def send_heartbeat(websocket: WebSocket):
     try:
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
+            if not websocket_session_is_active(websocket):
+                await websocket.close(code=1008, reason="Session expired")
+                break
             try:
                 await websocket.send_text("ping")
                 logger.debug("Sent heartbeat ping")

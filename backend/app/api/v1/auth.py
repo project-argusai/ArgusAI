@@ -138,6 +138,35 @@ def authenticate_websocket(
     return user
 
 
+def websocket_session_is_active(websocket: WebSocket) -> bool:
+    """Recheck the access token, server-side session, and user for a live socket."""
+    token = websocket.cookies.get(COOKIE_NAME)
+    if not token:
+        auth_header = websocket.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        return False
+
+    try:
+        user_id = decode_access_token(token).get("user_id")
+    except TokenError:
+        return False
+    if not user_id:
+        return False
+
+    from app.core.database import get_db_session
+    with get_db_session() as db:
+        session = db.query(SessionModel).filter(
+            SessionModel.token_hash == SessionModel.hash_token(token),
+            SessionModel.user_id == user_id,
+        ).first()
+        if not session or session.is_expired():
+            return False
+        user = db.query(User).filter(User.id == user_id).first()
+        return bool(user and user.is_active)
+
+
 async def require_websocket_user(websocket: WebSocket) -> Optional[User]:
     """Authorize a browser or API WebSocket before its handshake is accepted.
 
@@ -157,8 +186,9 @@ async def require_websocket_user(websocket: WebSocket) -> Optional[User]:
         return None
 
     user = authenticate_websocket(websocket)
-    if user is None:
+    if user is None or not websocket_session_is_active(websocket):
         await websocket.close(code=1008, reason="Authentication required")
+        return None
     return user
 
 

@@ -28,6 +28,26 @@ import os
 import tempfile
 
 
+@pytest.fixture(autouse=True)
+def _legacy_route_test_auth_override(request, monkeypatch):
+    """Preserve legacy route-test isolation without a deployed auth bypass.
+
+    Existing API tests create module-level TestClients without credentials and
+    exercise route behavior independently of authentication. Keep that override
+    in pytest only. Tests marked ``real_auth_middleware`` exercise the deployed
+    middleware without this override.
+    """
+    if request.node.get_closest_marker("real_auth_middleware"):
+        return
+
+    from app.middleware.auth_middleware import AuthMiddleware
+
+    async def pass_through(self, scope, receive, send):
+        await self.app(scope, receive, send)
+
+    monkeypatch.setattr(AuthMiddleware, "__call__", pass_through)
+
+
 # =============================================================================
 # Test Isolation
 # =============================================================================

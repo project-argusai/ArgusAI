@@ -66,6 +66,14 @@ class Settings(BaseSettings):
     STREAM_FRAME_BUFFER_SIZE: int = 5  # Frames to buffer for new clients
     STREAM_CONNECTION_TIMEOUT: int = 30  # Seconds before idle stream disconnects
 
+    # Limits for untrusted backup uploads and ZIP expansion.
+    BACKUP_MAX_UPLOAD_BYTES: int = 512 * 1024 * 1024
+    BACKUP_UPLOAD_TIMEOUT_SECONDS: int = 120
+    BACKUP_MAX_MEMBERS: int = 10000
+    BACKUP_MAX_EXPANDED_BYTES: int = 2 * 1024 * 1024 * 1024
+    BACKUP_MAX_MEMBER_BYTES: int = 1024 * 1024 * 1024
+    BACKUP_MAX_COMPRESSION_RATIO: int = 500
+
     # HomeKit Integration (Story P4-6.1, P4-6.2)
     HOMEKIT_ENABLED: bool = False
     HOMEKIT_PORT: int = 51826

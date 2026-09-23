@@ -9,7 +9,6 @@ Middleware that:
 - Excludes health, auth, metrics, docs endpoints
 """
 import logging
-import os
 from typing import Callable, Set
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -18,6 +17,7 @@ from starlette.responses import Response, JSONResponse
 
 from app.core.database import get_db_session
 from app.core.config import settings
+from app.core.api_key_scopes import api_key_allows, required_api_key_scope
 from app.models.user import User
 from app.utils.jwt import decode_access_token, TokenError
 from app.services.service_container import container
@@ -54,7 +54,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
     5. Reject with 401 if invalid
     """
 
-    # Paths that don't require authentication
+    # Public HTTP paths: liveness/metrics and API documentation. These expose
+    # no account data. The root path serves the API landing response.
     EXCLUDED_PATHS: Set[str] = {
         '/health',
         '/metrics',
@@ -62,24 +63,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
         '/redoc',
         '/openapi.json',
         '/',
-    }
-
-    # Path prefixes that don't require authentication
-    EXCLUDED_PREFIXES: tuple = (
         '/api/v1/auth/login',
         '/api/v1/auth/logout',
-        '/api/v1/auth/refresh',   # Web refresh token endpoint (Phase A)
+        '/api/v1/auth/refresh',
         '/api/v1/auth/setup-status',
-        '/api/v1/thumbnails/',  # Thumbnail images (public for img tags)
-        '/ws',  # WebSocket connections handle their own auth
+        '/api/v1/mobile/auth/pair',
+        '/api/v1/mobile/auth/exchange',
+        '/api/v1/mobile/auth/refresh',
+        '/ws',
+    }
+
+    # Public flows: login/logout/refresh and setup status must work before an
+    # access token exists; mobile pairing/status/exchange/refresh have their
+    # own one-time-code or refresh-token validation in the route handlers.
+    # WebSocket upgrades are authenticated by their respective handlers.
+    EXCLUDED_PREFIXES: tuple = (
+        '/ws/',  # WebSocket connections handle their own auth
         # Mobile auth endpoints that don't require authentication (Story P12-3)
-        '/api/v1/mobile/auth/pair',      # Mobile initiates pairing
         '/api/v1/mobile/auth/status/',   # Mobile polls for confirmation
-        '/api/v1/mobile/auth/exchange',  # Mobile exchanges code for tokens
-        '/api/v1/mobile/auth/refresh',   # Mobile refreshes tokens
     )
 
-    # Path suffixes that don't require authentication (WebSocket endpoints)
+    # Camera WebSocket stream paths authenticate during the upgrade handler.
     EXCLUDED_SUFFIXES: tuple = (
         '/stream',  # Camera WebSocket streaming (P16-2)
     )
@@ -89,12 +93,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         path = request.url.path
         method = request.method
-
-        # Skip auth in test mode (when running pytest)
-        # Check for TestClient user-agent or TESTING environment variable
-        user_agent = request.headers.get("user-agent", "")
-        if "testclient" in user_agent.lower() or os.environ.get("TESTING") == "1":
-            return await call_next(request)
 
         # Skip auth for excluded paths
         if self._is_excluded(path):
@@ -107,6 +105,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Check for API key first (programmatic access)
         api_key_valid = await self._check_api_key(request)
         if api_key_valid:
+            required_scope = required_api_key_scope(
+                method, path, settings.API_V1_PREFIX
+            )
+            key_info = request.state.api_key
+            scopes = key_info.get("scopes") or []
+            if not api_key_allows(scopes, required_scope):
+                logger.warning(
+                    "API key denied by route scope policy",
+                    extra={
+                        "event_type": "api_key_scope_denied",
+                        "api_key_id": key_info["id"],
+                        "path": path,
+                        "method": method,
+                    },
+                )
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "API key not permitted for this endpoint"},
+                    headers=_get_cors_headers(request),
+                )
             return await call_next(request)
 
         # Extract JWT token
@@ -210,11 +228,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         for suffix in self.EXCLUDED_SUFFIXES:
             if path_only.endswith(suffix):
                 return True
-
-        # Event frames are public (used in img tags)
-        # Pattern: /api/v1/events/{uuid}/frames or /api/v1/events/{uuid}/frames/{number}
-        if path.startswith('/api/v1/events/') and '/frames' in path:
-            return True
 
         return False
 

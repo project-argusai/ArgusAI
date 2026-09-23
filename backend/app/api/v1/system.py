@@ -20,6 +20,8 @@ import logging
 import tempfile
 import shutil
 import time
+import errno
+from contextlib import asynccontextmanager
 
 
 def _matches_filters(record: dict, filters: dict) -> bool:
@@ -137,8 +139,44 @@ from app.schemas.types import iso_utc
 from app.models.system_setting import SystemSetting
 from app.models.user import User, UserRole
 from app.api.v1.auth import get_current_user, authenticate_websocket
+from app.core.permissions import require_admin
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 from app.core.config import settings
+from app.middleware.rate_limit import limit_custom
+
+
+@asynccontextmanager
+async def _staged_backup_upload(file: UploadFile):
+    """Copy a multipart backup to disk with a fixed memory and disk budget."""
+    limit = settings.BACKUP_MAX_UPLOAD_BYTES
+    path = None
+    try:
+        if not file.filename or not file.filename.lower().endswith(".zip"):
+            raise HTTPException(status_code=400, detail="File must be a ZIP archive")
+        if file.size is not None and file.size > limit:
+            raise HTTPException(status_code=413, detail="Backup exceeds the upload size limit")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            path = Path(tmp.name)
+            written = 0
+            async with asyncio.timeout(settings.BACKUP_UPLOAD_TIMEOUT_SECONDS):
+                while chunk := await file.read(min(1024 * 1024, limit - written + 1)):
+                    written += len(chunk)
+                    if written > limit:
+                        raise HTTPException(status_code=413, detail="Backup exceeds the upload size limit")
+                    if shutil.disk_usage(path.parent).free < len(chunk) + 10 * 1024 * 1024:
+                        raise HTTPException(status_code=507, detail="Insufficient disk space for backup upload")
+                    tmp.write(chunk)
+        yield path
+    except TimeoutError as e:
+        raise HTTPException(status_code=408, detail="Backup upload timed out") from e
+    except OSError as e:
+        if e.errno == errno.ENOSPC:
+            raise HTTPException(status_code=507, detail="Insufficient disk space for backup upload") from e
+        raise
+    finally:
+        if path is not None:
+            path.unlink(missing_ok=True)
+        await file.close()
 
 def require_debug_access(
     request: Request,
@@ -1484,7 +1522,7 @@ def calculate_next_cleanup() -> Optional[str]:
         return None
 
 
-@router.get("/retention", response_model=RetentionPolicyResponse)
+@router.get("/retention", response_model=RetentionPolicyResponse, dependencies=[Depends(require_admin())])
 async def get_retention_policy(db: Session = Depends(get_db)):
     """
     Get current data retention policy
@@ -1526,7 +1564,7 @@ async def get_retention_policy(db: Session = Depends(get_db)):
         )
 
 
-@router.put("/retention", response_model=RetentionPolicyResponse)
+@router.put("/retention", response_model=RetentionPolicyResponse, dependencies=[Depends(require_admin())])
 async def update_retention_policy(
     policy: RetentionPolicyUpdate,
     db: Session = Depends(get_db)
@@ -1655,7 +1693,7 @@ def _set_setting_in_db(db: Session, key: str, value: any):
     db.commit()
 
 
-@router.get("/settings", response_model=SystemSettings)
+@router.get("/settings", response_model=SystemSettings, dependencies=[Depends(require_admin())])
 async def get_settings(db: Session = Depends(get_db)):
     """
     Get all system settings
@@ -1734,7 +1772,7 @@ async def get_settings(db: Session = Depends(get_db)):
         )
 
 
-@router.put("/settings", response_model=SystemSettings)
+@router.put("/settings", response_model=SystemSettings, dependencies=[Depends(require_admin())])
 async def update_settings(
     settings_update: SystemSettingsUpdate,
     db: Session = Depends(get_db)
@@ -1872,7 +1910,7 @@ class TestKeyResponse(BaseModel):
     provider: str = Field(..., description="Provider that was tested")
 
 
-@router.post("/test-key", response_model=TestKeyResponse)
+@router.post("/test-key", response_model=TestKeyResponse, dependencies=[Depends(require_admin())])
 async def test_api_key(request: TestKeyRequest):
     """
     Test an AI provider API key without saving it
@@ -2551,7 +2589,7 @@ class ValidationResponse(BaseModel):
     contents: Optional[BackupContentsResponse] = Field(None, description="What's in the backup (FF-007)")
 
 
-@router.post("/backup", response_model=BackupResponse)
+@router.post("/backup", response_model=BackupResponse, dependencies=[Depends(require_admin())])
 async def create_backup(options: Optional[BackupOptions] = None):
     """
     Create a system backup with optional selective components (FF-007)
@@ -2635,7 +2673,7 @@ async def create_backup(options: Optional[BackupOptions] = None):
         )
 
 
-@router.get("/backup/{timestamp}/download")
+@router.get("/backup/{timestamp}/download", dependencies=[Depends(require_admin())])
 async def download_backup(timestamp: str):
     """
     Download a backup file
@@ -2685,7 +2723,7 @@ async def download_backup(timestamp: str):
         )
 
 
-@router.get("/backup/list", response_model=BackupListResponse)
+@router.get("/backup/list", response_model=BackupListResponse, dependencies=[Depends(require_admin())])
 async def list_backups():
     """
     List all available backups
@@ -2742,8 +2780,13 @@ async def list_backups():
         )
 
 
-@router.post("/backup/validate", response_model=ValidationResponse)
-async def validate_backup(file: UploadFile = File(...)):
+@router.post(
+    "/backup/validate",
+    response_model=ValidationResponse,
+    dependencies=[Depends(require_admin())],
+)
+@limit_custom("2/minute")
+async def validate_backup(request: Request, file: UploadFile = File(...)):
     """
     Validate a backup file before restore
 
@@ -2773,20 +2816,7 @@ async def validate_backup(file: UploadFile = File(...)):
     - 500: Internal server error
     """
     try:
-        # Check file type
-        if not file.filename or not file.filename.endswith('.zip'):
-            return ValidationResponse(
-                valid=False,
-                message="File must be a ZIP archive"
-            )
-
-        # Save to temp file for validation
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-
-        try:
+        async with _staged_backup_upload(file) as tmp_path:
             backup_service = container.backup_service
             result = backup_service.validate_backup(tmp_path)
 
@@ -2810,20 +2840,25 @@ async def validate_backup(file: UploadFile = File(...)):
                 warnings=result.warnings or [],
                 contents=contents
             )
-        finally:
-            # Cleanup temp file
-            tmp_path.unlink(missing_ok=True)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error validating backup: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to validate backup: {str(e)}"
+            detail="Failed to validate backup"
         )
 
 
-@router.post("/restore", response_model=RestoreResponse)
+@router.post(
+    "/restore",
+    response_model=RestoreResponse,
+    dependencies=[Depends(require_admin())],
+)
+@limit_custom("2/minute")
 async def restore_from_backup(
+    request: Request,
     file: UploadFile = File(...),
     restore_database: bool = Form(default=True),
     restore_thumbnails: bool = Form(default=True),
@@ -2866,20 +2901,7 @@ async def restore_from_backup(
     - 500: Restore failed
     """
     try:
-        # Check file type
-        if not file.filename or not file.filename.endswith('.zip'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be a ZIP archive"
-            )
-
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-            content = await file.read()
-            tmp.write(content)
-            tmp_path = Path(tmp.name)
-
-        try:
+        async with _staged_backup_upload(file) as tmp_path:
             backup_service = container.backup_service
 
             # Validate first
@@ -2934,7 +2956,7 @@ async def restore_from_backup(
 
             if not result.success:
                 raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    status_code=507 if result.message == "Insufficient free disk space for restore" else status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=result.message
                 )
 
@@ -2947,21 +2969,17 @@ async def restore_from_backup(
                 warnings=result.warnings or []
             )
 
-        finally:
-            # Cleanup temp file
-            tmp_path.unlink(missing_ok=True)
-
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error restoring backup: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Restore failed: {str(e)}"
+            detail="Restore failed"
         )
 
 
-@router.delete("/backup/{timestamp}")
+@router.delete("/backup/{timestamp}", dependencies=[Depends(require_admin())])
 async def delete_backup(timestamp: str):
     """
     Delete a specific backup
@@ -3230,7 +3248,7 @@ class DeleteDataResponse(BaseModel):
     success: bool = Field(..., description="Whether deletion was successful")
 
 
-@router.delete("/data", response_model=DeleteDataResponse)
+@router.delete("/data", response_model=DeleteDataResponse, dependencies=[Depends(require_admin())])
 async def delete_all_data(db: Session = Depends(get_db)):
     """
     Delete all event data from the system

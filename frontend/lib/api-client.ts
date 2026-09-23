@@ -825,7 +825,6 @@ export const apiClient = {
         id: string;
         event_id: string;
         frame_number: number;
-        frame_path: string;
         timestamp_offset_ms: number;
         width: number | null;
         height: number | null;

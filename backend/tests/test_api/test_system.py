@@ -15,6 +15,9 @@ from app.models.event import Event
 from app.models.ai_usage import AIUsage
 from app.services import cleanup_service
 from app.services.service_container import container
+from app.api.v1.auth import get_current_user
+from app.models.user import UserRole
+from types import SimpleNamespace
 
 
 # Create module-level temp database
@@ -46,6 +49,9 @@ def setup_module_database():
     Base.metadata.create_all(bind=engine)
     # Apply override for all tests in this module
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id="test-admin", username="test-admin", role=UserRole.ADMIN
+    )
     # Override CleanupService (now a @singleton) to use the test database.
     # The /system/storage and /events/cleanup endpoints resolve the service via
     # container.cleanup_service -> get_cleanup_service() -> CleanupService(),
@@ -59,6 +65,7 @@ def setup_module_database():
     yield
     # Drop tables after all tests in module complete
     cleanup_service.CleanupService._reset_instance()
+    app.dependency_overrides.pop(get_current_user, None)
     Base.metadata.drop_all(bind=engine)
 
 

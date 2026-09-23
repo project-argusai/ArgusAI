@@ -16,6 +16,7 @@ import logging
 
 from app.core.database import get_db
 from app.api.v1.auth import get_current_user
+from app.core.permissions import require_admin
 from app.models.user import User
 from app.schemas.api_key import (
     APIKeyCreateRequest,
@@ -29,7 +30,9 @@ from app.services.service_container import container
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api-keys", tags=["API Keys"])
+# Keys are global credentials, including the admin scope. Only administrators may
+# enumerate, issue, inspect usage for, or revoke them.
+router = APIRouter(prefix="/api-keys", tags=["API Keys"], dependencies=[Depends(require_admin())])
 
 
 @router.post(

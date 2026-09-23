@@ -22,10 +22,13 @@ import os
 
 from main import app
 from app.core.database import Base, get_db
+from app.api.v1.auth import get_current_user
 from app.models.system_setting import SystemSetting
+from app.models.user import UserRole
 from app.services.ai_service import AIService
 from app.services.ai_providers.grok_provider import GrokProvider
 from app.services.ai_types import AIResult, AIProvider as AIProviderEnum
+from types import SimpleNamespace
 
 
 # Create module-level temp database (file-based for isolation)
@@ -55,7 +58,11 @@ def setup_module_database():
     """Set up database and override at module start, teardown at end."""
     Base.metadata.create_all(bind=engine)
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id="grok-settings-admin", username="grok-settings-admin", role=UserRole.ADMIN
+    )
     yield
+    app.dependency_overrides.pop(get_current_user, None)
     Base.metadata.drop_all(bind=engine)
     engine.dispose()
     # Clean up temp file

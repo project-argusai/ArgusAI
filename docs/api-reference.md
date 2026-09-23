@@ -50,6 +50,15 @@ curl -H "X-API-Key: argus_abc123..." http://localhost:8000/api/v1/events
 - Automatic expiration (optional)
 - Usage tracking and statistics
 
+API keys are accepted on event and camera endpoints only. A `read:events` key
+can read events, including exports and media. A `read:cameras` key can read
+camera status and previews. A `write:cameras` key can create, update, and delete
+cameras and change their capture, motion, zone, schedule, and audio settings.
+Event writes and deletes require `admin`. The `admin` scope grants access to
+these event and camera routes, but never to user, API-key, or system management.
+Use a signed-in administrator session for those management endpoints. A valid
+key without the required route scope receives HTTP 403.
+
 **Rate Limit Headers:**
 ```
 X-RateLimit-Limit: 100

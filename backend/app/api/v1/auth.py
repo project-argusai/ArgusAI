@@ -97,6 +97,19 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+def get_media_principal(request: Request, db: Session = Depends(get_db)) -> User | dict:
+    """Authorize private media for a user session or an already-scoped API key.
+
+    AuthMiddleware validates API keys and applies the route allowlist before this
+    dependency runs. Do not use this dependency for routes that require a human
+    user's role; it intentionally returns API-key metadata for integration reads.
+    """
+    api_key = getattr(request.state, "api_key", None)
+    if api_key is not None:
+        return api_key
+    return get_current_user(request, db)
+
+
 def authenticate_websocket(
     websocket: WebSocket, token: Optional[str] = None
 ) -> Optional[User]:
@@ -134,6 +147,60 @@ def authenticate_websocket(
         user = db.query(User).filter(User.id == user_id).first()
 
     if not user or not user.is_active:
+        return None
+    return user
+
+
+def websocket_session_is_active(websocket: WebSocket) -> bool:
+    """Recheck the access token, server-side session, and user for a live socket."""
+    token = websocket.cookies.get(COOKIE_NAME)
+    if not token:
+        auth_header = websocket.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        return False
+
+    try:
+        user_id = decode_access_token(token).get("user_id")
+    except TokenError:
+        return False
+    if not user_id:
+        return False
+
+    from app.core.database import get_db_session
+    with get_db_session() as db:
+        session = db.query(SessionModel).filter(
+            SessionModel.token_hash == SessionModel.hash_token(token),
+            SessionModel.user_id == user_id,
+        ).first()
+        if not session or session.is_expired():
+            return False
+        user = db.query(User).filter(User.id == user_id).first()
+        return bool(user and user.is_active)
+
+
+async def require_websocket_user(websocket: WebSocket) -> Optional[User]:
+    """Authorize a browser or API WebSocket before its handshake is accepted.
+
+    Browsers send an Origin header and authenticate with the same HttpOnly
+    cookie as HTTP requests. An absent Origin is only supported for API clients
+    using an Authorization header. Query-string JWTs are deliberately excluded:
+    URLs are routinely captured in proxy and access logs.
+    """
+    origin = websocket.headers.get("origin")
+    allowed_origins = settings.cors_origins_list
+    if origin:
+        if origin not in allowed_origins:
+            await websocket.close(code=1008, reason="Origin not allowed")
+            return None
+    elif not websocket.headers.get("authorization", "").startswith("Bearer "):
+        await websocket.close(code=1008, reason="Origin required")
+        return None
+
+    user = authenticate_websocket(websocket)
+    if user is None or not websocket_session_is_active(websocket):
+        await websocket.close(code=1008, reason="Authentication required")
         return None
     return user
 

@@ -17,6 +17,7 @@ from starlette.responses import Response, JSONResponse
 
 from app.core.database import get_db_session
 from app.core.config import settings
+from app.core.api_key_scopes import api_key_allows, required_api_key_scope
 from app.models.user import User
 from app.utils.jwt import decode_access_token, TokenError
 from app.services.service_container import container
@@ -108,6 +109,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Check for API key first (programmatic access)
         api_key_valid = await self._check_api_key(request)
         if api_key_valid:
+            required_scope = required_api_key_scope(
+                method, path, settings.API_V1_PREFIX
+            )
+            key_info = request.state.api_key
+            scopes = key_info.get("scopes") or []
+            if not api_key_allows(scopes, required_scope):
+                logger.warning(
+                    "API key denied by route scope policy",
+                    extra={
+                        "event_type": "api_key_scope_denied",
+                        "api_key_id": key_info["id"],
+                        "path": path,
+                        "method": method,
+                    },
+                )
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "API key not permitted for this endpoint"},
+                    headers=_get_cors_headers(request),
+                )
             return await call_next(request)
 
         # Extract JWT token

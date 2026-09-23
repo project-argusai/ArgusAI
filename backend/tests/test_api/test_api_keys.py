@@ -23,7 +23,7 @@ from sqlalchemy.orm import sessionmaker
 
 from main import app
 from app.core.database import Base, get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.api_key import APIKey
 from app.utils.auth import hash_password
 from app.api.v1.auth import get_current_user
@@ -99,6 +99,7 @@ def authenticated_user():
             id=str(uuid.uuid4()),
             username="testuser",
             password_hash=hash_password("TestPass123!"),
+            role=UserRole.ADMIN,
             is_active=True,
         )
         db.add(user)

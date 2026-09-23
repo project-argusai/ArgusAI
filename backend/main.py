@@ -30,6 +30,7 @@ from app.core.metrics import init_metrics, get_metrics, get_content_type, update
 from app.core.json_encoding import install_utc_datetime_encoder
 from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
+from app.middleware.csrf import CSRFMiddleware
 from app.middleware.last_seen import LastSeenMiddleware
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware, limiter as global_limiter  # Story P14-2.6
@@ -970,6 +971,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Require an explicitly configured app origin for state changes sent with
+# browser session cookies. Bearer-only and API-key clients are unaffected.
+app.add_middleware(CSRFMiddleware, allowed_origins=settings.cors_origins_list)
 
 # Custom exception handler to ensure CORS headers on HTTPException responses
 from fastapi import HTTPException, Request

@@ -97,6 +97,19 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     return user
 
 
+def get_media_principal(request: Request, db: Session = Depends(get_db)) -> User | dict:
+    """Authorize private media for a user session or an already-scoped API key.
+
+    AuthMiddleware validates API keys and applies the route allowlist before this
+    dependency runs. Do not use this dependency for routes that require a human
+    user's role; it intentionally returns API-key metadata for integration reads.
+    """
+    api_key = getattr(request.state, "api_key", None)
+    if api_key is not None:
+        return api_key
+    return get_current_user(request, db)
+
+
 def authenticate_websocket(
     websocket: WebSocket, token: Optional[str] = None
 ) -> Optional[User]:

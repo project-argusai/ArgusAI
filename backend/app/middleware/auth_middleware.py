@@ -76,12 +76,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
     # Public flows: login/logout/refresh and setup status must work before an
     # access token exists; mobile pairing/status/exchange/refresh have their
     # own one-time-code or refresh-token validation in the route handlers.
-    # Thumbnail URLs are currently public for browser <img> requests. They
-    # contain camera data and should be protected by the media-access work.
-    # WebSocket upgrades are authenticated by their respective handlers;
-    # BaseHTTPMiddleware only receives ordinary HTTP requests.
+    # WebSocket upgrades are authenticated by their respective handlers.
     EXCLUDED_PREFIXES: tuple = (
-        '/api/v1/thumbnails/',  # Thumbnail images (public for img tags)
         '/ws/',  # WebSocket connections handle their own auth
         # Mobile auth endpoints that don't require authentication (Story P12-3)
         '/api/v1/mobile/auth/status/',   # Mobile polls for confirmation
@@ -232,12 +228,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
         for suffix in self.EXCLUDED_SUFFIXES:
             if path_only.endswith(suffix):
                 return True
-
-        # Event frames are currently public for browser <img> requests. They
-        # contain camera data and are part of the media-access remediation.
-        # Pattern: /api/v1/events/{uuid}/frames or /api/v1/events/{uuid}/frames/{number}
-        if path.startswith('/api/v1/events/') and '/frames' in path:
-            return True
 
         return False
 

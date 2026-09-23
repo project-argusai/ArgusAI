@@ -18,7 +18,6 @@ class EventFrameResponse(BaseModel):
     id: str = Field(..., description="UUID of the frame record")
     event_id: str = Field(..., description="UUID of the parent event")
     frame_number: int = Field(..., ge=1, description="1-indexed frame number within the event")
-    frame_path: str = Field(..., description="Relative path to the frame file")
     timestamp_offset_ms: int = Field(..., ge=0, description="Milliseconds from video start")
     width: Optional[int] = Field(None, ge=1, description="Frame width in pixels")
     height: Optional[int] = Field(None, ge=1, description="Frame height in pixels")

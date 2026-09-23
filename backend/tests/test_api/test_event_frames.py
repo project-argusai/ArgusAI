@@ -19,6 +19,9 @@ from main import app
 from app.models.event import Event
 from app.models.event_frame import EventFrame
 from app.core.database import Base, get_db
+from app.api.v1.auth import get_media_principal
+from app.models.user import UserRole
+from types import SimpleNamespace
 
 
 # Create module-level temp database
@@ -50,8 +53,12 @@ def setup_module_database():
     Base.metadata.create_all(bind=engine)
     # Apply override for all tests in this module
     app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_media_principal] = lambda: SimpleNamespace(
+        id="frame-viewer", username="frame-viewer", role=UserRole.VIEWER
+    )
     yield
     # Drop tables after all tests in module complete
+    app.dependency_overrides.pop(get_media_principal, None)
     Base.metadata.drop_all(bind=engine)
     # Clean up temp file
     if os.path.exists(_test_db_path):
@@ -142,6 +149,7 @@ class TestGetEventFrames:
         for i, frame in enumerate(data["frames"]):
             assert frame["frame_number"] == i + 1
             assert frame["event_id"] == sample_event.id
+            assert "frame_path" not in frame
             assert "url" in frame
             assert frame["url"] == f"/api/v1/events/{sample_event.id}/frames/{i + 1}"
             assert frame["timestamp_offset_ms"] == (i + 1) * 500
@@ -212,7 +220,7 @@ class TestFrameResponseFormat:
         assert "id" in frame
         assert "event_id" in frame
         assert "frame_number" in frame
-        assert "frame_path" in frame
+        assert "frame_path" not in frame
         assert "timestamp_offset_ms" in frame
         assert "width" in frame
         assert "height" in frame

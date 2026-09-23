@@ -23,6 +23,7 @@ import uuid
 import csv
 import io
 import asyncio
+from pathlib import Path
 
 from app.core.database import get_db
 from app.schemas.types import iso_utc
@@ -41,6 +42,8 @@ from app.schemas.event import (
 from app.schemas.system import CleanupResponse
 from app.services.service_container import container
 from app.models.event_feedback import EventFeedback
+from app.models.user import User
+from app.api.v1.auth import get_media_principal
 from app.schemas.feedback import FeedbackCreate, FeedbackUpdate, FeedbackResponse
 
 logger = logging.getLogger(__name__)
@@ -2684,7 +2687,9 @@ FRAME_DIR = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data', 'f
 @router.get("/{event_id}/frames")
 async def get_event_frames(
     event_id: str,
-    db: Session = Depends(get_db)
+    response: Response,
+    db: Session = Depends(get_db),
+    principal: User | dict = Depends(get_media_principal),
 ):
     """
     Get list of frames for an event (Story P8-2.2)
@@ -2708,6 +2713,7 @@ async def get_event_frames(
     from app.models.event_frame import EventFrame
     from app.schemas.event_frame import EventFrameResponse, EventFrameListResponse
 
+    response.headers["Cache-Control"] = "private, no-store"
     try:
         # Verify event exists
         event = db.query(Event).filter(Event.id == event_id).first()
@@ -2733,7 +2739,6 @@ async def get_event_frames(
                 id=frame.id,
                 event_id=frame.event_id,
                 frame_number=frame.frame_number,
-                frame_path=frame.frame_path,
                 timestamp_offset_ms=frame.timestamp_offset_ms,
                 width=frame.width,
                 height=frame.height,
@@ -2770,7 +2775,8 @@ async def get_event_frames(
 async def get_event_frame_image(
     event_id: str,
     frame_number: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    principal: User | dict = Depends(get_media_principal),
 ):
     """
     Get a specific frame image for an event (Story P8-2.2)
@@ -2816,22 +2822,19 @@ async def get_event_frame_image(
                 detail=f"Frame {frame_number} not found for event {event_id}"
             )
 
-        # Build full path to frame file
-        # frame_path is relative like "frames/{event_id}/frame_001.jpg"
-        # We need to construct the absolute path
-        frame_file = os.path.join(
-            os.path.dirname(FRAME_DIR),  # data/
-            frame.frame_path  # frames/{event_id}/frame_NNN.jpg
-        )
+        # Resolve from the already verified event and frame number. Do not trust
+        # a stored filesystem path as a read target.
+        frame_dir = Path(FRAME_DIR).resolve()
+        frame_file = (frame_dir / event_id / f"frame_{frame_number:03d}.jpg").resolve()
 
-        if not os.path.exists(frame_file):
+        if not frame_file.is_relative_to(frame_dir) or not frame_file.is_file():
             logger.warning(
                 f"Frame file not found on disk: {frame_file}",
                 extra={"event_id": event_id, "frame_number": frame_number}
             )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Frame file not found on disk"
+                detail="Frame file not found"
             )
 
         logger.debug(
@@ -2839,12 +2842,14 @@ async def get_event_frame_image(
             extra={"event_id": event_id, "frame_number": frame_number, "path": frame_file}
         )
 
-        # Return file with caching headers (24 hours)
+        # Every request rechecks authentication; browsers and proxies must not
+        # retain sensitive frames after logout or account deactivation.
         return FileResponse(
             path=frame_file,
             media_type="image/jpeg",
             headers={
-                "Cache-Control": "public, max-age=86400",
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
                 "Content-Disposition": f'inline; filename="frame_{frame_number:03d}.jpg"'
             }
         )

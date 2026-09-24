@@ -1415,7 +1415,11 @@ async def ai_processing_hot_ws(
 
 def get_retention_policy_from_db(db: Optional[Session] = None) -> int:
     """
-    Get current retention policy from system_settings table
+    Get current retention policy from system_settings table.
+
+    ``settings_retention_days`` (Settings UI) and ``data_retention_days``
+    (legacy job key) are kept in sync. The UI value wins when they differ.
+    Missing keys default to 30 days.
 
     Args:
         db: Optional database session (creates new session if not provided)
@@ -1423,65 +1427,33 @@ def get_retention_policy_from_db(db: Optional[Session] = None) -> int:
     Returns:
         Retention days (default 30 if not set)
     """
-    def _get_retention(db_session: Session) -> int:
-        """Inner function to get retention policy from a session."""
-        try:
-            setting = db_session.query(SystemSetting).filter(
-                SystemSetting.key == "data_retention_days"
-            ).first()
+    from app.services.retention_settings import reconcile_retention_policy
 
-            if setting and setting.value:
-                try:
-                    return int(setting.value)
-                except ValueError:
-                    logger.warning(f"Invalid retention policy value: {setting.value}, using default 30")
-                    return 30
-            else:
-                # Default: 30 days
-                logger.info("No retention policy set, using default 30 days")
-                return 30
-
-        except Exception as e:
-            logger.error(f"Error getting retention policy: {e}", exc_info=True)
-            return 30
-
-    if db is None:
-        # Create our own session with context manager for automatic cleanup
-        from app.core.database import get_db_session
-        with get_db_session() as db_session:
-            return _get_retention(db_session)
-    else:
-        # Use provided session - caller manages lifecycle
-        return _get_retention(db)
+    try:
+        return reconcile_retention_policy(db)
+    except Exception as e:
+        logger.error(f"Error getting retention policy: {e}", exc_info=True)
+        return 30
 
 
 def set_retention_policy_in_db(retention_days: int, db: Optional[Session] = None):
     """
-    Set retention policy in system_settings table
+    Set retention policy in system_settings table.
+
+    Writes both ``settings_retention_days`` and ``data_retention_days`` so the
+    Settings UI and the scheduled cleanup job agree.
 
     Args:
         retention_days: Number of days to retain events
         db: Optional database session (creates new session if not provided)
     """
+    from app.services.retention_settings import set_retention_days
+
     def _set_retention(db_session: Session):
         """Inner function to set retention policy with a session."""
         try:
-            setting = db_session.query(SystemSetting).filter(
-                SystemSetting.key == "data_retention_days"
-            ).first()
-
-            if setting:
-                setting.value = str(retention_days)
-            else:
-                setting = SystemSetting(
-                    key="data_retention_days",
-                    value=str(retention_days)
-                )
-                db_session.add(setting)
-
-            db_session.commit()
+            set_retention_days(db_session, retention_days)
             logger.info(f"Retention policy updated: {retention_days} days")
-
         except Exception as e:
             logger.error(f"Error setting retention policy: {e}", exc_info=True)
             raise HTTPException(
@@ -1724,9 +1696,22 @@ async def get_settings(db: Session = Depends(get_db)):
         # Fields that contain sensitive data (API keys, tunnel token)
         sensitive_fields = ["primary_api_key", "fallback_api_key", "tunnel_token"]
 
+        # Heal a split retention policy before reading so the UI shows the
+        # value the scheduled job will use.
+        from app.services.retention_settings import reconcile_retention_policy
+        reconcile_retention_policy(db)
+
         # Get all settings fields from the schema
         for field_name, field_info in SystemSettings.model_fields.items():
             db_value = _get_setting_from_db(db, f"{SETTINGS_PREFIX}{field_name}")
+
+            # If only the legacy job key was ever written, reconcile copies it
+            # onto settings_retention_days. A direct read of that key above is
+            # enough after reconcile; this fallback covers a reconcile no-op.
+            if field_name == "retention_days" and db_value is None:
+                legacy_days = _get_setting_from_db(db, "data_retention_days")
+                if legacy_days is not None:
+                    db_value = legacy_days
 
             if db_value is not None:
                 # Decrypt and mask sensitive fields for response
@@ -1841,6 +1826,14 @@ async def update_settings(
                 # Skip masked sensitive values (API keys, tunnel token)
                 if field_name in ('primary_api_key', 'fallback_api_key', 'tunnel_token') and isinstance(value, str) and value.startswith('****'):
                     logger.debug(f"Skipping masked value for {field_name}")
+                    continue
+
+                # Retention days are one policy. Write the UI key and the legacy
+                # job key together so they cannot drift apart.
+                if field_name == "retention_days":
+                    from app.services.retention_settings import set_retention_days
+                    set_retention_days(db, int(value))
+                    logger.info(f"Retention policy updated from settings: {value} days")
                     continue
 
                 # AI provider fields are saved without prefix (Story P2-5.2, P2-5.3)

@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
@@ -36,6 +36,24 @@ else:
 
 # Create SQLAlchemy engine
 engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
+
+
+def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+    """Turn on SQLite foreign-key enforcement for this connection.
+
+    SQLite leaves foreign keys off unless every connection runs
+    ``PRAGMA foreign_keys=ON``. Without it, ``ON DELETE CASCADE`` never runs
+    and event child rows (entity_events, frames, embeddings, ...) are orphaned.
+    """
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
+
+
+if _is_sqlite:
+    event.listen(engine, "connect", _enable_sqlite_foreign_keys)
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

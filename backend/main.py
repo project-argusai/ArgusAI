@@ -39,7 +39,7 @@ from app.api.v1.motion_events import router as motion_events_router
 from app.api.v1.ai import router as ai_router
 from app.api.v1.events import router as events_router
 from app.api.v1.metrics import router as metrics_router
-from app.api.v1.system import router as system_router, get_retention_policy_from_db
+from app.api.v1.system import router as system_router
 from app.services.backup_service import get_backup_service
 from app.api.v1.alert_rules import router as alert_rules_router
 from app.api.v1.webhooks import router as webhooks_router
@@ -64,7 +64,7 @@ from app.api.v1.mobile_auth import router as mobile_auth_router  # Story P12-3: 
 from app.api.v1.api_keys import router as api_keys_router  # Story P13-1: API Key Management
 from app.api.v1.users import router as users_router  # Story P15-2.3: User Management
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
-from app.services.cleanup_service import get_cleanup_service
+from app.services.retention_jobs import register_retention_jobs
 from app.services.service_container import container
 from app.services.protect_service import ProtectService  # Story P2-1.4: Protect WebSocket (now via @singleton)
 from app.services.mqtt_service import initialize_mqtt_service, shutdown_mqtt_service  # Story P4-2.1: MQTT
@@ -88,38 +88,6 @@ init_metrics(version=APP_VERSION)
 
 # Global scheduler instance
 scheduler: AsyncIOScheduler = None
-
-
-async def scheduled_cleanup_job():
-    """
-    Scheduled cleanup job that runs daily at 2:00 AM
-
-    Deletes old events based on retention policy from system_settings table.
-    Only runs if retention policy is not set to "forever" (retention_days > 0).
-    """
-    try:
-        # Get retention policy from database
-        retention_days = get_retention_policy_from_db()
-
-        # Skip cleanup if retention is set to forever
-        if retention_days <= 0:
-            logger.info("Scheduled cleanup skipped (retention policy set to forever)")
-            return
-
-        logger.info(f"Starting scheduled cleanup (retention: {retention_days} days)")
-
-        # Execute cleanup
-        cleanup_service = container.cleanup_service
-        stats = await cleanup_service.cleanup_old_events(retention_days=retention_days)
-
-        logger.info(
-            f"Scheduled cleanup complete: {stats['events_deleted']} events deleted, "
-            f"{stats['space_freed_mb']} MB freed",
-            extra=stats
-        )
-
-    except Exception as e:
-        logger.error(f"Scheduled cleanup failed: {e}", exc_info=True)
 
 
 async def scheduled_backup_job():
@@ -309,15 +277,9 @@ async def lifespan(app: FastAPI):
         extra={"event_type": "event_processor_init", "status": "running"}
     )
 
-    # Initialize APScheduler for daily cleanup (Story 3.4)
+    # Initialize APScheduler for daily cleanup (Story 3.4) and video retention
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        scheduled_cleanup_job,
-        trigger=CronTrigger(hour=2, minute=0),  # Daily at 2:00 AM
-        id="daily_cleanup",
-        name="Daily event cleanup based on retention policy",
-        replace_existing=True
-    )
+    register_retention_jobs(scheduler)
 
     # Add system metrics update job (every minute)
     scheduler.add_job(
@@ -376,7 +338,7 @@ async def lifespan(app: FastAPI):
         "Scheduler started",
         extra={
             "event_type": "scheduler_init",
-            "jobs": ["daily_cleanup", "system_metrics_update", "daily_backup", "hourly_pattern_calculation", "hourly_session_cleanup", "hot_activity_flush", "hot_activity_flush_reconfig"]
+            "jobs": ["daily_cleanup", "daily_video_cleanup", "system_metrics_update", "daily_backup", "hourly_pattern_calculation", "hourly_session_cleanup", "hot_activity_flush", "hot_activity_flush_reconfig"]
         }
     )
 

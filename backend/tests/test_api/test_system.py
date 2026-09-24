@@ -233,6 +233,93 @@ class TestRetentionPolicyEndpoints:
 
         assert response.status_code == 422  # Validation error
 
+    def test_update_retention_syncs_settings_ui_key(self):
+        """PUT /system/retention writes the legacy key and the Settings UI key."""
+        response = client.put(
+            "/api/v1/system/retention",
+            json={"retention_days": 7},
+        )
+        assert response.status_code == 200
+
+        db = TestingSessionLocal()
+        try:
+            stored = {
+                row.key: row.value
+                for row in db.query(SystemSetting).filter(
+                    SystemSetting.key.in_([
+                        "data_retention_days",
+                        "settings_retention_days",
+                    ])
+                ).all()
+            }
+        finally:
+            db.close()
+
+        assert stored["data_retention_days"] == "7"
+        assert stored["settings_retention_days"] == "7"
+
+    def test_get_retention_prefers_settings_ui_key(self):
+        """When the two keys disagree, the Settings UI value wins and is synced."""
+        db = TestingSessionLocal()
+        try:
+            db.add(SystemSetting(key="settings_retention_days", value="7"))
+            db.add(SystemSetting(key="data_retention_days", value="30"))
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/retention")
+        assert response.status_code == 200
+        assert response.json()["retention_days"] == 7
+
+        db = TestingSessionLocal()
+        try:
+            job_value = db.query(SystemSetting).filter(
+                SystemSetting.key == "data_retention_days"
+            ).one()
+            assert job_value.value == "7"
+        finally:
+            db.close()
+
+    def test_put_settings_retention_syncs_legacy_key(self):
+        """Settings UI saves write settings_retention_days and data_retention_days."""
+        response = client.put(
+            "/api/v1/system/settings",
+            json={"retention_days": 90},
+        )
+        assert response.status_code == 200
+        assert response.json()["retention_days"] == 90
+
+        db = TestingSessionLocal()
+        try:
+            stored = {
+                row.key: row.value
+                for row in db.query(SystemSetting).filter(
+                    SystemSetting.key.in_([
+                        "data_retention_days",
+                        "settings_retention_days",
+                    ])
+                ).all()
+            }
+        finally:
+            db.close()
+
+        assert stored["settings_retention_days"] == "90"
+        assert stored["data_retention_days"] == "90"
+
+    def test_get_settings_uses_legacy_retention_when_ui_key_missing(self):
+        """A policy saved only on the legacy key still shows up in Settings."""
+        db = TestingSessionLocal()
+        try:
+            db.add(SystemSetting(key="data_retention_days", value="7"))
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/system/settings")
+        assert response.status_code == 200
+        assert response.json()["retention_days"] == 7
+
 
 class TestStorageEndpoint:
     """Test storage monitoring API endpoint"""

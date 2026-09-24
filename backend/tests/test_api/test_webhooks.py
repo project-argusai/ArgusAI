@@ -14,6 +14,30 @@ from fastapi.testclient import TestClient
 from main import app
 from app.core.database import get_db
 from app.models.alert_rule import AlertRule, WebhookLog
+from app.models.camera import Camera
+from app.models.event import Event
+
+
+def _ensure_events(db_session, event_ids):
+    """Insert a camera and events so webhook_logs foreign keys are satisfied."""
+    if db_session.get(Camera, "webhook-test-camera") is None:
+        db_session.add(Camera(
+            id="webhook-test-camera",
+            name="Webhook Test Camera",
+            type="usb",
+        ))
+        db_session.flush()
+    for event_id in event_ids:
+        if db_session.get(Event, event_id) is None:
+            db_session.add(Event(
+                id=event_id,
+                camera_id="webhook-test-camera",
+                timestamp=datetime.now(timezone.utc),
+                description="Webhook test event",
+                confidence=80,
+                objects_detected="[]",
+                alert_triggered=False,
+            ))
 
 
 # Test client
@@ -104,6 +128,7 @@ class TestWebhookLogsEndpoint:
             cooldown_minutes=5
         )
         db_session.add(rule)
+        _ensure_events(db_session, ["test-event-456"])
         db_session.commit()
 
         # Create test log
@@ -151,6 +176,7 @@ class TestWebhookLogsEndpoint:
             cooldown_minutes=5
         )
         db_session.add(rule)
+        _ensure_events(db_session, ["success-event", "failure-event"])
 
         # Create success log
         success_log = WebhookLog(
@@ -217,6 +243,7 @@ class TestWebhookLogsEndpoint:
             cooldown_minutes=5
         )
         db_session.add(rule)
+        _ensure_events(db_session, [f"event-{i}" for i in range(5)])
 
         # Create multiple logs
         for i in range(5):
@@ -275,6 +302,7 @@ class TestWebhookLogsExportEndpoint:
             cooldown_minutes=5
         )
         db_session.add(rule)
+        _ensure_events(db_session, ["export-event"])
 
         # Create test log
         log = WebhookLog(

@@ -161,10 +161,22 @@ class ProtectAIPipeline:
                         self._last_extracted_frames = frames
                         self._last_frame_timestamps = timestamps or []
 
-                        logger.info(
-                            f"Multi-frame analysis successful for camera '{camera.name}' ({len(frames)} frames)",
-                            extra={"event_type": "protect_ai_multi_frame_success"}
-                        )
+                        # analyze_images returns a result even when every provider
+                        # fails or the SLA aborts the chain. Only a successful
+                        # result is a successful analysis.
+                        if ai_result and ai_result.success:
+                            logger.info(
+                                f"Multi-frame analysis successful for camera '{camera.name}' ({len(frames)} frames)",
+                                extra={"event_type": "protect_ai_multi_frame_success"}
+                            )
+                        else:
+                            logger.warning(
+                                "Multi-frame analysis failed for camera '%s' (%s frames): %s",
+                                camera.name,
+                                len(frames),
+                                getattr(ai_result, "error", None) or "unknown",
+                                extra={"event_type": "protect_ai_multi_frame_failed"},
+                            )
                         return ai_result
                 except Exception as e:
                     self._last_fallback_reason = f"multi_frame_failed:{str(e)}"
@@ -202,6 +214,14 @@ class ProtectAIPipeline:
             self._last_analysis_mode = "single_frame"
             self._last_frame_count = 1
             self._last_fallback_reason = self._last_fallback_reason or None
+
+            if not ai_result or not ai_result.success:
+                logger.warning(
+                    "Single-frame analysis failed for camera '%s': %s",
+                    camera.name,
+                    getattr(ai_result, "error", None) if ai_result else "no result",
+                    extra={"event_type": "protect_ai_single_frame_failed"},
+                )
 
             return ai_result
 

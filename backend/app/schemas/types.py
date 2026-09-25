@@ -35,11 +35,23 @@ from typing import Annotated, Optional
 from pydantic import PlainSerializer, WithJsonSchema
 
 
+def ensure_utc(value: datetime) -> datetime:
+    """Return a UTC-aware datetime without mutating ``value``.
+
+    Project convention: naive datetimes are UTC (SQLite returns them that way
+    even for ``DateTime(timezone=True)`` columns). Aware values are converted
+    with ``astimezone``, not ``replace``, so a non-UTC offset keeps the same
+    instant. Callers must not write the result back onto an ORM instance when
+    the goal is to leave stored rows unchanged.
+    """
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def serialize_utc_iso(value: datetime) -> str:
     """Render a datetime as an explicit-UTC ISO-8601 string with a ``Z`` suffix."""
-    if value.tzinfo is None:
-        # Project convention: naive datetimes are UTC.
-        value = value.replace(tzinfo=timezone.utc)
+    value = ensure_utc(value)
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 

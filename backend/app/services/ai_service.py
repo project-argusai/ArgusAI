@@ -350,51 +350,12 @@ class AIService:
         Get provider order from database settings or return default order.
         (Story P2-5.2: Configurable provider fallback chain)
 
-        Opens a fresh database session for each query to avoid issues with
-        closed sessions from load_api_keys_from_db().
-
-        Returns:
-            List of AIProvider enums in configured order
+        Delegates to ``load_ai_provider_order`` so VisionAnalysisOrchestrator
+        uses the same mapping, default, and fresh-session read.
         """
-        default_order = [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
+        from app.services.ai_provider_order import load_ai_provider_order
 
-        try:
-            import json
-            from app.core.database import get_db_session
-
-            # Open a fresh database session for this query
-            # (self.db may be closed after load_api_keys_from_db completes)
-            with get_db_session() as db:
-                order_setting = db.query(SystemSetting).filter(
-                    SystemSetting.key == "ai_provider_order"
-                ).first()
-
-                logger.info(f"Provider order query result: setting exists={order_setting is not None}, value={order_setting.value if order_setting else None}")
-                if order_setting and order_setting.value:
-                    try:
-                        order_list = json.loads(order_setting.value)
-                        # Convert string names to AIProvider enums
-                        provider_map = {
-                            "openai": AIProvider.OPENAI,
-                            "grok": AIProvider.GROK,
-                            "anthropic": AIProvider.CLAUDE,
-                            "google": AIProvider.GEMINI,
-                        }
-                        provider_order = []
-                        for name in order_list:
-                            if name in provider_map:
-                                provider_order.append(provider_map[name])
-                        # If we got a valid order, use it
-                        if provider_order:
-                            logger.info(f"Using configured provider order: {[p.value for p in provider_order]}")
-                            return provider_order
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(f"Invalid provider order in settings: {e}, using default")
-
-                return default_order
-        except Exception as e:
-            logger.warning(f"Failed to load provider order from database: {e}, using default")
-            return default_order
+        return load_ai_provider_order()
 
     # Prompt selection now lives entirely in AIPromptService.
     # _get_provider_order kept here only for legacy / thin compatibility.

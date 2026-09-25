@@ -32,6 +32,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.core.decorators import singleton
+from app.schemas.types import ensure_utc
 from app.services.embedding_service import EmbeddingService, get_embedding_service
 
 logger = logging.getLogger(__name__)
@@ -300,12 +301,20 @@ class SimilarityService:
                 elif candidate.thumbnail_base64:
                     thumbnail_url = f"/api/v1/events/{candidate.event_id}/thumbnail"
 
+                # Normalize in memory only. SQLite hands back naive UTC
+                # datetimes; do not assign back onto the row.
+                raw_timestamp = candidate.timestamp
+                timestamp = (
+                    ensure_utc(raw_timestamp)
+                    if isinstance(raw_timestamp, datetime)
+                    else raw_timestamp
+                )
                 results.append(SimilarEvent(
                     event_id=candidate.event_id,
                     similarity_score=round(similarity, 4),
                     thumbnail_url=thumbnail_url,
                     description=candidate.description,
-                    timestamp=candidate.timestamp,
+                    timestamp=timestamp,
                     camera_name=candidate.camera_name,
                     camera_id=candidate.camera_id,
                 ))

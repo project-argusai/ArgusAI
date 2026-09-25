@@ -167,3 +167,226 @@ class TestVisionAnalysisOrchestratorMultiFrame:
         assert result.success is True
         assert "Multiple people" in result.description
         mock_resilience.record_result.assert_called()
+
+
+def _failed_result(provider: str, error: str) -> AIResult:
+    return AIResult(
+        description="",
+        confidence=0,
+        objects_detected=[],
+        provider=provider,
+        tokens_used=0,
+        response_time_ms=50,
+        cost_estimate=0.0,
+        success=False,
+        error=error,
+    )
+
+
+def _ok_result(provider: str) -> AIResult:
+    return AIResult(
+        description=f"Described by {provider}",
+        confidence=80,
+        objects_detected=["person"],
+        provider=provider,
+        tokens_used=40,
+        response_time_ms=100,
+        cost_estimate=0.001,
+        success=True,
+    )
+
+
+class TestProviderOrderFromSettings:
+    """Orchestrator must honor ai_provider_order the same way AIService does."""
+
+    @pytest.fixture
+    def order_db(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.core.database import Base
+        from app.models.system_setting import SystemSetting  # noqa: F401 — register table
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=engine)
+        session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+        try:
+            yield session
+        finally:
+            session.close()
+            engine.dispose()
+
+    def _patch_db(self, order_db):
+        return patch("app.core.database.SessionLocal", return_value=order_db)
+
+    @pytest.mark.asyncio
+    async def test_honors_stored_order_and_name_mapping(self, order_db, caplog):
+        import json
+        import logging
+
+        from app.models.system_setting import SystemSetting
+
+        caplog.set_level(logging.INFO)
+        order_db.add(SystemSetting(
+            key="ai_provider_order",
+            value=json.dumps(["grok", "anthropic", "google", "openai"]),
+        ))
+        order_db.commit()
+
+        called = []
+
+        async def grok_call(*args, **kwargs):
+            called.append("grok")
+            return _failed_result("grok", "connection refused")
+
+        async def openai_call(*args, **kwargs):
+            called.append("openai")
+            return _ok_result("openai")
+
+        grok = AsyncMock()
+        grok.generate_description = grok_call
+        openai = AsyncMock()
+        openai.generate_description = openai_call
+
+        orchestrator = VisionAnalysisOrchestrator(providers={
+            AIProvider.GROK: grok,
+            AIProvider.OPENAI: openai,
+        })
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(frame, "Front Door")
+
+        assert result.success is True
+        assert result.provider == "openai"
+        # anthropic -> claude, google -> gemini, and grok is tried before openai.
+        assert called == ["grok", "openai"]
+        assert "Using configured provider order: ['grok', 'claude', 'gemini', 'openai']" in caplog.text
+        assert "claude not configured, skipping" in caplog.text
+        assert "gemini not configured, skipping" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_missing_setting_uses_default_order(self, order_db, caplog):
+        import logging
+
+        caplog.set_level(logging.INFO)
+        called = []
+
+        async def openai_call(*args, **kwargs):
+            called.append("openai")
+            return _ok_result("openai")
+
+        openai = AsyncMock()
+        openai.generate_description = openai_call
+        grok = AsyncMock()
+        grok.generate_description = AsyncMock(return_value=_ok_result("grok"))
+
+        orchestrator = VisionAnalysisOrchestrator(providers={
+            AIProvider.OPENAI: openai,
+            AIProvider.GROK: grok,
+        })
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(frame, "Front Door")
+
+        assert result.success is True
+        assert called == ["openai"]
+        grok.generate_description.assert_not_called()
+        assert "Using configured provider order: ['openai', 'grok', 'claude', 'gemini']" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_invalid_setting_falls_back_to_default(self, order_db, caplog):
+        import logging
+
+        from app.models.system_setting import SystemSetting
+
+        caplog.set_level(logging.INFO)
+        order_db.add(SystemSetting(key="ai_provider_order", value="not-valid-json"))
+        order_db.commit()
+
+        called = []
+
+        async def openai_call(*args, **kwargs):
+            called.append("openai")
+            return _ok_result("openai")
+
+        openai = AsyncMock()
+        openai.generate_description = openai_call
+        orchestrator = VisionAnalysisOrchestrator(providers={AIProvider.OPENAI: openai})
+        frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(frame, "Front Door")
+
+        assert result.success is True
+        assert called == ["openai"]
+        assert "Invalid provider order in settings" in caplog.text
+        assert "Using configured provider order: ['openai', 'grok', 'claude', 'gemini']" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_all_providers_fail_logs_failure_not_success(self, order_db, caplog):
+        import json
+        import logging
+
+        from app.models.system_setting import SystemSetting
+
+        caplog.set_level(logging.INFO)
+        order_db.add(SystemSetting(
+            key="ai_provider_order",
+            value=json.dumps(["grok", "openai"]),
+        ))
+        order_db.commit()
+
+        secret_payload = (
+            "Error code: 429 - {'error': {'type': 'insufficient_quota', "
+            "'message': 'sk-live-secret-key-do-not-log'}}"
+        )
+        grok = AsyncMock()
+        grok.generate_multi_image_description = AsyncMock(
+            return_value=_failed_result("grok", secret_payload)
+        )
+        openai = AsyncMock()
+        openai.generate_multi_image_description = AsyncMock(
+            return_value=_failed_result("openai", secret_payload)
+        )
+        orchestrator = VisionAnalysisOrchestrator(providers={
+            AIProvider.GROK: grok,
+            AIProvider.OPENAI: openai,
+        })
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_images(
+                [_make_jpeg_bytes(), _make_jpeg_bytes()],
+                "Driveway",
+            )
+
+        assert result.success is False
+        assert "quota_exhausted" in (result.error or "")
+        assert "grok:quota_exhausted" in (result.error or "")
+        assert "openai:quota_exhausted" in (result.error or "")
+        assert "sk-live-secret" not in (result.error or "")
+        assert "Vision analysis failed (multi_frame)" in caplog.text
+        assert "grok:quota_exhausted" in caplog.text
+        assert "openai:quota_exhausted" in caplog.text
+        assert "sk-live-secret" not in caplog.text
+        assert "Multi-frame analysis successful" not in caplog.text
+        assert "Success with" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_sla_abort_logs_failure_not_success(self, order_db, caplog):
+        import logging
+
+        caplog.set_level(logging.INFO)
+        openai = AsyncMock()
+        orchestrator = VisionAnalysisOrchestrator(providers={AIProvider.OPENAI: openai})
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(frame, "Front Door", sla_timeout_ms=0)
+
+        assert result.success is False
+        assert "SLA timeout" in (result.error or "")
+        assert "Vision analysis failed (single_image)" in caplog.text
+        assert "Success with" not in caplog.text
+        openai.generate_description.assert_not_called()

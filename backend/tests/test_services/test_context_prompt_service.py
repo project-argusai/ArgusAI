@@ -320,6 +320,30 @@ class TestSimilarityContextFormatting:
 
         assert "delivery" in result.lower() or "Mostly" in result
 
+    def test_format_similarity_naive_sqlite_timestamp(self):
+        """Naive UTC timestamps from SQLite must not raise on subtraction."""
+        naive = datetime(2026, 9, 20, 15, 30, 0)
+        assert naive.tzinfo is None
+        similar_events = [
+            SimilarEvent(
+                event_id="e1",
+                similarity_score=0.91,
+                timestamp=naive,
+                description="Person at the door",
+                camera_id="cam1",
+                thumbnail_url=None,
+                camera_name="Front Door",
+            ),
+        ]
+
+        result = self.service._format_similarity_context(similar_events, 30)
+
+        assert result is not None
+        assert "1 occurrences" in result
+        assert "Most recent similar" in result
+        # Normalization must not rewrite the caller's datetime (stored row).
+        assert naive.tzinfo is None
+
 
 class TestTimePatternContext:
     """Tests for time pattern context (AC4)."""
@@ -720,3 +744,43 @@ class TestBuildContextEnhancedPrompt:
         assert "name the carrier" in result.prompt
         # Base prompt should come first
         assert result.prompt.index(base_prompt) < result.prompt.index("HISTORICAL CONTEXT:")
+
+    @pytest.mark.asyncio
+    async def test_pre_persist_naive_similar_timestamp_does_not_fail(self, caplog):
+        """Pre-persist similar-event lookup tolerates SQLite's naive timestamps."""
+        import logging
+
+        caplog.set_level(logging.WARNING)
+        naive = datetime(2026, 9, 20, 15, 30, 0)
+        similar_events = [
+            SimilarEvent(
+                event_id="e1",
+                similarity_score=0.91,
+                timestamp=naive,
+                description="Person at the door",
+                camera_id="cam1",
+                thumbnail_url=None,
+                camera_name="Front Door",
+            ),
+        ]
+        self.mock_similarity_service.find_similar_events_by_embedding = AsyncMock(
+            return_value=similar_events
+        )
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.first.return_value = None
+        mock_db.query.return_value.filter.return_value.scalar.return_value = 0
+
+        result = await self.service.build_context_enhanced_prompt(
+            db=mock_db,
+            event_id="pre-persist",
+            base_prompt="Describe the image",
+            camera_id="cam1",
+            event_time=datetime.now(timezone.utc),
+            query_embedding=[0.1, 0.2, 0.3],
+        )
+
+        assert result.similar_events_count == 1
+        assert "HISTORICAL CONTEXT:" in result.prompt
+        assert "Failed to get similar events for event pre-persist" not in caplog.text
+        assert "offset-naive" not in caplog.text
+        assert naive.tzinfo is None

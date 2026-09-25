@@ -346,6 +346,7 @@ async def lifespan(app: FastAPI):
     from app.core.database import get_db
     from app.models.camera import Camera
     from app.core.metrics import record_camera_status
+    from app.services.camera_service import is_protect_camera
     import asyncio
 
     # Set the main event loop for camera service (needed for thread-safe async calls)
@@ -371,8 +372,22 @@ async def lifespan(app: FastAPI):
         time.sleep(1)
 
         for camera in enabled_cameras:
+            # Protect cameras have no capture worker. Skipping them avoids a
+            # "failed to start" warning that would look like a reconnect loop.
+            if is_protect_camera(camera):
+                logger.info(
+                    "Skipping capture worker for Protect camera",
+                    extra={
+                        "event_type": "camera_capture_skipped",
+                        "camera_id": str(camera.id),
+                        "camera_name": camera.name,
+                        "source_type": "protect",
+                    },
+                )
+                continue
+
             success = camera_service.start_camera(camera)
-            if success:
+            if success is True:
                 started_count += 1
                 logger.info(
                     "Camera started",
@@ -381,6 +396,15 @@ async def lifespan(app: FastAPI):
                         "camera_id": str(camera.id),
                         "camera_name": camera.name
                     }
+                )
+            elif success is None:
+                logger.info(
+                    "Capture worker not applicable for camera",
+                    extra={
+                        "event_type": "camera_capture_skipped",
+                        "camera_id": str(camera.id),
+                        "camera_name": camera.name,
+                    },
                 )
             else:
                 logger.warning(

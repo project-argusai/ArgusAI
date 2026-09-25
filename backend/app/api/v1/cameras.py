@@ -40,7 +40,7 @@ from app.schemas.motion import (
     MotionConfigUpdate, MotionConfigResponse, MotionTestRequest, MotionTestResponse,
     DetectionZone, DetectionSchedule
 )
-from app.services.camera_service import CameraService
+from app.services.camera_service import CameraService, is_protect_camera
 from app.services.service_container import container
 from typing import Any, Dict
 from app.services.motion_detection_service import motion_detection_service
@@ -120,10 +120,11 @@ def create_camera(
         db.commit()
         db.refresh(camera)
 
-        # Start camera capture thread if enabled
+        # Start camera capture thread if enabled.
+        # None means no capture worker applies (Protect); that is not a failure.
         if camera.is_enabled:
             success = camera_service.start_camera(camera)
-            if not success:
+            if success is False:
                 logger.warning(f"Camera {camera.id} created but failed to start capture thread")
 
         logger.info(f"Camera created: {camera.id} ({camera.name})")
@@ -639,6 +640,23 @@ def reconnect_camera(
                 detail=f"Camera {camera_id} is disabled. Enable it first."
             )
 
+        # Protect cameras have no capture worker. Do not stop/start them:
+        # stop_camera would publish an MQTT "unavailable" status, and a False
+        # start result would look like a failure the client should retry.
+        if is_protect_camera(camera):
+            logger.info(
+                "Reconnect requested for Protect camera %s; no capture worker to restart",
+                camera_id_str,
+            )
+            return {
+                "success": True,
+                "capture_started": False,
+                "message": (
+                    "Protect cameras are managed by ProtectEventHandler; "
+                    "no capture worker to reconnect"
+                ),
+            }
+
         # Stop camera if running
         camera_service.stop_camera(camera_id_str)
         time.sleep(0.5)
@@ -664,11 +682,19 @@ def reconnect_camera(
         # Start camera
         success = camera_service.start_camera(camera)
 
-        if success:
+        if success is True:
             logger.info(f"Camera {camera_id_str} reconnect initiated")
             return {"success": True, "message": "Camera reconnect initiated"}
-        else:
-            return {"success": False, "message": "Failed to start camera"}
+        if success is None:
+            return {
+                "success": True,
+                "capture_started": False,
+                "message": (
+                    "Protect cameras are managed by ProtectEventHandler; "
+                    "no capture worker to reconnect"
+                ),
+            }
+        return {"success": False, "message": "Failed to start camera"}
 
     except HTTPException:
         raise
@@ -712,11 +738,12 @@ def enable_camera_capture_endpoint(
         camera_service = container.camera_service
         camera_service.enable_camera_capture(camera_id_str)
 
-        # Optionally attempt to start it immediately
+        # Optionally attempt to start it immediately.
+        # None (Protect) is not a failed start and must not be retried.
         started = camera_service.start_camera(camera)
 
         message = "Camera capture re-enabled"
-        if started:
+        if started is True:
             message += " and start initiated"
 
         logger.info(f"Admin re-enabled capture for camera {camera_id_str}")

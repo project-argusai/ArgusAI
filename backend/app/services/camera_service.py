@@ -33,6 +33,17 @@ from app.services.camera_capture_worker import CameraCaptureWorker
 logger = logging.getLogger(__name__)
 
 
+def is_protect_camera(camera: Camera) -> bool:
+    """True for UniFi Protect cameras, which have no local capture worker.
+
+    Protect events are ingested by ProtectEventHandler. That path keys off
+    ``is_enabled`` and smart-detection filters, not a motion-monitoring task
+    and not ``motion_enabled``. Callers must not treat a skipped capture
+    start as a failure that needs another restart.
+    """
+    return getattr(camera, "source_type", None) == "protect"
+
+
 @singleton
 class CameraService:
     """
@@ -76,9 +87,17 @@ class CameraService:
         self._main_event_loop = loop
         logger.info("Main event loop set for camera service")
 
-    def start_camera(self, camera: Camera) -> bool:
+    def start_camera(self, camera: Camera) -> Optional[bool]:
         """
         Start capturing from camera using a dedicated CameraCaptureWorker.
+
+        Returns:
+            True when a capture worker was started.
+            False when startup failed or was refused (callers may treat this
+            as a real failure).
+            None when no capture worker applies. UniFi Protect cameras return
+            None: that is not success and not a failure. Callers must not
+            retry, log a connection failure, or count a restart attempt.
         """
         camera_id = str(camera.id)
 
@@ -86,9 +105,13 @@ class CameraService:
             logger.warning(f"Refusing to start camera {camera_id} - it is capture-disabled due to repeated failures.")
             return False
 
-        if hasattr(camera, 'source_type') and camera.source_type == 'protect':
-            logger.debug(f"Camera {camera_id} is a Protect camera - skipping (managed by ProtectEventHandler)")
-            return True
+        if is_protect_camera(camera):
+            logger.info(
+                "Camera %s is a Protect camera; not starting a capture worker "
+                "(events are ingested by ProtectEventHandler)",
+                camera_id,
+            )
+            return None
 
         if camera_id in self._workers and self._workers[camera_id].is_alive():
             logger.warning(f"Camera {camera_id} already running")
@@ -322,12 +345,25 @@ class CameraService:
         self._restart_attempts[cid] = self.MAX_RESTART_ATTEMPTS
         logger.info(f"Capture manually disabled for camera {cid}")
 
-    def restart_camera(self, camera: Camera, timeout: float = 5.0) -> bool:
+    def restart_camera(self, camera: Camera, timeout: float = 5.0) -> Optional[bool]:
         """
         Attempt to restart a camera's capture worker.
         Implements stronger recovery policy: disables camera after too many failures.
+
+        Protect cameras return None immediately. They have no capture worker,
+        so this does not stop the camera, does not publish MQTT status, does
+        not count a restart attempt, and does not log success.
         """
         camera_id = str(camera.id)
+
+        if is_protect_camera(camera):
+            logger.info(
+                "Skipping capture restart for Protect camera %s; "
+                "no capture worker is used (managed by ProtectEventHandler)",
+                camera_id,
+            )
+            return None
+
         now = datetime.now(timezone.utc)
 
         # Check if already disabled
@@ -353,11 +389,20 @@ class CameraService:
 
         success = self.start_camera(camera)
 
-        if success:
+        if success is True:
             logger.info(f"Successfully restarted capture for camera {camera_id}")
             # Reset counter on success
             self._restart_attempts[camera_id] = 0
             return True
+        if success is None:
+            # start_camera refused to create a worker without failing (Protect).
+            # Do not count this as a successful restart or a failed attempt.
+            logger.info(
+                "Capture restart skipped for camera %s; no capture worker applies",
+                camera_id,
+            )
+            self._restart_attempts[camera_id] = max(0, attempts - 1)
+            return None
         else:
             logger.warning(f"Failed to restart capture for camera {camera_id} (attempt {attempts})")
 

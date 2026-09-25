@@ -146,6 +146,21 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
             log_record['message'] = record.getMessage()
 
 
+def configure_sqlalchemy_query_logging(echo: bool) -> None:
+    """Set SQLAlchemy engine loggers for opt-in statement logging.
+
+    SQLAlchemy emits each statement at INFO on ``sqlalchemy.engine`` when
+    engine ``echo`` is enabled, and ``echo=True`` bypasses the logger level
+    via ``Logger._log``. Callers must pass the same flag used for ``echo``.
+
+    When echo is off, the engine loggers are pinned to WARNING so a DEBUG
+    root log level does not surface every query.
+    """
+    level = logging.INFO if echo else logging.WARNING
+    for name in ("sqlalchemy.engine", "sqlalchemy.engine.Engine"):
+        logging.getLogger(name).setLevel(level)
+
+
 def setup_logging(
     log_level: Optional[str] = None,
     log_dir: Optional[str] = None,
@@ -231,6 +246,9 @@ def setup_logging(
     logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
     logging.getLogger('httpx').setLevel(logging.WARNING)
     logging.getLogger('httpcore').setLevel(logging.WARNING)
+    # SQL statement logs stay off unless SQL_ECHO / DB_ECHO is set, even when
+    # the root logger is DEBUG.
+    configure_sqlalchemy_query_logging(settings.sql_echo_enabled)
 
     return root_logger
 

@@ -95,6 +95,9 @@ CORS_ORIGINS=http://localhost:3000,http://localhost:8000
 # Debug mode
 DEBUG=True
 LOG_LEVEL=INFO
+
+# Per-statement SQL logs. Off by default; not enabled by DEBUG or LOG_LEVEL.
+SQL_ECHO=false
 ```
 
 ## Running ArgusAI

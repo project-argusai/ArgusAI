@@ -92,6 +92,7 @@ from app.services.signed_url_service import get_signed_url_service, reset_signed
 from app.services.context_prompt_service import get_context_prompt_service, reset_context_prompt_service
 from app.services.frame_annotation_service import get_frame_annotation_service, reset_frame_annotation_service
 from app.services.anomaly_scoring_service import get_anomaly_scoring_service, reset_anomaly_scoring_service
+from app.services.pattern_service import get_pattern_service, reset_pattern_service
 from app.services.entity_service import get_entity_service, reset_entity_service
 from app.services.vehicle_matching_service import get_vehicle_matching_service, reset_vehicle_matching_service
 
@@ -299,6 +300,10 @@ class ServiceContainer:
         return get_anomaly_scoring_service()
 
     @property
+    def pattern_service(self):
+        return get_pattern_service()
+
+    @property
     def entity_service(self):
         return get_entity_service()
 
@@ -343,6 +348,7 @@ class ServiceContainer:
         reset_context_prompt_service,
         reset_frame_annotation_service,
         reset_anomaly_scoring_service,
+        reset_pattern_service,
         reset_entity_service,
         reset_reprocessing_service,
         reset_smart_reanalyze_service,

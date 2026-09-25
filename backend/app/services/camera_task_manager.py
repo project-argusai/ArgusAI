@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional, Callable, Awaitable
 
 from app.models.camera import Camera
-from app.services.camera_service import CameraService
+from app.services.camera_service import CameraService, is_protect_camera
 from app.services.motion_detection_service import MotionDetectionService
 
 # Forward import to avoid circular dependency
@@ -64,7 +64,21 @@ class CameraTaskManager:
         """
         Start a motion detection task for the given camera.
         The actual loop now lives inside this class.
+
+        UniFi Protect cameras are skipped. They never get a capture worker
+        (CameraService.start_camera leaves them to ProtectEventHandler), so a
+        motion task would poll for a worker, fail, and restart forever.
+        ``motion_enabled`` is not what gates Protect event ingestion.
         """
+        if is_protect_camera(camera):
+            logger.info(
+                "Skipping motion monitoring for Protect camera %s (%s); "
+                "events are ingested by ProtectEventHandler",
+                getattr(camera, "name", camera.id),
+                camera.id,
+            )
+            return
+
         if camera.id in self._motion_tasks:
             logger.warning(f"Camera {camera.id} already being monitored")
             return
@@ -104,6 +118,14 @@ class CameraTaskManager:
 
         Shared between per-camera motion tasks and the background health monitor.
         """
+        if is_protect_camera(camera):
+            logger.info(
+                "Ignoring capture-health recovery for Protect camera %s; "
+                "no capture worker is used",
+                getattr(camera, "name", camera.id),
+            )
+            return
+
         stats = self._motion_task_stats.setdefault(camera.id, {})
         recovery_attempts = stats.get("recovery_attempts", 0) + 1
         stats["recovery_attempts"] = recovery_attempts
@@ -204,6 +226,14 @@ class CameraTaskManager:
 
         This method now lives fully inside CameraTaskManager.
         """
+        if is_protect_camera(camera):
+            logger.info(
+                "Motion detection task exiting for Protect camera %s; "
+                "ProtectEventHandler ingests events",
+                camera.name,
+            )
+            return
+
         logger.info(f"Motion detection task started for camera: {camera.name}")
 
         frame_interval = 1.0 / camera.frame_rate if camera.frame_rate > 0 else 0.2

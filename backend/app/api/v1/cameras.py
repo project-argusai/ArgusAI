@@ -2623,11 +2623,13 @@ async def stream_camera(
         await websocket.close(code=WS_CLOSE_LIMIT, reason="Connection limit reached")
         return
 
-    await websocket.accept()
-
     client_id = None
     stream_service = None
     try:
+        # Accept inside the releasing try. A client drop during the handshake
+        # raises here; the finally below must still free the reserved slot.
+        await websocket.accept()
+
         # Get camera from database
         db = SessionLocal()
         try:

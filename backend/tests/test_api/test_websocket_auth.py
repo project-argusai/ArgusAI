@@ -266,6 +266,25 @@ async def test_camera_stream_drops_revoked_session_without_keeping_the_slot():
 
 
 @pytest.mark.asyncio
+async def test_camera_accept_failure_releases_the_slot():
+    """A handshake that dies in accept() must not keep the per-user slot."""
+    websocket = socket(cookie="valid-cookie")
+    websocket.accept = AsyncMock(side_effect=RuntimeError("client dropped"))
+    user = MagicMock(id="user-1", is_active=True, role=UserRole.VIEWER)
+    limits = websocket_connection_limits()
+    with patch.object(settings, "WS_MAX_CONNECTIONS_PER_USER", 1), \
+         patch.object(settings, "WS_MAX_CONNECTIONS_PER_CAMERA", 1), \
+         patch("app.api.v1.cameras.require_websocket_user", return_value=user), \
+         patch("app.api.v1.cameras.container") as container:
+        await stream_camera(websocket, "camera-1")
+    container.stream_proxy_service.add_client.assert_not_called()
+    websocket.accept.assert_awaited_once()
+    replacement = await limits.try_admit("user-1", camera_id="camera-1")
+    assert replacement is not None
+    await limits.release(replacement)
+
+
+@pytest.mark.asyncio
 async def test_per_camera_limit_rejects_a_second_viewer_and_releases():
     limits = websocket_connection_limits()
     with patch.object(settings, "WS_MAX_CONNECTIONS_PER_CAMERA", 1):

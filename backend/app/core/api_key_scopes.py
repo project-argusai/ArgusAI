@@ -43,6 +43,7 @@ _API_KEY_ROUTE_SCOPE_ITEMS: dict[tuple[str, str], str] = {
     ("DELETE", "/events/reprocess-entities"): "admin",
     ("DELETE", "/events/cleanup"): "admin",
     ("DELETE", "/events/bulk"): "admin",
+    ("POST", "/events/media-orphans/reconcile"): "admin",
     ("DELETE", "/events/{event_id}"): "admin",
     ("POST", "/events/{event_id}/reanalyze"): "admin",
     ("POST", "/events/{event_id}/smart-reanalyze"): "admin",

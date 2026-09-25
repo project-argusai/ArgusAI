@@ -94,11 +94,23 @@ export function useDeleteEvent() {
           queryClient.setQueryData(queryKey, data);
         });
       }
-      toast.error('Failed to delete event');
+      const details = error && typeof error === 'object' && 'details' in error
+        ? (error as { details?: { failed_items?: unknown } }).details
+        : undefined;
+      const failedItems = Array.isArray(details?.failed_items) ? details.failed_items : [];
+      if (failedItems.length > 0) {
+        toast.error('Event was not deleted', {
+          description: `Could not remove ${failedItems.length} media file${failedItems.length === 1 ? '' : 's'}. The event and those files are still saved so you can retry.`,
+        });
+      } else {
+        toast.error('Failed to delete event');
+      }
       console.error('Delete event error:', error);
     },
     onSuccess: () => {
-      toast.success('Event deleted successfully');
+      toast.success('Event deleted successfully', {
+        description: 'The thumbnail, analysis frames, and video clip were removed with it.',
+      });
     },
     onSettled: () => {
       // Refetch after mutation (success or error)

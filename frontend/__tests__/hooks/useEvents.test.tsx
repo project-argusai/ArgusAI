@@ -303,7 +303,12 @@ describe('useEvents hooks', () => {
         await result.current.mutateAsync('1')
       })
 
-      expect(toast.success).toHaveBeenCalledWith('Event deleted successfully')
+      expect(toast.success).toHaveBeenCalledWith(
+        'Event deleted successfully',
+        expect.objectContaining({
+          description: expect.stringMatching(/thumbnail/i),
+        }),
+      )
     })
 
     it('shows error toast on delete failure', async () => {
@@ -323,6 +328,32 @@ describe('useEvents hooks', () => {
       }
 
       expect(toast.error).toHaveBeenCalledWith('Failed to delete event')
+    })
+
+    it('surfaces media files that blocked deletion', async () => {
+      const { toast } = await import('sonner')
+      mockApiClient.events.delete.mockRejectedValueOnce({
+        details: { failed_items: [{ event_id: '1', kind: 'video', reason: 'unlink_failed' }] },
+      })
+
+      const { result } = renderHook(() => useDeleteEvent(), {
+        wrapper: createWrapper(),
+      })
+
+      try {
+        await act(async () => {
+          await result.current.mutateAsync('1')
+        })
+      } catch {
+        // Expected to throw
+      }
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'Event was not deleted',
+        expect.objectContaining({
+          description: expect.stringMatching(/retry/i),
+        }),
+      )
     })
 
     it('performs optimistic update', async () => {

@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.notification import Notification
 
+from app.core.permissions import require_operator_or_admin
+
+_REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
+
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
@@ -107,7 +111,7 @@ async def list_notifications(
     )
 
 
-@router.patch("/{notification_id}/read", response_model=NotificationResponse)
+@router.patch("/{notification_id}/read", response_model=NotificationResponse, dependencies=_REQUIRE_OPERATOR)
 async def mark_notification_read(
     notification_id: str,
     db: Session = Depends(get_db)
@@ -136,7 +140,7 @@ async def mark_notification_read(
     return NotificationResponse.model_validate(notification)
 
 
-@router.patch("/mark-all-read", response_model=MarkReadResponse)
+@router.patch("/mark-all-read", response_model=MarkReadResponse, dependencies=_REQUIRE_OPERATOR)
 async def mark_all_notifications_read(
     db: Session = Depends(get_db)
 ) -> MarkReadResponse:
@@ -156,7 +160,7 @@ async def mark_all_notifications_read(
     return MarkReadResponse(success=True, updated_count=updated_count)
 
 
-@router.delete("/{notification_id}")
+@router.delete("/{notification_id}", dependencies=_REQUIRE_OPERATOR)
 async def delete_notification(
     notification_id: str,
     db: Session = Depends(get_db)
@@ -184,7 +188,7 @@ async def delete_notification(
     return {"deleted": True, "id": notification_id}
 
 
-@router.delete("")
+@router.delete("", dependencies=_REQUIRE_OPERATOR)
 async def delete_all_notifications(
     read_only: bool = Query(False, description="Only delete read notifications"),
     db: Session = Depends(get_db)

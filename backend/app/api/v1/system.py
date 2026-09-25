@@ -266,6 +266,8 @@ router = APIRouter(
     tags=["system"]
 )
 
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 
 # Debug endpoints - only registered when DEBUG_ENDPOINTS_ENABLED=true (Story P14-1.2)
 # SECURITY: These endpoints expose sensitive internal information.
@@ -3107,7 +3109,7 @@ async def get_ai_resilience_status(db: Session = Depends(get_db)):
         )
 
 
-@router.put("/ai-resilience/{provider}", response_model=CircuitBreakerStatusResponse)
+@router.put("/ai-resilience/{provider}", response_model=CircuitBreakerStatusResponse, dependencies=_REQUIRE_ADMIN)
 async def update_ai_resilience_config(
     provider: str,
     config: CircuitBreakerConfigSchema,
@@ -3183,7 +3185,7 @@ async def list_ai_models(db: Session = Depends(get_db)):
     return {"providers": providers}
 
 
-@router.put("/ai-models/{provider}")
+@router.put("/ai-models/{provider}", dependencies=_REQUIRE_ADMIN)
 async def set_ai_model(provider: str, payload: dict, db: Session = Depends(get_db)):
     """Pin a provider's model, or clear the pin to revert to dynamic resolution.
 
@@ -3220,7 +3222,7 @@ async def set_ai_model(provider: str, payload: dict, db: Session = Depends(get_d
             "status": "pinned" if model else "cleared (dynamic resolution)"}
 
 
-@router.post("/ai-resilience/{provider}/reset")
+@router.post("/ai-resilience/{provider}/reset", dependencies=_REQUIRE_ADMIN)
 async def reset_ai_circuit_breaker(provider: str, db: Session = Depends(get_db)):
     """Manually reset a circuit breaker to CLOSED state."""
     valid = ["default", "openai", "grok", "claude", "gemini"]
@@ -3556,7 +3558,7 @@ async def get_tunnel_status(db: Session = Depends(get_db)):
     )
 
 
-@router.post("/tunnel/start", response_model=TunnelActionResponse)
+@router.post("/tunnel/start", response_model=TunnelActionResponse, dependencies=_REQUIRE_ADMIN)
 async def start_tunnel(
     request: TunnelStartRequest = None,
     db: Session = Depends(get_db)
@@ -3669,7 +3671,7 @@ class TunnelTestResponse(BaseModel):
     hostname: Optional[str] = Field(None, description="Tunnel hostname if connected")
 
 
-@router.post("/tunnel/test", response_model=TunnelTestResponse)
+@router.post("/tunnel/test", response_model=TunnelTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_tunnel_connectivity(
     request: TunnelTestRequest,
     db: Session = Depends(get_db)
@@ -3795,7 +3797,7 @@ async def test_tunnel_connectivity(
                 await tunnel_service.start(original_token)
 
 
-@router.post("/tunnel/stop", response_model=TunnelActionResponse)
+@router.post("/tunnel/stop", response_model=TunnelActionResponse, dependencies=_REQUIRE_ADMIN)
 async def stop_tunnel(db: Session = Depends(get_db)):
     """
     Stop Cloudflare Tunnel
@@ -3929,7 +3931,7 @@ async def get_smtp_settings(db: Session = Depends(get_db)):
     )
 
 
-@router.put("/smtp/settings", response_model=SMTPSettingsResponse)
+@router.put("/smtp/settings", response_model=SMTPSettingsResponse, dependencies=_REQUIRE_ADMIN)
 async def update_smtp_settings(
     settings_update: SMTPSettingsUpdate,
     db: Session = Depends(get_db)
@@ -3995,7 +3997,7 @@ async def update_smtp_settings(
     return await get_smtp_settings(db)
 
 
-@router.post("/smtp/test", response_model=SMTPTestResponse)
+@router.post("/smtp/test", response_model=SMTPTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_smtp_connection(
     request: SMTPTestRequest,
     db: Session = Depends(get_db)

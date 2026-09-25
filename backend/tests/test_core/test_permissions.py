@@ -3,6 +3,8 @@
 Tests for role-based permission middleware and decorators.
 """
 import pytest
+
+pytestmark = pytest.mark.real_user_roles
 import tempfile
 import os
 import uuid
@@ -248,17 +250,20 @@ class TestPermissionUtilityFunctions:
         assert check_can_manage_events(operator) is True
         assert check_can_manage_events(viewer) is False
 
-    def test_check_can_manage_cameras_admin_operator(self):
-        """Admin and operator can manage cameras"""
-        from app.core.permissions import check_can_manage_cameras
+    def test_check_can_manage_cameras_admin_only(self):
+        """Camera configuration is admin-only. Operators may analyze."""
+        from app.core.permissions import check_can_analyze_cameras, check_can_manage_cameras
 
         admin = User(role=UserRole.ADMIN)
         operator = User(role=UserRole.OPERATOR)
         viewer = User(role=UserRole.VIEWER)
 
         assert check_can_manage_cameras(admin) is True
-        assert check_can_manage_cameras(operator) is True
+        assert check_can_manage_cameras(operator) is False
         assert check_can_manage_cameras(viewer) is False
+        assert check_can_analyze_cameras(admin) is True
+        assert check_can_analyze_cameras(operator) is True
+        assert check_can_analyze_cameras(viewer) is False
 
     def test_check_can_manage_settings_admin_only(self):
         """Only admin can manage system settings"""

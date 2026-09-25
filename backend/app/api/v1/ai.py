@@ -26,6 +26,10 @@ from app.services.mcp_context import get_mcp_context_provider
 from app.models.event_feedback import EventFeedback
 from app.models.event import Event
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -159,7 +163,7 @@ async def get_ai_capabilities():
     return AICapabilitiesResponse(providers=capabilities)
 
 
-@router.post("/refine-prompt", response_model=PromptRefinementResponse)
+@router.post("/refine-prompt", response_model=PromptRefinementResponse, dependencies=_REQUIRE_ADMIN)
 async def refine_prompt(
     request: PromptRefinementRequest,
     db: Session = Depends(get_db)

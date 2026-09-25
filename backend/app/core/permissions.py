@@ -1,31 +1,32 @@
-"""Role-based access control permissions (Story P15-2.9, P16-1.3)
+"""Role-based access control for user sessions (Story P15-2.9, P16-1.3).
 
-Provides FastAPI dependencies for enforcing role-based permissions on API endpoints.
+ADR-P15-003 defines three roles: admin, operator, and viewer. The comment that
+used to live here granted operators camera CRUD and unrestricted event and
+entity writes. Those grants were never enforced on routes. State-changing
+routes now follow the matrix below. API keys are not roles: AuthMiddleware
+still allowlists them by scope, and these dependencies do not narrow or widen
+that table.
 
-ADR-P15-003: Three-role RBAC (admin, operator, viewer)
-- Admin: Full system access including user management
-- Operator: Manage events, entities, cameras but not users
-- Viewer: Read-only access to dashboard and events
+| Action | Admin | Operator | Viewer |
+| --- | --- | --- | --- |
+| Reads | Yes | Yes | Yes |
+| Own account, devices, and push registration | Yes | Yes | Yes |
+| Event feedback, reanalyze, manual camera analyze | Yes | Yes | No |
+| Notification inbox (read, dismiss, delete) | Yes | Yes | No |
+| Entity label, merge, assign (not deletion) | Yes | Yes | No |
+| Voice query, summary generate, anomaly score | Yes | Yes | No |
+| Camera, Protect, MQTT, SMTP, HomeKit, AI, alert, webhook config | Yes | No | No |
+| Event, motion, media, face, and embedding deletes | Yes | No | No |
+| Orphan reconcile, retention, cleanup, backup, restore, wipe | Yes | No | No |
+| Users, API keys, tunnel control | Yes | No | No |
 
-Permission Matrix:
-| Endpoint Pattern          | Admin | Operator | Viewer |
-|---------------------------|-------|----------|--------|
-| GET /events/*             | Yes   | Yes      | Yes    |
-| POST/PUT/DELETE /events/* | Yes   | Yes      | No     |
-| */users/*                 | Yes   | No       | No     |
-| PUT /system/*             | Yes   | No       | No     |
-| GET /cameras/*            | Yes   | Yes      | Yes    |
-| POST/PUT/DELETE /cameras/*| Yes   | Yes      | No     |
-| GET /entities/*           | Yes   | Yes      | Yes    |
-| POST/PUT/DELETE /entities/*| Yes  | Yes      | No     |
-
-Story P16-1.3: Added error_code to permission denied responses.
+Story P16-1.3: permission denials include error_code INSUFFICIENT_PERMISSIONS.
 """
-from functools import wraps
-from typing import List, Callable
+import logging
+import os
+
 from fastapi import HTTPException, status, Depends, Request
 from sqlalchemy.orm import Session
-import logging
 
 from app.core.database import get_db
 from app.models.user import User, UserRole
@@ -49,17 +50,51 @@ class PermissionDenied(HTTPException):
         )
 
 
+def get_mutation_principal(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Resolve the user for a role check.
+
+    A request that AuthMiddleware already accepted with an API key returns
+    None. The scope allowlist is the key's authorization; calling
+    ``get_current_user`` here would reject that key with 401. Cookie and
+    bearer sessions still resolve to a user. Test overrides of
+    ``get_current_user`` are honored when no API key is present.
+    """
+    if getattr(request.state, "api_key", None) is not None:
+        return None
+
+    # Pytest-only. conftest sets this on the dependency function so legacy
+    # route tests, including ones that mount a router on their own FastAPI
+    # app, keep exercising handlers. It is ignored unless pytest is running.
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        legacy = getattr(get_mutation_principal, "_legacy_test_principal", None)
+        if legacy is not None:
+            return legacy() if callable(legacy) else legacy
+
+    from app.api.v1.auth import get_current_user
+
+    override = request.app.dependency_overrides.get(get_current_user)
+    if override is not None:
+        return override()
+    return get_current_user(request, db)
+
+
 def require_role(*allowed_roles: UserRole):
     """
-    Dependency factory that checks if user has one of the allowed roles.
+    Dependency factory that checks if the session user has one of the allowed roles.
+
+    API keys that passed the middleware allowlist skip this check. A session
+    user whose role is not listed receives 403.
 
     Usage:
         @router.get("/users")
         async def list_users(user: User = Depends(require_role(UserRole.ADMIN))):
             ...
 
-        @router.post("/events")
-        async def create_event(user: User = Depends(require_role(UserRole.ADMIN, UserRole.OPERATOR))):
+        @router.post("/events/{event_id}/feedback")
+        async def feedback(user: User = Depends(require_role(UserRole.ADMIN, UserRole.OPERATOR))):
             ...
 
     Args:
@@ -68,33 +103,40 @@ def require_role(*allowed_roles: UserRole):
     Returns:
         A dependency function that validates the user's role
     """
-    from app.api.v1.auth import get_current_user  # Import here to avoid circular import
 
     async def check_role(
         request: Request,
-        current_user: User = Depends(get_current_user),
-    ) -> User:
+        principal: User | None = Depends(get_mutation_principal),
+    ) -> User | None:
+        if principal is None:
+            if getattr(request.state, "api_key", None) is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Not authenticated",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return None
 
-        # Check if user's role is in allowed roles
-        if current_user.role not in allowed_roles:
+        if principal.role not in allowed_roles:
+            role_value = principal.role.value if hasattr(principal.role, "value") else str(principal.role)
             logger.warning(
                 "Permission denied",
                 extra={
                     "event_type": "permission_denied",
-                    "user_id": current_user.id,
-                    "username": current_user.username,
-                    "user_role": current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role),
+                    "user_id": principal.id,
+                    "username": principal.username,
+                    "user_role": role_value,
                     "required_roles": [r.value for r in allowed_roles],
                     "path": request.url.path,
                     "method": request.method,
                 }
             )
             raise PermissionDenied(
-                detail=f"Role '{current_user.role.value if hasattr(current_user.role, 'value') else current_user.role}' "
+                detail=f"Role '{role_value}' "
                        f"is not authorized for this action. Required: {', '.join(r.value for r in allowed_roles)}"
             )
 
-        return current_user
+        return principal
 
     return check_role
 
@@ -124,17 +166,22 @@ def check_can_manage_users(user: User) -> bool:
 
 
 def check_can_manage_events(user: User) -> bool:
-    """Check if user can create/edit/delete events (admin, operator)"""
+    """Day-to-day event actions (feedback, reanalyze). Deletes are admin-only."""
     return user.role in (UserRole.ADMIN, UserRole.OPERATOR)
 
 
 def check_can_manage_cameras(user: User) -> bool:
-    """Check if user can create/edit/delete cameras (admin, operator)"""
+    """Camera configuration and CRUD. Admin only. Operators may analyze."""
+    return user.role == UserRole.ADMIN
+
+
+def check_can_analyze_cameras(user: User) -> bool:
+    """Manual camera analysis. Admin and operator."""
     return user.role in (UserRole.ADMIN, UserRole.OPERATOR)
 
 
 def check_can_manage_entities(user: User) -> bool:
-    """Check if user can create/edit/delete entities (admin, operator)"""
+    """Label, merge, and assign entities. Deleting entities is admin-only."""
     return user.role in (UserRole.ADMIN, UserRole.OPERATOR)
 
 

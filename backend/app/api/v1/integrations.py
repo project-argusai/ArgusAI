@@ -21,6 +21,10 @@ from app.schemas.types import iso_utc
 from app.models.mqtt_config import MQTTConfig
 from app.services.service_container import container
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -275,7 +279,7 @@ async def get_mqtt_config(db: Session = Depends(get_db)):
     )
 
 
-@router.put("/mqtt/config", response_model=MQTTConfigResponse)
+@router.put("/mqtt/config", response_model=MQTTConfigResponse, dependencies=_REQUIRE_ADMIN)
 async def update_mqtt_config(
     config_update: MQTTConfigUpdate,
     db: Session = Depends(get_db)
@@ -390,7 +394,7 @@ async def get_mqtt_status():
     )
 
 
-@router.post("/mqtt/test", response_model=MQTTTestResponse)
+@router.post("/mqtt/test", response_model=MQTTTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_mqtt_connection(test_request: MQTTTestRequest):
     """
     Test MQTT connection without persisting configuration (AC1: Connect with auth).
@@ -424,7 +428,7 @@ async def test_mqtt_connection(test_request: MQTTTestRequest):
     )
 
 
-@router.post("/mqtt/publish-discovery", response_model=PublishDiscoveryResponse)
+@router.post("/mqtt/publish-discovery", response_model=PublishDiscoveryResponse, dependencies=_REQUIRE_ADMIN)
 async def publish_discovery(db: Session = Depends(get_db)):
     """
     Manually trigger Home Assistant discovery publishing (Story P4-2.2, AC1).
@@ -469,7 +473,7 @@ async def publish_discovery(db: Session = Depends(get_db)):
     )
 
 
-@router.post("/mqtt/test-message", response_model=TestMessageResponse)
+@router.post("/mqtt/test-message", response_model=TestMessageResponse, dependencies=_REQUIRE_ADMIN)
 async def send_test_message(db: Session = Depends(get_db)):
     """
     Send a test message to MQTT broker.
@@ -624,7 +628,7 @@ async def get_homekit_status():
     )
 
 
-@router.post("/homekit/reset", response_model=HomekitResetResponse)
+@router.post("/homekit/reset", response_model=HomekitResetResponse, dependencies=_REQUIRE_ADMIN)
 async def reset_homekit_pairing():
     """
     Reset HomeKit pairing (AC10: Reset functionality).
@@ -663,7 +667,7 @@ async def reset_homekit_pairing():
         )
 
 
-@router.put("/homekit/enable", response_model=HomekitStatusResponse)
+@router.put("/homekit/enable", response_model=HomekitStatusResponse, dependencies=_REQUIRE_ADMIN)
 async def update_homekit_enabled(
     request: HomekitEnableRequest,
     db: Session = Depends(get_db)

@@ -36,16 +36,45 @@ def _legacy_route_test_auth_override(request, monkeypatch):
     exercise route behavior independently of authentication. Keep that override
     in pytest only. Tests marked ``real_auth_middleware`` exercise the deployed
     middleware without this override.
+
+    Mutation routes now require a session role. Legacy tests predate that
+    check, so they receive an admin principal unless they opt into real role
+    enforcement with ``real_user_roles`` (or ``real_auth_middleware``).
     """
-    if request.node.get_closest_marker("real_auth_middleware"):
+    real_middleware = request.node.get_closest_marker("real_auth_middleware") is not None
+    real_roles = request.node.get_closest_marker("real_user_roles") is not None
+
+    if not real_middleware:
+        from app.middleware.auth_middleware import AuthMiddleware
+
+        async def pass_through(self, scope, receive, send):
+            await self.app(scope, receive, send)
+
+        monkeypatch.setattr(AuthMiddleware, "__call__", pass_through)
+
+    if real_middleware or real_roles:
+        yield
         return
 
-    from app.middleware.auth_middleware import AuthMiddleware
+    from types import SimpleNamespace
 
-    async def pass_through(self, scope, receive, send):
-        await self.app(scope, receive, send)
+    from app.core.permissions import get_mutation_principal
+    from app.models.user import UserRole
 
-    monkeypatch.setattr(AuthMiddleware, "__call__", pass_through)
+    def _legacy_admin():
+        return SimpleNamespace(
+            id="legacy-test-admin",
+            username="legacy-test-admin",
+            role=UserRole.ADMIN,
+        )
+
+    # Attribute on the dependency function, not app.dependency_overrides.
+    # Router tests build their own FastAPI instance, so an override on the
+    # process-wide app would not apply.
+    get_mutation_principal._legacy_test_principal = _legacy_admin
+    yield
+    if getattr(get_mutation_principal, "_legacy_test_principal", None) is _legacy_admin:
+        delattr(get_mutation_principal, "_legacy_test_principal")
 
 
 # =============================================================================

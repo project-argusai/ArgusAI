@@ -33,6 +33,11 @@ from app.services.anomaly_scoring_service import get_anomaly_scoring_service, An
 from app.services.person_matching_service import get_person_matching_service, PersonMatchingService
 from app.models.camera import Camera
 
+from app.core.permissions import require_admin, require_operator_or_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+_REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/context", tags=["context"])
@@ -75,7 +80,7 @@ class EmbeddingStatsResponse(BaseModel):
     embedding_dimension: int = Field(description="Embedding vector dimension")
 
 
-@router.post("/embeddings/batch", response_model=BatchEmbeddingResponse)
+@router.post("/embeddings/batch", response_model=BatchEmbeddingResponse, dependencies=_REQUIRE_ADMIN)
 async def batch_generate_embeddings(
     request: BatchEmbeddingRequest = BatchEmbeddingRequest(),
     db: Session = Depends(get_db),
@@ -624,7 +629,7 @@ async def list_entities(
     )
 
 
-@router.post("/entities", response_model=EntityDetailResponse, status_code=201)
+@router.post("/entities", response_model=EntityDetailResponse, status_code=201, dependencies=_REQUIRE_OPERATOR)
 async def create_entity(
     request: EntityCreateRequest,
     db: Session = Depends(get_db),
@@ -985,7 +990,7 @@ class AssignEventResponse(BaseModel):
     entity_name: Optional[str] = Field(default=None, description="Name of the target entity")
 
 
-@router.post("/events/{event_id}/entity", response_model=AssignEventResponse)
+@router.post("/events/{event_id}/entity", response_model=AssignEventResponse, dependencies=_REQUIRE_OPERATOR)
 async def assign_event_to_entity(
     event_id: str,
     request: AssignEventRequest,
@@ -1024,7 +1029,7 @@ async def assign_event_to_entity(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.delete("/entities/{entity_id}/events/{event_id}", response_model=UnlinkEventResponse)
+@router.delete("/entities/{entity_id}/events/{event_id}", response_model=UnlinkEventResponse, dependencies=_REQUIRE_OPERATOR)
 async def unlink_event_from_entity(
     entity_id: str,
     event_id: str,
@@ -1137,7 +1142,7 @@ async def get_entity_thumbnail(
     )
 
 
-@router.put("/entities/{entity_id}", response_model=EntityResponse)
+@router.put("/entities/{entity_id}", response_model=EntityResponse, dependencies=_REQUIRE_OPERATOR)
 async def update_entity(
     entity_id: str,
     request: EntityUpdateRequest,
@@ -1184,7 +1189,7 @@ async def update_entity(
     return EntityResponse(**entity)
 
 
-@router.delete("/entities/{entity_id}", status_code=204)
+@router.delete("/entities/{entity_id}", status_code=204, dependencies=_REQUIRE_ADMIN)
 async def delete_entity(
     entity_id: str,
     db: Session = Depends(get_db),
@@ -1268,7 +1273,7 @@ class AdjustmentListResponse(BaseModel):
     limit: int = Field(description="Number of items per page")
 
 
-@router.post("/entities/merge", response_model=MergeEntitiesResponse)
+@router.post("/entities/merge", response_model=MergeEntitiesResponse, dependencies=_REQUIRE_OPERATOR)
 async def merge_entities(
     request: MergeEntitiesRequest,
     db: Session = Depends(get_db),
@@ -1420,7 +1425,7 @@ async def get_camera_patterns(
     )
 
 
-@router.post("/patterns/{camera_id}/recalculate", response_model=RecalculatePatternResponse)
+@router.post("/patterns/{camera_id}/recalculate", response_model=RecalculatePatternResponse, dependencies=_REQUIRE_ADMIN)
 async def recalculate_camera_patterns(
     camera_id: str,
     window_days: int = Query(
@@ -1481,7 +1486,7 @@ async def recalculate_camera_patterns(
         )
 
 
-@router.post("/patterns/batch", response_model=BatchPatternResponse)
+@router.post("/patterns/batch", response_model=BatchPatternResponse, dependencies=_REQUIRE_ADMIN)
 async def batch_recalculate_patterns(
     window_days: int = Query(
         default=30,
@@ -1628,7 +1633,7 @@ async def score_event(
     )
 
 
-@router.post("/anomaly/score", response_model=AnomalyScoreResponse)
+@router.post("/anomaly/score", response_model=AnomalyScoreResponse, dependencies=_REQUIRE_OPERATOR)
 async def calculate_anomaly_score(
     request: AnomalyScoreRequest,
     db: Session = Depends(get_db),
@@ -1766,7 +1771,7 @@ async def get_face_embeddings(
     )
 
 
-@router.delete("/faces/{event_id}", response_model=DeleteFacesResponse)
+@router.delete("/faces/{event_id}", response_model=DeleteFacesResponse, dependencies=_REQUIRE_ADMIN)
 async def delete_event_faces(
     event_id: str,
     db: Session = Depends(get_db),
@@ -1803,7 +1808,7 @@ async def delete_event_faces(
     )
 
 
-@router.delete("/faces", response_model=DeleteFacesResponse)
+@router.delete("/faces", response_model=DeleteFacesResponse, dependencies=_REQUIRE_ADMIN)
 async def delete_all_faces(
     db: Session = Depends(get_db),
     face_service: FaceEmbeddingService = Depends(get_face_embedding_service),
@@ -2059,7 +2064,7 @@ async def get_person(
     )
 
 
-@router.put("/persons/{person_id}", response_model=PersonUpdateResponse)
+@router.put("/persons/{person_id}", response_model=PersonUpdateResponse, dependencies=_REQUIRE_OPERATOR)
 async def update_person(
     person_id: str,
     request: PersonUpdateRequest,
@@ -2360,7 +2365,7 @@ async def get_vehicle(
     )
 
 
-@router.put("/vehicles/{vehicle_id}", response_model=VehicleUpdateResponse)
+@router.put("/vehicles/{vehicle_id}", response_model=VehicleUpdateResponse, dependencies=_REQUIRE_OPERATOR)
 async def update_vehicle(
     vehicle_id: str,
     request: VehicleUpdateRequest,
@@ -2531,7 +2536,7 @@ async def get_vehicle_embeddings(
     )
 
 
-@router.delete("/vehicle-embeddings/{event_id}", response_model=DeleteVehiclesResponse)
+@router.delete("/vehicle-embeddings/{event_id}", response_model=DeleteVehiclesResponse, dependencies=_REQUIRE_ADMIN)
 async def delete_event_vehicles(
     event_id: str,
     db: Session = Depends(get_db),
@@ -2568,7 +2573,7 @@ async def delete_event_vehicles(
     )
 
 
-@router.delete("/vehicle-embeddings", response_model=DeleteVehiclesResponse)
+@router.delete("/vehicle-embeddings", response_model=DeleteVehiclesResponse, dependencies=_REQUIRE_ADMIN)
 async def delete_all_vehicles(
     db: Session = Depends(get_db),
     vehicle_service: VehicleEmbeddingService = Depends(get_vehicle_embedding_service),

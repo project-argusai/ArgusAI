@@ -47,6 +47,10 @@ from app.services.feedback_analysis_service import (
     CorrectionCategory,
 )
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -420,7 +424,7 @@ async def get_prompt_insights(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/prompt-insights/apply", response_model=ApplySuggestionResponse)
+@router.post("/prompt-insights/apply", response_model=ApplySuggestionResponse, dependencies=_REQUIRE_ADMIN)
 async def apply_prompt_suggestion(
     request: ApplySuggestionRequest,
     db: Session = Depends(get_db)

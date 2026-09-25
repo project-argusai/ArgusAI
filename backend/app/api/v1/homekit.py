@@ -39,6 +39,10 @@ from app.schemas.homekit_test_event import (
     HomeKitTestEventResponse,
 )
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -328,7 +332,7 @@ async def get_homekit_status(db: Session = Depends(get_db)):
         )
 
 
-@router.post("/enable", response_model=HomeKitEnableResponse)
+@router.post("/enable", response_model=HomeKitEnableResponse, dependencies=_REQUIRE_ADMIN)
 async def enable_homekit(
     request: HomeKitEnableRequest = None,
     db: Session = Depends(get_db)
@@ -412,7 +416,7 @@ async def enable_homekit(
         )
 
 
-@router.post("/disable", response_model=HomeKitDisableResponse)
+@router.post("/disable", response_model=HomeKitDisableResponse, dependencies=_REQUIRE_ADMIN)
 async def disable_homekit(db: Session = Depends(get_db)):
     """
     Disable the HomeKit bridge.
@@ -502,7 +506,7 @@ async def get_qrcode(db: Session = Depends(get_db)):
         )
 
 
-@router.post("/reset")
+@router.post("/reset", dependencies=_REQUIRE_ADMIN)
 async def reset_pairing(db: Session = Depends(get_db)):
     """
     Reset HomeKit pairing state.
@@ -622,7 +626,7 @@ async def get_pairings():
         )
 
 
-@router.delete("/pairings/{pairing_id}", response_model=RemovePairingResponse)
+@router.delete("/pairings/{pairing_id}", response_model=RemovePairingResponse, dependencies=_REQUIRE_ADMIN)
 async def remove_pairing(pairing_id: str):
     """
     Remove a specific HomeKit pairing (Story P5-1.8 AC4).
@@ -731,7 +735,7 @@ async def get_diagnostics():
 # ============================================================================
 
 
-@router.post("/test-connectivity", response_model=HomeKitConnectivityTestResponse)
+@router.post("/test-connectivity", response_model=HomeKitConnectivityTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_connectivity():
     """
     Test HomeKit bridge connectivity for troubleshooting (Story P7-1.2 AC1, AC2, AC6).
@@ -853,7 +857,7 @@ async def get_camera_snapshot(camera_id: str):
 # ============================================================================
 
 
-@router.post("/cameras/{camera_id}/test-stream", response_model=StreamTestResponse)
+@router.post("/cameras/{camera_id}/test-stream", response_model=StreamTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_camera_stream(camera_id: str):
     """
     Test camera streaming capability for HomeKit (Story P7-3.3 AC3).
@@ -928,7 +932,7 @@ async def test_camera_stream(camera_id: str):
 # ============================================================================
 
 
-@router.post("/test-event", response_model=HomeKitTestEventResponse)
+@router.post("/test-event", response_model=HomeKitTestEventResponse, dependencies=_REQUIRE_ADMIN)
 async def trigger_test_event(
     request: HomeKitTestEventRequest,
     db: Session = Depends(get_db)

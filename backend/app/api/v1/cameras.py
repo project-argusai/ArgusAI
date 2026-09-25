@@ -56,6 +56,11 @@ from app.services.event_processor import get_event_processor, ProcessingEvent
 from app.services.mqtt_discovery_service import on_camera_deleted, on_camera_disabled  # Story P4-2.2
 from app.services.stream_proxy_service import get_stream_proxy_service, StreamQuality  # Story P16-2.2
 
+from app.core.permissions import require_admin, require_operator_or_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+_REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cameras", tags=["cameras"])
@@ -75,7 +80,7 @@ def get_cameras_health() -> Dict[str, Any]:
 camera_service = CameraService()
 
 
-@router.post("", response_model=CameraResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=CameraResponse, status_code=status.HTTP_201_CREATED, dependencies=_REQUIRE_ADMIN)
 def create_camera(
     camera_data: CameraCreate,
     db: Session = Depends(get_db)
@@ -182,7 +187,7 @@ def list_cameras(
         )
 
 
-@router.post("/test", response_model=CameraTestDetailedResponse)
+@router.post("/test", response_model=CameraTestDetailedResponse, dependencies=_REQUIRE_ADMIN)
 def test_camera_connection_presave(
     camera_config: CameraTestRequest
 ):
@@ -458,7 +463,7 @@ def get_camera(
         )
 
 
-@router.put("/{camera_id}", response_model=CameraResponse)
+@router.put("/{camera_id}", response_model=CameraResponse, dependencies=_REQUIRE_ADMIN)
 async def update_camera(
     camera_id: CameraUUID,
     camera_data: CameraUpdate,
@@ -553,7 +558,7 @@ async def update_camera(
         )
 
 
-@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_REQUIRE_ADMIN)
 async def delete_camera(
     camera_id: CameraUUID,
     db: Session = Depends(get_db)
@@ -610,7 +615,7 @@ async def delete_camera(
         )
 
 
-@router.post("/{camera_id}/reconnect")
+@router.post("/{camera_id}/reconnect", dependencies=_REQUIRE_ADMIN)
 def reconnect_camera(
     camera_id: CameraUUID,
     db: Session = Depends(get_db)
@@ -713,7 +718,7 @@ def reconnect_camera(
         )
 
 
-@router.post("/{camera_id}/enable-capture")
+@router.post("/{camera_id}/enable-capture", dependencies=_REQUIRE_ADMIN)
 def enable_camera_capture_endpoint(
     camera_id: CameraUUID,
     db: Session = Depends(get_db)
@@ -771,7 +776,7 @@ def enable_camera_capture_endpoint(
         )
 
 
-@router.post("/{camera_id}/disable-capture")
+@router.post("/{camera_id}/disable-capture", dependencies=_REQUIRE_ADMIN)
 def disable_camera_capture_endpoint(
     camera_id: CameraUUID,
     db: Session = Depends(get_db)
@@ -820,7 +825,7 @@ def disable_camera_capture_endpoint(
         )
 
 
-@router.post("/{camera_id}/test", response_model=CameraTestResponse)
+@router.post("/{camera_id}/test", response_model=CameraTestResponse, dependencies=_REQUIRE_ADMIN)
 def test_camera_connection(
     camera_id: CameraUUID,
     db: Session = Depends(get_db)
@@ -1008,7 +1013,7 @@ def test_camera_connection(
 # Motion Configuration Endpoints (F2.1)
 # ============================================================================
 
-@router.put("/{camera_id}/motion/config", response_model=CameraResponse)
+@router.put("/{camera_id}/motion/config", response_model=CameraResponse, dependencies=_REQUIRE_ADMIN)
 def update_motion_config(
     camera_id: CameraUUID,
     config: MotionConfigUpdate,
@@ -1124,7 +1129,7 @@ def get_motion_config(
         )
 
 
-@router.post("/{camera_id}/motion/test", response_model=MotionTestResponse)
+@router.post("/{camera_id}/motion/test", response_model=MotionTestResponse, dependencies=_REQUIRE_ADMIN)
 def test_motion_detection(
     camera_id: str,
     test_request: MotionTestRequest = None,
@@ -1322,7 +1327,7 @@ def get_camera_zones(
         )
 
 
-@router.put("/{camera_id}/zones", response_model=CameraResponse)
+@router.put("/{camera_id}/zones", response_model=CameraResponse, dependencies=_REQUIRE_ADMIN)
 def update_camera_zones(
     camera_id: str,
     zones: List[DetectionZone],
@@ -1383,7 +1388,7 @@ def update_camera_zones(
         )
 
 
-@router.post("/{camera_id}/zones/test")
+@router.post("/{camera_id}/zones/test", dependencies=_REQUIRE_ADMIN)
 def test_camera_zones(
     camera_id: str,
     test_zones: List[DetectionZone] = None,
@@ -1496,7 +1501,7 @@ def test_camera_zones(
 # Detection Schedule Endpoints (F2.3)
 # ============================================================================
 
-@router.put("/{camera_id}/schedule", response_model=CameraResponse)
+@router.put("/{camera_id}/schedule", response_model=CameraResponse, dependencies=_REQUIRE_ADMIN)
 def update_camera_schedule(
     camera_id: str,
     schedule: DetectionSchedule,
@@ -1840,7 +1845,7 @@ def _get_rtsp_camera_preview(camera_id: str) -> dict:
     }
 
 
-@router.post("/{camera_id}/analyze")
+@router.post("/{camera_id}/analyze", dependencies=_REQUIRE_OPERATOR)
 async def analyze_camera(
     camera_id: str,
     db: Session = Depends(get_db)
@@ -2147,7 +2152,7 @@ def get_camera_audio_status(
     }
 
 
-@router.patch("/{camera_id}/audio", response_model=CameraResponse)
+@router.patch("/{camera_id}/audio", response_model=CameraResponse, dependencies=_REQUIRE_ADMIN)
 def update_camera_audio(
     camera_id: str,
     audio_enabled: bool,
@@ -2208,7 +2213,7 @@ def update_camera_audio(
     return camera
 
 
-@router.post("/{camera_id}/audio/test")
+@router.post("/{camera_id}/audio/test", dependencies=_REQUIRE_ADMIN)
 def test_camera_audio(
     camera_id: str,
     db: Session = Depends(get_db)

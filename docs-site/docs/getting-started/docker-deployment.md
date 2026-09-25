@@ -229,6 +229,7 @@ Key environment variables for Docker deployment:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | Database connection string | `sqlite:///data/app.db` |
+| `SQL_ECHO` | Log every SQL statement. Off unless set true. Not tied to `DEBUG` or `LOG_LEVEL`. `DB_ECHO=true` is an alias. | `false` |
 | `POSTGRES_USER` | PostgreSQL username | `argusai` |
 | `POSTGRES_PASSWORD` | PostgreSQL password | Required for postgres profile |
 | `POSTGRES_DB` | PostgreSQL database name | `argusai` |

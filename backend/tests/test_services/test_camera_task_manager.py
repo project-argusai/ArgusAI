@@ -38,6 +38,7 @@ class TestCameraTaskManager:
         camera = Mock(spec=Camera)
         camera.id = "cam-123"
         camera.name = "Test Camera"
+        camera.source_type = "rtsp"
         camera.frame_rate = 5
         camera.motion_cooldown = 2.0
         return camera
@@ -158,6 +159,36 @@ class TestCameraTaskManager:
 
         task_manager.update_cooldown("cam-123", 12345.67)
         assert task_manager.get_cooldown("cam-123") == 12345.67
+
+    @pytest.mark.asyncio
+    async def test_start_monitoring_skips_protect_camera(self, task_manager, sample_camera):
+        """Protect cameras must not get a motion/capture-health task."""
+        sample_camera.source_type = "protect"
+        sample_camera.id = "protect-1"
+        sample_camera.name = "Front Door"
+
+        await task_manager.start_monitoring(sample_camera)
+
+        assert task_manager.is_monitoring("protect-1") is False
+        assert task_manager.get_monitored_cameras() == []
+
+    @pytest.mark.asyncio
+    async def test_start_monitoring_still_starts_rtsp_camera(self, task_manager, sample_camera):
+        """RTSP cameras still get a motion task."""
+        sample_camera.source_type = "rtsp"
+
+        await task_manager.start_monitoring(sample_camera)
+
+        assert task_manager.is_monitoring("cam-123") is True
+        await task_manager.stop_monitoring("cam-123")
+
+    @pytest.mark.asyncio
+    async def test_unhealthy_protect_camera_does_not_restart(self, task_manager, sample_camera, mock_camera_service):
+        """A Protect camera must not enter the capture restart loop."""
+        sample_camera.source_type = "protect"
+        await task_manager.handle_unhealthy_camera_worker(sample_camera, context="motion_task")
+        mock_camera_service.restart_camera.assert_not_called()
+        assert task_manager.get_motion_task_stats() == {}
 
     def test_get_monitored_cameras(self, task_manager, sample_camera):
         """get_monitored_cameras should return current camera ids"""

@@ -2929,10 +2929,15 @@ async def restore_from_backup(
                 try:
                     await initialize_event_processor()
 
-                    # Restart enabled cameras
+                    from app.services.camera_service import is_protect_camera
+
+                    # Restart enabled RTSP/USB cameras. Protect cameras have no
+                    # capture worker; start_camera() would only skip them.
                     with get_db_session() as db:
                         enabled_cameras = db.query(Camera).filter(Camera.is_enabled == True).all()
                         for camera in enabled_cameras:
+                            if is_protect_camera(camera):
+                                continue
                             camera_service.start_camera(camera)
                 except Exception as e:
                     logger.warning(f"Error restarting tasks: {e}")

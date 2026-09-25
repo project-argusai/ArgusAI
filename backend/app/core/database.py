@@ -6,13 +6,16 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from app.core.config import settings
+from app.core.logging_config import configure_sqlalchemy_query_logging
 
 # Configure engine based on database type
 # Story P10-2.5: Add PostgreSQL support
 _is_sqlite = settings.DATABASE_URL.startswith("sqlite")
 
 engine_kwargs = {
-    "echo": settings.DEBUG,  # Log SQL queries in debug mode
+    # Statement logging is opt-in (SQL_ECHO / DB_ECHO). DEBUG and LOG_LEVEL
+    # must not turn this on; per-query logs fill the rotated app log.
+    "echo": settings.sql_echo_enabled,
     # pool_pre_ping issues a lightweight liveness check before handing out a
     # connection, transparently replacing ones dropped by the DB/network while
     # idle. Safe for both SQLite and PostgreSQL.
@@ -36,6 +39,10 @@ else:
 
 # Create SQLAlchemy engine
 engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
+# echo=True installs an InstanceLogger that emits SQL at INFO regardless of
+# the sqlalchemy logger level. Keep that logger at WARNING unless opted in,
+# including when the process root logger is DEBUG.
+configure_sqlalchemy_query_logging(settings.sql_echo_enabled)
 
 
 def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):

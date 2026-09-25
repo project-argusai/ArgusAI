@@ -17,6 +17,7 @@ from app.core.logging_config import (
     CustomJsonFormatter,
     RequestIdFilter,
     SanitizingFilter,
+    configure_sqlalchemy_query_logging,
 )
 
 
@@ -270,6 +271,60 @@ class TestSetupLogging:
 
         # Reset to INFO for other tests
         setup_logging(log_level="INFO")
+
+    def test_debug_root_does_not_enable_sql_statement_logs(self, monkeypatch):
+        """SQL loggers stay at WARNING unless SQL echo is explicitly opted in."""
+        from app.core.config import settings
+
+        monkeypatch.setattr(settings, "SQL_ECHO", False, raising=False)
+        monkeypatch.setattr(settings, "DB_ECHO", False, raising=False)
+
+        setup_logging(log_level="DEBUG")
+        assert logging.getLogger().level == logging.DEBUG
+        assert logging.getLogger("sqlalchemy.engine").level == logging.WARNING
+        assert logging.getLogger("sqlalchemy.engine.Engine").level == logging.WARNING
+
+        configure_sqlalchemy_query_logging(True)
+        assert logging.getLogger("sqlalchemy.engine").level == logging.INFO
+        assert logging.getLogger("sqlalchemy.engine.Engine").level == logging.INFO
+
+        configure_sqlalchemy_query_logging(False)
+        setup_logging(log_level="INFO")
+
+
+class TestSqlEchoIndependentOfDebug:
+    """Engine echo follows SQL_ECHO / DB_ECHO, not DEBUG or LOG_LEVEL."""
+
+    def test_sql_echo_defaults_off_when_debug_and_log_level_are_noisy(self, monkeypatch):
+        from app.core.config import Settings
+
+        monkeypatch.setenv("DEBUG", "true")
+        monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+        monkeypatch.setenv("SQL_ECHO", "false")
+        monkeypatch.setenv("DB_ECHO", "false")
+
+        fresh = Settings()
+        assert fresh.DEBUG is True
+        assert fresh.LOG_LEVEL == "DEBUG"
+        assert fresh.sql_echo_enabled is False
+
+    def test_sql_echo_and_db_echo_opt_in(self, monkeypatch):
+        from app.core.config import Settings
+
+        monkeypatch.setenv("DEBUG", "false")
+        monkeypatch.setenv("SQL_ECHO", "true")
+        monkeypatch.setenv("DB_ECHO", "false")
+        assert Settings().sql_echo_enabled is True
+
+        monkeypatch.setenv("SQL_ECHO", "false")
+        monkeypatch.setenv("DB_ECHO", "true")
+        assert Settings().sql_echo_enabled is True
+
+    def test_engine_echo_matches_opt_in_flag(self):
+        from app.core.config import settings
+        from app.core.database import engine
+
+        assert bool(engine.echo) is bool(settings.sql_echo_enabled)
 
 
 class TestGetLogger:

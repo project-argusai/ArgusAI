@@ -23,6 +23,7 @@ class TestCameraService:
         camera.id = "test-camera-123"
         camera.name = "Test Camera"
         camera.type = "rtsp"
+        camera.source_type = "rtsp"
         camera.rtsp_url = "rtsp://192.168.1.50:554/stream1"
         camera.username = "admin"
         camera.password = "encrypted:test_encrypted_password"
@@ -37,6 +38,7 @@ class TestCameraService:
         camera.id = "usb-camera-456"
         camera.name = "Webcam"
         camera.type = "usb"
+        camera.source_type = "usb"
         camera.device_index = 0
         camera.frame_rate = 15
         return camera
@@ -433,6 +435,7 @@ class TestCameraCaptureRecoveryPolicy:
         camera.id = "test-cam-recovery-001"
         camera.name = "Recovery Test Cam"
         camera.type = "rtsp"
+        camera.source_type = "rtsp"
         camera.frame_rate = 5
         return camera
 
@@ -525,3 +528,29 @@ class TestCameraCaptureRecoveryPolicy:
 
         assert camera_service._restart_attempts.get(cid, 0) == 0
         assert cid not in camera_service._capture_disabled
+
+    def test_protect_start_and_restart_do_not_claim_success(self, camera_service, caplog):
+        """Protect cameras have no capture worker and must not look restarted."""
+        camera = Mock(spec=Camera)
+        camera.id = "protect-cam-1"
+        camera.name = "Driveway"
+        camera.source_type = "protect"
+        camera.type = "rtsp"
+
+        with caplog.at_level("INFO"):
+            started = camera_service.start_camera(camera)
+
+        assert started is None
+        assert "protect-cam-1" not in camera_service._workers
+        assert "Successfully restarted capture" not in caplog.text
+
+        with patch.object(camera_service, "stop_camera") as stop_camera, caplog.at_level("INFO"):
+            for _ in range(6):
+                result = camera_service.restart_camera(camera)
+                assert result is None
+
+        stop_camera.assert_not_called()
+        assert camera.id not in camera_service._capture_disabled
+        assert camera_service._restart_attempts.get(camera.id, 0) == 0
+        assert "Successfully restarted capture" not in caplog.text
+        assert "Failed to restart capture" not in caplog.text

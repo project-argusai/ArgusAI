@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
 
+    # Per-statement SQL logging. Independent of DEBUG and LOG_LEVEL.
+    # Off unless explicitly opted in, so production query volume does not fill
+    # app logs. SQL_ECHO is the canonical name; DB_ECHO is an accepted alias.
+    SQL_ECHO: bool = False
+    DB_ECHO: bool = False
+
     # Debug Endpoints (Story P14-1.2)
     # SECURITY WARNING: Only enable for development.
     # Even when enabled, endpoints require admin role + optional DEBUG_TOKEN.
@@ -49,6 +55,11 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         """Parse CORS_ORIGINS from comma-separated string"""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def sql_echo_enabled(self) -> bool:
+        """True only when SQL statement logging was explicitly opted in."""
+        return bool(self.SQL_ECHO or self.DB_ECHO)
 
     # Cookie Settings (for HTTP vs HTTPS deployments)
     # For HTTPS: COOKIE_SECURE=true, COOKIE_SAMESITE=none

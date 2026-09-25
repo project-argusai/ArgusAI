@@ -774,3 +774,77 @@ class TestMQTTEventPublishing:
         assert topic.startswith("liveobject/camera/")
         assert topic.endswith("/event")
         assert camera_id in topic
+
+
+class TestProtectMotionMonitoringExclusion:
+    """Protect cameras must not get capture motion tasks. RTSP/USB still do."""
+
+    def test_query_excludes_protect_and_keeps_rtsp_usb(self, db_session):
+        from tests.conftest import make_camera
+        from app.services.event_processor import query_cameras_for_motion_monitoring
+
+        make_camera(
+            db_session,
+            name="Front Door",
+            type="rtsp",
+            source_type="protect",
+            is_enabled=True,
+            motion_enabled=True,
+        )
+        rtsp = make_camera(
+            db_session,
+            name="Garage RTSP",
+            type="rtsp",
+            source_type="rtsp",
+            is_enabled=True,
+            motion_enabled=True,
+        )
+        usb = make_camera(
+            db_session,
+            name="USB Cam",
+            type="usb",
+            source_type="usb",
+            rtsp_url=None,
+            is_enabled=True,
+            motion_enabled=True,
+        )
+        make_camera(
+            db_session,
+            name="Motion Off",
+            type="rtsp",
+            source_type="rtsp",
+            is_enabled=True,
+            motion_enabled=False,
+        )
+        make_camera(
+            db_session,
+            name="Disabled RTSP",
+            type="rtsp",
+            source_type="rtsp",
+            is_enabled=False,
+            motion_enabled=True,
+        )
+
+        monitored = query_cameras_for_motion_monitoring(db_session)
+        assert {camera.id for camera in monitored} == {rtsp.id, usb.id}
+
+    @pytest.mark.asyncio
+    async def test_start_camera_monitoring_skips_protect_keeps_rtsp(self):
+        processor = EventProcessor(worker_count=2, queue_maxsize=10)
+        processor.camera_task_manager = MagicMock()
+        processor.camera_task_manager.start_monitoring = AsyncMock()
+
+        protect = Mock()
+        protect.id = "protect-1"
+        protect.name = "Door"
+        protect.source_type = "protect"
+
+        rtsp = Mock()
+        rtsp.id = "rtsp-1"
+        rtsp.name = "Drive"
+        rtsp.source_type = "rtsp"
+
+        await processor.start_camera_monitoring(protect)
+        await processor.start_camera_monitoring(rtsp)
+
+        processor.camera_task_manager.start_monitoring.assert_awaited_once_with(rtsp)

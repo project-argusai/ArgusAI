@@ -56,7 +56,7 @@ from app.services.ai_types import (
     VEHICLE_MATCH_THRESHOLD,
     AUTO_CREATE_VEHICLES,
 )
-from app.services.camera_service import CameraService
+from app.services.camera_service import CameraService, is_protect_camera
 from app.services.motion_detection_service import MotionDetectionService, motion_detection_service
 from app.services.cost_cap_service import get_cost_cap_service
 from app.services.cost_alert_service import get_cost_alert_service
@@ -68,6 +68,23 @@ if TYPE_CHECKING:
     from app.services.mqtt_service import MQTTService
 
 logger = logging.getLogger(__name__)
+
+
+def query_cameras_for_motion_monitoring(db):
+    """Enabled RTSP/USB cameras that need a capture motion task.
+
+    Protect cameras are excluded. Their events are ingested by
+    ProtectEventHandler, which does not consult this task or ``motion_enabled``.
+    """
+    return (
+        db.query(Camera)
+        .filter(
+            Camera.is_enabled == True,
+            Camera.motion_enabled == True,
+            Camera.source_type != "protect",
+        )
+        .all()
+    )
 
 
 def _get_container():
@@ -324,20 +341,17 @@ class EventProcessor:
 
         logger.info(f"Started {self.worker_count} AI workers via AIWorkerPool")
 
-        # Start motion detection tasks for enabled cameras
-        # Note: This will be called from FastAPI lifespan after camera service is initialized
-        # For now, we'll load cameras from database
+        # Start motion detection tasks for enabled RTSP/USB cameras.
+        # Protect cameras are excluded here and again in CameraTaskManager:
+        # they have no capture worker, and ProtectEventHandler ingests their
+        # events without this task (is_enabled + smart-detection filters).
         try:
             with get_db_session() as db:
-                enabled_cameras = db.query(Camera).filter(
-                    Camera.is_enabled == True,
-                    Camera.motion_enabled == True
-                ).all()
-
-                for camera in enabled_cameras:
-                    await self.start_camera_monitoring(camera)
-
-                logger.info(f"Started monitoring {len(enabled_cameras)} enabled cameras")
+                started = await self._start_motion_monitors(db)
+                logger.info(
+                    f"Started monitoring {started} enabled cameras "
+                    "(Protect cameras excluded)"
+                )
 
                 # Start the camera health monitor for self-healing (now owned by CameraTaskManager)
                 if self.camera_task_manager:
@@ -405,10 +419,39 @@ class EventProcessor:
 
         logger.info("EventProcessor stopped")
 
+    async def _start_motion_monitors(self, db) -> int:
+        """Start capture motion tasks for enabled non-Protect cameras.
+
+        Returns the number of cameras a monitoring task was requested for.
+        Protect cameras are filtered in the query and skipped again here so a
+        stale row cannot start the capture-health restart loop.
+        """
+        cameras = query_cameras_for_motion_monitoring(db)
+        started = 0
+        for camera in cameras:
+            if is_protect_camera(camera):
+                logger.info(
+                    "Not starting motion monitoring for Protect camera %s",
+                    camera.name,
+                )
+                continue
+            await self.start_camera_monitoring(camera)
+            started += 1
+        return started
+
     async def start_camera_monitoring(self, camera: Camera):
         """
         Start motion detection task for a specific camera (delegated to CameraTaskManager).
+
+        Protect cameras are not monitored; CameraTaskManager.start_monitoring
+        skips them as well.
         """
+        if is_protect_camera(camera):
+            logger.info(
+                "Not starting motion monitoring for Protect camera %s",
+                getattr(camera, "name", camera.id),
+            )
+            return
         if self.camera_task_manager:
             await self.camera_task_manager.start_monitoring(camera)
 

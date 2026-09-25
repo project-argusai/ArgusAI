@@ -22,6 +22,8 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
+import { CSRF_ORIGIN_DENIED_MESSAGE, isCsrfOriginDenied } from '@/lib/csrf-error';
+
 /**
  * Return type for useSettingsForm hook
  */
@@ -196,9 +198,14 @@ export function useSettingsForm<T extends object>({
     },
     onError: (err: Error) => {
       setError(err);
-      toast.error('Failed to save settings', {
-        description: err.message,
-      });
+      // Leave formData untouched so a rejected write does not discard edits.
+      if (isCsrfOriginDenied(err)) {
+        toast.error(CSRF_ORIGIN_DENIED_MESSAGE);
+      } else {
+        toast.error('Failed to save settings', {
+          description: err.message,
+        });
+      }
       onError?.(err);
     },
   });

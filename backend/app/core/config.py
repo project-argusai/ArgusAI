@@ -68,11 +68,14 @@ class Settings(BaseSettings):
         """True only when SQL statement logging was explicitly opted in."""
         return bool(self.SQL_ECHO or self.DB_ECHO)
 
-    # Cookie Settings (for HTTP vs HTTPS deployments)
-    # For HTTPS: COOKIE_SECURE=true, COOKIE_SAMESITE=none
-    # For HTTP:  COOKIE_SECURE=false, COOKIE_SAMESITE=lax
+    # Session cookie flags.
+    # The native install (LAN HTTPS frontend on :3000 and the Cloudflare tunnel
+    # hostname) proxies /api/v1 through the frontend, so browser cookie requests
+    # are same-site. Lax is the default. Set COOKIE_SAMESITE=none only when the
+    # browser calls the API on a different site (requires COOKIE_SECURE=true).
+    # For plain HTTP, set COOKIE_SECURE=false.
     COOKIE_SECURE: bool = True  # Set to False for HTTP-only deployments
-    COOKIE_SAMESITE: str = "none"  # Use "lax" for HTTP-only deployments
+    COOKIE_SAMESITE: str = "lax"
 
     # Camera Settings
     MAX_CAMERAS: int = 1  # MVP limitation
@@ -175,6 +178,17 @@ class Settings(BaseSettings):
             if not path.exists():
                 raise ValueError(f"SSL file not found: {v}")
         return v
+
+    @field_validator('COOKIE_SAMESITE', mode='before')
+    @classmethod
+    def validate_cookie_samesite(cls, v: object) -> str:
+        """Accept lax, strict, or none. Cross-site browsers need none."""
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return "lax"
+        normalized = str(v).strip().lower()
+        if normalized not in {"lax", "strict", "none"}:
+            raise ValueError("COOKIE_SAMESITE must be lax, strict, or none")
+        return normalized
 
     @field_validator('SSL_MIN_VERSION', mode='after')
     @classmethod

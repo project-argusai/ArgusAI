@@ -13,6 +13,7 @@ import { formatRelative } from '@/lib/datetime';
 import { Smartphone, Check, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { errorForFailedResponse } from '@/lib/csrf-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,8 +55,13 @@ export function PairingConfirmation() {
         body: JSON.stringify({ code }),
       });
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to confirm pairing');
+        const error = await response.json().catch(() => null);
+        throw errorForFailedResponse(
+          response.status,
+          response.statusText,
+          error,
+          'Failed to confirm pairing',
+        );
       }
       return response.json();
     },

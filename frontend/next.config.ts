@@ -10,14 +10,13 @@ const nextConfig: NextConfig = {
     unoptimized: true,
     dangerouslyAllowSVG: true,
   },
-  // Proxy API requests to backend to avoid CORS issues
-  // NOTE: When using custom server.js (SSL mode), all proxying including
-  // WebSocket upgrades is handled in server.js, NOT here.
-  // This rewrite config is only used for `npm run dev` (non-SSL mode).
+  // Proxy API requests to the backend so the browser stays on the frontend origin.
+  // HTTP requests, including those handled by server.js (HTTPS), are passed to
+  // Next's request handler, which applies this rewrite. server.js only
+  // intercepts WebSocket upgrades. Leave NEXT_PUBLIC_API_URL empty so the
+  // browser uses these same-origin URLs (required for SameSite=lax cookies).
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    // In production with custom server.js, these rewrites are bypassed
-    // because server.js handles requests before Next.js sees them
     return [
       {
         source: '/api/v1/:path*',

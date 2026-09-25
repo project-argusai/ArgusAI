@@ -89,8 +89,14 @@ DATABASE_URL=sqlite:///./data/app.db
 # Encryption key (generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
 ENCRYPTION_KEY=your-encryption-key-here
 
-# CORS origins
+# CORS origins. Cookie-authenticated writes trust this exact list.
 CORS_ORIGINS=http://localhost:3000,http://localhost:8000
+
+# Session cookies. lax is the default because the web app calls the API on the
+# same site (Next.js `/api/v1` proxy or nginx). Set none only when the browser
+# calls the API on a different site, and keep COOKIE_SECURE=true.
+COOKIE_SECURE=true
+COOKIE_SAMESITE=lax
 
 # Debug mode
 DEBUG=True

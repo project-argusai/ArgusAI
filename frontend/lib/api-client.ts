@@ -110,6 +110,7 @@ import type {
   IAPIKeyListItem,
   IAPIKeyUsage,
 } from '@/types/api-key';
+import { describeHttpError } from '@/lib/csrf-error';
 
 // Use empty string for relative URLs when proxying through Next.js rewrites
 // Set NEXT_PUBLIC_API_URL='' to use relative URLs (recommended for SSL frontend + non-SSL backend)
@@ -210,12 +211,18 @@ function getAuthHeaders(): HeadersInit {
 export class ApiError extends Error {
   statusCode: number;
   details?: unknown;
+  errorCode?: string;
 
-  constructor(message: string, statusCode: number, details?: unknown) {
+  constructor(message: string, statusCode: number, details?: unknown, errorCode?: string) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
     this.details = details;
+    const fromDetails =
+      details && typeof details === 'object' && 'error_code' in details
+        ? (details as { error_code?: unknown }).error_code
+        : undefined;
+    this.errorCode = errorCode ?? (typeof fromDetails === 'string' ? fromDetails : undefined);
   }
 }
 
@@ -324,8 +331,8 @@ async function apiFetch<T>(
     }
 
     if (!response.ok) {
-      const errorMessage = data?.detail || `HTTP ${response.status}: ${response.statusText}`;
-      throw new ApiError(errorMessage, response.status, data);
+      const described = describeHttpError(response.status, response.statusText, data);
+      throw new ApiError(described.message, response.status, data, described.errorCode);
     }
 
     return data as T;

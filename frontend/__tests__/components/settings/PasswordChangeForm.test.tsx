@@ -217,6 +217,34 @@ describe('PasswordChangeForm', () => {
     });
   });
 
+  it('keeps password entries and explains a CSRF rejection', async () => {
+    const user = userEvent.setup();
+    const csrfError = new Error('Request origin is not allowed');
+    Object.assign(csrfError, { errorCode: 'CSRF_ORIGIN_DENIED' });
+    vi.mocked(apiClient.auth.changePassword).mockRejectedValueOnce(csrfError);
+
+    render(<PasswordChangeForm />);
+
+    const currentPasswordInput = screen.getByPlaceholderText(/enter your current password/i) as HTMLInputElement;
+    const newPasswordInput = screen.getByPlaceholderText(/enter your new password/i) as HTMLInputElement;
+    const confirmPasswordInput = screen.getByPlaceholderText(/confirm your new password/i) as HTMLInputElement;
+
+    await user.type(currentPasswordInput, 'OldPassword123!');
+    await user.type(newPasswordInput, 'NewPassword456!');
+    await user.type(confirmPasswordInput, 'NewPassword456!');
+
+    await user.click(screen.getByRole('button', { name: /^change password$/i }));
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        expect.stringMatching(/your entries are still here/i),
+      );
+    });
+    expect(currentPasswordInput.value).toBe('OldPassword123!');
+    expect(newPasswordInput.value).toBe('NewPassword456!');
+    expect(confirmPasswordInput.value).toBe('NewPassword456!');
+  });
+
   it('clears form after successful password change', async () => {
     const user = userEvent.setup();
     vi.mocked(apiClient.auth.changePassword).mockResolvedValueOnce({

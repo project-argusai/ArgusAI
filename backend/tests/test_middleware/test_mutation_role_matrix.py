@@ -283,6 +283,15 @@ def _avoid_side_effects(_reset_all_singletons):
     Path.unlink = original_unlink
 
 
+def test_role_matrix_does_not_override_the_principal():
+    """This module uses the deployed middleware and the real role dependency."""
+    from app.core.permissions import get_mutation_principal
+    from app.api.v1.auth import get_current_user
+
+    assert get_mutation_principal not in app.dependency_overrides
+    assert get_current_user not in app.dependency_overrides
+
+
 def test_allowlist_and_operator_routes_are_mounted():
     mounted = set(unsafe_routes())
     missing_allow = SELF_SERVICE_ALLOWLIST - mounted

@@ -56,7 +56,11 @@ def _legacy_route_test_auth_override(request, monkeypatch):
         yield
         return
 
+    import sys
     from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
 
     from app.core.permissions import get_mutation_principal
     from app.models.user import UserRole
@@ -68,13 +72,41 @@ def _legacy_route_test_auth_override(request, monkeypatch):
             role=UserRole.ADMIN,
         )
 
-    # Attribute on the dependency function, not app.dependency_overrides.
-    # Router tests build their own FastAPI instance, so an override on the
-    # process-wide app would not apply.
-    get_mutation_principal._legacy_test_principal = _legacy_admin
+    # Test-suite only. FastAPI resolves this override per app, including
+    # routers mounted on a local FastAPI() in a test module. Production
+    # authorization never reads it.
+    touched: list[FastAPI] = []
+
+    def _install(app):
+        if not isinstance(app, FastAPI):
+            return
+        if get_mutation_principal in app.dependency_overrides:
+            return
+        app.dependency_overrides[get_mutation_principal] = _legacy_admin
+        touched.append(app)
+
+    from main import app as main_app
+
+    _install(main_app)
+    for module in list(sys.modules.values()):
+        mod_dict = getattr(module, "__dict__", None)
+        if not mod_dict:
+            continue
+        for value in list(mod_dict.values()):
+            if isinstance(value, FastAPI):
+                _install(value)
+
+    original_init = TestClient.__init__
+
+    def _init(self, app, *args, **kwargs):
+        _install(app)
+        return original_init(self, app, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", _init)
     yield
-    if getattr(get_mutation_principal, "_legacy_test_principal", None) is _legacy_admin:
-        delattr(get_mutation_principal, "_legacy_test_principal")
+    for app in touched:
+        if app.dependency_overrides.get(get_mutation_principal) is _legacy_admin:
+            del app.dependency_overrides[get_mutation_principal]
 
 
 # =============================================================================

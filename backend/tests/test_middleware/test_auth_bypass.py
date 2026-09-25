@@ -1,5 +1,7 @@
 """Authentication must never trust caller-provided test identifiers."""
 
+from pathlib import Path
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -41,6 +43,16 @@ def test_anonymous_requests_cannot_enter_protected_handlers(
     assert response.status_code == 401
     assert response.json() == {"detail": "Not authenticated"}
     assert entered == []
+
+
+def test_production_authorization_does_not_read_test_flags():
+    """Role checks must not branch on pytest or other test-process markers."""
+    app_root = Path(__file__).resolve().parents[2] / "app"
+    banned = ("PYTEST_CURRENT_TEST", "_legacy_test_principal")
+    for path in app_root.rglob("*.py"):
+        text = path.read_text()
+        for marker in banned:
+            assert marker not in text, f"{path} contains {marker}"
 
 
 def test_documented_public_health_path_remains_available():

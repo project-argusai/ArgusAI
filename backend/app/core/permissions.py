@@ -23,7 +23,6 @@ that table.
 Story P16-1.3: permission denials include error_code INSUFFICIENT_PERMISSIONS.
 """
 import logging
-import os
 
 from fastapi import HTTPException, status, Depends, Request
 from sqlalchemy.orm import Session
@@ -64,14 +63,6 @@ def get_mutation_principal(
     """
     if getattr(request.state, "api_key", None) is not None:
         return None
-
-    # Pytest-only. conftest sets this on the dependency function so legacy
-    # route tests, including ones that mount a router on their own FastAPI
-    # app, keep exercising handlers. It is ignored unless pytest is running.
-    if os.environ.get("PYTEST_CURRENT_TEST"):
-        legacy = getattr(get_mutation_principal, "_legacy_test_principal", None)
-        if legacy is not None:
-            return legacy() if callable(legacy) else legacy
 
     from app.api.v1.auth import get_current_user
 

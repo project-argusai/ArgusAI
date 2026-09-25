@@ -118,6 +118,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         "api_key_id": key_info["id"],
                         "path": path,
                         "method": method,
+                        "required_scope": required_scope,
                     },
                 )
                 return JSONResponse(

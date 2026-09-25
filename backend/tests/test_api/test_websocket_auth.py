@@ -1,5 +1,6 @@
 """Regression coverage for preaccept WebSocket authentication."""
 
+import asyncio
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +11,9 @@ from app.api.v1.auth import (
     require_websocket_user,
     websocket_session_is_active,
 )
+from app.core.config import settings
+from app.models.user import UserRole
+from app.services.ws_connection_limits import websocket_connection_limits
 from app.api.v1.websocket import websocket_endpoint, stream_camera_ws, send_heartbeat
 from app.api.v1.cameras import stream_camera
 from fastapi import WebSocketDisconnect
@@ -52,7 +56,7 @@ async def test_cookie_without_origin_is_rejected_but_api_bearer_is_allowed():
     cookie_socket.close.assert_awaited_once()
 
     bearer_socket = socket(origin=None, bearer="valid-bearer")
-    user = MagicMock(is_active=True)
+    user = MagicMock(is_active=True, role=UserRole.VIEWER)
     with patch("app.api.v1.auth.authenticate_websocket", return_value=user), \
          patch("app.api.v1.auth.websocket_session_is_active", return_value=True):
         assert await require_websocket_user(bearer_socket) is user
@@ -109,7 +113,7 @@ async def test_active_session_and_user_are_allowed():
     websocket = socket(cookie="valid-jwt-and-session")
     session = MagicMock(user_id="user-1")
     session.is_expired.return_value = False
-    user = MagicMock(is_active=True)
+    user = MagicMock(is_active=True, role=UserRole.VIEWER)
     db = MagicMock()
     db.query.return_value.filter.return_value.first.side_effect = [session, user]
 
@@ -161,6 +165,134 @@ async def test_allowed_user_can_join_notification_socket():
 @pytest.mark.parametrize("route", [stream_camera, stream_camera_ws])
 async def test_camera_routes_do_not_accept_anonymous_socket(route):
     websocket = socket()
-    await route(websocket, "camera-1")
+    with patch("app.api.v1.cameras.container") as container:
+        await route(websocket, "camera-1")
+    container.stream_proxy_service.add_client.assert_not_called()
     websocket.accept.assert_not_awaited()
     websocket.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_role_is_rejected_before_accept():
+    websocket = socket(cookie="valid-cookie")
+    user = MagicMock(is_active=True, id="user-1", role="guest")
+    with patch("app.api.v1.auth.authenticate_websocket", return_value=user), \
+         patch("app.api.v1.auth.websocket_session_is_active", return_value=True):
+        assert await require_websocket_user(websocket) is None
+    websocket.close.assert_awaited_once()
+    websocket.accept.assert_not_awaited()
+    assert websocket.close.await_args.kwargs["code"] == 1008
+
+
+@pytest.mark.asyncio
+async def test_notification_limit_rejects_before_accept_and_releases():
+    websocket = socket(cookie="valid-cookie")
+    user = MagicMock(id="user-1", is_active=True, role=UserRole.VIEWER)
+    limits = websocket_connection_limits()
+    with patch.object(settings, "WS_MAX_CONNECTIONS_PER_USER", 1), \
+         patch("app.api.v1.websocket.require_websocket_user", return_value=user), \
+         patch("app.api.v1.websocket.get_websocket_manager") as manager:
+        first = await limits.try_admit("user-1")
+        assert first is not None
+        await websocket_endpoint(websocket)
+    manager.assert_not_called()
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once()
+    assert websocket.close.await_args.kwargs["code"] == 4429
+    await limits.release(first)
+    again = await limits.try_admit("user-1")
+    assert again is not None
+    await limits.release(again)
+
+
+@pytest.mark.asyncio
+async def test_camera_limit_does_not_allocate_a_capture_worker():
+    websocket = socket(cookie="valid-cookie")
+    user = MagicMock(id="user-1", is_active=True, role=UserRole.VIEWER)
+    limits = websocket_connection_limits()
+    with patch.object(settings, "WS_MAX_CONNECTIONS_PER_USER", 1), \
+         patch("app.api.v1.cameras.require_websocket_user", return_value=user), \
+         patch("app.api.v1.cameras.container") as container:
+        await limits.try_admit("user-1")
+        await stream_camera(websocket, "camera-1")
+    container.stream_proxy_service.add_client.assert_not_called()
+    websocket.accept.assert_not_awaited()
+    websocket.close.assert_awaited_once()
+    assert websocket.close.await_args.kwargs["code"] == 4429
+
+
+@pytest.mark.asyncio
+async def test_camera_stream_drops_revoked_session_without_keeping_the_slot():
+    websocket = socket(cookie="valid-cookie")
+    websocket.send_json = AsyncMock()
+    websocket.send_bytes = AsyncMock()
+    async def _block_until_cancelled():
+        await asyncio.Event().wait()
+
+    websocket.receive_text = AsyncMock(side_effect=_block_until_cancelled)
+    user = MagicMock(id="user-1", is_active=True, role=UserRole.VIEWER)
+
+    camera = MagicMock()
+    camera.source_type = "rtsp"
+    camera.rtsp_url = "rtsp://example/stream"
+    camera.username = None
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = camera
+
+    stream_service = MagicMock()
+    stream_service.get_stream_info.return_value = {"is_available": True}
+    stream_service.add_client = AsyncMock(return_value="client-1")
+    stream_service.get_client_frame.return_value = None
+    stream_service.remove_client = MagicMock()
+
+    import asyncio
+
+    with patch("app.api.v1.cameras.require_websocket_user", return_value=user), \
+         patch("app.api.v1.cameras.websocket_session_is_active", return_value=False), \
+         patch("app.api.v1.cameras.WS_SESSION_RECHECK_SECONDS", 0), \
+         patch("app.core.database.SessionLocal", return_value=db), \
+         patch("app.api.v1.cameras.container") as container:
+        container.stream_proxy_service = stream_service
+        await stream_camera(websocket, "camera-1")
+
+    stream_service.add_client.assert_awaited_once()
+    stream_service.remove_client.assert_called_once_with("camera-1", "client-1")
+    websocket.close.assert_awaited()
+    assert websocket.close.await_args.kwargs["code"] == 1008
+    # The revoked socket must not keep the per-user slot.
+    replacement = await websocket_connection_limits().try_admit("user-1", camera_id="camera-1")
+    assert replacement is not None
+    await websocket_connection_limits().release(replacement)
+
+
+@pytest.mark.asyncio
+async def test_camera_accept_failure_releases_the_slot():
+    """A handshake that dies in accept() must not keep the per-user slot."""
+    websocket = socket(cookie="valid-cookie")
+    websocket.accept = AsyncMock(side_effect=RuntimeError("client dropped"))
+    user = MagicMock(id="user-1", is_active=True, role=UserRole.VIEWER)
+    limits = websocket_connection_limits()
+    with patch.object(settings, "WS_MAX_CONNECTIONS_PER_USER", 1), \
+         patch.object(settings, "WS_MAX_CONNECTIONS_PER_CAMERA", 1), \
+         patch("app.api.v1.cameras.require_websocket_user", return_value=user), \
+         patch("app.api.v1.cameras.container") as container:
+        await stream_camera(websocket, "camera-1")
+    container.stream_proxy_service.add_client.assert_not_called()
+    websocket.accept.assert_awaited_once()
+    replacement = await limits.try_admit("user-1", camera_id="camera-1")
+    assert replacement is not None
+    await limits.release(replacement)
+
+
+@pytest.mark.asyncio
+async def test_per_camera_limit_rejects_a_second_viewer_and_releases():
+    limits = websocket_connection_limits()
+    with patch.object(settings, "WS_MAX_CONNECTIONS_PER_CAMERA", 1):
+        first = await limits.try_admit("user-a", camera_id="cam-1")
+        second = await limits.try_admit("user-b", camera_id="cam-1")
+        assert first is not None
+        assert second is None
+        await limits.release(first)
+        third = await limits.try_admit("user-b", camera_id="cam-1")
+        assert third is not None
+        await limits.release(third)

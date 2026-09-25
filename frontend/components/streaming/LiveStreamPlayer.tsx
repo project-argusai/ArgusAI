@@ -31,7 +31,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StreamQualitySelector } from './StreamQualitySelector';
-import { apiClient } from '@/lib/api-client';
+import { ApiError, apiClient } from '@/lib/api-client';
+import { isAuthWebSocketClose, WS_AUTH_FAILURE_MESSAGE } from '@/lib/ws-auth';
 import { useToast } from '@/hooks/useToast';
 import type {
   StreamQuality,
@@ -163,23 +164,37 @@ export const LiveStreamPlayer = memo(function LiveStreamPlayer({
     setConnectionState('fallback');
     cleanupWebSocket();
 
+    let stoppedForAuth = false;
     const fetchSnapshot = async () => {
+      if (stoppedForAuth) {
+        return;
+      }
       try {
         const snapshot = await apiClient.cameras.getStreamSnapshot(cameraId, quality);
         if (snapshot.success && snapshot.image_base64 && imgRef.current) {
           imgRef.current.src = `data:image/jpeg;base64,${snapshot.image_base64}`;
         }
       } catch (err) {
+        if (err instanceof ApiError && (err.statusCode === 401 || err.statusCode === 403)) {
+          stoppedForAuth = true;
+          cleanupSnapshotInterval();
+          setConnectionState('error');
+          setErrorMessage(WS_AUTH_FAILURE_MESSAGE);
+          return;
+        }
         console.error('Failed to fetch snapshot:', err);
       }
     };
 
     // Fetch initial snapshot
     await fetchSnapshot();
+    if (stoppedForAuth) {
+      return;
+    }
 
     // Start interval for periodic refresh
     snapshotIntervalRef.current = setInterval(fetchSnapshot, SNAPSHOT_REFRESH_INTERVAL_MS);
-  }, [cameraId, quality, cleanupWebSocket]);
+  }, [cameraId, quality, cleanupWebSocket, cleanupSnapshotInterval]);
 
   /**
    * Connect to WebSocket stream
@@ -247,6 +262,14 @@ export const LiveStreamPlayer = memo(function LiveStreamPlayer({
 
     ws.onclose = (event) => {
       console.log('WebSocket closed:', event.code, event.reason);
+
+      // Auth closes must not fall through into snapshot polling.
+      if (isAuthWebSocketClose(event.code)) {
+        cleanupSnapshotInterval();
+        setConnectionState('error');
+        setErrorMessage(WS_AUTH_FAILURE_MESSAGE);
+        return;
+      }
 
       // Handle specific close codes (Story P16-2.5)
       switch (event.code) {

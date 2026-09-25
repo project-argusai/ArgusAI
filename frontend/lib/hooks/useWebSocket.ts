@@ -14,6 +14,11 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { WebSocketMessage, IWebSocketNotification } from '@/types/notification';
+import {
+  isAuthWebSocketClose,
+  sessionProbeIsUnauthorized,
+  WS_AUTH_FAILURE_MESSAGE,
+} from '@/lib/ws-auth';
 
 // Derive WebSocket URL from API URL or use explicit WS URL
 const getWebSocketBaseUrl = (): string => {
@@ -65,6 +70,8 @@ interface UseWebSocketOptions {
   autoConnect?: boolean;
   /** Max reconnection attempts (default: 10) */
   maxRetries?: number;
+  /** Called when an auth close stops automatic reconnects. Null clears it. */
+  onAuthFailure?: (message: string | null) => void;
 }
 
 interface UseWebSocketReturn {
@@ -76,6 +83,8 @@ interface UseWebSocketReturn {
   disconnect: () => void;
   /** Send a message */
   send: (message: string) => void;
+  /** Set when automatic reconnects stopped because the session was rejected. */
+  authFailureMessage: string | null;
 }
 
 // Exponential backoff delays in ms: 1s, 2s, 4s, 8s, 16s, 30s (capped)
@@ -94,9 +103,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     onStatusChange,
     autoConnect = true,
     maxRetries = 10,
+    onAuthFailure,
   } = options;
 
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  const [authFailureMessage, setAuthFailureMessage] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -108,6 +119,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const onNewEventRef = useRef(onNewEvent);
   const onCameraStatusChangeRef = useRef(onCameraStatusChange);
   const onStatusChangeRef = useRef(onStatusChange);
+  const onAuthFailureRef = useRef(onAuthFailure);
 
   // Update refs when callbacks change
   useEffect(() => {
@@ -116,7 +128,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     onNewEventRef.current = onNewEvent;
     onCameraStatusChangeRef.current = onCameraStatusChange;
     onStatusChangeRef.current = onStatusChange;
-  }, [onNotification, onAlert, onNewEvent, onCameraStatusChange, onStatusChange]);
+    onAuthFailureRef.current = onAuthFailure;
+  }, [onNotification, onAlert, onNewEvent, onCameraStatusChange, onStatusChange, onAuthFailure]);
 
   // Update status and notify callback
   const updateStatus = useCallback((newStatus: ConnectionStatus) => {
@@ -167,37 +180,83 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     }
 
     shouldReconnectRef.current = true;
+    setAuthFailureMessage(null);
+    onAuthFailureRef.current?.(null);
     updateStatus('connecting');
+
+    const stopForAuth = () => {
+      shouldReconnectRef.current = false;
+      setAuthFailureMessage(WS_AUTH_FAILURE_MESSAGE);
+      onAuthFailureRef.current?.(WS_AUTH_FAILURE_MESSAGE);
+      updateStatus('disconnected');
+    };
+
+    const scheduleReconnect = () => {
+      if (shouldReconnectRef.current && reconnectAttemptRef.current < maxRetries) {
+        updateStatus('reconnecting');
+        const delay = getBackoffDelay(reconnectAttemptRef.current);
+        console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current + 1}/${maxRetries})`);
+
+        reconnectTimeoutRef.current = setTimeout(() => {
+          reconnectAttemptRef.current++;
+          attemptConnect();
+        }, delay);
+        return;
+      }
+
+      updateStatus('disconnected');
+      if (reconnectAttemptRef.current >= maxRetries) {
+        console.warn('Max WebSocket reconnection attempts reached');
+      }
+    };
 
     const attemptConnect = () => {
       try {
         const ws = new WebSocket(`${WS_BASE_URL}/ws`);
+        let opened = false;
 
         ws.onopen = () => {
+          opened = true;
           console.log('WebSocket connected');
           updateStatus('connected');
           reconnectAttemptRef.current = 0;
+          setAuthFailureMessage(null);
+          onAuthFailureRef.current?.(null);
         };
 
         ws.onclose = (event) => {
           console.log('WebSocket closed:', event.code, event.reason);
           wsRef.current = null;
 
-          if (shouldReconnectRef.current && reconnectAttemptRef.current < maxRetries) {
-            updateStatus('reconnecting');
-            const delay = getBackoffDelay(reconnectAttemptRef.current);
-            console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptRef.current + 1}/${maxRetries})`);
-
-            reconnectTimeoutRef.current = setTimeout(() => {
-              reconnectAttemptRef.current++;
-              attemptConnect();
-            }, delay);
-          } else {
+          if (!shouldReconnectRef.current) {
             updateStatus('disconnected');
-            if (reconnectAttemptRef.current >= maxRetries) {
-              console.warn('Max WebSocket reconnection attempts reached');
-            }
+            return;
           }
+
+          // 1008/4401/4403 are visible once the handshake was accepted
+          // (session revoked or user disabled on a live socket).
+          if (isAuthWebSocketClose(event.code)) {
+            stopForAuth();
+            return;
+          }
+
+          // Close-before-accept is HTTP 403, which browsers report as 1006.
+          if (!opened && event.code === 1006) {
+            void sessionProbeIsUnauthorized().then((unauthorized) => {
+              if (!shouldReconnectRef.current) {
+                updateStatus('disconnected');
+                return;
+              }
+              if (unauthorized) {
+                stopForAuth();
+                return;
+              }
+              scheduleReconnect();
+            });
+            return;
+          }
+
+          scheduleReconnect();
         };
 
         ws.onerror = () => {
@@ -279,5 +338,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     connect,
     disconnect,
     send,
+    authFailureMessage,
   };
 }

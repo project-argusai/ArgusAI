@@ -74,6 +74,7 @@ export function useWebSocketWithNotifications(
   // Track previous status to detect transitions
   const previousStatusRef = useRef<ConnectionStatus>('disconnected');
   const [maxRetriesExceeded, setMaxRetriesExceeded] = useState(false);
+  const [authFailureMessage, setAuthFailureMessage] = useState<string | null>(null);
   const reconnectAttemptRef = useRef(0);
 
   // Toast IDs for dismissing
@@ -92,6 +93,15 @@ export function useWebSocketWithNotifications(
       // Detect state transitions and show appropriate toasts
       if (showToasts) {
         // Connected -> Reconnecting: Show yellow toast (AC8)
+        if (authFailureMessage) {
+          if (reconnectingToastIdRef.current) {
+            toast.dismiss(reconnectingToastIdRef.current);
+            reconnectingToastIdRef.current = undefined;
+          }
+          previousStatusRef.current = newStatus;
+          return;
+        }
+
         if (previousStatus === 'connected' && newStatus === 'reconnecting') {
           // Dismiss any existing reconnecting toast
           if (reconnectingToastIdRef.current) {
@@ -171,8 +181,18 @@ export function useWebSocketWithNotifications(
 
       previousStatusRef.current = newStatus;
     },
-    [maxRetries, showToasts]
+    [authFailureMessage, maxRetries, showToasts]
   );
+
+  useEffect(() => {
+    if (!showToasts || !authFailureMessage) {
+      return;
+    }
+    toast.error('Live updates stopped', {
+      description: authFailureMessage,
+      id: 'websocket-auth-failure',
+    });
+  }, [authFailureMessage, showToasts]);
 
   const {
     status,
@@ -185,6 +205,7 @@ export function useWebSocketWithNotifications(
     onNewEvent,
     onCameraStatusChange,
     onStatusChange: handleStatusChange,
+    onAuthFailure: setAuthFailureMessage,
     autoConnect,
     maxRetries,
   });

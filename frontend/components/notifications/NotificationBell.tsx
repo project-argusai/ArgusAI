@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
-  const { unreadCount, connectionStatus } = useNotifications();
+  const { unreadCount, connectionStatus, authFailureMessage } = useNotifications();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -68,9 +68,11 @@ export function NotificationBell() {
     };
   }, [isOpen]);
 
-  const tooltipText = unreadCount > 0
-    ? `${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
-    : 'No new notifications';
+  const tooltipText = authFailureMessage
+    ? authFailureMessage
+    : unreadCount > 0
+      ? `${unreadCount} unread notification${unreadCount !== 1 ? 's' : ''}`
+      : 'No new notifications';
 
   return (
     <div className="relative">
@@ -104,11 +106,13 @@ export function NotificationBell() {
                 <span
                   className={cn(
                     'absolute bottom-0 right-0 h-2 w-2 rounded-full',
-                    connectionStatus === 'connecting' || connectionStatus === 'reconnecting'
-                      ? 'bg-yellow-500 animate-pulse'
-                      : 'bg-gray-400'
+                    authFailureMessage
+                      ? 'bg-red-500'
+                      : connectionStatus === 'connecting' || connectionStatus === 'reconnecting'
+                        ? 'bg-yellow-500 animate-pulse'
+                        : 'bg-gray-400'
                   )}
-                  title={`WebSocket: ${connectionStatus}`}
+                  title={authFailureMessage ?? `WebSocket: ${connectionStatus}`}
                 />
               )}
             </Button>

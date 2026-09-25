@@ -22,6 +22,8 @@ interface NotificationContextType {
   isLoading: boolean;
   /** WebSocket connection status */
   connectionStatus: ConnectionStatus;
+  /** Set when live updates stopped because the session was rejected. */
+  authFailureMessage: string | null;
   /** Mark a single notification as read */
   markAsRead: (id: string) => Promise<void>;
   /** Mark all notifications as read */
@@ -39,6 +41,7 @@ const NOTIFICATIONS_QUERY_KEY = ['notifications'];
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
+  const [authFailureMessage, setAuthFailureMessage] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Check auth status on mount and when storage changes
@@ -159,6 +162,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     autoConnect: true,
     onNotification: handleNewNotification,
     onStatusChange: setConnectionStatus,
+    onAuthFailure: setAuthFailureMessage,
     onAlert: () => {
       // ALERT_TRIGGERED messages are legacy - refetch to get new notifications
       refetch();
@@ -186,6 +190,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         totalCount: notificationData?.total_count ?? 0,
         isLoading,
         connectionStatus,
+        authFailureMessage,
         markAsRead,
         markAllAsRead,
         deleteNotification,

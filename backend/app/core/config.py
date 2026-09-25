@@ -77,6 +77,42 @@ class Settings(BaseSettings):
     STREAM_FRAME_BUFFER_SIZE: int = 5  # Frames to buffer for new clients
     STREAM_CONNECTION_TIMEOUT: int = 30  # Seconds before idle stream disconnects
 
+    # Authenticated WebSocket bounds (issue #594).
+    # Counts /ws notification sockets and camera WebSocket streams only.
+    # HomeKit HAP sessions use a separate ffmpeg path and are not counted.
+    # Per-camera default follows STREAM_MAX_CONCURRENT so it does not reject
+    # a camera viewer the existing server-wide cap would still allow.
+    WS_MAX_CONNECTIONS_PER_USER: int = 32
+    WS_MAX_CONNECTIONS_PER_CAMERA: Optional[int] = None
+
+    @field_validator("WS_MAX_CONNECTIONS_PER_USER", mode="after")
+    @classmethod
+    def validate_ws_user_limit(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("WS_MAX_CONNECTIONS_PER_USER must be >= 1")
+        return v
+
+    @field_validator("WS_MAX_CONNECTIONS_PER_CAMERA", mode="before")
+    @classmethod
+    def blank_ws_camera_limit(cls, v: object) -> object:
+        if v is None or v == "":
+            return None
+        return v
+
+    @field_validator("WS_MAX_CONNECTIONS_PER_CAMERA", mode="after")
+    @classmethod
+    def validate_ws_camera_limit(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v < 1:
+            raise ValueError("WS_MAX_CONNECTIONS_PER_CAMERA must be >= 1")
+        return v
+
+    @property
+    def ws_max_connections_per_camera(self) -> int:
+        """Per-camera WebSocket cap. Unset follows the server-wide stream cap."""
+        if self.WS_MAX_CONNECTIONS_PER_CAMERA is None:
+            return self.STREAM_MAX_CONCURRENT
+        return self.WS_MAX_CONNECTIONS_PER_CAMERA
+
     # Limits for untrusted backup uploads and ZIP expansion.
     BACKUP_MAX_UPLOAD_BYTES: int = 512 * 1024 * 1024
     BACKUP_UPLOAD_TIMEOUT_SECONDS: int = 120

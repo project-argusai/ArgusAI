@@ -16,14 +16,21 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.services.websocket_manager import get_websocket_manager
-from app.api.v1.auth import require_websocket_user, websocket_session_is_active
+from app.services.ws_connection_limits import websocket_connection_limits
+from app.api.v1.auth import (
+    WS_CLOSE_AUTH,
+    WS_CLOSE_LIMIT,
+    WS_SESSION_RECHECK_SECONDS,
+    require_websocket_user,
+    websocket_session_is_active,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
-# Heartbeat interval in seconds
-HEARTBEAT_INTERVAL = 30
+# Heartbeat interval in seconds. The same interval rechecks the session.
+HEARTBEAT_INTERVAL = WS_SESSION_RECHECK_SECONDS
 
 
 @router.websocket("/ws")
@@ -39,13 +46,18 @@ async def websocket_endpoint(websocket: WebSocket):
     - Client should respond with pong (handled automatically by browsers)
     - Server broadcasts notifications as JSON: {"type": "notification", "data": {...}}
     """
-    if await require_websocket_user(websocket) is None:
+    user = await require_websocket_user(websocket)
+    if user is None:
+        return
+
+    admission = await websocket_connection_limits().try_admit(str(user.id))
+    if admission is None:
+        await websocket.close(code=WS_CLOSE_LIMIT, reason="Connection limit reached")
         return
 
     manager = get_websocket_manager()
-    await manager.connect(websocket)
-
     try:
+        await manager.connect(websocket)
         # Create heartbeat task
         heartbeat_task = asyncio.create_task(send_heartbeat(websocket))
 
@@ -76,6 +88,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}", exc_info=True)
     finally:
+        await websocket_connection_limits().release(admission)
         await manager.disconnect(websocket)
 
 
@@ -90,7 +103,7 @@ async def send_heartbeat(websocket: WebSocket):
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
             if not websocket_session_is_active(websocket):
-                await websocket.close(code=1008, reason="Session expired")
+                await websocket.close(code=WS_CLOSE_AUTH, reason="Session expired")
                 break
             try:
                 await websocket.send_text("ping")

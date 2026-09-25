@@ -151,6 +151,16 @@ def authenticate_websocket(
     return user
 
 
+# Logout, revocation, and deactivation take effect on the next check of a live
+# socket, which is at most this many seconds after the change.
+WS_SESSION_RECHECK_SECONDS = 30
+
+# Policy violation. Browsers only observe this code after the handshake has
+# been accepted. A close() before accept is an HTTP 403 and surfaces as 1006.
+WS_CLOSE_AUTH = 1008
+WS_CLOSE_LIMIT = 4429
+
+
 def websocket_session_is_active(websocket: WebSocket) -> bool:
     """Recheck the access token, server-side session, and user for a live socket."""
     token = websocket.cookies.get(COOKIE_NAME)
@@ -192,15 +202,36 @@ async def require_websocket_user(websocket: WebSocket) -> Optional[User]:
     allowed_origins = settings.cors_origins_list
     if origin:
         if origin not in allowed_origins:
-            await websocket.close(code=1008, reason="Origin not allowed")
+            await websocket.close(code=WS_CLOSE_AUTH, reason="Origin not allowed")
             return None
     elif not websocket.headers.get("authorization", "").startswith("Bearer "):
-        await websocket.close(code=1008, reason="Origin required")
+        await websocket.close(code=WS_CLOSE_AUTH, reason="Origin required")
         return None
 
     user = authenticate_websocket(websocket)
     if user is None or not websocket_session_is_active(websocket):
-        await websocket.close(code=1008, reason="Authentication required")
+        await websocket.close(code=WS_CLOSE_AUTH, reason="Authentication required")
+        return None
+
+    # Camera and event reads are allowed for every existing role. There is no
+    # per-user camera grant table; do not invent one. An unexpected role value
+    # is rejected. API keys are not WebSocket credentials: this helper accepts
+    # a session cookie or a bearer JWT that has a server-side Session row.
+    # HTTP snapshot, info, and metrics routes stay on AuthMiddleware, which
+    # applies the read:cameras API-key allowlist.
+    role = getattr(user, "role", None)
+    role_value = role.value if isinstance(role, UserRole) else role
+    allowed_roles = {member.value for member in UserRole}
+    if role_value not in allowed_roles:
+        logger.warning(
+            "WebSocket role rejected",
+            extra={
+                "event_type": "websocket_role_denied",
+                "user_id": getattr(user, "id", None),
+                "role": role_value,
+            },
+        )
+        await websocket.close(code=WS_CLOSE_AUTH, reason="Not authorized")
         return None
     return user
 

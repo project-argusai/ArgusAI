@@ -18,11 +18,22 @@ credentials on those requests and no application handler should mutate state.
 | `/api/v1/mobile/auth/status/{code}` | Polls by a short-lived pairing code. |
 | `/api/v1/mobile/auth/exchange` | Exchanges a confirmed pairing code for tokens. |
 | `/api/v1/mobile/auth/refresh` | Validates and rotates a mobile refresh token. |
-| `/ws` and `/ws/*` | WebSocket upgrade handlers must authenticate their own sessions; HTTP middleware does not secure WebSocket scopes. |
-| `/api/v1/cameras/{camera_id}/stream` | WebSocket upgrade handler owns authentication. |
-| `/api/v1/thumbnails/*` | Existing image-tag access path. It exposes camera media and needs the separate media authorization remediation. |
-| `/api/v1/events/{event_id}/frames*` | Existing image-tag access path. It exposes event media and needs the separate media authorization remediation. |
-
-The final two media exclusions are known security gaps tracked separately from
-the User-Agent bypass. Route-level authorization must never assume that the
+| `/ws` and `/ws/*` | WebSocket upgrade handlers authenticate the session before `accept`. HTTP middleware does not run on these upgrades. |
+| `/api/v1/cameras/{camera_id}/stream` | Camera WebSocket upgrade handler authenticates before `accept`. The suffix match is the path segment `/stream` only. |
+Thumbnail and event-frame routes are not in `EXCLUDED_PATHS`. `AuthMiddleware`
+authenticates them. Route-level authorization must never assume that the
 middleware enforced access on an excluded path.
+
+These HTTP camera paths do **not** end in the `/stream` segment, so
+`AuthMiddleware` authenticates them (JWT/cookie or an API key with
+`read:cameras`):
+
+- `GET /api/v1/cameras/stream/metrics`
+- `GET /api/v1/cameras/{camera_id}/stream/info`
+- `GET /api/v1/cameras/{camera_id}/stream/snapshot`
+
+`GET /api/v1/system/ai-processing-stream` and
+`GET /api/v1/system/ai-processing-hot-stream` end in the letters `stream` but
+not the `/stream` segment, so they stay on `AuthMiddleware` plus
+`get_current_user`. There is no HTTP MJPEG or HLS camera route. HomeKit video
+uses the HAP accessory server, not these HTTP paths.

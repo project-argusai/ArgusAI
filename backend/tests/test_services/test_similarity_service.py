@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
 
+from app.models.event_embedding import EventEmbedding
 from app.services.similarity_service import (
     SimilarityService,
     cosine_similarity,
@@ -383,3 +384,48 @@ class TestResultOrdering:
         assert sorted_events[0].similarity_score == 0.9
         assert sorted_events[1].similarity_score == 0.8
         assert sorted_events[2].similarity_score == 0.7
+
+
+class TestNaiveTimestampNormalization:
+    """SQLite returns naive UTC datetimes; the lookup must not crash on them."""
+
+    @pytest.mark.asyncio
+    async def test_find_similar_normalizes_naive_timestamp_without_rewriting_row(
+        self, db_session
+    ):
+        import json
+
+        from app.models.event import Event
+        from tests.conftest import make_camera, make_event
+
+        camera = make_camera(db_session=db_session, name="Front Door")
+        naive = datetime.now(timezone.utc).replace(tzinfo=None)
+        assert naive.tzinfo is None
+        event = make_event(
+            db_session=db_session,
+            camera_id=camera.id,
+            timestamp=naive,
+            description="Person at the door",
+        )
+        db_session.add(EventEmbedding(
+            event_id=event.id,
+            embedding=json.dumps([1.0, 0.0, 0.0]),
+            model_version="test",
+        ))
+        db_session.commit()
+
+        service = SimilarityService()
+        results = await service.find_similar_events_by_embedding(
+            db=db_session,
+            embedding=[1.0, 0.0, 0.0],
+            min_similarity=0.5,
+            time_window_days=30,
+        )
+
+        assert len(results) == 1
+        assert results[0].timestamp.tzinfo is not None
+        assert results[0].timestamp.tzinfo.utcoffset(results[0].timestamp) == timezone.utc.utcoffset(None)
+
+        db_session.expire_all()
+        stored = db_session.query(Event).filter(Event.id == event.id).one()
+        assert stored.timestamp.tzinfo is None

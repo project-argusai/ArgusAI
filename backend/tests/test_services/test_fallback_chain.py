@@ -661,3 +661,85 @@ class TestVideoNativeMethod:
                 event_type="person",
             )
         assert result is None
+
+
+class TestFailedAnalysisIsNotLoggedAsSuccess:
+    """A failed provider chain must not be logged as a successful analysis."""
+
+    @pytest.mark.asyncio
+    async def test_multi_frame_all_providers_fail_logs_failure(
+        self, pipeline, mock_camera_protect, mock_snapshot_result, temp_clip_file, caplog
+    ):
+        import logging
+
+        caplog.set_level(logging.INFO)
+        mock_camera_protect.analysis_mode = "multi_frame"
+        failure = (
+            "All providers failed (multi-frame). "
+            "attempted=[grok:quota_exhausted, openai:http_429]"
+        )
+        orch = MagicMock()
+        orch.analyze_images = AsyncMock(
+            return_value=MockAIResult(success=False, description="Failed", error=failure)
+        )
+        orch.analyze_image = AsyncMock(
+            return_value=MockAIResult(success=True, description="should not run")
+        )
+
+        p_orch, p_ai, p_db = _patch_pipeline_deps(orch)
+        with p_orch, p_ai as mock_ai, p_db, patch.object(
+            pipeline, "_try_video_native_analysis", new_callable=AsyncMock, return_value=None
+        ), patch.object(
+            pipeline,
+            "_extract_frames_from_clip",
+            new_callable=AsyncMock,
+            return_value=([b"f1", b"f2"], [0.0, 1.0]),
+        ):
+            mock_ai.load_api_keys_from_db = AsyncMock()
+            result = await pipeline.submit_snapshot_for_analysis(
+                snapshot_result=mock_snapshot_result,
+                camera=mock_camera_protect,
+                event_type="person",
+                clip_path=temp_clip_file,
+            )
+
+        assert result is not None
+        assert result.success is False
+        orch.analyze_image.assert_not_called()
+        assert "Multi-frame analysis successful" not in caplog.text
+        assert "Multi-frame analysis failed" in caplog.text
+        assert "grok:quota_exhausted" in caplog.text
+        assert "openai:http_429" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_single_frame_failure_logs_failure_not_success(
+        self, pipeline, mock_camera_protect, mock_snapshot_result, caplog
+    ):
+        import logging
+
+        caplog.set_level(logging.INFO)
+        mock_camera_protect.analysis_mode = "single_frame"
+        orch = MagicMock()
+        orch.analyze_image = AsyncMock(
+            return_value=MockAIResult(
+                success=False,
+                description="Failed",
+                error="All providers failed. attempted=[openai:http_429]",
+            )
+        )
+
+        p_orch, p_ai, p_db = _patch_pipeline_deps(orch)
+        with p_orch, p_ai as mock_ai, p_db:
+            mock_ai.load_api_keys_from_db = AsyncMock()
+            result = await pipeline.submit_snapshot_for_analysis(
+                snapshot_result=mock_snapshot_result,
+                camera=mock_camera_protect,
+                event_type="person",
+                clip_path=None,
+            )
+
+        assert result is not None
+        assert result.success is False
+        assert "Single-frame analysis failed" in caplog.text
+        assert "openai:http_429" in caplog.text
+        assert "analysis successful" not in caplog.text.lower()

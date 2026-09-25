@@ -41,6 +41,7 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.schemas.types import ensure_utc
 from app.services.entity_service import EntityService, EntityMatchResult, get_entity_service
 from app.services.similarity_service import SimilarityService, SimilarEvent, get_similarity_service
 from app.services.pattern_service import PatternService, get_pattern_service
@@ -442,8 +443,17 @@ class ContextEnhancedPromptService:
         if type_summary:
             context += f". {type_summary}"
 
-        # Add most recent similar event timing
-        most_recent = min(similar_events, key=lambda e: abs((datetime.now(timezone.utc) - e.timestamp).total_seconds()))
+        # Add most recent similar event timing. SQLite returns naive UTC
+        # timestamps; subtract only after normalizing to aware UTC.
+        now = datetime.now(timezone.utc)
+        most_recent = min(
+            similar_events,
+            key=lambda e: (
+                abs((now - ensure_utc(e.timestamp)).total_seconds())
+                if e.timestamp is not None
+                else float("inf")
+            ),
+        )
         recent_str = self._format_relative_date(most_recent.timestamp)
         context += f". Most recent similar: {recent_str}"
 
@@ -545,10 +555,9 @@ class ContextEnhancedPromptService:
         if dt is None:
             return "unknown"
 
-        # Ensure timezone-aware comparison
+        # Ensure timezone-aware comparison (naive values are UTC).
         now = datetime.now(timezone.utc)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+        dt = ensure_utc(dt)
 
         delta = now - dt
 

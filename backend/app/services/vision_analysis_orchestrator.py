@@ -37,11 +37,15 @@ import numpy as np
 from PIL import Image
 
 from app.services.ai_prompt_service import AIPromptService
+from app.services.ai_provider_order import (
+    classify_provider_error,
+    format_chain_failure,
+    load_ai_provider_order,
+)
 from app.services.ai_resilience_service import AIResilienceService
 from app.services.ai_types import AIProvider, AIResult, PROVIDER_CAPABILITIES
 from app.services.ai_providers.base import AIProviderBase
 from app.services.ocr_service import OCRResult
-from app.core.database import get_db_session
 from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
 from app.core.decorators import singleton
 
@@ -143,49 +147,43 @@ class VisionAnalysisOrchestrator:
         # Preprocess image (now owned here)
         image_base64 = self._preprocess_image(frame)
 
-        # Get provider order
+        # Get provider order (same helper AIService uses)
         provider_order = self._get_provider_order()
-        last_error = None
+        attempts: List[str] = []
 
         # Check configured providers
         configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
         if not configured_providers:
-            logger.error("No AI providers configured - cannot generate description")
-            return AIResult(
-                description="No AI providers configured",
-                confidence=0,
-                objects_detected=detected_objects or ['unknown'],
-                provider="none",
-                tokens_used=0,
+            return self._failure_result(
+                mode="single_image",
+                reason="No AI providers configured. Please add an API key in Settings.",
+                attempts=[f"{p.value}:not_configured" for p in provider_order],
+                detected_objects=detected_objects,
                 response_time_ms=0,
-                cost_estimate=0.0,
-                success=False,
-                error="No AI providers configured. Please add an API key in Settings."
+                description="No AI providers configured",
+                level="error",
             )
 
         for provider_enum in provider_order:
             # SLA check
             elapsed_ms = int((time.time() - start_time) * 1000)
             if elapsed_ms >= sla_timeout_ms:
-                logger.warning(
-                    f"SLA timeout ({sla_timeout_ms}ms) exceeded after {elapsed_ms}ms. "
-                    f"Aborting fallback chain."
-                )
-                return AIResult(
-                    description=f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)",
-                    confidence=0,
-                    objects_detected=detected_objects or ['unknown'],
-                    provider="timeout",
-                    tokens_used=0,
+                return self._failure_result(
+                    mode="single_image",
+                    reason=f"SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
+                    attempts=attempts,
+                    detected_objects=detected_objects,
                     response_time_ms=elapsed_ms,
-                    cost_estimate=0.0,
-                    success=False,
-                    error=f"SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms"
+                    provider="timeout",
+                    description=(
+                        f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)"
+                    ),
                 )
 
             provider = self.providers.get(provider_enum)
             if provider is None:
-                logger.warning(f"{provider_enum.value} not configured, skipping")
+                attempts.append(f"{provider_enum.value}:not_configured")
+                logger.warning("%s not configured, skipping", provider_enum.value)
                 continue
 
             # Circuit breaker (delegated to ResilienceService)
@@ -197,6 +195,7 @@ class VisionAnalysisOrchestrator:
             if not can_use:
                 breaker = self.resilience_service.get_provider_breaker(provider_name) if self.resilience_service else None
                 state = breaker.state.value if breaker else "open"
+                attempts.append(f"{provider_name}:circuit_open")
                 logger.warning(
                     f"Skipping {provider_name} - circuit breaker is OPEN",
                     extra={"event_type": "ai_circuit_skipped", "provider": provider_name, "state": state},
@@ -235,23 +234,23 @@ class VisionAnalysisOrchestrator:
                 if total_elapsed_ms > sla_timeout_ms:
                     logger.warning(f"SLA violation: {total_elapsed_ms}ms > {sla_timeout_ms}ms target")
                 return result
-            else:
-                last_error = result.error
-                logger.warning(f"{provider_enum.value} failed: {result.error}. Trying next provider...")
 
-        # All failed
+            failure_class = classify_provider_error(result.error)
+            attempts.append(f"{provider_enum.value}:{failure_class}")
+            logger.warning(
+                "%s failed (%s). Trying next provider...",
+                provider_enum.value,
+                failure_class,
+            )
+
         total_elapsed_ms = int((time.time() - start_time) * 1000)
-        logger.error(f"All AI providers failed after {total_elapsed_ms}ms")
-        return AIResult(
-            description="Failed to generate description - all AI providers unavailable",
-            confidence=0,
-            objects_detected=detected_objects or ['unknown'],
-            provider="none",
-            tokens_used=0,
+        return self._failure_result(
+            mode="single_image",
+            reason="All providers failed",
+            attempts=attempts,
+            detected_objects=detected_objects,
             response_time_ms=total_elapsed_ms,
-            cost_estimate=0.0,
-            success=False,
-            error=f"All providers failed. Last error: {last_error}"
+            description="Failed to generate description - all AI providers unavailable",
         )
 
     async def analyze_images(
@@ -338,41 +337,41 @@ class VisionAnalysisOrchestrator:
                 num_frames=len(images_base64),
             )
 
-        # Provider order + fallback loop
+        # Provider order + fallback loop (same helper AIService uses)
         provider_order = self._get_provider_order()
-        last_error = None
+        attempts: List[str] = []
 
         configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
         if not configured_providers:
-            return AIResult(
-                description="No AI providers configured",
-                confidence=0,
-                objects_detected=detected_objects or ['unknown'],
-                provider="none",
-                tokens_used=0,
+            return self._failure_result(
+                mode="multi_frame",
+                reason="No AI providers configured. Please add an API key in Settings.",
+                attempts=[f"{p.value}:not_configured" for p in provider_order],
+                detected_objects=detected_objects,
                 response_time_ms=0,
-                cost_estimate=0.0,
-                success=False,
-                error="No AI providers configured. Please add an API key in Settings."
+                description="No AI providers configured",
+                level="error",
             )
 
         for provider_enum in provider_order:
             elapsed_ms = int((time.time() - start_time) * 1000)
             if elapsed_ms >= sla_timeout_ms:
-                return AIResult(
-                    description=f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)",
-                    confidence=0,
-                    objects_detected=detected_objects or ['unknown'],
-                    provider="timeout",
-                    tokens_used=0,
+                return self._failure_result(
+                    mode="multi_frame",
+                    reason=f"Multi-image SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
+                    attempts=attempts,
+                    detected_objects=detected_objects,
                     response_time_ms=elapsed_ms,
-                    cost_estimate=0.0,
-                    success=False,
-                    error=f"Multi-image SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms"
+                    provider="timeout",
+                    description=(
+                        f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)"
+                    ),
                 )
 
             provider = self.providers.get(provider_enum)
             if provider is None:
+                attempts.append(f"{provider_enum.value}:not_configured")
+                logger.warning("%s not configured, skipping", provider_enum.value)
                 continue
 
             provider_name = provider_enum.value
@@ -381,6 +380,12 @@ class VisionAnalysisOrchestrator:
                 can_use = self.resilience_service.can_use_provider(provider_name)
 
             if not can_use:
+                attempts.append(f"{provider_name}:circuit_open")
+                logger.warning(
+                    "Skipping %s - circuit breaker is OPEN",
+                    provider_name,
+                    extra={"event_type": "ai_circuit_skipped", "provider": provider_name},
+                )
                 continue
 
             logger.info(f"Attempting multi-image with {provider_name}...")
@@ -404,20 +409,23 @@ class VisionAnalysisOrchestrator:
 
             if result.success:
                 return result
-            else:
-                last_error = result.error
+
+            failure_class = classify_provider_error(result.error)
+            attempts.append(f"{provider_enum.value}:{failure_class}")
+            logger.warning(
+                "%s failed (%s). Trying next provider...",
+                provider_enum.value,
+                failure_class,
+            )
 
         total_elapsed_ms = int((time.time() - start_time) * 1000)
-        return AIResult(
-            description="Failed to generate description - all AI providers unavailable",
-            confidence=0,
-            objects_detected=detected_objects or ['unknown'],
-            provider="none",
-            tokens_used=0,
+        return self._failure_result(
+            mode="multi_frame",
+            reason="All providers failed (multi-frame)",
+            attempts=attempts,
+            detected_objects=detected_objects,
             response_time_ms=total_elapsed_ms,
-            cost_estimate=0.0,
-            success=False,
-            error=f"All providers failed (multi-frame). Last error: {last_error}"
+            description="Failed to generate description - all AI providers unavailable",
         )
 
     # =====================================================================
@@ -425,13 +433,39 @@ class VisionAnalysisOrchestrator:
     # =====================================================================
 
     def _get_provider_order(self) -> List[AIProvider]:
+        """Provider fallback order from ``ai_provider_order``, via the shared helper."""
+        return load_ai_provider_order()
+
+    def _failure_result(
+        self,
+        *,
+        mode: str,
+        reason: str,
+        attempts: List[str],
+        detected_objects: Optional[List[str]],
+        response_time_ms: int,
+        description: str,
+        provider: str = "none",
+        level: str = "warning",
+    ) -> AIResult:
+        """Log a chain failure (never success) and return an unsuccessful result.
+
+        ``reason`` and ``attempts`` are status/error-class labels only.
         """
-        Get the current provider fallback order (from DB settings or default).
-        This may eventually move to a dedicated settings service, but for now
-        we keep it close to the orchestration logic.
-        """
-        # Placeholder – actual implementation will be ported from AIService
-        return [AIProvider.OPENAI, AIProvider.GROK, AIProvider.CLAUDE, AIProvider.GEMINI]
+        error = format_chain_failure(reason, attempts)
+        log = logger.error if level == "error" else logger.warning
+        log("Vision analysis failed (%s): %s", mode, error)
+        return AIResult(
+            description=description,
+            confidence=0,
+            objects_detected=detected_objects or ['unknown'],
+            provider=provider,
+            tokens_used=0,
+            response_time_ms=response_time_ms,
+            cost_estimate=0.0,
+            success=False,
+            error=error,
+        )
 
     def _preprocess_image(self, frame: np.ndarray) -> str:
         """

@@ -66,7 +66,7 @@ const SCOPES: { value: APIKeyScope; label: string; description: string }[] = [
   { value: 'read:events', label: 'Read Events', description: 'Read access to events' },
   { value: 'read:cameras', label: 'Read Cameras', description: 'Read access to cameras' },
   { value: 'write:cameras', label: 'Write Cameras', description: 'Write access to cameras' },
-  { value: 'admin', label: 'Admin', description: 'Full access (includes all other scopes)' },
+  { value: 'admin', label: 'Admin', description: 'Allowlisted event writes and camera routes. Not user, key, or system management' },
 ];
 
 function ScopesBadges({ scopes }: { scopes: string[] }) {

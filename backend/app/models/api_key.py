@@ -91,7 +91,12 @@ class APIKey(Base):
         return self.is_active and not self.is_expired()
 
     def has_scope(self, scope: str) -> bool:
-        """Check if API key has a specific scope."""
+        """Check if API key has a specific scope.
+
+        ``admin`` includes the other scope names. It does not admit the key to
+        routes outside ``API_KEY_ROUTE_SCOPES``; the auth middleware enforces
+        that allowlist before a handler runs.
+        """
         if not self.scopes:
             return False
         # Admin scope grants all permissions

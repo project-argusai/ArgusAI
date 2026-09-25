@@ -18,10 +18,12 @@ API keys are ideal for:
 
 | Scope | Description |
 |-------|-------------|
-| `read:events` | Read access to events and event history |
-| `read:cameras` | Read access to cameras and camera status |
-| `write:cameras` | Create, update, and delete cameras |
-| `admin` | Full access (includes all other scopes) |
+| `read:events` | Read events, exports, and event media (including thumbnails) |
+| `read:cameras` | Read cameras, status, and previews |
+| `write:cameras` | Create, update, and delete cameras and their capture settings |
+| `admin` | Allowlisted event writes and camera routes. Does not grant user, API-key, or system management |
+
+API keys work only on an explicit allowlist of event, camera, and event-thumbnail routes. Other routes, including motion-event export, webhook-log export, and context batch or export endpoints, return HTTP 403. Camera connection tests, on-demand analysis, and ONVIF discovery scans are not on the allowlist. Event writes and deletes require `admin`.
 
 ## Creating API Keys
 

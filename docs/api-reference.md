@@ -50,14 +50,25 @@ curl -H "X-API-Key: argus_abc123..." http://localhost:8000/api/v1/events
 - Automatic expiration (optional)
 - Usage tracking and statistics
 
-API keys are accepted on event and camera endpoints only. A `read:events` key
-can read events, including exports and media. A `read:cameras` key can read
-camera status and previews. A `write:cameras` key can create, update, and delete
-cameras and change their capture, motion, zone, schedule, and audio settings.
-Event writes and deletes require `admin`. The `admin` scope grants access to
-these event and camera routes, but never to user, API-key, or system management.
-Use a signed-in administrator session for those management endpoints. A valid
-key without the required route scope receives HTTP 403.
+API keys are accepted only on an explicit allowlist of event, camera, and
+event-thumbnail routes (`backend/app/core/api_key_scopes.py`). Every other
+route denies API keys, including batch and export endpoints outside that
+list (motion-event export, webhook-log export, context adjustment export,
+and embedding batches). A route added later stays denied until it is added
+to the allowlist.
+
+A `read:events` key can read events, including exports and media: event
+frames and video, plus `GET /api/v1/thumbnails/{date}/{filename}`. A
+`read:cameras` key can read camera status, previews, and discovery
+availability. A `write:cameras` key can create, update, and delete cameras
+and change their capture, motion, zone, schedule, and audio settings.
+Camera connection tests, on-demand analysis, and ONVIF discovery scans are
+not included. Event writes and deletes, including bulk delete and cleanup,
+require `admin` (there is no `write:events` scope). The `admin` scope grants
+those allowlisted event and camera routes, but never user, API-key, or
+system management. Use a signed-in administrator session for those
+management endpoints. A valid key without the required route scope receives
+HTTP 403. `HEAD` on an allowlisted read route uses that route's read scope.
 
 **Rate Limit Headers:**
 ```
@@ -130,16 +141,16 @@ When both authentication methods are present, API keys take priority over JWT to
 
 ## API Keys
 
-Create and manage API keys for external integrations. Requires admin access or JWT authentication.
+Create and manage API keys for external integrations. Requires a signed-in administrator. An API key, including one with the `admin` scope, cannot call these endpoints.
 
 ### Available Scopes
 
 | Scope | Description |
 |-------|-------------|
-| `read:events` | Read access to events and event history |
-| `read:cameras` | Read access to cameras and camera status |
-| `write:cameras` | Create, update, and delete cameras |
-| `admin` | Full access (includes all other scopes) |
+| `read:events` | Read events, exports, and event media (including thumbnails) |
+| `read:cameras` | Read cameras, status, and previews |
+| `write:cameras` | Create, update, and delete cameras and their capture settings |
+| `admin` | Allowlisted event writes and camera routes. Does not grant user, API-key, or system management |
 
 ### List API Keys
 

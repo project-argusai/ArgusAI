@@ -47,10 +47,10 @@ router = APIRouter(prefix="/api-keys", tags=["API Keys"], dependencies=[Depends(
     It is never stored and cannot be retrieved again. Save it securely!
 
     **Scopes**:
-    - `read:events` - Read access to events
-    - `read:cameras` - Read access to cameras
-    - `write:cameras` - Write access to cameras
-    - `admin` - Full access (includes all other scopes)
+    - `read:events` - Read events, exports, and event media
+    - `read:cameras` - Read cameras, status, and previews
+    - `write:cameras` - Create, update, and delete cameras and their capture settings
+    - `admin` - Allowlisted event writes and camera routes; does not grant user, API-key, or system management
     """,
 )
 async def create_api_key(

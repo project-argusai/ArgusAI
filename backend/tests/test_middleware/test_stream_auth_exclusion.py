@@ -15,8 +15,13 @@ def test_only_camera_websocket_stream_suffix_skips_http_auth():
     assert middleware._is_excluded("/ws")
     assert middleware._is_excluded("/ws/stream/abc")
 
+    # The skip is the camera WebSocket path only, not every path ending in /stream.
+    assert not middleware._is_excluded("/api/v1/other/stream")
+    assert not middleware._is_excluded("/api/v1/cameras/abc/extra/stream")
+    assert not middleware._is_excluded("/api/v1/cameras//stream")
+
     # HTTP snapshot, info, and metrics stay on AuthMiddleware. They do not
-    # match the /stream segment suffix, so an API key still needs read:cameras.
+    # match the camera WebSocket path, so an API key still needs read:cameras.
     assert not middleware._is_excluded("/api/v1/cameras/abc/stream/snapshot")
     assert not middleware._is_excluded("/api/v1/cameras/abc/stream/info")
     assert not middleware._is_excluded("/api/v1/cameras/stream/metrics")

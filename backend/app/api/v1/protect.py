@@ -73,6 +73,10 @@ from app.services.service_container import container
 from pathlib import Path
 from typing import Optional
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/protect", tags=["protect"])
@@ -87,7 +91,7 @@ def create_meta(count: int = None) -> MetaResponse:
     )
 
 
-@router.post("/controllers", response_model=ProtectControllerSingleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/controllers", response_model=ProtectControllerSingleResponse, status_code=status.HTTP_201_CREATED, dependencies=_REQUIRE_ADMIN)
 async def create_controller(
     controller_data: ProtectControllerCreate,
     db: Session = Depends(get_db)
@@ -223,7 +227,7 @@ def get_controller(controller_id: str, db: Session = Depends(get_db)):
         )
 
 
-@router.put("/controllers/{controller_id}", response_model=ProtectControllerSingleResponse)
+@router.put("/controllers/{controller_id}", response_model=ProtectControllerSingleResponse, dependencies=_REQUIRE_ADMIN)
 async def update_controller(
     controller_id: str,
     controller_data: ProtectControllerUpdate,
@@ -321,7 +325,7 @@ async def update_controller(
         )
 
 
-@router.delete("/controllers/{controller_id}", response_model=ProtectControllerDeleteResponse)
+@router.delete("/controllers/{controller_id}", response_model=ProtectControllerDeleteResponse, dependencies=_REQUIRE_ADMIN)
 async def delete_controller(controller_id: str, db: Session = Depends(get_db)):
     """
     Delete a UniFi Protect controller (Story P2-1.5)
@@ -400,7 +404,7 @@ async def delete_controller(controller_id: str, db: Session = Depends(get_db)):
 
 # Story P2-1.2: Connection Test Endpoints
 
-@router.post("/controllers/test", response_model=ProtectTestResponse)
+@router.post("/controllers/test", response_model=ProtectTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_controller_connection(test_data: ProtectControllerTest):
     """
     Test connection to a UniFi Protect controller with provided credentials.
@@ -471,7 +475,7 @@ async def test_controller_connection(test_data: ProtectControllerTest):
     )
 
 
-@router.post("/controllers/{controller_id}/test", response_model=ProtectTestResponse)
+@router.post("/controllers/{controller_id}/test", response_model=ProtectTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_existing_controller(controller_id: str, db: Session = Depends(get_db)):
     """
     Test connection to an existing UniFi Protect controller using stored credentials.
@@ -564,7 +568,7 @@ async def test_existing_controller(controller_id: str, db: Session = Depends(get
 
 # Story P2-1.4: Connection Management Endpoints
 
-@router.post("/controllers/{controller_id}/connect", response_model=ProtectConnectionResponse)
+@router.post("/controllers/{controller_id}/connect", response_model=ProtectConnectionResponse, dependencies=_REQUIRE_ADMIN)
 async def connect_controller(controller_id: str, db: Session = Depends(get_db)):
     """
     Connect to a UniFi Protect controller (AC10).
@@ -626,7 +630,7 @@ async def connect_controller(controller_id: str, db: Session = Depends(get_db)):
         )
 
 
-@router.post("/controllers/{controller_id}/disconnect", response_model=ProtectConnectionResponse)
+@router.post("/controllers/{controller_id}/disconnect", response_model=ProtectConnectionResponse, dependencies=_REQUIRE_ADMIN)
 async def disconnect_controller(controller_id: str, db: Session = Depends(get_db)):
     """
     Disconnect from a UniFi Protect controller (AC10).
@@ -846,8 +850,8 @@ async def discover_cameras(
 @router.post(
     "/controllers/{controller_id}/cameras/{camera_id}/enable",
     response_model=ProtectCameraEnableResponse,
-    status_code=status.HTTP_201_CREATED
-)
+    status_code=status.HTTP_201_CREATED,
+    dependencies=_REQUIRE_ADMIN)
 async def enable_camera(
     controller_id: str,
     camera_id: str,
@@ -987,8 +991,8 @@ async def enable_camera(
 
 @router.post(
     "/controllers/{controller_id}/cameras/{camera_id}/disable",
-    response_model=ProtectCameraDisableResponse
-)
+    response_model=ProtectCameraDisableResponse,
+    dependencies=_REQUIRE_ADMIN)
 async def disable_camera(
     controller_id: str,
     camera_id: str,
@@ -1070,8 +1074,8 @@ async def disable_camera(
 
 @router.put(
     "/controllers/{controller_id}/cameras/{camera_id}/filters",
-    response_model=ProtectCameraFiltersResponse
-)
+    response_model=ProtectCameraFiltersResponse,
+    dependencies=_REQUIRE_ADMIN)
 async def update_camera_filters(
     controller_id: str,
     camera_id: str,
@@ -1197,7 +1201,7 @@ def _get_video_duration(clip_path: Path) -> Optional[float]:
         return None
 
 
-@router.post("/test-clip-download", response_model=TestClipDownloadResponse)
+@router.post("/test-clip-download", response_model=TestClipDownloadResponse, dependencies=_REQUIRE_ADMIN)
 async def test_clip_download(
     request: TestClipDownloadRequest,
     db: Session = Depends(get_db)

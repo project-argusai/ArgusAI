@@ -26,6 +26,10 @@ from app.services.audio_event_detector import (
 )
 from app.services.audio_classifiers import AudioEventType
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/audio", tags=["audio"])
@@ -163,8 +167,8 @@ async def get_audio_thresholds(
 
     Valid event types: glass_break, gunshot, scream, doorbell, other
     Valid threshold range: 0.0 to 1.0 (0% to 100%)
-    """
-)
+    """,
+    dependencies=_REQUIRE_ADMIN)
 async def update_audio_threshold(
     request: ThresholdUpdateRequest,
     db: Session = Depends(get_db),

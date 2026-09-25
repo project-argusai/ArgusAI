@@ -24,6 +24,10 @@ from app.models.notification_preference import NotificationPreference
 from app.utils.vapid import get_vapid_public_key
 from app.services.push_notification_service import PushNotificationService
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -528,7 +532,7 @@ class TestNotificationResponse(BaseModel):
     results: Optional[List[TestNotificationResult]] = None
 
 
-@router.post("/test", response_model=TestNotificationResponse)
+@router.post("/test", response_model=TestNotificationResponse, dependencies=_REQUIRE_ADMIN)
 async def send_test_notification(
     db: Session = Depends(get_db)
 ):

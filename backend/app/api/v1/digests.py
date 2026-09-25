@@ -22,6 +22,10 @@ from app.core.database import get_db
 from app.models.activity_summary import ActivitySummary
 from app.services.digest_scheduler import get_digest_scheduler, DigestStatus
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,7 +130,7 @@ class DigestListResponse(BaseModel):
 
 # Endpoints
 
-@router.post("/trigger", response_model=DigestTriggerResponse)
+@router.post("/trigger", response_model=DigestTriggerResponse, dependencies=_REQUIRE_ADMIN)
 async def trigger_digest(
     request: Optional[DigestTriggerRequest] = None,
     db: Session = Depends(get_db),

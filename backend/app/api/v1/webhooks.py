@@ -27,6 +27,10 @@ from app.services.webhook_service import (
     WebhookRateLimitError,
 )
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
@@ -78,7 +82,7 @@ class WebhookLogsListResponse(BaseModel):
 # Endpoints
 # ============================================================================
 
-@router.post("/test", response_model=WebhookTestResponse)
+@router.post("/test", response_model=WebhookTestResponse, dependencies=_REQUIRE_ADMIN)
 async def test_webhook(
     request: WebhookTestRequest,
     db: Session = Depends(get_db)

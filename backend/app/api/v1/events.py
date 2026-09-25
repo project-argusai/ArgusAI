@@ -46,6 +46,11 @@ from app.models.user import User
 from app.api.v1.auth import get_media_principal
 from app.schemas.feedback import FeedbackCreate, FeedbackUpdate, FeedbackResponse
 
+from app.core.permissions import require_admin, require_operator_or_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+_REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
+
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger(f"{__name__}.audit")  # Dedicated audit logger for compliance
 
@@ -217,7 +222,7 @@ async def _process_event_alerts_background(event_id: str):
         400: {"description": "Invalid input data or camera not found"},
         500: {"description": "Database error or thumbnail processing failure"},
     },
-)
+    dependencies=_REQUIRE_ADMIN)
 async def create_event(
     event_data: EventCreate,
     background_tasks: BackgroundTasks,
@@ -932,7 +937,7 @@ async def export_events(
         )
 
 
-@router.delete("/cleanup", response_model=CleanupResponse)
+@router.delete("/cleanup", response_model=CleanupResponse, dependencies=_REQUIRE_ADMIN)
 async def manual_cleanup(
     before_date: date = Query(..., description="Delete events before this date (YYYY-MM-DD)"),
     confirm: bool = Query(False, description="Must be true to confirm deletion"),
@@ -1152,7 +1157,7 @@ def _media_deletion_audit(operation: str, event_ids_count: int, results, status_
     )
 
 
-@router.delete("/bulk")
+@router.delete("/bulk", dependencies=_REQUIRE_ADMIN)
 async def bulk_delete_events(
     event_ids: list[str] = Query(..., description="List of event UUIDs to delete"),
     db: Session = Depends(get_db)
@@ -1254,7 +1259,7 @@ async def bulk_delete_events(
         )
 
 
-@router.post("/media-orphans/reconcile")
+@router.post("/media-orphans/reconcile", dependencies=_REQUIRE_ADMIN)
 async def reconcile_orphan_media(
     dry_run: bool = Query(True, description="When true, report orphan media without deleting it"),
     db: Session = Depends(get_db),
@@ -1357,7 +1362,7 @@ class ReprocessingJobResponse(BaseModel):
     While the job runs, progress updates are broadcast via WebSocket with type `reprocessing_progress`.
     Upon completion, a `reprocessing_complete` message is sent.
     """,
-)
+    dependencies=_REQUIRE_ADMIN)
 async def start_entity_reprocessing(
     request: ReprocessingRequest,
     db: Session = Depends(get_db),
@@ -1419,7 +1424,7 @@ async def get_reprocessing_status():
     response_model=Optional[ReprocessingJobResponse],
     summary="Cancel current reprocessing job",
     description="Cancel the currently running reprocessing job. Partial results are preserved.",
-)
+    dependencies=_REQUIRE_ADMIN)
 async def cancel_entity_reprocessing():
     """Cancel the current reprocessing job."""
     reprocessing_service = container.reprocessing_service
@@ -1448,7 +1453,7 @@ async def cancel_entity_reprocessing():
     response_model=ReprocessingEstimate,
     summary="Estimate reprocessing event count",
     description="Get an estimate of how many events would be processed with the given filters.",
-)
+    dependencies=_REQUIRE_ADMIN)
 async def estimate_reprocessing(
     request: ReprocessingRequest,
     db: Session = Depends(get_db),
@@ -1479,7 +1484,7 @@ async def estimate_reprocessing(
 # Single Event Endpoints (must come AFTER static path endpoints)
 # =============================================================================
 
-@router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_REQUIRE_ADMIN)
 async def delete_event(
     event_id: str,
     db: Session = Depends(get_db)
@@ -1689,7 +1694,7 @@ async def get_event(
         )
 
 
-@router.post("/{event_id}/reanalyze", response_model=EventResponse)
+@router.post("/{event_id}/reanalyze", response_model=EventResponse, dependencies=_REQUIRE_OPERATOR)
 async def reanalyze_event(
     event_id: str,
     request: ReanalyzeRequest,
@@ -2078,7 +2083,7 @@ async def reanalyze_event(
         )
 
 
-@router.post("/{event_id}/smart-reanalyze", response_model=SmartReanalyzeResponse)
+@router.post("/{event_id}/smart-reanalyze", response_model=SmartReanalyzeResponse, dependencies=_REQUIRE_OPERATOR)
 async def smart_reanalyze_event(
     event_id: str,
     request: SmartReanalyzeRequest,
@@ -2487,7 +2492,7 @@ def get_event_stats(
 # Story P4-5.1: Event Feedback Endpoints
 # ============================================================================
 
-@router.post("/{event_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{event_id}/feedback", response_model=FeedbackResponse, status_code=status.HTTP_201_CREATED, dependencies=_REQUIRE_OPERATOR)
 async def create_feedback(
     event_id: str,
     feedback_data: FeedbackCreate,
@@ -2616,7 +2621,7 @@ async def get_feedback(
         )
 
 
-@router.put("/{event_id}/feedback", response_model=FeedbackResponse)
+@router.put("/{event_id}/feedback", response_model=FeedbackResponse, dependencies=_REQUIRE_OPERATOR)
 async def update_feedback(
     event_id: str,
     feedback_data: FeedbackUpdate,
@@ -2687,7 +2692,7 @@ async def update_feedback(
         )
 
 
-@router.delete("/{event_id}/feedback", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{event_id}/feedback", status_code=status.HTTP_204_NO_CONTENT, dependencies=_REQUIRE_OPERATOR)
 async def delete_feedback(
     event_id: str,
     db: Session = Depends(get_db)

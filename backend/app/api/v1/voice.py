@@ -16,6 +16,10 @@ from app.schemas.types import iso_utc
 from app.services.voice_query_service import VoiceQueryService
 from app.services.service_container import container
 
+from app.core.permissions import require_operator_or_admin
+
+_REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
@@ -105,7 +109,7 @@ class VoiceQueryError(BaseModel):
     - Synonyms supported: "front door" matches "Front Door Camera"
     - Use "all cameras" for no filter
     """,
-)
+    dependencies=_REQUIRE_OPERATOR)
 async def voice_query(
     request: VoiceQueryRequest,
     db: Session = Depends(get_db),

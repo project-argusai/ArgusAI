@@ -34,6 +34,10 @@ from app.schemas.feedback import (
     SummaryFeedbackResponse
 )
 
+from app.core.permissions import require_operator_or_admin
+
+_REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/summaries", tags=["summaries"])
@@ -443,7 +447,7 @@ async def get_recent_summaries(
     return RecentSummariesResponse(summaries=summaries)
 
 
-@router.post("/generate", response_model=SummaryResponse, status_code=201)
+@router.post("/generate", response_model=SummaryResponse, status_code=201, dependencies=_REQUIRE_OPERATOR)
 async def generate_summary(
     request: SummaryGenerateRequest,
     db: Session = Depends(get_db),
@@ -758,7 +762,7 @@ async def get_summary(
 # Story P9-3.4: Summary Feedback Endpoints
 # ============================================================================
 
-@router.post("/{summary_id}/feedback", response_model=SummaryFeedbackResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{summary_id}/feedback", response_model=SummaryFeedbackResponse, status_code=status.HTTP_201_CREATED, dependencies=_REQUIRE_OPERATOR)
 async def create_summary_feedback(
     summary_id: str,
     feedback_data: SummaryFeedbackCreate,
@@ -880,7 +884,7 @@ async def get_summary_feedback(
         )
 
 
-@router.put("/{summary_id}/feedback", response_model=SummaryFeedbackResponse)
+@router.put("/{summary_id}/feedback", response_model=SummaryFeedbackResponse, dependencies=_REQUIRE_OPERATOR)
 async def update_summary_feedback(
     summary_id: str,
     feedback_data: SummaryFeedbackUpdate,
@@ -944,7 +948,7 @@ async def update_summary_feedback(
         )
 
 
-@router.delete("/{summary_id}/feedback", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{summary_id}/feedback", status_code=status.HTTP_204_NO_CONTENT, dependencies=_REQUIRE_OPERATOR)
 async def delete_summary_feedback(
     summary_id: str,
     db: Session = Depends(get_db)

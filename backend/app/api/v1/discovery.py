@@ -11,7 +11,7 @@ PRD Reference: docs/PRD-phase5.md (FR13, FR14, FR15)
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 
 from app.schemas.discovery import (
@@ -28,6 +28,10 @@ from app.services.onvif_discovery_service import (
     ONVIF_ZEEP_AVAILABLE,
 )
 from app.services.service_container import container
+
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +80,8 @@ async def get_discovery_status() -> DiscoveryStatusResponse:
     "/discover",
     response_model=DiscoveryResponse,
     summary="Discover ONVIF cameras",
-    description="Scan local network for ONVIF-compatible cameras using WS-Discovery"
-)
+    description="Scan local network for ONVIF-compatible cameras using WS-Discovery",
+    dependencies=_REQUIRE_ADMIN)
 async def discover_cameras(
     request: Optional[DiscoveryRequest] = None
 ) -> DiscoveryResponse:
@@ -144,8 +148,8 @@ async def discover_cameras(
 @router.post(
     "/discover/clear-cache",
     summary="Clear discovery cache",
-    description="Clear cached discovery results to force a fresh scan"
-)
+    description="Clear cached discovery results to force a fresh scan",
+    dependencies=_REQUIRE_ADMIN)
 async def clear_discovery_cache() -> dict:
     """
     Clear the discovery results cache.
@@ -211,8 +215,8 @@ async def get_device_details_status() -> DeviceDetailsStatusResponse:
     "/discover/device",
     response_model=DeviceDetailsResponse,
     summary="Get device details",
-    description="Query a discovered ONVIF device for detailed information (manufacturer, model, stream profiles)"
-)
+    description="Query a discovered ONVIF device for detailed information (manufacturer, model, stream profiles)",
+    dependencies=_REQUIRE_ADMIN)
 async def get_device_details(
     request: DeviceDetailsRequest
 ) -> DeviceDetailsResponse:
@@ -321,8 +325,8 @@ async def get_device_details(
         422: {
             "description": "Invalid RTSP URL format"
         }
-    }
-)
+    },
+    dependencies=_REQUIRE_ADMIN)
 async def test_camera_connection(
     request: TestConnectionRequest
 ) -> TestConnectionResponse:

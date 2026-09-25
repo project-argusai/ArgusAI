@@ -4,6 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytestmark = pytest.mark.real_user_roles
+
 from main import app
 from app.api.v1.auth import get_current_user
 from app.models.user import UserRole

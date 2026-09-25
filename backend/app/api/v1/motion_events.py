@@ -25,6 +25,10 @@ from app.models.motion_event import MotionEvent
 from app.models.camera import Camera
 from app.schemas.motion import MotionEventResponse, MotionEventStatsResponse
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/motion-events", tags=["motion-events"])
@@ -292,7 +296,7 @@ def get_motion_event(
         )
 
 
-@router.delete("/{event_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{event_id}", status_code=status.HTTP_200_OK, dependencies=_REQUIRE_ADMIN)
 def delete_motion_event(
     event_id: str,
     db: Session = Depends(get_db)

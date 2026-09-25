@@ -3,6 +3,8 @@
 Tests for admin-only user management endpoints.
 """
 import pytest
+
+pytestmark = pytest.mark.real_user_roles
 import tempfile
 import os
 import uuid

@@ -31,6 +31,10 @@ from app.schemas.alert_rule import (
 )
 from app.services.alert_engine import AlertEngine
 
+from app.core.permissions import require_admin
+
+_REQUIRE_ADMIN = [Depends(require_admin())]
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/alert-rules", tags=["alert-rules"])
@@ -137,7 +141,7 @@ def list_alert_rules(
         )
 
 
-@router.post("", response_model=AlertRuleResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=AlertRuleResponse, status_code=status.HTTP_201_CREATED, dependencies=_REQUIRE_ADMIN)
 def create_alert_rule(
     rule_data: AlertRuleCreate,
     db: Session = Depends(get_db)
@@ -265,7 +269,7 @@ def get_alert_rule(
         )
 
 
-@router.put("/{rule_id}", response_model=AlertRuleResponse)
+@router.put("/{rule_id}", response_model=AlertRuleResponse, dependencies=_REQUIRE_ADMIN)
 def update_alert_rule(
     rule_id: str,
     rule_data: AlertRuleUpdate,
@@ -356,7 +360,7 @@ def update_alert_rule(
         )
 
 
-@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=_REQUIRE_ADMIN)
 def delete_alert_rule(
     rule_id: str,
     db: Session = Depends(get_db)
@@ -408,7 +412,7 @@ def delete_alert_rule(
         )
 
 
-@router.post("/{rule_id}/test", response_model=AlertRuleTestResponse)
+@router.post("/{rule_id}/test", response_model=AlertRuleTestResponse, dependencies=_REQUIRE_ADMIN)
 def test_alert_rule(
     rule_id: str,
     test_config: Optional[AlertRuleTestRequest] = None,

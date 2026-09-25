@@ -83,10 +83,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         '/api/v1/mobile/auth/status/',   # Mobile polls for confirmation
     )
 
-    # Camera WebSocket stream paths authenticate during the upgrade handler.
-    EXCLUDED_SUFFIXES: tuple = (
-        '/stream',  # Camera WebSocket streaming (P16-2)
-    )
+    # Only the camera WebSocket upgrade skips HTTP auth. /ws/stream/{id} is
+    # already covered by EXCLUDED_PREFIXES. HTTP routes such as
+    # /cameras/{id}/stream/snapshot stay authenticated.
 
     COOKIE_NAME = "access_token"
 
@@ -223,14 +222,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 return True
 
-        # Check suffixes (for WebSocket endpoints like /api/v1/cameras/{id}/stream)
-        # Use path without query string
         path_only = path.split('?')[0] if '?' in path else path
-        for suffix in self.EXCLUDED_SUFFIXES:
-            if path_only.endswith(suffix):
-                return True
+        return self._is_camera_websocket_stream(path_only)
 
-        return False
+    def _is_camera_websocket_stream(self, path: str) -> bool:
+        """True only for /api/v1/cameras/{camera_id}/stream.
+
+        A suffix of ``/stream`` would also skip auth for any future HTTP route
+        that happened to end the same way. The camera id is a single segment.
+        """
+        prefix = f"{settings.API_V1_PREFIX.rstrip('/')}/cameras/"
+        suffix = "/stream"
+        if not path.startswith(prefix) or not path.endswith(suffix):
+            return False
+        camera_id = path[len(prefix):-len(suffix)]
+        return bool(camera_id) and "/" not in camera_id and camera_id not in {".", ".."}
 
     def _extract_token(self, request: Request) -> str | None:
         """Extract JWT token from cookie or Authorization header"""

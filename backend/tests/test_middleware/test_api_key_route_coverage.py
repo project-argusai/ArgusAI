@@ -1,21 +1,34 @@
 """Every mounted route is allowlisted with a scope or denied to API keys."""
 
-from starlette.routing import WebSocketRoute
-
 from app.core.api_key_scopes import API_KEY_ROUTE_SCOPES, required_api_key_scope
 from app.core.config import settings
 from app.schemas.api_key import VALID_SCOPES
 from main import app
 
 
-def _iter_routes(routes):
+def _join(prefix: str, path: str) -> str:
+    prefix = (prefix or "").rstrip("/")
+    path = path or ""
+    if path and not path.startswith("/"):
+        path = f"/{path}"
+    if path in {"", "/"}:
+        return prefix or "/"
+    return f"{prefix}{path}" if prefix else path
+
+
+def _iter_routes(routes, prefix=""):
+    """Yield mounted routes, expanding FastAPI's lazy included routers."""
     for route in routes:
-        methods = getattr(route, "methods", None)
-        nested = getattr(route, "routes", None)
-        if nested and not methods:
-            yield from _iter_routes(nested)
+        if type(route).__name__ == "_IncludedRouter":
+            include_prefix = route.include_context.prefix or ""
+            yield from _iter_routes(
+                route.original_router.routes, _join(prefix, include_prefix)
+            )
             continue
-        yield route
+        path = getattr(route, "path", None)
+        if not path:
+            continue
+        yield route, _join(prefix, path)
 
 
 def _fill(path: str) -> str:
@@ -52,12 +65,9 @@ def test_every_mounted_route_is_allowlisted_or_denied():
     mounted_templates = set()
     http_routes = 0
 
-    for route in _iter_routes(app.routes):
-        path = getattr(route, "path", None)
-        if not path:
-            continue
+    for route, path in _iter_routes(app.routes):
         concrete = _fill(path)
-        if isinstance(route, WebSocketRoute):
+        if type(route).__name__ in {"WebSocketRoute", "APIWebSocketRoute"}:
             for method in ("GET", "POST", "PUT", "PATCH", "DELETE"):
                 scope = required_api_key_scope(method, concrete)
                 if scope is not None:

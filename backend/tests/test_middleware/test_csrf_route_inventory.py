@@ -40,6 +40,7 @@ REQUIRED_COOKIE_WRITES = {
     ("DELETE", "/api/v1/events/{event_id}"),
     ("PUT", "/api/v1/system/settings"),
     ("POST", "/api/v1/system/backup"),
+    ("POST", "/api/v1/system/backup/validate"),
     ("POST", "/api/v1/system/restore"),
     ("PUT", "/api/v1/integrations/mqtt/config"),
     ("POST", "/api/v1/webhooks/test"),
@@ -124,6 +125,40 @@ def test_every_unsafe_route_is_covered_including_auth_exclusions():
 
     webhook_writes = {item for item in unsafe if "/webhooks" in item[1]}
     assert webhook_writes == {("POST", "/api/v1/webhooks/test")}
+
+
+def test_origin_gate_stays_outside_the_backup_upload_guard():
+    """#626 registers the upload guard just before CSRF.
+
+    Starlette runs the later add_middleware call first, so a request is
+    authenticated, then Origin-checked, and only then size-capped.
+    """
+    names = [middleware.cls.__name__ for middleware in app.user_middleware]
+    assert names.index("AuthMiddleware") < names.index("CSRFMiddleware")
+    assert names.index("CSRFMiddleware") < names.index("BackupUploadGuard")
+
+
+def test_cookie_backup_validate_and_restore_are_origin_rejected():
+    """A hostile cookie write is 403 before the upload guard can return 413."""
+    from app.services.backup_limits import upload_body_limit
+
+    too_big = upload_body_limit() + 1
+    paths = ("/api/v1/system/backup/validate", "/api/v1/system/restore")
+    with TestClient(app) as client:
+        for path in paths:
+            response = client.post(
+                path,
+                content=b"",
+                headers={
+                    "Origin": "https://evil.example",
+                    "Content-Length": str(too_big),
+                    "Content-Type": "multipart/form-data; boundary=x",
+                },
+                cookies={"access_token": "session"},
+            )
+            assert response.status_code == 403, path
+            assert response.json()["error_code"] == "CSRF_ORIGIN_DENIED"
+            assert "Backup exceeds" not in response.text
 
 
 def test_auth_excluded_login_with_cookie_and_bad_or_missing_origin_is_rejected():

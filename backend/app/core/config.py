@@ -121,12 +121,29 @@ class Settings(BaseSettings):
         return self.WS_MAX_CONNECTIONS_PER_CAMERA
 
     # Limits for untrusted backup uploads and ZIP expansion.
+    # Override with environment variables of the same name (12-factor III).
     BACKUP_MAX_UPLOAD_BYTES: int = 512 * 1024 * 1024
     BACKUP_UPLOAD_TIMEOUT_SECONDS: int = 120
     BACKUP_MAX_MEMBERS: int = 10000
     BACKUP_MAX_EXPANDED_BYTES: int = 2 * 1024 * 1024 * 1024
     BACKUP_MAX_MEMBER_BYTES: int = 1024 * 1024 * 1024
     BACKUP_MAX_COMPRESSION_RATIO: int = 500
+
+    @field_validator(
+        "BACKUP_MAX_UPLOAD_BYTES",
+        "BACKUP_UPLOAD_TIMEOUT_SECONDS",
+        "BACKUP_MAX_MEMBERS",
+        "BACKUP_MAX_EXPANDED_BYTES",
+        "BACKUP_MAX_MEMBER_BYTES",
+        "BACKUP_MAX_COMPRESSION_RATIO",
+        mode="after",
+    )
+    @classmethod
+    def validate_backup_limits(cls, v: int) -> int:
+        """Reject limits that would disable the upload and ZIP guards."""
+        if v < 1:
+            raise ValueError("backup limits must be >= 1")
+        return v
 
     # HomeKit Integration (Story P4-6.1, P4-6.2)
     HOMEKIT_ENABLED: bool = False

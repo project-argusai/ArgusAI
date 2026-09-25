@@ -30,6 +30,7 @@ from app.core.metrics import init_metrics, get_metrics, get_content_type, update
 from app.core.json_encoding import install_utc_datetime_encoder
 from app.middleware.logging_middleware import RequestLoggingMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
+from app.middleware.backup_upload_guard import BackupUploadGuard
 from app.middleware.csrf import CSRFMiddleware
 from app.middleware.last_seen import LastSeenMiddleware
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
@@ -957,6 +958,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Cap backup validate/restore bodies before Starlette spools them. Added before
+# auth and CSRF so those layers stay outside this guard: a rejected caller never
+# causes the body to be read.
+app.add_middleware(BackupUploadGuard)
 
 # Require an explicitly configured app origin for state changes sent with
 # browser session cookies. Bearer-only and API-key clients are unaffected.

@@ -1,0 +1,55 @@
+---
+description: "Apply when writing or changing tests, or when asked what must be tested. Tests are required for changed behavior, and a bug fix needs a regression test. There is no numeric coverage gate."
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Testing
+
+`README.md` wins if this rule disagrees with it, except the commands below, which match `.github/workflows/ci.yml`. The contributing section of `README.md` lists a shorter pair; that pair is not a substitute for CI. There is no numeric coverage gate in either lane. Do not add one.
+
+## Required
+
+- Tests are required for changed behavior.
+- A bug fix includes a regression test.
+- Run the tests for the surface you touched. CI for that surface must stay green.
+
+## Backend
+
+From `backend/`, on Python 3.11, after `pip install -r requirements.txt`:
+
+```bash
+pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term
+```
+
+CI sets `DATABASE_URL` to a disposable sqlite file in the job directory, plus `ENCRYPTION_KEY`, `JWT_SECRET_KEY`, and `PYTHONPATH=.`. Do not point that URL at `backend/data/app.db`. Do not print those values. Coverage is reported to Codecov with `fail_ci_if_error: false`. There is no `fail_under`.
+
+The startup-smoke job uses Python 3.12, the same install, and then:
+
+```bash
+python -c "import main; print('main import OK', type(main.app).__name__)"
+alembic upgrade head
+```
+
+Each command uses its own fresh sqlite file and the same secret env vars. Do not add ruff or mypy. CI does not run them.
+
+## Frontend
+
+From `frontend/`, on Node 20:
+
+```bash
+npm ci
+npm run lint
+npx next build
+npm run test:coverage
+```
+
+`npx next build` is the typecheck. `npm run test:coverage` is Vitest (`vitest run --coverage`). Codecov upload is informational (`fail_ci_if_error: false`). `vitest.config.ts` sets reporters only. Do not add a coverage threshold.
+
+## Failures
+
+- Keep tests isolated. Backend fixtures that need a database use the in-memory `db_session` fixture.
+- Fix the implementation when the test describes the intended behavior. Change the test when the test itself is wrong.
+- Do not weaken a hard line to make a test pass.
+- Do not put real camera passwords, RTSP URLs, or provider keys in fixtures.

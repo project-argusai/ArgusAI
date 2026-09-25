@@ -1,0 +1,39 @@
+---
+description: "Git and pull request workflow. Target main, follow README.md, keep CI green, never pass --no-verify, and never force-push shared branches."
+alwaysApply: true
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Git workflow
+
+`README.md` wins if this rule disagrees with it. There is no `CONTRIBUTING.md`.
+
+## Branches and pull requests
+
+- Target `main`. Create the feature branch from `main`.
+- There is no pull request template. Describe the change in the pull request body.
+- Open the pull request as a draft. Leave it draft until CI is green for the surface you touched.
+- Do not put secrets, camera credentials, or stream URLs in the pull request body.
+- Do not invent inboxes, team handles, or GitHub users.
+- Do not deploy, and do not touch production, from a change that only updates rules or docs.
+- Review the full branch diff (`git diff <base>...HEAD`), not only the latest commit.
+- Push a new branch with `-u`.
+
+## Commit messages
+
+```
+<type>: <description>
+
+<optional body>
+```
+
+Types: feat, fix, refactor, docs, test, chore, perf, ci.
+
+## Safety
+
+- Do not pass `--no-verify`.
+- Do not force-push shared branches, including `main`.
+- Keep the hard lines in `common-security.mdc`: fail closed; no secrets in logs or responses; do not regenerate `ENCRYPTION_KEY`; do not delete `backend/data/app.db`; do not run `docker compose down -v`; do not let cleanup sweep named-entity thumbnails.
+
+Run the tests for the surface you touched before asking for review. Commands are in `common-testing.mdc` and match `.github/workflows/ci.yml`.

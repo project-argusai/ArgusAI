@@ -1,0 +1,19 @@
+---
+description: "Python security for the FastAPI backend: parameterized SQL, Fernet for secrets at rest, path checks on media, and no decrypted credentials in logs."
+globs: "backend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Python security
+
+`README.md` wins if this rule disagrees with it. Repo hard lines are in `common-security.mdc`.
+
+- Bind query values with SQLAlchemy parameters. User input stays in arguments. Do not format untrusted input into SQL text. Orphan deletes in `cleanup_service` use a fixed table list; do not append request data to that list.
+- Keep thumbnail, frame, and video paths inside their data directories. `resolve_thumbnail_fs_path` refuses a path outside the thumbnail directory. Keep that refusal.
+- Do not log decrypted passwords, RTSP URLs that contain credentials, provider keys, HomeKit PINs, or Fernet tokens. When a log must mention a secret, use `mask_sensitive`.
+- Outbound HTTP keeps a timeout. Do not disable TLS verification on a new client. `verify_ssl` is an existing per-controller Protect setting; do not make insecure the default for other clients.
+- Webhook SSRF checks live in `backend/app/services/webhook_service.py`. Do not weaken them or add a bypass.
+- Start a subprocess with an argument list. Do not build a shell string from user input.
+- Encrypt secrets with the existing Fernet helpers in `backend/app/utils/encryption.py`. Do not add a second crypto scheme. Do not read or write `ENCRYPTION_KEY` from request data.

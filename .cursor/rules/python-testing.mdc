@@ -1,0 +1,32 @@
+---
+description: "Tests required for changed backend behavior. Commands match the Python 3.11 pytest job and the Python 3.12 startup-smoke job. There is no numeric coverage gate."
+globs: "backend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Python testing
+
+`README.md` wins if this rule disagrees with it, except these commands, which match `.github/workflows/ci.yml`.
+
+Tests are required for changed behavior. A bug fix includes a regression test. Use pytest. Prefer the factories and the in-memory `db_session` fixture in `backend/tests/conftest.py`.
+
+From `backend/`, on Python 3.11, after `pip install -r requirements.txt`:
+
+```bash
+pytest tests/ -v --tb=short --cov=app --cov-report=xml --cov-report=term
+```
+
+CI sets `DATABASE_URL` to a disposable sqlite file in the job directory (`sqlite:///./test.db`), plus `ENCRYPTION_KEY`, `JWT_SECRET_KEY`, and `PYTHONPATH=.`. Do not point tests at `backend/data/app.db`. Do not print those secrets. `db_session` uses `sqlite:///:memory:` and drops only that in-memory schema.
+
+Startup smoke, on Python 3.12, same install, from `backend/`:
+
+```bash
+python -c "import main; print('main import OK', type(main.app).__name__)"
+alembic upgrade head
+```
+
+Run `alembic upgrade head` against a fresh sqlite file, not the application database. There is no numeric coverage target. Codecov is informational. Do not add `fail_under`. CI does not run ruff or mypy.
+
+Logs and assertion text must not echo `ENCRYPTION_KEY`, `JWT_SECRET_KEY`, camera passwords, or provider keys.

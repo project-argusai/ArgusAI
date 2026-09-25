@@ -1,0 +1,21 @@
+---
+description: "TypeScript patterns for frontend/: keep API access in frontend/lib/api-client.ts and do not invent a new response envelope."
+globs: "frontend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# TypeScript patterns
+
+The client in `frontend/lib/api-client.ts` wins over a generic pattern.
+
+## API access
+
+Keep HTTP calls in `frontend/lib/api-client.ts`. Do not add a second client or a generic repository interface.
+
+Two response shapes already exist. Protect routes (`/api/v1/protect/*`) return `{ "data", "meta" }`. Other routes return the model, or a list of models, directly. Match the shape the endpoint already returns. Do not invent a `success` / `error` envelope.
+
+## Shared client state
+
+Reusable client state belongs in a function whose name starts with `use`, covered by the React state rule. Do not persist camera credentials, provider keys, or MQTT or HomeKit secrets in `localStorage` or `sessionStorage`.

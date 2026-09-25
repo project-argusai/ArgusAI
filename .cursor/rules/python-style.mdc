@@ -1,0 +1,22 @@
+---
+description: "Python style for the FastAPI backend. Match the surrounding module. CI does not run ruff or mypy."
+globs: "backend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Python style
+
+`README.md` wins if this rule disagrees with it.
+
+The test job uses Python 3.11. The startup-smoke job uses Python 3.12. Application code lives under `backend/app`. Services live in `backend/app/services`. Routes live in `backend/app/api/v1` and are mounted at `/api/v1`.
+
+CI does not run ruff or mypy. Do not add either as a required check, and do not invent a format command.
+
+- Match the surrounding module's imports, type hints, and error style.
+- Request handlers take FastAPI dependencies. Code outside a request uses `get_db_session()` from `backend/app/core/database.py`.
+- Long-lived services use the existing `@singleton` decorator and `_reset_instance()` in tests.
+- Protect routes return `{ "data", "meta" }`. Other routes return the model directly. Do not invent a third envelope.
+- New service modules stay focused. A file that is hard to follow is a review note. There is no line-count merge gate.
+- Schema changes are new Alembic revisions under `backend/alembic`. Do not edit a migration that has already been applied.

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { useSettingsForm } from '@/hooks/useSettingsForm';
 import { CSRF_ORIGIN_DENIED_MESSAGE } from '@/lib/csrf-error';
@@ -21,8 +21,9 @@ function Harness({
 }: {
   saveFn: (data: { label: string }) => Promise<unknown>;
 }) {
+  const [initialData] = useState({ label: '' });
   const { formData, updateField, save } = useSettingsForm({
-    initialData: { label: '' },
+    initialData,
     saveFn,
   });
 

@@ -391,6 +391,38 @@ class TestVideoAndOrphanMedia:
         assert stats["frame_dirs_deleted"] == 1
         assert stats["skipped"] is False
 
+    def test_orphan_sweep_skips_when_entity_protection_lookup_fails(
+        self, harness, monkeypatch
+    ):
+        """A failed named-entity thumbnail lookup deletes nothing and reports skipped."""
+        orphan = os.path.join(harness.thumbnail_dir, "2020-01-01", "orphan.jpg")
+        entity_file = os.path.join(harness.thumbnail_dir, "2020-01-01", "entity.jpg")
+        _write(orphan, b"o" * 100)
+        _write(entity_file, b"e" * 100)
+        _age(orphan, 400)
+        _age(entity_file, 400)
+        orphan_frames = os.path.join(harness.frames_dir, "gone-event")
+        _write(os.path.join(orphan_frames, "frame_001.jpg"))
+        _age(os.path.join(orphan_frames, "frame_001.jpg"), 400)
+        _age(orphan_frames, 400)
+
+        def _raise(_db):
+            raise RuntimeError("protected entity lookup failed")
+
+        monkeypatch.setattr(
+            harness.service, "_protected_entity_thumbnail_keys", _raise
+        )
+
+        stats = harness.service.cleanup_orphan_media(retention_days=30)
+
+        assert os.path.exists(orphan)
+        assert os.path.exists(entity_file)
+        assert os.path.isdir(orphan_frames)
+        assert stats["skipped"] is True
+        assert stats["thumbnails_deleted"] == 0
+        assert stats["frames_deleted"] == 0
+        assert stats["frame_dirs_deleted"] == 0
+
     def test_orphan_media_skips_when_retention_forever(self, harness):
         orphan = os.path.join(harness.thumbnail_dir, "2020-01-01", "orphan.jpg")
         _write(orphan)

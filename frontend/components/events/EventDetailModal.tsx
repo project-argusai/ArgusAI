@@ -535,7 +535,7 @@ export function EventDetailModal({
             <AlertDialogTitle>Delete Event?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete this event and its
-              associated data.
+              saved media: the thumbnail, analysis frames, and video clip.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

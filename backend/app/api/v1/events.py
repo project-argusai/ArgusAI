@@ -10,7 +10,7 @@ Provides REST API for AI-generated semantic event management:
 - DELETE /events/cleanup - Manual cleanup of old events
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Request, Response
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, or_, desc, asc, text
 from typing import Optional
@@ -1088,6 +1088,70 @@ async def manual_cleanup(
         )
 
 
+def _commit_event_media_deletions(db: Session, events: list[Event]):
+    """Delete media and rows through the shared service. Caller receives truthful results.
+
+    The service does not commit. A commit failure is recorded on the result and
+    is not reported as success; retrying the delete is idempotent.
+    """
+    from app.services.event_media_deletion import EventMediaDeletionService
+
+    service = EventMediaDeletionService()
+    results = []
+    for event in events:
+        event_id = event.id
+        result = service.delete_event_media(db, event)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            result.commit_failed = True
+            result.event_deleted = False
+            logger.exception(
+                "Event media deletion commit failed",
+                extra={"event_id": event_id},
+            )
+        results.append(result)
+    return results
+
+
+def _client_failures(results) -> list[dict]:
+    """Failure records safe to return to clients.
+
+    Kind and reason are enough to retry. Absolute paths and traversal values
+    stay in the server audit log.
+    """
+    public = []
+    for result in results:
+        for item in result.failure_dicts():
+            stored = str(item.get("stored_path") or "")
+            normalized = stored.replace("\\", "/")
+            if os.path.isabs(stored) or ".." in normalized.split("/"):
+                item = {**item, "stored_path": ""}
+            public.append(item)
+    return public
+
+
+def _media_deletion_audit(operation: str, event_ids_count: int, results, status_name: str) -> None:
+    audit_logger.warning(
+        "AUDIT: Event media deletion %s",
+        status_name,
+        extra={
+            "audit_event": "event_media_deletion",
+            "operation": operation,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "parameters": {"event_ids_count": event_ids_count},
+            "result": {
+                "deleted_count": sum(1 for result in results if result.fully_deleted),
+                "failed_count": sum(1 for result in results if not result.fully_deleted),
+                "failures": [item for result in results for item in result.failure_dicts()],
+            },
+            "source": "api_endpoint",
+            "status": status_name,
+        },
+    )
+
+
 @router.delete("/bulk")
 async def bulk_delete_events(
     event_ids: list[str] = Query(..., description="List of event UUIDs to delete"),
@@ -1136,46 +1200,17 @@ async def bulk_delete_events(
                 detail="No events found with the provided IDs"
             )
 
-        deleted_count = 0
-        thumbnails_deleted = 0
-        frames_deleted = 0
-        space_freed_bytes = 0
-
-        # Delete thumbnails and frames for each event
-        for event in events:
-            # Delete thumbnail file if exists
-            if event.thumbnail_path:
-                thumb_path = _normalize_thumbnail_path(event.thumbnail_path)
-                thumbnail_file = os.path.join(THUMBNAIL_DIR, thumb_path)
-                if os.path.exists(thumbnail_file):
-                    try:
-                        space_freed_bytes += os.path.getsize(thumbnail_file)
-                        os.remove(thumbnail_file)
-                        thumbnails_deleted += 1
-                    except Exception as e:
-                        logger.warning(f"Failed to delete thumbnail {thumbnail_file}: {e}")
-
-            # Delete frame files if event has frames (multi-frame analysis)
-            if hasattr(event, 'frame_paths') and event.frame_paths:
-                try:
-                    frame_paths = json.loads(event.frame_paths) if isinstance(event.frame_paths, str) else event.frame_paths
-                    frames_dir = os.path.join(os.path.dirname(THUMBNAIL_DIR), 'frames')
-                    for frame_path in frame_paths:
-                        frame_file = os.path.join(frames_dir, frame_path)
-                        if os.path.exists(frame_file):
-                            space_freed_bytes += os.path.getsize(frame_file)
-                            os.remove(frame_file)
-                            frames_deleted += 1
-                except Exception as e:
-                    logger.warning(f"Failed to delete frames for event {event.id}: {e}")
-
-            deleted_count += 1
-
-        # Delete events from database
-        db.query(Event).filter(Event.id.in_([e.id for e in events])).delete(synchronize_session=False)
-        db.commit()
-
-        space_freed_mb = round(space_freed_bytes / (1024 * 1024), 2)
+        results = _commit_event_media_deletions(db, events)
+        deleted_count = sum(1 for result in results if result.fully_deleted)
+        failed_items = _client_failures(results)
+        thumbnails_deleted = sum(result.thumbnails_deleted for result in results)
+        frames_deleted = sum(result.frames_deleted for result in results)
+        videos_deleted = sum(result.videos_deleted for result in results)
+        clips_deleted = sum(result.clips_deleted for result in results)
+        space_freed_mb = round(sum(result.bytes_freed for result in results) / (1024 * 1024), 2)
+        partial = deleted_count > 0 and bool(failed_items)
+        success = deleted_count == len(results) and not failed_items
+        outcome = "success" if success else "partial" if partial else "failed"
 
         logger.info(
             f"Bulk delete complete: {deleted_count} events deleted, "
@@ -1184,36 +1219,28 @@ async def bulk_delete_events(
                 "deleted_count": deleted_count,
                 "thumbnails_deleted": thumbnails_deleted,
                 "frames_deleted": frames_deleted,
+                "videos_deleted": videos_deleted,
                 "space_freed_mb": space_freed_mb,
-                "requested_ids": len(event_ids)
+                "requested_ids": len(event_ids),
+                "failed_count": len(results) - deleted_count,
+                "status": outcome,
             }
         )
 
-        # Audit log
-        audit_logger.warning(
-            "AUDIT: Bulk event deletion completed",
-            extra={
-                "audit_event": "bulk_delete",
-                "operation": "DELETE /events/bulk",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "parameters": {"event_ids_count": len(event_ids)},
-                "result": {
-                    "deleted_count": deleted_count,
-                    "thumbnails_deleted": thumbnails_deleted,
-                    "frames_deleted": frames_deleted,
-                    "space_freed_mb": space_freed_mb
-                },
-                "source": "api_endpoint",
-                "status": "success"
-            }
-        )
+        _media_deletion_audit("DELETE /events/bulk", len(event_ids), results, outcome)
 
         return {
             "deleted_count": deleted_count,
             "thumbnails_deleted": thumbnails_deleted,
             "frames_deleted": frames_deleted,
+            "videos_deleted": videos_deleted,
+            "clips_deleted": clips_deleted,
             "space_freed_mb": space_freed_mb,
-            "not_found_count": len(event_ids) - deleted_count
+            "not_found_count": len(event_ids) - len(events),
+            "success": success,
+            "partial": partial,
+            "failed_count": len(results) - deleted_count,
+            "failed_items": failed_items,
         }
 
     except HTTPException:
@@ -1225,6 +1252,51 @@ async def bulk_delete_events(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete events"
         )
+
+
+@router.post("/media-orphans/reconcile")
+async def reconcile_orphan_media(
+    dry_run: bool = Query(True, description="When true, report orphan media without deleting it"),
+    db: Session = Depends(get_db),
+):
+    """Report or remove media files that no longer belong to an event or entity.
+
+    Dry run is the default. Reference-data failures delete nothing. This does
+    not change retention or wipe.
+    """
+    from app.services.event_media_deletion import EventMediaDeletionService
+
+    report = EventMediaDeletionService().reconcile_orphans(db, dry_run=dry_run)
+    payload = report.as_dict()
+    audit_logger.warning(
+        "AUDIT: Orphan media reconciliation %s",
+        "skipped" if report.skipped else "dry_run" if report.dry_run else "applied",
+        extra={
+            "audit_event": "orphan_media_reconciliation",
+            "operation": "POST /events/media-orphans/reconcile",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "parameters": {"dry_run": dry_run},
+            "result": {
+                "orphan_files": report.orphan_files,
+                "deleted_files": report.deleted_files,
+                "failed_files": report.failed_files,
+                "skipped_symlinks": report.skipped_symlinks,
+                "bytes": report.bytes,
+                "by_kind": report.by_kind,
+                "skipped": report.skipped,
+            },
+            "source": "api_endpoint",
+            "status": "skipped" if report.skipped else "success" if report.success else "partial",
+        },
+    )
+    if report.skipped:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=payload,
+        )
+    if not report.dry_run and not report.success:
+        return JSONResponse(status_code=status.HTTP_409_CONFLICT, content=payload)
+    return payload
 
 
 # =============================================================================
@@ -1440,34 +1512,29 @@ async def delete_event(
                 detail=f"Event {event_id} not found"
             )
 
-        # Delete thumbnail file if exists
-        if event.thumbnail_path:
-            thumb_path = _normalize_thumbnail_path(event.thumbnail_path)
-            thumbnail_file = os.path.join(THUMBNAIL_DIR, thumb_path)
-            if os.path.exists(thumbnail_file):
-                try:
-                    os.remove(thumbnail_file)
-                    logger.debug(f"Deleted thumbnail for event {event_id}")
-                except Exception as e:
-                    logger.warning(f"Failed to delete thumbnail {thumbnail_file}: {e}")
+        result = _commit_event_media_deletions(db, [event])[0]
+        if not result.fully_deleted:
+            _media_deletion_audit("DELETE /events/{event_id}", 1, [result], "failed")
+            logger.warning(
+                "Event deletion incomplete",
+                extra={"event_id": event_id, "failed_items": result.failure_dicts()},
+            )
+            return JSONResponse(
+                status_code=(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR
+                    if result.commit_failed
+                    else status.HTTP_409_CONFLICT
+                ),
+                content={
+                    "detail": "Event media could not be fully removed. The event was kept so you can retry.",
+                    "success": False,
+                    "deleted": False,
+                    "event_id": event_id,
+                    "failed_items": _client_failures([result]),
+                },
+            )
 
-        # Delete frame files if event has frames
-        if hasattr(event, 'frame_paths') and event.frame_paths:
-            try:
-                frame_paths = json.loads(event.frame_paths) if isinstance(event.frame_paths, str) else event.frame_paths
-                frames_dir = os.path.join(os.path.dirname(THUMBNAIL_DIR), 'frames')
-                for frame_path in frame_paths:
-                    frame_file = os.path.join(frames_dir, frame_path)
-                    if os.path.exists(frame_file):
-                        os.remove(frame_file)
-                        logger.debug(f"Deleted frame {frame_path} for event {event_id}")
-            except Exception as e:
-                logger.warning(f"Failed to delete frames for event {event_id}: {e}")
-
-        # Delete event from database
-        db.delete(event)
-        db.commit()
-
+        _media_deletion_audit("DELETE /events/{event_id}", 1, [result], "success")
         logger.info(f"Deleted event {event_id}")
 
         # Return 204 No Content (no response body)

@@ -198,7 +198,21 @@ export default function EventsPage() {
     setIsDeleting(true);
     try {
       const result = await apiClient.events.deleteMany(Array.from(selectedIds));
-      toast.success(`Deleted ${result.deleted_count} events`);
+      if (result.success === false) {
+        const failed = result.failed_count ?? result.failed_items?.length ?? 0;
+        toast.error(
+          failed > 0
+            ? `Removed ${result.deleted_count} events. ${failed} could not be fully deleted`
+            : 'Some events could not be fully deleted',
+          {
+            description: 'Thumbnails, frames, or clips are still attached to the events that failed. Retry to finish removing them.',
+          },
+        );
+      } else {
+        toast.success(`Deleted ${result.deleted_count} events`, {
+          description: 'Their thumbnails, analysis frames, and video clips were removed too.',
+        });
+      }
       setSelectedIds(new Set());
       setSelectionMode(false);
       invalidateEvents();
@@ -586,7 +600,7 @@ export default function EventsPage() {
             <AlertDialogTitle>Delete {selectedIds.size} event{selectedIds.size !== 1 ? 's' : ''}?</AlertDialogTitle>
             <AlertDialogDescription>
               This action cannot be undone. This will permanently delete the selected events
-              and their associated thumbnails and frames.
+              and their saved media: thumbnails, analysis frames, and video clips.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

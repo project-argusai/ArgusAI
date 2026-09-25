@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     SQL_ECHO: bool = False
     DB_ECHO: bool = False
 
+    # Event media roots. Unset keeps the historical backend/data directories.
+    # Event deletion refuses stored paths that resolve outside these roots.
+    MEDIA_THUMBNAIL_DIR: Optional[str] = None
+    MEDIA_FRAMES_DIR: Optional[str] = None
+    MEDIA_VIDEO_DIR: Optional[str] = None
+    MEDIA_CLIPS_DIR: Optional[str] = None
+
     # Debug Endpoints (Story P14-1.2)
     # SECURITY WARNING: Only enable for development.
     # Even when enabled, endpoints require admin role + optional DEBUG_TOKEN.

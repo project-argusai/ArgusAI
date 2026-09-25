@@ -1,0 +1,17 @@
+---
+description: "How to test TypeScript in frontend/. Unit tests run with Vitest via npm run test:coverage. Bug fixes need a regression test. There is no numeric coverage gate."
+globs: "frontend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# TypeScript testing
+
+`README.md` wins if this rule disagrees with it, except these commands, which match `.github/workflows/ci.yml`.
+
+- Put tests under `frontend/__tests__/` (or another `*.{test,spec}.{ts,tsx}` file the Vitest include already matches). `npm run test:coverage` is `vitest run --coverage`.
+- From `frontend/`, on Node 20: `npm ci`, `npm run lint`, `npx next build`, `npm run test:coverage`. `npx next build` is the typecheck. Do not add a separate `tsc --noEmit` job. CI does not run one.
+- Tests are required for changed behavior. A bug fix includes a regression test.
+- There is no numeric coverage gate. Do not add one.
+- Use Vitest. Do not add Jest or another unit-test runner.

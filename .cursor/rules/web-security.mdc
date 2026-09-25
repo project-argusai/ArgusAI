@@ -1,0 +1,26 @@
+---
+description: "Browser security for frontend/: no secrets in URLs or the bundle, keep httpOnly session cookies, and do not add a second header policy."
+globs: "frontend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Web security
+
+The always-on security rule wins if this file disagrees with it.
+
+`frontend/next.config.ts` rewrites `/api/v1` to the backend and builds a standalone bundle. It does not define a Content-Security-Policy. Do not paste a second, conflicting header policy into a new file. Image optimization is off and SVG is allowed there for self-hosted cameras. Do not replace that with a remote image host.
+
+## Cookies and transport
+
+- `access_token` and `refresh_token` are httpOnly. Do not make either readable from JavaScript. `refresh_token` is path-scoped to `/api/v1/auth`.
+- `COOKIE_SECURE` defaults to true and `COOKIE_SAMESITE` defaults to `none` so HTTPS and Cloudflare Tunnel logins work. A cleartext HTTP deployment sets `COOKIE_SECURE=false` and `COOKIE_SAMESITE=lax`. Do not force `Secure` on that HTTP path, and do not drop `Secure` on the HTTPS path.
+- Cloudflare Tunnel is an intentional remote-access path. Do not treat the tunnel itself as a defect. The tunnel token is a secret and stays on the server.
+
+## XSS, scripts, and forms
+
+- Do not inject unsanitized HTML or assign user HTML to `innerHTML`.
+- Do not add a third-party script. Prefer the dependencies the app already ships.
+- State-changing calls go through `frontend/lib/api-client.ts` to the API. Validate on the server. The client check is not the security boundary.
+- Do not put secrets in the URL, the document, or `localStorage`. `NEXT_PUBLIC_*` stays public.

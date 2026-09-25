@@ -1,0 +1,28 @@
+---
+description: "UI behavior tests for frontend/. Vitest runs npm run test:coverage. Do not add a second test runner or a coverage gate."
+globs: "frontend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# React testing
+
+`README.md` wins if this rule disagrees with it, except the commands, which match `.github/workflows/ci.yml`.
+
+## What CI runs
+
+From `frontend/`, on Node 20: `npm ci`, then `npm run lint`, `npx next build`, and `npm run test:coverage`.
+
+`npm run test:coverage` is `vitest run --coverage`. The include pattern is `**/*.{test,spec}.{js,jsx,ts,tsx}` with `jsdom`, Testing Library, and `frontend/vitest.setup.tsx`. Put new tests under `frontend/__tests__/`. A bug fix adds a regression test there when the behavior is in the frontend.
+
+Do not add Jest or a second runner. There is no numeric coverage gate. `vitest.config.ts` has reporters and no threshold. Do not add one.
+
+`@axe-core/react` is already available for accessibility checks. Use it in the existing accessibility tests. It does not replace `npm run test:coverage`.
+
+## How to assert
+
+- Assert what the operator can observe or what the module returns.
+- Do not assert private state, render counts, or which `use*` function ran.
+- Do not snapshot whole component trees.
+- Changed UI still needs `npm run lint` and `npx next build`.

@@ -1,0 +1,35 @@
+---
+description: "TypeScript style for frontend/: immutable object updates, explicit errors, validation that fails closed, and no debug logging of secrets."
+globs: "frontend/**"
+alwaysApply: false
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# TypeScript coding style
+
+Applies to `frontend/` only. The always-on security rule wins on secrets.
+
+## Updates
+
+Copy objects instead of mutating a value the caller still holds:
+
+```typescript
+function renameCamera(camera: Camera, name: string): Camera {
+  return { ...camera, name };
+}
+```
+
+Do not spread untrusted JSON into state. Keep only known fields.
+
+## Errors
+
+Await async work and handle the failure. Do not log the raw error when it might contain a secret, token, or camera credential. Surface the existing error shape from `frontend/lib/api-client.ts` instead of inventing a new error string.
+
+## Validation
+
+Validate input and reject unknown fields. Use the Zod schemas already in `frontend/lib`. Do not add a new validation dependency for a single change.
+
+## Logging
+
+Do not commit `console.log` in product paths. Never log secrets, session cookies, RTSP URLs, or provider keys.

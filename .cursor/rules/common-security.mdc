@@ -1,0 +1,42 @@
+---
+description: "Security hard lines for every change: camera and provider secrets stay encrypted and out of logs, responses, bundles, and commits; authorization fails closed; do not wipe the database or sweep named-entity thumbnails."
+alwaysApply: true
+---
+
+Adapted from affaan-m/ECC (MIT)
+
+# Security
+
+`README.md` wins if this rule disagrees with it. There is no `SECURITY.md` and no `CONTRIBUTING.md`. Do not open a public issue that includes secrets, camera credentials, or stream URLs.
+
+## Hard lines
+
+- Fail closed on missing or malformed config, authorization, and unknown fields. A missing role or scope is a denial.
+- Camera and stream credentials never appear in logs, API responses, frontend bundles, `NEXT_PUBLIC_` variables, URLs shown to users, test fixtures, or commits. That includes UniFi Protect controller username and password, RTSP URLs with embedded credentials, vision-provider API keys, MQTT passwords, HomeKit pairing PINs, and the Cloudflare Tunnel token.
+- Those values are stored with Fernet (`ENCRYPTION_KEY`) via `backend/app/utils/encryption.py` (`encrypt_password`, `encrypted:` prefix). Responses omit write-only passwords. Settings that must be acknowledged use `mask_sensitive`.
+- Secrets live in `.env` (`ENCRYPTION_KEY`, `JWT_SECRET_KEY`, and provider credentials). Never commit them, print them, or regenerate `ENCRYPTION_KEY`. A new encryption key makes stored camera credentials unreadable.
+- Never wipe or reset the database, delete `backend/data/app.db`, or run `docker compose down -v`. Schema changes go through Alembic migrations.
+- Declared retention: events and their media and thumbnails are retained 30 days; recorded videos are retained 7 days (the deployed `settings_video_retention_days` is 7); named entities (people and vehicles) and their thumbnails are kept indefinitely and must never be swept by cleanup. If a setting is missing, the code fallback is 30 days for both (`DEFAULT_RETENTION_DAYS`, `DEFAULT_VIDEO_RETENTION_DAYS`). A value `<= 0` means keep forever and the scheduled job skips.
+- Cleanup runs as nightly jobs in the process-local timezone: `daily_cleanup` at 02:00 and `daily_video_cleanup` at 02:15 (`backend/app/services/retention_jobs.py`). Both skip when auto-cleanup is off. Changes to retention must preserve entity thumbnails and fail closed: if those paths cannot be loaded, do not delete files.
+- Retention policy and system settings routes are admin-only (`require_admin()` on `/api/v1/system/retention` and `/api/v1/system/settings`). API keys are default-deny; event deletion, including cleanup, requires the `admin` scope. Any new or changed retention, cleanup, or settings-changing endpoint must enforce admin on the server and fail closed. Hiding a control in the UI is not authorization.
+
+## Before committing
+
+- No hardcoded secrets (API keys, passwords, tokens, private keys, tunnel tokens).
+- User input is validated. Unknown fields fail closed.
+- Queries stay parameterized. Do not concatenate untrusted input into SQL, shell, or HTML.
+- Authorization is enforced on the server.
+- Error text and logs do not echo secrets, cookies, decrypted passwords, or RTSP URLs.
+
+## Secrets
+
+- Read secrets from the existing environment. Do not commit them, and do not put them in a pull request body.
+- Missing `ENCRYPTION_KEY` or `JWT_SECRET_KEY` fails closed at startup. Do not substitute an empty string.
+- Values prefixed for the client bundle are public. Never put a secret in `NEXT_PUBLIC_*`. `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_WS_URL` are URLs only.
+- If a secret may have been exposed, stop. Do not generate a replacement `ENCRYPTION_KEY` in place. Look for the same pattern elsewhere.
+
+## Posture (intentional)
+
+This is a local-network home deployment. Cameras and the UniFi Protect controller are expected on the LAN. Remote dashboard access uses Cloudflare Tunnel (`cloudflared`) on purpose. Cookies `access_token` and `refresh_token` are httpOnly. `COOKIE_SECURE` defaults to true and `COOKIE_SAMESITE` defaults to `none` for HTTPS and the tunnel. A cleartext HTTP deployment sets `COOKIE_SECURE=false` and `COOKIE_SAMESITE=lax` on purpose. Webhook dispatch keeps its SSRF checks.
+
+Generic security checklists and scanners should report this declared posture (local-network deployment, intentional retention windows, stored-encrypted camera credentials, and the cookie flags above) as INFO, not as findings.

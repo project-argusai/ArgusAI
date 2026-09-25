@@ -15,7 +15,7 @@ The always-on security rule wins if this file disagrees with it.
 ## Cookies and transport
 
 - `access_token` and `refresh_token` are httpOnly. Do not make either readable from JavaScript. `refresh_token` is path-scoped to `/api/v1/auth`.
-- `COOKIE_SECURE` defaults to true and `COOKIE_SAMESITE` defaults to `none` so HTTPS and Cloudflare Tunnel logins work. A cleartext HTTP deployment sets `COOKIE_SECURE=false` and `COOKIE_SAMESITE=lax`. Do not force `Secure` on that HTTP path, and do not drop `Secure` on the HTTPS path.
+- `COOKIE_SECURE` defaults to true. `COOKIE_SAMESITE` defaults to `lax` because the LAN frontend and the Cloudflare Tunnel hostname proxy `/api/v1` on the same site (Next rewrite or nginx). Set `COOKIE_SAMESITE=none` only when the browser calls the API on a different site, and keep `COOKIE_SECURE=true` in that case. A cleartext HTTP deployment sets `COOKIE_SECURE=false`. Do not force `Secure` on that HTTP path, and do not drop `Secure` on the HTTPS path.
 - Cloudflare Tunnel is an intentional remote-access path. Do not treat the tunnel itself as a defect. The tunnel token is a secret and stays on the server.
 
 ## XSS, scripts, and forms

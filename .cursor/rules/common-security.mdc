@@ -37,6 +37,6 @@ Adapted from affaan-m/ECC (MIT)
 
 ## Posture (intentional)
 
-This is a local-network home deployment. Cameras and the UniFi Protect controller are expected on the LAN. Remote dashboard access uses Cloudflare Tunnel (`cloudflared`) on purpose. Cookies `access_token` and `refresh_token` are httpOnly. `COOKIE_SECURE` defaults to true and `COOKIE_SAMESITE` defaults to `none` for HTTPS and the tunnel. A cleartext HTTP deployment sets `COOKIE_SECURE=false` and `COOKIE_SAMESITE=lax` on purpose. Webhook dispatch keeps its SSRF checks.
+This is a local-network home deployment. Cameras and the UniFi Protect controller are expected on the LAN. Remote dashboard access uses Cloudflare Tunnel (`cloudflared`) on purpose. Cookies `access_token` and `refresh_token` are httpOnly. `COOKIE_SECURE` defaults to true. `COOKIE_SAMESITE` defaults to `lax` because those browser calls are same-site through the frontend `/api/v1` proxy, including the tunnel hostname. Set `COOKIE_SAMESITE=none` only for a cross-site browser API, with `COOKIE_SECURE=true`. A cleartext HTTP deployment sets `COOKIE_SECURE=false` on purpose. Webhook dispatch keeps its SSRF checks.
 
 Generic security checklists and scanners should report this declared posture (local-network deployment, intentional retention windows, stored-encrypted camera credentials, and the cookie flags above) as INFO, not as findings.

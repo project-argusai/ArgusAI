@@ -143,6 +143,12 @@ from app.core.permissions import require_admin
 from app.utils.encryption import encrypt_password, decrypt_password, mask_sensitive, is_encrypted
 from app.core.config import settings
 from app.middleware.rate_limit import limit_custom
+from app.services.backup_limits import (
+    DISK_RESERVE_BYTES,
+    UPLOAD_NO_SPACE,
+    UPLOAD_TIMED_OUT,
+    UPLOAD_TOO_LARGE,
+)
 
 
 @asynccontextmanager
@@ -154,7 +160,7 @@ async def _staged_backup_upload(file: UploadFile):
         if not file.filename or not file.filename.lower().endswith(".zip"):
             raise HTTPException(status_code=400, detail="File must be a ZIP archive")
         if file.size is not None and file.size > limit:
-            raise HTTPException(status_code=413, detail="Backup exceeds the upload size limit")
+            raise HTTPException(status_code=413, detail=UPLOAD_TOO_LARGE)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
             path = Path(tmp.name)
             written = 0
@@ -162,16 +168,16 @@ async def _staged_backup_upload(file: UploadFile):
                 while chunk := await file.read(min(1024 * 1024, limit - written + 1)):
                     written += len(chunk)
                     if written > limit:
-                        raise HTTPException(status_code=413, detail="Backup exceeds the upload size limit")
-                    if shutil.disk_usage(path.parent).free < len(chunk) + 10 * 1024 * 1024:
-                        raise HTTPException(status_code=507, detail="Insufficient disk space for backup upload")
+                        raise HTTPException(status_code=413, detail=UPLOAD_TOO_LARGE)
+                    if shutil.disk_usage(path.parent).free < len(chunk) + DISK_RESERVE_BYTES:
+                        raise HTTPException(status_code=507, detail=UPLOAD_NO_SPACE)
                     tmp.write(chunk)
         yield path
     except TimeoutError as e:
-        raise HTTPException(status_code=408, detail="Backup upload timed out") from e
+        raise HTTPException(status_code=408, detail=UPLOAD_TIMED_OUT) from e
     except OSError as e:
         if e.errno == errno.ENOSPC:
-            raise HTTPException(status_code=507, detail="Insufficient disk space for backup upload") from e
+            raise HTTPException(status_code=507, detail=UPLOAD_NO_SPACE) from e
         raise
     finally:
         if path is not None:
@@ -2954,8 +2960,8 @@ async def restore_from_backup(
 
             if not result.success:
                 raise HTTPException(
-                    status_code=507 if result.message == "Insufficient free disk space for restore" else status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=result.message
+                    status_code=result.http_status or status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=result.message,
                 )
 
             return RestoreResponse(

@@ -3,6 +3,7 @@
 from io import BytesIO
 from pathlib import Path
 import asyncio
+import errno
 import stat
 import tempfile
 import zipfile
@@ -14,7 +15,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.api.v1.system import _staged_backup_upload
 from app.core.config import settings
-from app.services.backup_service import BackupService
+from app.services.backup_service import BackupArchiveError, BackupService
 
 
 @pytest.fixture
@@ -40,6 +41,8 @@ def make_zip(path: Path, extras=None):
 @pytest.mark.parametrize("extras,reason", [
     ([("../escape.jpg", b"image")], "invalid path"),
     ([("thumbnails/../../escape.jpg", b"image")], "invalid path"),
+    ([("/etc/passwd", b"x")], "invalid path"),
+    ([("C:/Windows/system.ini", b"x")], "invalid path"),
     ([("other.txt", b"data")], "unexpected file"),
     ([("thumbnails/script.py", b"print(1)")], "unexpected file"),
     ([("metadata.json", b"{}")], "duplicate paths"),
@@ -49,6 +52,45 @@ def test_rejects_unsafe_archive_topology(backup_service, tmp_path, extras, reaso
     result = backup_service.validate_backup(archive)
     assert not result.valid
     assert reason in result.message
+
+
+def test_rejects_encrypted_member(backup_service, tmp_path):
+    archive = make_zip(tmp_path / "encrypted.zip", [("thumbnails/secret.jpg", b"cipher")])
+    data = bytearray(archive.read_bytes())
+    for signature, flag_offset in ((b"PK\x03\x04", 6), (b"PK\x01\x02", 8)):
+        start = 0
+        while True:
+            index = data.find(signature, start)
+            if index < 0:
+                break
+            flags = int.from_bytes(data[index + flag_offset:index + flag_offset + 2], "little")
+            data[index + flag_offset:index + flag_offset + 2] = (flags | 0x1).to_bytes(2, "little")
+            start = index + 4
+    archive.write_bytes(data)
+    assert "encrypted" in backup_service.validate_backup(archive).message
+
+
+def test_zip_bomb_rejected_without_extraction(backup_service, tmp_path):
+    archive = tmp_path / "bomb.zip"
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("database.db", b"SQLite format 3\x00")
+        zf.writestr("metadata.json", '{"app_version":"1.0.0","timestamp":"test"}')
+        zf.writestr("thumbnails/bomb.jpg", b"\0" * (2 * 1024 * 1024))
+    result = backup_service.validate_backup(archive)
+    assert not result.valid
+    assert "compression ratio" in result.message
+    assert not list(backup_service.backup_dir.glob("restore-*"))
+    assert not list(tmp_path.glob("restore-*"))
+
+
+def test_confined_path_rejects_symlink_escape(backup_service, tmp_path):
+    root = tmp_path / "restore"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "thumbnails").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(BackupArchiveError, match="special file"):
+        backup_service._confined_member_path(root, "thumbnails/evil.jpg")
 
 
 def test_rejects_symlink(backup_service, tmp_path):
@@ -95,6 +137,56 @@ def test_member_size_limit_is_checked_before_decompression(backup_service, tmp_p
     archive = make_zip(tmp_path / "large.zip", [("thumbnails/a.jpg", b"123456")])
     monkeypatch.setattr(settings, "BACKUP_MAX_MEMBER_BYTES", 5)
     assert "oversized file" in backup_service.validate_backup(archive).message
+
+
+@pytest.mark.asyncio
+async def test_restore_cleans_temp_dir_when_extract_fails(backup_service, tmp_path, monkeypatch):
+    archive = make_zip(tmp_path / "good.zip", [("thumbnails/day/event.jpg", b"image")])
+    original = backup_service._read_member
+
+    def fail_on_write(zf, info, output=None, deadline=None):
+        if output is not None:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return original(zf, info, output=output, deadline=deadline)
+
+    monkeypatch.setattr(backup_service, "_read_member", fail_on_write)
+    backup_service.database_path.write_bytes(b"original-db")
+    result = await backup_service.restore_from_backup(archive)
+    assert not result.success
+    assert result.http_status == 507
+    assert result.message == "Insufficient free disk space for restore"
+    assert backup_service.database_path.read_bytes() == b"original-db"
+    assert not list(backup_service.backup_dir.glob("restore-*"))
+
+
+@pytest.mark.asyncio
+async def test_valid_archive_restores_database_and_thumbnails(backup_service, tmp_path):
+    archive = make_zip(tmp_path / "good.zip", [("thumbnails/day/event.jpg", b"image")])
+
+    class _Query:
+        def count(self):
+            return 2
+
+    class _Session:
+        def query(self, _model):
+            return _Query()
+
+        def close(self):
+            pass
+
+    backup_service.session_factory = lambda: _Session()
+    backup_service.database_path.write_bytes(b"original-db")
+    result = await backup_service.restore_from_backup(
+        archive,
+        restore_database=True,
+        restore_thumbnails=True,
+        restore_settings=False,
+    )
+    assert result.success
+    assert result.events_restored == 2
+    assert backup_service.database_path.read_bytes().startswith(b"SQLite format 3")
+    assert (backup_service.thumbnails_dir / "day" / "event.jpg").read_bytes() == b"image"
+    assert not list(backup_service.backup_dir.glob("restore-*"))
 
 
 @pytest.mark.asyncio

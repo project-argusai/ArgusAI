@@ -54,6 +54,13 @@ class BackupArchiveError(ValueError):
     """The uploaded archive exceeds a limit or violates backup topology."""
 
 
+def _remove_restore_dir(temp_dir: Optional[Path]) -> None:
+    """Delete a restore temp directory without following a symlinked root."""
+    if temp_dir is None or temp_dir.is_symlink() or not temp_dir.exists():
+        return
+    shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 @dataclass
 class BackupResult:
     """Result of a backup operation"""
@@ -77,6 +84,7 @@ class RestoreResult:
     settings_restored: int = 0
     thumbnails_restored: int = 0
     warnings: List[str] = None
+    http_status: Optional[int] = None
 
     def __post_init__(self):
         if self.warnings is None:
@@ -185,6 +193,8 @@ class BackupService:
                 raise BackupArchiveError("Backup contains duplicate paths")
             seen.add(key)
 
+            if info.flag_bits & 0x1:
+                raise BackupArchiveError("Backup contains an encrypted file")
             mode = stat.S_IFMT(info.external_attr >> 16)
             if mode not in (0, stat.S_IFREG, stat.S_IFDIR):
                 raise BackupArchiveError("Backup contains a special file")
@@ -235,6 +245,48 @@ class BackupService:
                     output.write(chunk)
         if count != info.file_size:
             raise BackupArchiveError("Backup file size does not match its header")
+
+    def _confined_member_path(self, root: Path, member_name: str) -> Path:
+        """Resolve a member under ``root`` and reject escapes or symlinks."""
+        base = root.resolve()
+        relative = Path(member_name)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise BackupArchiveError("Backup contains an invalid path")
+        current = base
+        for part in relative.parts:
+            if part in ("", ".", "..") or "/" in part or "\\" in part or "\x00" in part:
+                raise BackupArchiveError("Backup contains an invalid path")
+            current = current / part
+            if current.is_symlink():
+                raise BackupArchiveError("Backup contains a special file")
+        try:
+            resolved = current.resolve()
+            common = os.path.commonpath([str(base), str(resolved)])
+        except ValueError:
+            raise BackupArchiveError("Backup contains an invalid path") from None
+        if common != str(base):
+            raise BackupArchiveError("Backup contains an invalid path")
+        return current
+
+    def _mkdir_confined(self, root: Path, destination: Path) -> None:
+        """Create parent directories without following a symlink out of ``root``."""
+        base = root.resolve()
+        parent = destination.parent
+        if parent == base:
+            return
+        try:
+            relative = parent.relative_to(base)
+        except ValueError:
+            raise BackupArchiveError("Backup contains an invalid path") from None
+        current = base
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise BackupArchiveError("Backup contains a special file")
+            if current.exists() and not current.is_dir():
+                raise BackupArchiveError("Backup contains an invalid path")
+            if not current.exists():
+                current.mkdir()
 
     def __init__(self, session_factory=None):
         """
@@ -668,6 +720,7 @@ class BackupService:
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
         temp_dir: Optional[Path] = None
         warnings = []
+        live_changed = False
 
         logger.info(
             "Starting restore from backup",
@@ -686,7 +739,8 @@ class BackupService:
             if not validation.valid:
                 return RestoreResult(
                     success=False,
-                    message=f"Backup validation failed: {validation.message}"
+                    message=f"Backup validation failed: {validation.message}",
+                    http_status=400,
                 )
 
             if validation.warnings:
@@ -698,7 +752,11 @@ class BackupService:
             current_db_bytes = self.database_path.stat().st_size if restore_database and self.database_path.exists() else 0
             # Allow room for extraction, the pre-restore DB copy, and filesystem overhead.
             if shutil.disk_usage(self.backup_dir).free < expanded_bytes + current_db_bytes + 10 * 1024 * 1024:
-                return RestoreResult(success=False, message="Insufficient free disk space for restore")
+                return RestoreResult(
+                    success=False,
+                    message="Insufficient free disk space for restore",
+                    http_status=507,
+                )
 
             # FF-007: Check if requested components exist in backup
             if validation.contents:
@@ -714,12 +772,27 @@ class BackupService:
 
             # Extract approved members into a private directory before touching live data.
             temp_dir = Path(tempfile.mkdtemp(prefix="restore-", dir=self.backup_dir))
+            deadline = time.monotonic() + settings.BACKUP_UPLOAD_TIMEOUT_SECONDS
+            written = 0
             with zipfile.ZipFile(zip_path, "r") as zf:
                 for info in approved:
-                    destination = temp_dir / info.filename
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    with destination.open("wb") as output:
-                        self._read_member(zf, info, output=output)
+                    destination = self._confined_member_path(temp_dir, info.filename)
+                    self._mkdir_confined(temp_dir, destination)
+                    destination = self._confined_member_path(temp_dir, info.filename)
+                    written += info.file_size
+                    if written > settings.BACKUP_MAX_EXPANDED_BYTES:
+                        raise BackupArchiveError("Backup expands beyond the size limit")
+                    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+                    try:
+                        fd = os.open(destination, flags, 0o600)
+                    except OSError as exc:
+                        if exc.errno == errno.EEXIST:
+                            raise BackupArchiveError("Backup contains duplicate paths") from exc
+                        if exc.errno == errno.ELOOP:
+                            raise BackupArchiveError("Backup contains a special file") from exc
+                        raise
+                    with os.fdopen(fd, "wb") as output:
+                        self._read_member(zf, info, output=output, deadline=deadline)
 
             # 2. Stop background tasks
             if stop_tasks_callback:
@@ -735,8 +808,12 @@ class BackupService:
 
                 # 4. Replace database (if selected)
                 events_restored = 0
-                if restore_database and (temp_dir / "database.db").exists():
-                    shutil.copy2(temp_dir / "database.db", self.database_path)
+                database_source = temp_dir / "database.db"
+                if restore_database and database_source.exists():
+                    if database_source.is_symlink():
+                        raise BackupArchiveError("Backup contains a special file")
+                    live_changed = True
+                    shutil.copy2(database_source, self.database_path)
                     logger.info("Database restored from backup")
 
                     # Count events in restored database
@@ -749,7 +826,13 @@ class BackupService:
 
                 # 6. Replace thumbnails (if selected)
                 thumbnails_restored = 0
-                if restore_thumbnails and (temp_dir / "thumbnails").exists():
+                thumbnail_source = temp_dir / "thumbnails"
+                if restore_thumbnails and thumbnail_source.exists():
+                    if thumbnail_source.is_symlink() or any(
+                        path.is_symlink() for path in thumbnail_source.rglob("*")
+                    ):
+                        raise BackupArchiveError("Backup contains a special file")
+                    live_changed = True
                     # Clear existing thumbnails
                     if self.thumbnails_dir.exists():
                         shutil.rmtree(self.thumbnails_dir)
@@ -766,8 +849,12 @@ class BackupService:
 
                 # 7. Import settings (if selected, non-encrypted only)
                 settings_restored = 0
-                if restore_settings and (temp_dir / "settings.json").exists():
-                    settings_restored = self._import_settings(temp_dir / "settings.json")
+                settings_source = temp_dir / "settings.json"
+                if restore_settings and settings_source.exists():
+                    if settings_source.is_symlink():
+                        raise BackupArchiveError("Backup contains a special file")
+                    live_changed = True
+                    settings_restored = self._import_settings(settings_source)
 
                 # 8. Cleanup temp directory
                 shutil.rmtree(temp_dir)
@@ -796,19 +883,40 @@ class BackupService:
                     logger.info("Restarting background tasks after restore")
                     await start_tasks_callback()
 
-        except Exception as e:
-            logger.error(f"Restore failed: {e}", exc_info=True)
-
-            # Cleanup temp directory on failure
-            if temp_dir is not None and temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-
+        except BackupArchiveError as exc:
+            logger.warning(
+                "Restore rejected unsafe archive",
+                extra={"event_type": "backup_restore_rejected", "reason": str(exc)},
+            )
+            _remove_restore_dir(temp_dir)
+            if live_changed:
+                return RestoreResult(
+                    success=False,
+                    message="Restore failed; live data may have changed",
+                    http_status=500,
+                    warnings=warnings,
+                )
             return RestoreResult(
                 success=False,
-                message=("Insufficient free disk space for restore"
-                         if isinstance(e, OSError) and e.errno == errno.ENOSPC
-                         else "Restore failed; live data may have changed"),
-                warnings=warnings
+                message=str(exc),
+                http_status=400,
+                warnings=warnings,
+            )
+        except Exception as e:
+            logger.error("Restore failed", exc_info=True)
+            _remove_restore_dir(temp_dir)
+            if isinstance(e, OSError) and e.errno == errno.ENOSPC:
+                return RestoreResult(
+                    success=False,
+                    message="Insufficient free disk space for restore",
+                    http_status=507,
+                    warnings=warnings,
+                )
+            return RestoreResult(
+                success=False,
+                message=("Restore failed; live data may have changed" if live_changed else "Restore failed"),
+                http_status=500,
+                warnings=warnings,
             )
 
     def _import_settings(self, settings_path: Path) -> int:

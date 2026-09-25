@@ -209,8 +209,15 @@ Recording rules + SLO alerts over the real metrics:
 - [ ] Secrets in External Secrets/SealedSecrets: `ENCRYPTION_KEY` (Fernet), `JWT_SECRET_KEY`,
       AI keys, VAPID, MQTT — **none committed**; app fails fast if `ENCRYPTION_KEY`/`JWT` unset.
 - [ ] TLS: cert-manager issuer + `ingress.tls` populated (HTTPS is **required** for push).
-- [ ] `CORS_ORIGINS` set to the real frontend origin; frontend image built with the public
-      `NEXT_PUBLIC_API_URL`.
+- [ ] `CORS_ORIGINS` set to the exact browser origin (scheme, host, and port).
+      Cookie-authenticated writes reject any other Origin. Wildcard origins do
+      not authorize those writes.
+- [ ] `COOKIE_SAMESITE=lax` when the browser reaches the API on the same site
+      (frontend `/api/v1` proxy, or nginx). Set `COOKIE_SAMESITE=none` with
+      `COOKIE_SECURE=true` only if the page and API are different sites.
+      Leave `NEXT_PUBLIC_API_URL` empty so the web app uses same-origin URLs.
+- [ ] Frontend image built with the public `NEXT_PUBLIC_API_URL` when it must
+      call the API directly. That value's origin must be listed in `CORS_ORIGINS`.
 - [ ] RWO `PersistentVolumeClaim` bound; storage class supports it.
 - [ ] GitHub Environments `staging`/`production` created; `production` has required reviewers;
       cluster credentials (OIDC or `KUBECONFIG`) set per environment.

@@ -63,6 +63,33 @@ class TestCSRFMiddleware(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(self.writes, 0)
 
+    def test_missing_origin_with_cookie_is_rejected(self):
+        response = self.client.post(
+            "/change",
+            json={"enabled": False},
+            cookies={"access_token": "session"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error_code"], "CSRF_ORIGIN_DENIED")
+        self.assertEqual(self.writes, 0)
+
+    def test_api_key_without_cookie_is_unchanged(self):
+        response = self.client.post(
+            "/change",
+            headers={"Origin": "https://evil.example", "X-API-Key": "argus_test_key"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.writes, 1)
+
+    def test_api_key_does_not_override_cookie_gate(self):
+        response = self.client.post(
+            "/change",
+            cookies={"refresh_token": "session"},
+            headers={"Origin": "https://evil.example", "X-API-Key": "argus_test_key"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.writes, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

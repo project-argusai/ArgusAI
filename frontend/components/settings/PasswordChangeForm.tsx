@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { Eye, EyeOff, Loader2, Lock, CheckCircle2, XCircle } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { CSRF_ORIGIN_DENIED_MESSAGE, isCsrfOriginDenied } from '@/lib/csrf-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -73,8 +74,10 @@ export function PasswordChangeForm() {
       toast.success('Password updated successfully');
       reset(); // Clear form on success
     } catch (error) {
-      // Handle specific error messages from backend
-      if (error instanceof Error) {
+      // Do not reset(): entries stay in the fields so the user can retry.
+      if (isCsrfOriginDenied(error)) {
+        toast.error(CSRF_ORIGIN_DENIED_MESSAGE);
+      } else if (error instanceof Error) {
         const message = error.message.toLowerCase();
         if (message.includes('incorrect') || message.includes('current password')) {
           toast.error('Current password is incorrect');

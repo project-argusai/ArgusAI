@@ -5,6 +5,8 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+import { errorForFailedResponse } from '@/lib/csrf-error';
 import { apiClient, ApiError } from '@/lib/api-client';
 import type { EntityType } from '@/types/entity';
 
@@ -190,8 +192,8 @@ export function useUnlinkEvent() {
         }
       );
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to unlink event');
+        const error = await response.json().catch(() => null);
+        throw errorForFailedResponse(response.status, response.statusText, error, 'Failed to unlink event');
       }
       return response.json();
     },
@@ -245,8 +247,8 @@ export function useAssignEventToEntity() {
         }
       );
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to assign event');
+        const error = await response.json().catch(() => null);
+        throw errorForFailedResponse(response.status, response.statusText, error, 'Failed to assign event');
       }
       return response.json();
     },
@@ -307,8 +309,8 @@ export function useMergeEntities() {
         }
       );
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to merge entities');
+        const error = await response.json().catch(() => null);
+        throw errorForFailedResponse(response.status, response.statusText, error, 'Failed to merge entities');
       }
       return response.json();
     },

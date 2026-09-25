@@ -82,6 +82,9 @@ config:
   debug: false
   logLevel: "INFO"
   corsOrigins: "http://localhost:3000"
+  # lax when ingress serves the UI and API on one site. none only for a
+  # cross-site browser API host (requires Secure cookies).
+  cookieSameSite: "lax"
   databaseUrl: "sqlite:///data/app.db"
   sslEnabled: false
   maxCameras: "10"

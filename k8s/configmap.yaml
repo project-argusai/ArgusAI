@@ -14,8 +14,12 @@ data:
   DEBUG: "false"
   LOG_LEVEL: "INFO"
 
-  # CORS configuration (adjust for your domain)
+  # CORS configuration (adjust for your domain). Cookie writes trust this list.
   CORS_ORIGINS: "http://localhost:3000"
+
+  # lax when ingress serves the UI and API on one site. Use none only if the
+  # browser calls the API on a different site (COOKIE_SECURE must stay true).
+  COOKIE_SAMESITE: "lax"
 
   # Database configuration
   # For SQLite (default): sqlite:///data/app.db

@@ -146,27 +146,32 @@ def test_auth_excluded_login_with_cookie_and_bad_or_missing_origin_is_rejected()
 
 
 def test_cookieless_machine_and_api_key_requests_are_not_origin_blocked():
-    with TestClient(app) as client:
-        mobile = client.post(
-            "/api/v1/mobile/auth/pair",
-            json={"device_id": "device-1", "platform": "ios"},
-            headers={"Origin": "https://evil.example"},
-        )
-        api_key = client.post(
-            "/api/v1/homekit/disable",
-            headers={
-                "Origin": "https://evil.example",
-                "X-API-Key": "not-a-session-cookie",
-            },
-        )
-        bearer = client.post(
-            "/api/v1/homekit/disable",
-            headers={
-                "Origin": "https://evil.example",
-                "Authorization": "Bearer not-a-cookie",
-            },
-        )
-    for response in (mobile, api_key, bearer):
-        body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-        assert body.get("error_code") != "CSRF_ORIGIN_DENIED"
-        assert response.status_code != 403 or body.get("error_code") != "CSRF_ORIGIN_DENIED"
+    """Hostile Origin is irrelevant when no session cookie is sent.
+
+    Handlers may still fail for their own reasons (auth, validation, schema).
+    Those failures must not be the Origin gate.
+    """
+    with TestClient(app, raise_server_exceptions=False) as client:
+        responses = [
+            client.post(
+                "/api/v1/mobile/auth/pair",
+                json={"device_id": "device-1", "platform": "ios"},
+                headers={"Origin": "https://evil.example"},
+            ),
+            client.post(
+                "/api/v1/homekit/disable",
+                headers={
+                    "Origin": "https://evil.example",
+                    "X-API-Key": "not-a-session-cookie",
+                },
+            ),
+            client.post(
+                "/api/v1/homekit/disable",
+                headers={
+                    "Origin": "https://evil.example",
+                    "Authorization": "Bearer not-a-cookie",
+                },
+            ),
+        ]
+    for response in responses:
+        assert "CSRF_ORIGIN_DENIED" not in response.text

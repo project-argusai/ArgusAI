@@ -689,6 +689,9 @@ class CleanupService:
         are kept. So are files in a date folder that is still inside the retention
         window, and anything newer than the cutoff. ``retention_days <= 0`` skips
         the sweep (keep forever).
+
+        Named-entity thumbnails are kept indefinitely. If that protection lookup
+        fails, this pass deletes nothing and returns ``skipped``.
         """
         empty = {
             "thumbnails_deleted": 0,
@@ -713,15 +716,14 @@ class CleanupService:
                     protected.add(key)
                     protected.add(annotated_sibling_path(key).replace(os.sep, "/"))
             try:
-                from app.models.recognized_entity import RecognizedEntity
-                for (stored,) in db.query(RecognizedEntity.thumbnail_path).all():
-                    key = _thumbnail_relative_key(stored, self.thumbnail_base_dir)
-                    if key:
-                        protected.add(key)
-                        sibling = annotated_sibling_path(key)
-                        protected.add(sibling.replace(os.sep, "/"))
-            except Exception as entity_error:
-                logger.warning(f"Could not load entity thumbnail paths: {entity_error}")
+                protected.update(self._protected_entity_thumbnail_keys(db))
+            except Exception:
+                # Fail closed: a partial or empty protected set must not delete
+                # named person/vehicle thumbnails that are past the window.
+                logger.exception(
+                    "Entity thumbnail protection lookup failed; skipping orphan media cleanup"
+                )
+                return empty
             live_event_ids = {row[0] for row in db.query(Event.id).all()}
         finally:
             db.close()
@@ -783,6 +785,23 @@ class CleanupService:
                 except OSError:
                     pass
         return deleted, freed
+
+    def _protected_entity_thumbnail_keys(self, db: Session) -> Set[str]:
+        """Relative keys for named person/vehicle thumbnails.
+
+        Callers must treat any exception as "do not delete". A partial result
+        is never returned: the set is built locally and only handed back if
+        the query completes.
+        """
+        from app.models.recognized_entity import RecognizedEntity
+
+        keys: Set[str] = set()
+        for (stored,) in db.query(RecognizedEntity.thumbnail_path).all():
+            key = _thumbnail_relative_key(stored, self.thumbnail_base_dir)
+            if key:
+                keys.add(key)
+                keys.add(annotated_sibling_path(key).replace(os.sep, "/"))
+        return keys
 
     def _sweep_orphan_frames(self, cutoff: datetime, live_event_ids: Set[str]) -> tuple:
         base = self.frames_base_dir

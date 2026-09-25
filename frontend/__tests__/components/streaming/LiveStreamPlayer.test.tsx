@@ -7,18 +7,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '../../test-utils';
 import { LiveStreamPlayer } from '@/components/streaming/LiveStreamPlayer';
-import { apiClient } from '@/lib/api-client';
+import { ApiError, apiClient } from '@/lib/api-client';
 
 // Mock the api-client
-vi.mock('@/lib/api-client', () => ({
-  apiClient: {
-    cameras: {
-      getStreamInfo: vi.fn(),
-      getStreamSnapshot: vi.fn(),
-      getStreamWebSocketUrl: vi.fn(),
+vi.mock('@/lib/api-client', () => {
+  class ApiError extends Error {
+    statusCode: number;
+    constructor(message: string, statusCode: number) {
+      super(message);
+      this.name = 'ApiError';
+      this.statusCode = statusCode;
+    }
+  }
+  return {
+    ApiError,
+    apiClient: {
+      cameras: {
+        getStreamInfo: vi.fn(),
+        getStreamSnapshot: vi.fn(),
+        getStreamWebSocketUrl: vi.fn(),
+      },
     },
-  },
-}));
+  };
+});
 
 // Store mock WebSocket instance
 let mockWsInstance: {
@@ -413,6 +424,56 @@ describe('LiveStreamPlayer', () => {
       await waitFor(() => {
         expect(apiClient.cameras.getStreamSnapshot).toHaveBeenCalled();
       });
+    });
+
+    it('does not poll snapshots after an auth close', async () => {
+      render(
+        <LiveStreamPlayer cameraId="camera-1" cameraName="Front Door" />
+      );
+
+      await waitFor(() => {
+        expect(mockWsInstance).not.toBeNull();
+        expect(mockWsInstance?.readyState).toBe(MockWebSocket.OPEN);
+      });
+
+      mockWsInstance?.onclose?.(new CloseEvent('close', {
+        code: 1008,
+        reason: 'Session expired',
+      }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/sign in again/i)).toBeInTheDocument();
+      });
+      expect(apiClient.cameras.getStreamSnapshot).not.toHaveBeenCalled();
+    });
+
+    it('stops snapshot polling when the snapshot request is unauthorized', async () => {
+      vi.mocked(apiClient.cameras.getStreamSnapshot).mockRejectedValue(
+        new ApiError('Session expired. Please log in again.', 401)
+      );
+      const setIntervalSpy = vi.spyOn(global, 'setInterval');
+
+      render(
+        <LiveStreamPlayer cameraId="camera-1" cameraName="Front Door" />
+      );
+
+      await waitFor(() => {
+        expect(mockWsInstance).not.toBeNull();
+        expect(mockWsInstance?.readyState).toBe(MockWebSocket.OPEN);
+      });
+
+      mockWsInstance?.onclose?.(new CloseEvent('close', {
+        code: 4503,
+        reason: 'Stream unavailable',
+      }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/sign in again/i)).toBeInTheDocument();
+      });
+      expect(apiClient.cameras.getStreamSnapshot).toHaveBeenCalledTimes(1);
+      const snapshotPolls = setIntervalSpy.mock.calls.filter((call) => call[1] === 2000);
+      expect(snapshotPolls).toHaveLength(0);
+      setIntervalSpy.mockRestore();
     });
 
     it('shows retry button on error', async () => {

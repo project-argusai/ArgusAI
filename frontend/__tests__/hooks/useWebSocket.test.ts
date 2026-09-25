@@ -262,6 +262,59 @@ describe('useWebSocket', () => {
       expect(mockWebSocketInstances.length).toBe(3)
     })
 
+    it('does not reconnect after an auth close code', async () => {
+      const { result } = renderHook(() =>
+        useWebSocket({ autoConnect: false, maxRetries: 10 })
+      )
+
+      act(() => {
+        result.current.connect()
+      })
+
+      act(() => {
+        mockWebSocketInstances[0].simulateOpen()
+      })
+
+      act(() => {
+        mockWebSocketInstances[0].simulateClose(1008, 'Session expired')
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(60000)
+      })
+
+      expect(mockWebSocketInstances).toHaveLength(1)
+      expect(result.current.status).toBe('disconnected')
+      expect(result.current.authFailureMessage).toMatch(/sign in again/i)
+    })
+
+    it('does not reconnect when a rejected handshake probe returns 401', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ status: 401 })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { result } = renderHook(() =>
+        useWebSocket({ autoConnect: false, maxRetries: 10 })
+      )
+
+      act(() => {
+        result.current.connect()
+      })
+
+      await act(async () => {
+        mockWebSocketInstances[0].simulateClose(1006, '')
+        await Promise.resolve()
+      })
+
+      await act(async () => {
+        vi.advanceTimersByTime(60000)
+      })
+
+      expect(fetchMock).toHaveBeenCalled()
+      expect(mockWebSocketInstances).toHaveLength(1)
+      expect(result.current.status).toBe('disconnected')
+      expect(result.current.authFailureMessage).toMatch(/sign in again/i)
+    })
+
     it('stops reconnecting after maxRetries', async () => {
       const { result } = renderHook(() =>
         useWebSocket({ autoConnect: false, maxRetries: 2 })

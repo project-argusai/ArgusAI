@@ -26,7 +26,14 @@ except ImportError:
     PYAV_AVAILABLE = False
 
 from app.core.database import get_db
-from app.api.v1.auth import require_websocket_user, websocket_session_is_active
+from app.api.v1.auth import (
+    WS_CLOSE_AUTH,
+    WS_CLOSE_LIMIT,
+    WS_SESSION_RECHECK_SECONDS,
+    require_websocket_user,
+    websocket_session_is_active,
+)
+from app.services.ws_connection_limits import websocket_connection_limits
 from app.core.validators import CameraUUID
 from app.models.camera import Camera
 from app.schemas.camera import (
@@ -2603,98 +2610,114 @@ async def stream_camera(
     """
     from app.core.database import SessionLocal
 
-    if await require_websocket_user(websocket) is None:
+    user = await require_websocket_user(websocket)
+    if user is None:
+        return
+
+    # Reserve the per-user and per-camera slot before accept so a rejected
+    # handshake does not start a capture worker.
+    admission = await websocket_connection_limits().try_admit(
+        str(user.id), camera_id=camera_id
+    )
+    if admission is None:
+        await websocket.close(code=WS_CLOSE_LIMIT, reason="Connection limit reached")
         return
 
     await websocket.accept()
 
-    # Get camera from database
-    db = SessionLocal()
+    client_id = None
+    stream_service = None
     try:
-        camera = db.query(Camera).filter(Camera.id == camera_id).first()
-        if not camera:
+        # Get camera from database
+        db = SessionLocal()
+        try:
+            camera = db.query(Camera).filter(Camera.id == camera_id).first()
+            if not camera:
+                await websocket.send_json({
+                    "type": "error",
+                    "code": "CAMERA_NOT_FOUND",
+                    "message": "Camera not found"
+                })
+                await websocket.close(code=4004, reason="Camera not found")
+                return
+
+            # Build RTSP/RTSPS URL (handles both RTSP and Protect cameras)
+            rtsp_url = _build_rtsp_url_for_stream(camera, db)
+            if not rtsp_url:
+                await websocket.send_json({
+                    "type": "error",
+                    "code": "NO_RTSP_URL",
+                    "message": "Camera has no stream URL configured"
+                })
+                await websocket.close(code=4400, reason="Camera has no RTSP URL")
+                return
+        finally:
+            db.close()
+
+        # Validate initial quality
+        try:
+            quality_enum = StreamQuality(quality.lower())
+        except ValueError:
+            quality_enum = StreamQuality.MEDIUM
+
+        stream_service = container.stream_proxy_service
+
+        # Check if stream limit is reached before trying to add client (Story P16-2.5)
+        stream_info = stream_service.get_stream_info(camera_id)
+        if not stream_info["is_available"]:
             await websocket.send_json({
                 "type": "error",
-                "code": "CAMERA_NOT_FOUND",
-                "message": "Camera not found"
+                "code": "STREAM_LIMIT_REACHED",
+                "message": "Maximum concurrent streams reached. Please close another stream first."
             })
-            await websocket.close(code=4004, reason="Camera not found")
+            await websocket.close(code=4429, reason="Stream limit reached")
             return
 
-        # Build RTSP/RTSPS URL (handles both RTSP and Protect cameras)
-        rtsp_url = _build_rtsp_url_for_stream(camera, db)
-        if not rtsp_url:
+        # Try to add client
+        client_id = await stream_service.add_client(camera_id, rtsp_url, quality_enum)
+        if not client_id:
+            # This shouldn't happen if is_available was true, but handle race condition
             await websocket.send_json({
                 "type": "error",
-                "code": "NO_RTSP_URL",
-                "message": "Camera has no stream URL configured"
+                "code": "STREAM_UNAVAILABLE",
+                "message": "Stream temporarily unavailable. Please try again."
             })
-            await websocket.close(code=4400, reason="Camera has no RTSP URL")
+            await websocket.close(code=4503, reason="Stream unavailable")
             return
-    finally:
-        db.close()
 
-    # Validate initial quality
-    try:
-        quality_enum = StreamQuality(quality.lower())
-    except ValueError:
-        quality_enum = StreamQuality.MEDIUM
-
-    stream_service = container.stream_proxy_service
-
-    # Check if stream limit is reached before trying to add client (Story P16-2.5)
-    stream_info = stream_service.get_stream_info(camera_id)
-    if not stream_info["is_available"]:
+        # Send initial info
         await websocket.send_json({
-            "type": "error",
-            "code": "STREAM_LIMIT_REACHED",
-            "message": "Maximum concurrent streams reached. Please close another stream first."
-        })
-        await websocket.close(code=4429, reason="Stream limit reached")
-        return
-
-    # Try to add client
-    client_id = await stream_service.add_client(camera_id, rtsp_url, quality_enum)
-    if not client_id:
-        # This shouldn't happen if is_available was true, but handle race condition
-        await websocket.send_json({
-            "type": "error",
-            "code": "STREAM_UNAVAILABLE",
-            "message": "Stream temporarily unavailable. Please try again."
-        })
-        await websocket.close(code=4503, reason="Stream unavailable")
-        return
-
-    # Send initial info
-    await websocket.send_json({
-        "type": "info",
-        "message": f"Connected to stream with quality: {quality_enum.value}",
-        "quality": quality_enum.value
-    })
-
-    logger.info(
-        f"WebSocket client {client_id} connected to camera {camera_id}",
-        extra={
-            "event_type": "stream_client_connected",
-            "camera_id": camera_id,
-            "client_id": client_id,
+            "type": "info",
+            "message": f"Connected to stream with quality: {quality_enum.value}",
             "quality": quality_enum.value
-        }
-    )
+        })
 
-    try:
+        logger.info(
+            f"WebSocket client {client_id} connected to camera {camera_id}",
+            extra={
+                "event_type": "stream_client_connected",
+                "camera_id": camera_id,
+                "client_id": client_id,
+                "quality": quality_enum.value
+            }
+        )
+
         # Frame sending task
         async def send_frames():
             """Background task to send frames to client"""
             last_frame_time = 0
-            next_auth_check = asyncio.get_running_loop().time() + 30
+            next_auth_check = (
+                asyncio.get_running_loop().time() + WS_SESSION_RECHECK_SECONDS
+            )
             while True:
                 try:
                     if asyncio.get_running_loop().time() >= next_auth_check:
                         if not websocket_session_is_active(websocket):
-                            await websocket.close(code=1008, reason="Session expired")
+                            await websocket.close(code=WS_CLOSE_AUTH, reason="Session expired")
                             break
-                        next_auth_check = asyncio.get_running_loop().time() + 30
+                        next_auth_check = (
+                            asyncio.get_running_loop().time() + WS_SESSION_RECHECK_SECONDS
+                        )
                     # Get latest frame for this client
                     frame_data = stream_service.get_client_frame(camera_id, client_id)
                     if frame_data and frame_data["timestamp"] > last_frame_time:
@@ -2773,13 +2796,14 @@ async def stream_camera(
     except Exception as e:
         logger.error(f"WebSocket error for client {client_id}: {e}", exc_info=True)
     finally:
-        # Remove client from stream
-        stream_service.remove_client(camera_id, client_id)
-        logger.info(
-            f"WebSocket client {client_id} removed from camera {camera_id}",
-            extra={
-                "event_type": "stream_client_disconnected",
-                "camera_id": camera_id,
-                "client_id": client_id
-            }
-        )
+        await websocket_connection_limits().release(admission)
+        if stream_service is not None and client_id is not None:
+            stream_service.remove_client(camera_id, client_id)
+            logger.info(
+                f"WebSocket client {client_id} removed from camera {camera_id}",
+                extra={
+                    "event_type": "stream_client_disconnected",
+                    "camera_id": camera_id,
+                    "client_id": client_id
+                }
+            )

@@ -168,7 +168,7 @@ GET /events?camera_id=123&detection_type=person
 
 ## WebSocket
 
-Real-time updates are available via WebSocket:
+Real-time updates are available via WebSocket. The browser sends the same session cookie used for HTTP requests. Non-browser clients send `Authorization: Bearer` with a JWT that has a server-side session. Query-string tokens are not accepted. A disallowed `Origin` is rejected. After logout, revocation, or deactivation, an open socket is closed within 30 seconds. The web app stops automatic reconnects when that close is an authorization failure.
 
 ```
 ws://localhost:8000/ws

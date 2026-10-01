@@ -16,6 +16,23 @@ from app.services.ocr_service import OCRResult
 logger = logging.getLogger(__name__)
 
 
+def resolve_request_timeout(requested: Optional[float], default: float) -> float:
+    """HTTP timeout for one provider call.
+
+    ``requested`` is the orchestrator's remaining budget for this attempt.
+    A missing or non-positive value keeps the provider's own default.
+    """
+    if requested is None:
+        return default
+    try:
+        value = float(requested)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return default
+    return value
+
+
 class AIProviderBase(ABC):
     """
     Base class for AI vision providers.
@@ -59,6 +76,7 @@ class AIProviderBase(ABC):
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         """Generate description from base64-encoded image."""
         pass
@@ -73,6 +91,7 @@ class AIProviderBase(ABC):
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         """Generate description from multiple base64-encoded images."""
         pass

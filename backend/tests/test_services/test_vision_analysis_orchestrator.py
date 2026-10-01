@@ -4,6 +4,7 @@ Tests for VisionAnalysisOrchestrator (Phase 3.2 - ai_service decomposition)
 Comprehensive tests with mocked providers, resilience service, and prompt service.
 """
 
+import asyncio
 import io
 
 import pytest
@@ -390,3 +391,219 @@ class TestProviderOrderFromSettings:
         assert "Vision analysis failed (single_image)" in caplog.text
         assert "Success with" not in caplog.text
         openai.generate_description.assert_not_called()
+
+
+class TestProviderCallBudget:
+    """Per-provider deadlines so one slow call cannot skip the fallback chain."""
+
+    def test_default_multi_frame_budget_leaves_room_for_fallback(self, monkeypatch):
+        monkeypatch.delenv("AI_MULTI_IMAGE_SLA_MS", raising=False)
+        orchestrator = VisionAnalysisOrchestrator()
+        assert orchestrator.default_multi_image_sla_ms == 25_000
+        first = orchestrator.provider_call_timeout_ms(
+            elapsed_ms=0,
+            sla_timeout_ms=25_000,
+            calls_started=0,
+            multi=True,
+        )
+        assert first == 15_000
+        fallback = orchestrator.provider_call_timeout_ms(
+            elapsed_ms=first,
+            sla_timeout_ms=25_000,
+            calls_started=1,
+            multi=True,
+        )
+        assert fallback == 10_000
+        assert first + fallback == 25_000
+        grace = orchestrator.provider_call_timeout_ms(
+            elapsed_ms=25_000,
+            sla_timeout_ms=25_000,
+            calls_started=1,
+            multi=True,
+        )
+        assert grace == 10_000
+        assert orchestrator.provider_call_timeout_ms(
+            elapsed_ms=25_000,
+            sla_timeout_ms=25_000,
+            calls_started=2,
+            multi=True,
+        ) is None
+
+    def test_multi_frame_budget_is_configurable(self, monkeypatch):
+        monkeypatch.setenv("AI_MULTI_IMAGE_SLA_MS", "30000")
+        orchestrator = VisionAnalysisOrchestrator()
+        assert orchestrator.default_multi_image_sla_ms == 30_000
+        first = orchestrator.provider_call_timeout_ms(
+            elapsed_ms=0,
+            sla_timeout_ms=orchestrator.default_multi_image_sla_ms,
+            calls_started=0,
+            multi=True,
+        )
+        assert first == 15_000
+
+    def test_invalid_budget_env_uses_default_without_logging_the_value(self, monkeypatch, caplog):
+        import logging
+
+        caplog.set_level(logging.WARNING)
+        monkeypatch.setenv("AI_MULTI_IMAGE_SLA_MS", "sk-live-secret-key")
+        orchestrator = VisionAnalysisOrchestrator()
+        assert orchestrator.default_multi_image_sla_ms == 25_000
+        assert "sk-live-secret" not in caplog.text
+        assert "Ignoring invalid AI_MULTI_IMAGE_SLA_MS" in caplog.text
+
+
+class TestFallbackChainDeadlines:
+    """Issue #625: a slow or quota-failed first provider must not skip fallback."""
+
+    @pytest.fixture
+    def order_db(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.core.database import Base
+        from app.models.system_setting import SystemSetting  # noqa: F401
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=engine)
+        session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+        try:
+            yield session
+        finally:
+            session.close()
+            engine.dispose()
+
+    def _patch_db(self, order_db):
+        return patch("app.core.database.SessionLocal", return_value=order_db)
+
+    def _order(self, order_db, names):
+        import json
+
+        from app.models.system_setting import SystemSetting
+
+        order_db.add(SystemSetting(key="ai_provider_order", value=json.dumps(names)))
+        order_db.commit()
+
+    @pytest.mark.asyncio
+    async def test_first_provider_timeout_then_second_succeeds(self, order_db, caplog):
+        import logging
+        import time
+
+        caplog.set_level(logging.INFO)
+        self._order(order_db, ["grok", "anthropic"])
+
+        async def grok_call(*args, **kwargs):
+            await asyncio.sleep(5)
+            return _ok_result("grok")
+
+        async def claude_call(*args, **kwargs):
+            return _ok_result("claude")
+
+        grok = AsyncMock()
+        grok.generate_multi_image_description = grok_call
+        claude = AsyncMock()
+        claude.generate_multi_image_description = claude_call
+        orchestrator = VisionAnalysisOrchestrator(providers={
+            AIProvider.GROK: grok,
+            AIProvider.CLAUDE: claude,
+        })
+        orchestrator.min_provider_call_ms = 20
+        orchestrator.max_first_provider_ms = 80
+        orchestrator.fallback_reserve_ms = 80
+        orchestrator.max_fallback_provider_ms = 500
+        orchestrator.fallback_grace_ms = 500
+
+        started = time.monotonic()
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_images(
+                [_make_jpeg_bytes(), _make_jpeg_bytes()],
+                "Front Door",
+                sla_timeout_ms=25_000,
+            )
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.5
+        assert result.success is True
+        assert result.provider == "claude"
+        assert result.response_time_ms == 100
+        assert "grok timed out" in caplog.text
+        assert "claude call finished" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_quota_429_is_not_retried_and_second_succeeds(self, order_db, caplog):
+        import logging
+
+        caplog.set_level(logging.INFO)
+        self._order(order_db, ["grok", "anthropic"])
+        calls = {"grok": 0}
+
+        async def grok_call(*args, **kwargs):
+            calls["grok"] += 1
+            return _failed_result(
+                "grok",
+                "Error code: 429 - {'error': {'type': 'insufficient_quota', "
+                "'message': 'You have no credits. sk-live-secret-key-do-not-log'}}",
+            )
+
+        async def claude_call(*args, **kwargs):
+            return _ok_result("claude")
+
+        grok = AsyncMock()
+        grok.generate_multi_image_description = grok_call
+        claude = AsyncMock()
+        claude.generate_multi_image_description = claude_call
+        resilience = MagicMock()
+        resilience.can_use_provider.return_value = True
+        orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok, AIProvider.CLAUDE: claude},
+            resilience_service=resilience,
+        )
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_images(
+                [_make_jpeg_bytes()],
+                "Driveway",
+            )
+
+        assert calls["grok"] == 1
+        assert result.success is True
+        assert result.provider == "claude"
+        assert result.response_time_ms == 100
+        resilience.trip_quota.assert_called_once_with("grok")
+        assert "grok failed (quota_exhausted)" in caplog.text
+        assert "grok call finished" in caplog.text
+        assert "claude call finished" in caplog.text
+        assert "sk-live-secret" not in caplog.text
+        assert "Vision analysis failed" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_all_providers_fail_logs_failure_not_success(self, order_db, caplog):
+        import logging
+
+        caplog.set_level(logging.INFO)
+        self._order(order_db, ["grok", "openai"])
+        grok = AsyncMock()
+        grok.generate_multi_image_description = AsyncMock(
+            return_value=_failed_result("grok", "connection refused")
+        )
+        openai = AsyncMock()
+        openai.generate_multi_image_description = AsyncMock(
+            return_value=_failed_result("openai", "connection refused")
+        )
+        orchestrator = VisionAnalysisOrchestrator(providers={
+            AIProvider.GROK: grok,
+            AIProvider.OPENAI: openai,
+        })
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_images(
+                [_make_jpeg_bytes()],
+                "Driveway",
+            )
+
+        assert result.success is False
+        assert "Vision analysis failed (multi_frame)" in caplog.text
+        assert "grok call finished" in caplog.text
+        assert "openai call finished" in caplog.text
+        assert "Success with" not in caplog.text
+        assert grok.generate_multi_image_description.await_count == 1
+        assert openai.generate_multi_image_description.await_count == 1

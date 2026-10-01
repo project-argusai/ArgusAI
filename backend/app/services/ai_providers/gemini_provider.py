@@ -6,13 +6,14 @@ Extracted during Phase 3.3.
 
 import logging
 import tempfile
+import asyncio
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import google.generativeai as genai
 
-from .base import AIProviderBase
+from .base import AIProviderBase, resolve_request_timeout
 from app.services.ai_types import AIResult
 from app.services.identification import (
     DESCRIPTION_MAX_OUTPUT_TOKENS,
@@ -39,6 +40,23 @@ class GeminiProvider(AIProviderBase):
         self.cost_per_1k_input_tokens = 0.000075
         self.cost_per_1k_output_tokens = 0.0003
 
+    async def _generate_content(self, contents, max_output_tokens: int, request_timeout_s: Optional[float]):
+        """Call Gemini and cancel the request when the orchestrator budget expires.
+
+        ``request_timeout_s`` is None for direct callers; the library default
+        then applies. A positive value is the remaining per-provider budget.
+        """
+        coro = self.model.generate_content_async(
+            contents,
+            generation_config={"max_output_tokens": max_output_tokens},
+        )
+        if request_timeout_s is None:
+            return await coro
+        return await asyncio.wait_for(
+            coro,
+            timeout=resolve_request_timeout(request_timeout_s, 30.0),
+        )
+
     async def generate_description(
         self,
         image_base64: str,
@@ -47,19 +65,21 @@ class GeminiProvider(AIProviderBase):
         detected_objects: List[str],
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
+        ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         start_time = time.time()
 
         try:
             user_prompt = custom_prompt or "Describe the security camera image in detail."
 
-            response = await self.model.generate_content_async(
+            response = await self._generate_content(
                 [
                     user_prompt,
                     {"mime_type": "image/jpeg", "data": image_base64}
                 ],
-                generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS}
+                DESCRIPTION_MAX_OUTPUT_TOKENS,
+                request_timeout_s,
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -109,7 +129,8 @@ class GeminiProvider(AIProviderBase):
         detected_objects: List[str],
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
+        ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         start_time = time.time()
 
@@ -120,9 +141,10 @@ class GeminiProvider(AIProviderBase):
             for img in images_base64:
                 parts.append({"mime_type": "image/jpeg", "data": img})
 
-            response = await self.model.generate_content_async(
+            response = await self._generate_content(
                 parts,
-                generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
+                DESCRIPTION_MAX_OUTPUT_TOKENS,
+                request_timeout_s,
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)

@@ -93,6 +93,23 @@ class TestAIResilienceServiceBasic:
         # No breakers initialized
         assert service.can_use_provider("openai") is True
 
+    def test_trip_quota_opens_immediately_for_a_brief_cooldown(self):
+        import time
+
+        service = AIResilienceService()
+        service.initialize_circuit_breakers(["grok"])
+        try:
+            assert service.can_use_provider("grok") is True
+            service.trip_quota("grok", cooldown_s=120)
+            assert service.can_use_provider("grok") is False
+            breaker = service.get_provider_breaker("grok")
+            assert breaker is not None
+            breaker._open_until = time.time() - 1
+            # Cooldown elapsed: one half-open probe is allowed.
+            assert service.can_use_provider("grok") is True
+        finally:
+            reset_ai_resilience_service()
+
 
 class TestAIResilienceServiceConfigLoading:
     """These tests mock the DB so we don't need a real database."""

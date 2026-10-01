@@ -364,6 +364,30 @@ class TestEventProcessor:
         mock_db.commit.assert_called_once()
 
     @patch('app.services.event_processor.get_db_session')
+    async def test_store_event_persists_ai_response_time_ms(self, mock_get_db_session, event_processor):
+        """The vision-call duration from the coordinator is written on the event."""
+        mock_db = MagicMock()
+        mock_get_db_session.return_value.__enter__ = MagicMock(return_value=mock_db)
+        mock_get_db_session.return_value.__exit__ = MagicMock(return_value=False)
+
+        event_data = {
+            "camera_id": "camera-123",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "description": "Test description",
+            "confidence": 85,
+            "objects_detected": ["person"],
+            "thumbnail_base64": None,
+            "alert_triggered": False,
+            "ai_response_time_ms": 780,
+        }
+
+        result = await event_processor._store_event_with_retry(event_data, max_retries=3)
+
+        assert result is not None
+        stored = mock_db.add.call_args[0][0]
+        assert stored.ai_response_time_ms == 780
+
+    @patch('app.services.event_processor.get_db_session')
     async def test_store_event_with_retry_failure(self, mock_get_db_session, event_processor):
         """Test storing event with all retries failing"""
         # Mock database session as context manager that raises exception

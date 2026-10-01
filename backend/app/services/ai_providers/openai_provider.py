@@ -7,9 +7,8 @@ Extracted during Phase 3.3.
 import time
 from typing import List, Optional, Dict, Any
 
-import openai
-
-from .base import AIProviderBase
+from .base import AIProviderBase, resolve_request_timeout
+from .quota_aware_client import build_openai_client
 from app.services.ai_types import AIResult
 from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
 from app.services.ocr_service import OCRResult
@@ -20,7 +19,7 @@ class OpenAIProvider(AIProviderBase):
 
     def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)
-        self.client = openai.AsyncOpenAI(api_key=api_key)
+        self.client = build_openai_client(api_key)
         from app.services.ai_providers.model_resolver import resolve_model
         self.model = resolve_model("openai", api_key, override=model)
         self.cost_per_1k_input_tokens = 0.00015
@@ -35,6 +34,7 @@ class OpenAIProvider(AIProviderBase):
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         """Generate description using OpenAI GPT-4o mini"""
         start_time = time.time()
@@ -60,7 +60,7 @@ class OpenAIProvider(AIProviderBase):
                     }
                 ],
                 max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
-                timeout=10.0
+                timeout=resolve_request_timeout(request_timeout_s, 10.0),
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -116,6 +116,7 @@ class OpenAIProvider(AIProviderBase):
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         """Multi-image support for OpenAI"""
         start_time = time.time()
@@ -137,7 +138,7 @@ class OpenAIProvider(AIProviderBase):
                     {"role": "user", "content": content}
                 ],
                 max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
-                timeout=15.0
+                timeout=resolve_request_timeout(request_timeout_s, 15.0),
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)

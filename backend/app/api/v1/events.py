@@ -2024,8 +2024,10 @@ async def reanalyze_event(
         if frame_count_used:
             event.frame_count_used = frame_count_used
 
-        if getattr(result, "identification", None):
-            event.identification = json.dumps(result.identification)
+        from app.services.identification import dumps_identification
+        stored_identification = dumps_identification(getattr(result, "identification", None))
+        if stored_identification is not None:
+            event.identification = stored_identification
 
         # Story P15-5.1: Store bounding boxes from AI result
         if hasattr(result, 'bounding_boxes') and result.bounding_boxes:

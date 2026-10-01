@@ -142,6 +142,21 @@ def test_coerce_protect_coord_thousandths_and_pixels():
     assert image.width < 200
 
 
+def test_dumps_identification_skips_non_dicts():
+    from app.services.identification import dumps_identification
+
+    stored = dumps_identification({"object_type": "person", "identity": "unknown"})
+    assert json.loads(stored)["object_type"] == "person"
+    assert dumps_identification(None) is None
+    assert dumps_identification("not-json-object") is None
+
+    class AlwaysTrue:
+        def __bool__(self):
+            return True
+
+    assert dumps_identification(AlwaysTrue()) is None
+
+
 def test_parse_identification_unknown_and_cannot_tell():
     parsed = parse_identification(json.dumps({
         "description": "A shape is at the gate.",

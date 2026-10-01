@@ -177,6 +177,17 @@ def apply_identification(result: AIResult, raw_response: Optional[str]) -> AIRes
     return result
 
 
+def dumps_identification(value: Any) -> Optional[str]:
+    """Serialize a parsed identification dict. Anything else is omitted.
+
+    Mock results used in tests expose every attribute, so a truthiness check
+    would try to encode a non-dict and fail the store.
+    """
+    if not isinstance(value, dict):
+        return None
+    return json.dumps(value)
+
+
 def loads_identification(raw: Optional[str]) -> Optional[Dict[str, Any]]:
     """Read a stored identification JSON value. Malformed text is None."""
     if not raw or not isinstance(raw, str):

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.models.event import Event
 from app.models.camera import Camera
 from app.services.ai_service import AIResult
+from app.services.identification import dumps_identification
 from app.services.snapshot_service import SnapshotResult
 from app.core.decorators import singleton
 
@@ -101,8 +102,8 @@ class ProtectEventStorageService:
             enriched_description=enriched_description,
             matched_entity_ids=matched_entity_ids,
             identification=(
-                json.dumps(ai_result.identification)
-                if ai_result and getattr(ai_result, "identification", None)
+                dumps_identification(getattr(ai_result, "identification", None))
+                if ai_result
                 else None
             ),
         )

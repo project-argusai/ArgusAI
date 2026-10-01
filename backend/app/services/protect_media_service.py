@@ -38,6 +38,8 @@ class MediaBundle:
         self.snapshot_result = snapshot_result
         self.clip_path = clip_path
         self.fallback_reason = fallback_reason
+        self.clip_plan = None
+        self.anchor_source = "processing_snapshot"
 
     @property
     def has_clip(self) -> bool:
@@ -67,6 +69,8 @@ class ProtectMediaService:
         event_timestamp: datetime,
         is_doorbell_ring: bool = False,
         analysis_mode: Optional[str] = None,
+        detection: Optional[object] = None,
+        anchor_jpeg: Optional[bytes] = None,
     ) -> MediaBundle:
         """
         Retrieve the best available media for AI analysis of this event.
@@ -80,11 +84,47 @@ class ProtectMediaService:
         - Return a MediaBundle the AI pipeline can use
         """
         bundle = MediaBundle()
+        from app.services.event_sampling import DetectionTiming, plan_clip_window
 
-        # Always get a snapshot (required for thumbnail and single-frame fallback)
-        bundle.snapshot_result = await self._retrieve_snapshot(
-            controller_id, protect_camera_id, camera_id, camera_name, "motion"
+        timing = DetectionTiming(
+            start=getattr(detection, "start", None) if detection else None,
+            end=getattr(detection, "end", None) if detection else None,
+            peak=getattr(detection, "peak", None) if detection else None,
+            anchor=event_timestamp,
         )
+        bundle.clip_plan = plan_clip_window(timing)
+
+        # Prefer Protect's detection-time thumbnail. A live snapshot is the fallback.
+        if anchor_jpeg:
+            anchor_time = timing.peak or timing.start or event_timestamp
+            try:
+                snapshot_service = get_snapshot_service()
+                bundle.snapshot_result = await snapshot_service.process_provided_jpeg(
+                    image_bytes=anchor_jpeg,
+                    camera_id=camera_id,
+                    camera_name=camera_name,
+                    timestamp=anchor_time,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Detection thumbnail could not be processed for camera '%s': %s",
+                    camera_name,
+                    type(exc).__name__,
+                )
+                bundle.snapshot_result = None
+            if bundle.snapshot_result is not None:
+                bundle.anchor_source = "protect_thumbnail"
+            else:
+                logger.warning(
+                    "Protect detection thumbnail unavailable for camera '%s'; using a snapshot taken at processing time",
+                    camera_name,
+                    extra={"event_type": "protect_anchor_fallback"},
+                )
+
+        if bundle.snapshot_result is None:
+            bundle.snapshot_result = await self._retrieve_snapshot(
+                controller_id, protect_camera_id, camera_id, camera_name, "motion"
+            )
 
         if not bundle.snapshot_result:
             bundle.fallback_reason = "snapshot_retrieval_failed"
@@ -104,6 +144,8 @@ class ProtectMediaService:
                 camera_name,
                 event_id,
                 event_timestamp,
+                clip_start=bundle.clip_plan.start,
+                clip_end=bundle.clip_plan.end,
             )
             bundle.clip_path = clip_path
             if clip_fallback:
@@ -145,12 +187,17 @@ class ProtectMediaService:
         camera_name: str,
         event_id: str,
         event_timestamp: datetime,
+        clip_start: Optional[datetime] = None,
+        clip_end: Optional[datetime] = None,
     ) -> Tuple[Optional[Path], Optional[str]]:
         try:
             clip_service = get_clip_service()
 
-            clip_start = event_timestamp - timedelta(seconds=15)
-            clip_end = event_timestamp + timedelta(seconds=15)
+            # Default matches the historical fixed window when the caller has
+            # no smart-detect plan. A plan passes the event-aligned bounds.
+            if clip_start is None or clip_end is None:
+                clip_start = event_timestamp - timedelta(seconds=15)
+                clip_end = event_timestamp + timedelta(seconds=15)
 
             # NOTE: keyword names MUST match ClipService.download_clip's signature
             # (controller_id, camera_id, event_start, event_end, event_id) where

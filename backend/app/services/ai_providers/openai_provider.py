@@ -11,6 +11,7 @@ import openai
 
 from .base import AIProviderBase
 from app.services.ai_types import AIResult
+from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
 from app.services.ocr_service import OCRResult
 
 
@@ -58,7 +59,7 @@ class OpenAIProvider(AIProviderBase):
                         ]
                     }
                 ],
-                max_tokens=300,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 timeout=10.0
             )
 
@@ -79,7 +80,7 @@ class OpenAIProvider(AIProviderBase):
             confidence = ai_confidence if ai_confidence else self._calculate_confidence(description, tokens_used)
             objects = self._extract_objects(description)
 
-            return AIResult(
+            return self._with_identification(AIResult(
                 description=description,
                 confidence=confidence,
                 objects_detected=objects,
@@ -90,7 +91,7 @@ class OpenAIProvider(AIProviderBase):
                 success=True,
                 ai_confidence=ai_confidence,
                 bounding_boxes=bounding_boxes
-            )
+            ), raw_response)
 
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -135,7 +136,7 @@ class OpenAIProvider(AIProviderBase):
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": content}
                 ],
-                max_tokens=500,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 timeout=15.0
             )
 
@@ -150,7 +151,7 @@ class OpenAIProvider(AIProviderBase):
             confidence = ai_confidence if ai_confidence else 70
             objects = self._extract_objects(description)
 
-            return AIResult(
+            return self._with_identification(AIResult(
                 description=description,
                 confidence=confidence,
                 objects_detected=objects,
@@ -161,7 +162,7 @@ class OpenAIProvider(AIProviderBase):
                 success=True,
                 ai_confidence=ai_confidence,
                 bounding_boxes=bounding_boxes
-            )
+            ), raw_response)
 
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)

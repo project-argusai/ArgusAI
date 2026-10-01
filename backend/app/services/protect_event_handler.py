@@ -189,6 +189,11 @@ class ProtectEventHandler:
                 delivery_carrier = extract_carrier(description)
             except Exception as e:
                 logger.debug(f"Carrier extraction failed: {e}")
+        if not delivery_carrier and ai_result is not None:
+            from app.services.identification import carrier_from_identification
+            delivery_carrier = carrier_from_identification(
+                getattr(ai_result, "identification", None)
+            )
 
         named = list(getattr(bundle, "named_identities", None) or [])
         if named and description:
@@ -486,7 +491,8 @@ class ProtectEventHandler:
                         camera,
                         filter_type,
                         is_doorbell_ring=is_doorbell_ring,
-                        clip_path=clip_path
+                        clip_path=clip_path,
+                        clip_plan=getattr(media, "clip_plan", None),
                     )
 
                     # Capture the pipeline's ACTUAL analysis outcome now — singleton
@@ -851,6 +857,14 @@ class ProtectEventHandler:
                 )
 
                 # Retrieve media using the new service (Phase 4)
+                from app.services.protect_detection_hints import (
+                    detection_column_values,
+                    extract_detection_hints,
+                    fetch_event_thumbnail_bytes,
+                )
+                detection_hints = extract_detection_hints(event_obj)
+                detection_columns = detection_column_values(detection_hints)
+                anchor_jpeg = await fetch_event_thumbnail_bytes(event_obj)
                 media = await self.media_service.get_media_for_event(
                     controller_id=controller_id,
                     protect_camera_id=camera.protect_camera_id,
@@ -860,6 +874,8 @@ class ProtectEventHandler:
                     event_timestamp=event_timestamp,
                     is_doorbell_ring=is_doorbell_ring,
                     analysis_mode=camera.analysis_mode,
+                    detection=detection_hints,
+                    anchor_jpeg=anchor_jpeg,
                 )
                 snapshot_result = media.snapshot_result
                 clip_path = media.clip_path
@@ -894,7 +910,9 @@ class ProtectEventHandler:
                     camera,
                     filter_type,
                     is_doorbell_ring=is_doorbell_ring,
-                    clip_path=clip_path
+                    clip_path=clip_path,
+                    detection=detection_hints,
+                    clip_plan=media.clip_plan,
                 )
 
                 # Capture the pipeline's ACTUAL analysis outcome now (singleton state
@@ -921,6 +939,7 @@ class ProtectEventHandler:
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
                         **persist_tracking,
+                        **detection_columns,
                     )
                     if stored_event:
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
@@ -940,6 +959,7 @@ class ProtectEventHandler:
                     is_doorbell_ring=is_doorbell_ring,
                     event_id_override=generated_event_id,
                     **persist_tracking,
+                    **detection_columns,
                     **self._post_ai_context_fields(ai_result, filter_type),
                 )
 

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.models.event import Event
 from app.models.camera import Camera
 from app.services.ai_service import AIResult
+from app.services.identification import dumps_identification
 from app.services.snapshot_service import SnapshotResult
 from app.core.decorators import singleton
 
@@ -64,6 +65,10 @@ class ProtectEventStorageService:
         recognition_status: Optional[str] = None,
         enriched_description: Optional[str] = None,
         matched_entity_ids: Optional[str] = None,
+        detection_start: Optional[datetime] = None,
+        detection_end: Optional[datetime] = None,
+        detection_peak: Optional[datetime] = None,
+        subject_box: Optional[str] = None,
     ) -> Event:
         """
         Construct and persist a fully enriched Protect Event record.
@@ -100,6 +105,15 @@ class ProtectEventStorageService:
             recognition_status=recognition_status,
             enriched_description=enriched_description,
             matched_entity_ids=matched_entity_ids,
+            identification=(
+                dumps_identification(getattr(ai_result, "identification", None))
+                if ai_result
+                else None
+            ),
+            detection_start=detection_start,
+            detection_end=detection_end,
+            detection_peak=detection_peak,
+            subject_box=subject_box,
         )
 
         if event_id_override:

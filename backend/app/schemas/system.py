@@ -239,6 +239,32 @@ Keep the summary concise (2-3 paragraphs).""",
         description="Milliseconds to skip from clip start before extracting frames (0-10000ms, default 2000ms)"
     )
 
+    # Event identification: crops replace frames inside analysis_frame_count.
+    subject_crop_count: int = Field(
+        default=1,
+        ge=0,
+        le=3,
+        description="How many full frames to replace with a zoomed subject crop (0 disables crops, default 1)"
+    )
+    gemini_native_video_fps: int = Field(
+        default=3,
+        ge=2,
+        le=5,
+        description="Frame rate for Gemini native video clips (2-5, default 3). Image-only providers ignore this."
+    )
+    subject_crop_min_area_fraction: float = Field(
+        default=0.02,
+        ge=0,
+        le=1,
+        description="Skip a subject crop when the box covers less than this fraction of the frame (default 0.02)"
+    )
+    subject_crop_min_side_px: int = Field(
+        default=160,
+        ge=0,
+        le=4096,
+        description="Skip a subject crop when its shortest side would be under this many native pixels (default 160). Tiny crops are not upscaled."
+    )
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -410,6 +436,18 @@ class SystemSettingsUpdate(BaseModel):
     # Story P9-2.1: Frame Extraction Offset
     frame_extraction_offset_ms: Optional[int] = Field(
         None, ge=0, le=10000, description="Milliseconds to skip from clip start before extracting frames (0-10000ms, default 2000ms)"
+    )
+    subject_crop_count: Optional[int] = Field(
+        None, ge=0, le=3, description="Full frames to replace with a subject crop (0-3, default 1)"
+    )
+    gemini_native_video_fps: Optional[int] = Field(
+        None, ge=2, le=5, description="Gemini native video frame rate (2-5, default 3)"
+    )
+    subject_crop_min_area_fraction: Optional[float] = Field(
+        None, ge=0, le=1, description="Minimum subject-box area as a fraction of the frame (default 0.02)"
+    )
+    subject_crop_min_side_px: Optional[int] = Field(
+        None, ge=0, le=4096, description="Minimum native crop side in pixels (default 160). Smaller boxes stay full-frame."
     )
 
     # Story P11-1.1: Cloudflare Tunnel Settings

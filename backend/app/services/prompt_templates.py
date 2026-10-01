@@ -12,8 +12,7 @@ When writing the description:
 - If HISTORICAL CONTEXT names a person or vehicle and the image matches, use that name. Never invent names that are not listed there.
 - If a known vehicle is listed, use its color, make, and model (for example "red BMW X3") instead of "a vehicle" or "a car".
 - If a delivery uniform or logo is visible, name the carrier (UPS, FedEx, USPS, Amazon, or DHL).
-- State the local time and camera/location naturally (for example "at 9:05 PM at the front door").
-- Prefer one or two natural sentences, like "at 9:05 PM Isaac arrives in his red BMW X3".
+- State the local time and camera/location naturally (for example "at 9:05 PM at the front door, Isaac arrives in his red BMW X3"). The identification description is a short paragraph, not a single sentence.
 """
 
 CONFIDENCE_INSTRUCTION = """
@@ -39,13 +38,14 @@ MULTI_FRAME_SYSTEM_PROMPT = """You are analyzing a sequence of {num_frames} fram
 Your task is to provide a clear, natural language description of what is happening across these frames.
 
 Guidelines:
-- Describe the overall event or activity in 1-2 concise sentences.
-- Note any movement, direction of travel, or changes in behavior across the frames.
+- Describe what happens across the frames in time order. The identification description is 3 to 6 sentences.
+- Note movement, direction of travel, and changes in behavior across the frames.
 - If people, vehicles, or packages are visible, describe what they are doing and how they relate to each other.
 - Mention any notable interactions or unusual behavior.
 - Be factual and avoid speculation.
+- Some images may be a closer look at one region of a frame. A crop does not mean a subject is present. If the crop shows nothing of interest, say so.
 
-Return only the description. Do not include any preamble or explanation.
+The reply must be the identification JSON. Its description field is the human-readable summary.
 """ + NAMING_AND_CARRIER_INSTRUCTION
 
 
@@ -70,3 +70,13 @@ Return the description in natural language, followed by the bounding box data in
 
 Respond in this exact JSON format:
 {"description": "your detailed description here", "confidence": 85, "bounding_boxes": [...] }"""
+
+
+def _append_identification_schema(prompt: str) -> str:
+    from app.services.identification import IDENTIFICATION_INSTRUCTION, IDENTIFICATION_MARKER
+    if IDENTIFICATION_MARKER in prompt:
+        return prompt
+    return prompt.rstrip() + "\n" + IDENTIFICATION_INSTRUCTION
+
+
+MULTI_FRAME_SYSTEM_PROMPT = _append_identification_schema(MULTI_FRAME_SYSTEM_PROMPT)

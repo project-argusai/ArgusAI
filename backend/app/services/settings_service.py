@@ -32,6 +32,29 @@ _OFFSET_MIN_MS = 0
 _OFFSET_MAX_MS = 10000
 _OFFSET_DEFAULT_MS = 2000
 
+# Crops replace frames inside the existing image budget. 0 disables them.
+_CROP_COUNT_KEY = "settings_subject_crop_count"
+_CROP_COUNT_MIN = 0
+_CROP_COUNT_MAX = 3
+_CROP_COUNT_DEFAULT = 1
+
+# Gemini native video only. Image providers ignore this.
+_GEMINI_FPS_KEY = "settings_gemini_native_video_fps"
+_GEMINI_FPS_MIN = 2
+_GEMINI_FPS_MAX = 5
+_GEMINI_FPS_DEFAULT = 3
+
+# Skip a subject crop below either of these. Invalid values fall back to the defaults.
+_CROP_MIN_AREA_KEY = "settings_subject_crop_min_area_fraction"
+_CROP_MIN_AREA_DEFAULT = 0.02
+_CROP_MIN_AREA_MIN = 0.0
+_CROP_MIN_AREA_MAX = 1.0
+
+_CROP_MIN_SIDE_KEY = "settings_subject_crop_min_side_px"
+_CROP_MIN_SIDE_DEFAULT = 160
+_CROP_MIN_SIDE_MIN = 0
+_CROP_MIN_SIDE_MAX = 4096
+
 
 class SettingsService:
     """
@@ -160,7 +183,59 @@ class SettingsService:
             "frame_count": frame_count,
             "sampling_strategy": sampling_strategy,
             "offset_ms": offset_ms,
+            "subject_crop_count": self._bounded_int(
+                _CROP_COUNT_KEY, _CROP_COUNT_DEFAULT, _CROP_COUNT_MIN, _CROP_COUNT_MAX
+            ),
+            "gemini_native_video_fps": self._bounded_int(
+                _GEMINI_FPS_KEY, _GEMINI_FPS_DEFAULT, _GEMINI_FPS_MIN, _GEMINI_FPS_MAX
+            ),
+            "subject_crop_min_area_fraction": self._bounded_float(
+                _CROP_MIN_AREA_KEY,
+                _CROP_MIN_AREA_DEFAULT,
+                _CROP_MIN_AREA_MIN,
+                _CROP_MIN_AREA_MAX,
+            ),
+            "subject_crop_min_side_px": self._bounded_int(
+                _CROP_MIN_SIDE_KEY,
+                _CROP_MIN_SIDE_DEFAULT,
+                _CROP_MIN_SIDE_MIN,
+                _CROP_MIN_SIDE_MAX,
+            ),
         }
+
+    def _bounded_int(self, key: str, default: int, low: int, high: int) -> int:
+        raw = self.get_setting(key)
+        if raw is None:
+            return default
+        try:
+            parsed = int(raw)
+        except (TypeError, ValueError):
+            logger.warning("%s=%r is not an int; using default %s", key, raw, default)
+            return default
+        if parsed < low or parsed > high:
+            logger.warning(
+                "%s=%r is outside %s-%s; using default %s",
+                key, raw, low, high, default,
+            )
+            return default
+        return parsed
+
+    def _bounded_float(self, key: str, default: float, low: float, high: float) -> float:
+        raw = self.get_setting(key)
+        if raw is None:
+            return default
+        try:
+            parsed = float(raw)
+        except (TypeError, ValueError):
+            logger.warning("%s=%r is not a number; using default %s", key, raw, default)
+            return default
+        if parsed < low or parsed > high:
+            logger.warning(
+                "%s=%r is outside %s-%s; using default %s",
+                key, raw, low, high, default,
+            )
+            return default
+        return parsed
 
     def set_setting(self, key: str, value: str) -> None:
         """

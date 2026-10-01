@@ -419,7 +419,8 @@ class AIService:
         sla_timeout_ms: int = 10000,
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
+        ocr_result: Optional[OCRResult] = None,
+        subject_crop_count: int = 0,
     ) -> AIResult:
         """
         Generate natural language description from multiple camera frames (Story P3-2.3 AC1).
@@ -547,6 +548,7 @@ class AIService:
             custom_prompt=custom_prompt,
             audio_transcription=audio_transcription,
             ocr_result=ocr_result,
+            subject_crop_count=subject_crop_count,
         )
 
     async def describe_video(
@@ -556,7 +558,8 @@ class AIService:
         timestamp: Optional[str] = None,
         detected_objects: Optional[List[str]] = None,
         sla_timeout_ms: int = 30000,
-        custom_prompt: Optional[str] = None
+        custom_prompt: Optional[str] = None,
+        fps: Optional[int] = None,
     ) -> AIResult:
         """Thin delegation to VideoAnalysisService."""
         if self.video_analysis_service:
@@ -567,6 +570,7 @@ class AIService:
                 sla_timeout_ms=sla_timeout_ms,
                 custom_prompt=custom_prompt,
                 description_prompt=self.description_prompt,
+                fps=fps,
             )
         raise RuntimeError("VideoAnalysisService not initialized")
 

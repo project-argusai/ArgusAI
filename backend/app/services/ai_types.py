@@ -43,6 +43,8 @@ class AIResult:
     prompt_variant: Optional[str] = None  # 'control', 'experiment', or None
     # Story P15-5.1: AI Visual Annotations - bounding boxes for detected objects
     bounding_boxes: Optional[List[Dict[str, Any]]] = None  # List of normalized bounding box dicts
+    # Structured identification. description stays the human-readable sentence.
+    identification: Optional[Dict[str, Any]] = None
 
 
 # Provider capability matrix (used by capability query endpoints and video analysis decisions)

@@ -59,3 +59,35 @@ def test_offset_out_of_range_is_clamped(db_session):
     _set(db_session, "settings_frame_extraction_offset_ms", 999999)
     cfg = SettingsService(db_session).get_frame_extraction_config()
     assert cfg["offset_ms"] == 10000  # clamped to schema max
+
+
+def test_crop_and_gemini_fps_default_when_unset(db_session):
+    cfg = SettingsService(db_session).get_frame_extraction_config()
+    assert cfg["subject_crop_count"] == 1
+    assert cfg["gemini_native_video_fps"] == 3
+
+
+def test_crop_count_out_of_range_falls_back(db_session):
+    _set(db_session, "settings_subject_crop_count", "9")
+    cfg = SettingsService(db_session).get_frame_extraction_config()
+    assert cfg["subject_crop_count"] == 1
+
+
+def test_gemini_fps_non_numeric_falls_back(db_session):
+    _set(db_session, "settings_gemini_native_video_fps", "fast")
+    cfg = SettingsService(db_session).get_frame_extraction_config()
+    assert cfg["gemini_native_video_fps"] == 3
+
+
+def test_crop_size_thresholds_default_when_unset(db_session):
+    cfg = SettingsService(db_session).get_frame_extraction_config()
+    assert cfg["subject_crop_min_area_fraction"] == pytest.approx(0.02)
+    assert cfg["subject_crop_min_side_px"] == 160
+
+
+def test_crop_size_thresholds_out_of_range_fall_back(db_session):
+    _set(db_session, "settings_subject_crop_min_area_fraction", "2")
+    _set(db_session, "settings_subject_crop_min_side_px", "not-a-size")
+    cfg = SettingsService(db_session).get_frame_extraction_config()
+    assert cfg["subject_crop_min_area_fraction"] == pytest.approx(0.02)
+    assert cfg["subject_crop_min_side_px"] == 160

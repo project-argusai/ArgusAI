@@ -118,6 +118,11 @@ class AIProviderBase(ABC):
                 if isinstance(confidence, (int, float)) and 0 <= confidence <= 100:
                     if description:
                         return description, int(confidence), bounding_boxes
+                # A structured identification reply always has a description.
+                # Keep that sentence even when the model omits a usable score,
+                # so the UI never stores the raw JSON object.
+                if description:
+                    return description, None, bounding_boxes
 
         except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.debug(f"JSON parsing failed for confidence extraction: {e}")
@@ -144,6 +149,11 @@ class AIProviderBase(ABC):
                     continue
 
         return response_text, None, None
+
+    def _with_identification(self, result: AIResult, raw_response: Optional[str]) -> AIResult:
+        """Attach structured identification without changing the description."""
+        from app.services.identification import apply_identification
+        return apply_identification(result, raw_response)
 
     def _extract_objects(self, description: str) -> List[str]:
         """Extract object types from description text"""

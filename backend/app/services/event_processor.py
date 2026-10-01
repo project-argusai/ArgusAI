@@ -1020,6 +1020,7 @@ class EventProcessor:
                         # Story P15-5.1: AI Visual Annotations
                         has_annotations=has_annotations,
                         bounding_boxes=bounding_boxes_json,
+                        identification=event_data.get("identification"),
                     )
 
                     db.add(event)
@@ -1966,6 +1967,8 @@ class EventProcessor:
         bounding_boxes_json: Optional[str] = None,
     ) -> Optional[str]:
         """Build the rich event payload and store it after successful AI processing."""
+        from app.services.identification import dumps_identification
+
         event_data = {
             "camera_id": event.camera_id,
             "timestamp": event.timestamp.isoformat(),
@@ -1980,6 +1983,7 @@ class EventProcessor:
             "delivery_carrier": delivery_carrier,
             "has_annotations": has_annotations,
             "bounding_boxes": bounding_boxes_json,
+            "identification": dumps_identification(getattr(ai_result, "identification", None)),
         }
 
         logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")

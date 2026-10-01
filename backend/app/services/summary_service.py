@@ -483,7 +483,6 @@ Timeline:
         """
         import openai
         import anthropic
-        import google.generativeai as genai
         from app.models.system_setting import SystemSetting
         from app.utils.encryption import decrypt_password
         from app.core.database import get_db_session
@@ -518,6 +517,7 @@ Timeline:
                 if key_name not in keys or not keys[key_name]:
                     continue
 
+                api_key = None
                 try:
                     api_key = decrypt_password(keys[key_name])
 
@@ -538,8 +538,11 @@ Timeline:
                         return result
 
                 except Exception as e:
-                    logger.warning(f"Provider {provider} failed: {e}")
-                    errors.append(f"{provider}: {str(e)}")
+                    message = str(e)
+                    if api_key and api_key in message:
+                        message = message.replace(api_key, "[redacted]")
+                    logger.warning("Provider %s failed: %s", provider, message)
+                    errors.append(f"{provider}: {message}")
                     continue
 
             # All providers failed
@@ -679,22 +682,24 @@ Timeline:
         timeout_seconds: int
     ) -> tuple[str, str, int, int, Decimal]:
         """Call Google Gemini for text completion."""
-        import google.generativeai as genai
         import asyncio
 
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        from google import genai
+        from google.genai import types
 
+        client = genai.Client(api_key=api_key, vertexai=False)
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        timeout_ms = max(1, int(timeout_seconds * 1000))
 
-        # Gemini doesn't have native async, wrap in executor
-        loop = asyncio.get_event_loop()
         response = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                lambda: model.generate_content(full_prompt)
+            client.aio.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=full_prompt,
+                config=types.GenerateContentConfig(
+                    http_options=types.HttpOptions(timeout=timeout_ms),
+                ),
             ),
-            timeout=float(timeout_seconds)
+            timeout=float(timeout_seconds),
         )
 
         text = response.text.strip()

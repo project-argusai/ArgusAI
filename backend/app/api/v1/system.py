@@ -2016,19 +2016,30 @@ async def _test_anthropic_key(api_key: str) -> tuple[bool, str]:
         return False, f"Anthropic API error: {str(e)}"
 
 
+def _redact_secret(text: str, secret: Optional[str]) -> str:
+    """Drop a credential if a provider SDK echoes it in an error."""
+    if secret and secret in text:
+        return text.replace(secret, "[redacted]")
+    return text
+
+
 async def _test_google_key(api_key: str) -> tuple[bool, str]:
     """Test Google AI API key with a minimal request"""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        # List models to verify the key works
-        models = list(genai.list_models())
+        from google import genai
+
+        # Developer API only. vertexai=False ignores GOOGLE_GENAI_USE_VERTEXAI
+        # so a stored Gemini key keeps working the way it does today.
+        client = genai.Client(api_key=api_key, vertexai=False)
+        # One page is enough to authenticate. Do not log the key or the client.
+        _ = client.models.list(config={"page_size": 1}).page
         return True, "Google AI API key validated successfully"
     except Exception as e:
-        error_msg = str(e).lower()
-        if "api key" in error_msg or "invalid" in error_msg or "401" in error_msg:
+        error_msg = _redact_secret(str(e), api_key)
+        lowered = error_msg.lower()
+        if "api key" in lowered or "invalid" in lowered or "401" in lowered or "403" in lowered:
             return False, "Invalid API key - authentication failed"
-        return False, f"Google AI API error: {str(e)}"
+        return False, f"Google AI API error: {error_msg}"
 
 
 async def _test_grok_key(api_key: str) -> tuple[bool, str]:

@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { ChevronUp, AlertCircle, Loader2, Filter, RefreshCw, Trash2, X, CheckSquare, Download } from 'lucide-react';
 import { EventCard } from '@/components/events/EventCard';
@@ -14,6 +14,7 @@ import { EventDetailModal } from '@/components/events/EventDetailModal';
 import { useEvents, useInvalidateEvents } from '@/lib/hooks/useEvents';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { apiClient } from '@/lib/api-client';
+import { collapseIncidentTimeline } from '@/lib/incident-groups';
 import type { IEventFilters, IEvent } from '@/types/event';
 import type { ICamera } from '@/types/camera';
 import { Button } from '@/components/ui/button';
@@ -328,7 +329,18 @@ export default function EventsPage() {
   const allEvents = data?.pages.flatMap((page) => page.events).filter(
     (event, index, self) => self.findIndex((e) => e.id === event.id) === index
   ) ?? [];
+  const timelineEvents = useMemo(
+    () => collapseIncidentTimeline(allEvents),
+    [allEvents],
+  );
   const totalEvents = data?.pages[0]?.total_count ?? 0;
+
+  const handleCorrelatedEventClick = useCallback((eventId: string) => {
+    const related = allEvents.find((event) => event.id === eventId);
+    if (related) {
+      setSelectedEvent(related);
+    }
+  }, [allEvents]);
 
   // Handle ?selected={id} query param to auto-open event detail modal
   // (used when redirecting from /events/{id} or deep links)
@@ -482,8 +494,8 @@ export default function EventsPage() {
               <div className="flex items-center justify-between p-3 bg-muted rounded-lg sticky top-0 z-10">
                 <div className="flex items-center gap-3">
                   <Checkbox
-                    checked={selectedIds.size === allEvents.length && allEvents.length > 0}
-                    onCheckedChange={() => toggleSelectAll(allEvents.map(e => e.id))}
+                    checked={selectedIds.size === timelineEvents.length && timelineEvents.length > 0}
+                    onCheckedChange={() => toggleSelectAll(timelineEvents.map(e => e.id))}
                     aria-label="Select all events"
                   />
                   <span className="text-sm font-medium">
@@ -503,7 +515,7 @@ export default function EventsPage() {
               </div>
             )}
 
-            {allEvents.map((event) => (
+            {timelineEvents.map((event) => (
               <div key={event.id} className="flex items-start gap-3">
                 {/* FF-010: Selection checkbox */}
                 {selectionMode && (
@@ -520,11 +532,13 @@ export default function EventsPage() {
                     <DoorbellEventCard
                       event={event}
                       onClick={() => !selectionMode && setSelectedEvent(event)}
+                      onCorrelatedEventClick={handleCorrelatedEventClick}
                     />
                   ) : (
                     <EventCard
                       event={event}
                       onClick={() => !selectionMode && setSelectedEvent(event)}
+                      onCorrelatedEventClick={handleCorrelatedEventClick}
                     />
                   )}
                 </div>

@@ -2,8 +2,8 @@
 Tests for Multi-Camera Event Correlation Service (Story P2-4.3)
 
 Tests cover all acceptance criteria:
-- AC1: Events from multiple cameras within 10s window correlate
-- AC2: Correlation logic (time window, detection type, different cameras)
+- AC1: Events from multiple cameras within the correlation window correlate
+- AC2: Correlation logic (time window, different cameras)
 - AC3: First event gets new UUID, subsequent get same ID
 - AC4: correlated_event_ids contains all event IDs
 - AC5: Buffer maintains 60s window with O(n) scan
@@ -176,10 +176,10 @@ class TestFindCorrelationCandidates:
         event1 = make_buffered_event(camera_id="cam1", timestamp=now)
         correlation_service._buffer.append((now, event1))
 
-        # Find candidates for second event (5 seconds later, different camera)
+        # Find candidates for second event (1 second later, different camera)
         event2 = make_buffered_event(
             camera_id="cam2",
-            timestamp=now + timedelta(seconds=5)
+            timestamp=now + timedelta(seconds=1)
         )
 
         candidates = correlation_service.find_correlation_candidates(event2)
@@ -195,7 +195,7 @@ class TestFindCorrelationCandidates:
         event1 = make_buffered_event(camera_id="cam1", timestamp=now)
         correlation_service._buffer.append((now, event1))
 
-        # Find candidates for event 15 seconds later (outside 10s window)
+        # Find candidates for event 15 seconds later (outside the 2s window)
         event2 = make_buffered_event(
             camera_id="cam2",
             timestamp=now + timedelta(seconds=15)
@@ -237,15 +237,15 @@ class TestFindCorrelationCandidates:
         event2 = make_buffered_event(
             camera_id="cam2",
             smart_detection_type="person",
-            timestamp=now + timedelta(seconds=3)
+            timestamp=now + timedelta(seconds=1)
         )
 
         candidates = correlation_service.find_correlation_candidates(event2)
 
         assert len(candidates) == 1
 
-    def test_different_detection_types_dont_correlate(self, correlation_service):
-        """AC2: Different detection types don't correlate (person→vehicle)."""
+    def test_different_detection_types_still_correlate_inside_window(self, correlation_service):
+        """Different labels on two cameras still correlate inside the window."""
         now = datetime.now(timezone.utc)
 
         event1 = make_buffered_event(
@@ -258,15 +258,16 @@ class TestFindCorrelationCandidates:
         event2 = make_buffered_event(
             camera_id="cam2",
             smart_detection_type="vehicle",
-            timestamp=now + timedelta(seconds=3)
+            timestamp=now + timedelta(seconds=1)
         )
 
         candidates = correlation_service.find_correlation_candidates(event2)
 
-        assert len(candidates) == 0
+        assert len(candidates) == 1
+        assert candidates[0].id == event1.id
 
-    def test_null_detection_types_dont_correlate(self, correlation_service):
-        """AC2: Events with null detection type don't correlate."""
+    def test_null_detection_types_correlate_inside_window(self, correlation_service):
+        """Motion events with no smart-detect type still correlate inside the window."""
         now = datetime.now(timezone.utc)
 
         event1 = make_buffered_event(
@@ -279,12 +280,13 @@ class TestFindCorrelationCandidates:
         event2 = make_buffered_event(
             camera_id="cam2",
             smart_detection_type=None,
-            timestamp=now + timedelta(seconds=3)
+            timestamp=now + timedelta(seconds=1)
         )
 
         candidates = correlation_service.find_correlation_candidates(event2)
 
-        assert len(candidates) == 0
+        assert len(candidates) == 1
+        assert candidates[0].id == event1.id
 
 
 # ============================================================================
@@ -417,7 +419,7 @@ class TestProcessEvent:
         # Process second event
         event2 = make_mock_event(
             camera_id="cam2",
-            timestamp=now + timedelta(seconds=3)
+            timestamp=now + timedelta(seconds=1)
         )
 
         with patch.object(correlation_service, 'update_correlation_in_db', new_callable=AsyncMock) as mock_update:
@@ -487,6 +489,8 @@ class TestSingleton:
         service2 = get_correlation_service()
 
         assert service1 is service2
+        assert DEFAULT_TIME_WINDOW_SECONDS == 2
+        assert service1.time_window_seconds == 2
 
     def test_reset_clears_singleton(self):
         """reset_correlation_service creates new instance."""

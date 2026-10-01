@@ -4,28 +4,22 @@ Multi-Camera Event Correlation Service (Story P2-4.3)
 Detects when multiple cameras capture the same real-world event by
 correlating events within a configurable time window.
 
-Correlation Algorithm:
-1. Event arrives → Add to 60-second buffer
-2. Scan buffer for candidates (O(n) where n = events in last 60s)
-3. If candidates found:
-   - Check if any have correlation_group_id
-   - If yes: join that group
-   - If no: generate new group_id for all
-4. Update all correlated events in database
-5. Remove old events from buffer (>60 seconds old)
+Persisted grouping (issue #642) uses ``assign_group`` after the event row
+is committed. It queries other cameras by detection timestamp. It does not
+wait for more cameras, does not call the vision model, and does not delete
+or rewrite the per-camera rows.
 
-Event Flow Integration:
-    _store_protect_event() completes
-            ↓
-    asyncio.create_task(correlation_service.process_event(event))
-            ↓
-    Fire-and-forget: doesn't block event creation
+The in-memory buffer and ``process_event`` remain for the original
+single-process scan. The Protect handler used to call
+``correlation_service.process``, which was never a method on this class
+(the method is ``process_event``). That call was commented out in the May
+2026 decomposition (``1af9f8a``) and is not the production path.
 
-Correlation Criteria (AC2):
-- Time window: within configurable seconds (default 10)
-- Same or similar smart_detection_type (person→person, vehicle→vehicle)
-- Different cameras (exclude same camera)
-- Same controller (for stricter correlation, future enhancement)
+Correlation criteria:
+- Time window: configurable seconds (default 2, env ``CORRELATION_WINDOW_SECONDS``)
+- Different cameras only (same-camera Protect dedup is unchanged)
+- Detection type is not a join key: one activity is often labeled differently
+  on each camera (vehicle on the driveway, motion at the garage)
 
 # Migrated to @singleton: Story P14-5.3
 """
@@ -33,6 +27,7 @@ Correlation Criteria (AC2):
 import asyncio
 import json
 import logging
+import os
 import uuid
 from collections import deque
 from dataclasses import dataclass
@@ -51,8 +46,47 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Default configuration values
-DEFAULT_TIME_WINDOW_SECONDS = 10  # Correlation window (AC2)
+DEFAULT_TIME_WINDOW_SECONDS = 2  # Cross-camera incident window (issue #642)
+MAX_CORRELATION_WINDOW_SECONDS = 30  # Cap so a bad config cannot glue the day together
 DEFAULT_BUFFER_MAX_AGE_SECONDS = 60  # Buffer retention period (AC5)
+
+
+def clamp_correlation_window(value: float) -> float:
+    """Return a window in (0, MAX]. Non-positive values use the default."""
+    if value <= 0:
+        return float(DEFAULT_TIME_WINDOW_SECONDS)
+    if value > MAX_CORRELATION_WINDOW_SECONDS:
+        return float(MAX_CORRELATION_WINDOW_SECONDS)
+    return float(value)
+
+
+def resolve_correlation_window(explicit: Optional[float] = None) -> float:
+    """Window from an explicit argument, else ``CORRELATION_WINDOW_SECONDS``.
+
+    A missing or non-numeric environment value uses the default. The service
+    keeps running; it does not open an unbounded window.
+    """
+    if explicit is not None:
+        return clamp_correlation_window(explicit)
+    raw = os.environ.get("CORRELATION_WINDOW_SECONDS", "").strip()
+    if not raw:
+        return float(DEFAULT_TIME_WINDOW_SECONDS)
+    try:
+        parsed = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid CORRELATION_WINDOW_SECONDS; using the default window",
+            extra={"event_type": "correlation_window_invalid"},
+        )
+        return float(DEFAULT_TIME_WINDOW_SECONDS)
+    return clamp_correlation_window(parsed)
+
+
+def _as_utc(ts: datetime) -> datetime:
+    """Normalize a stored timestamp to timezone-aware UTC."""
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=timezone.utc)
+    return ts.astimezone(timezone.utc)
 
 
 @dataclass
@@ -89,33 +123,35 @@ class CorrelationService:
         - Target: < 10ms for 1000 events in buffer (AC5)
 
     Attributes:
-        time_window_seconds: Time window for correlation matching
+            time_window_seconds: Time window for correlation matching (default 2s)
         buffer_max_age_seconds: How long to keep events in buffer
         _buffer: Deque of (timestamp, BufferedEvent) tuples
     """
 
     def __init__(
         self,
-        time_window_seconds: int = DEFAULT_TIME_WINDOW_SECONDS,
+        time_window_seconds: Optional[float] = None,
         buffer_max_age_seconds: int = DEFAULT_BUFFER_MAX_AGE_SECONDS
     ):
         """
         Initialize correlation service.
 
         Args:
-            time_window_seconds: Time window for correlation (default 10s, AC2)
+            time_window_seconds: Time window for correlation. None reads
+                CORRELATION_WINDOW_SECONDS (default 2s).
             buffer_max_age_seconds: Buffer retention period (default 60s, AC5)
         """
-        self.time_window_seconds = time_window_seconds
+        self.time_window_seconds = resolve_correlation_window(time_window_seconds)
         self.buffer_max_age_seconds = buffer_max_age_seconds
         self._buffer: deque[Tuple[datetime, BufferedEvent]] = deque()
+        self._lock = asyncio.Lock()
 
         logger.info(
-            f"CorrelationService initialized: time_window={time_window_seconds}s, "
+            f"CorrelationService initialized: time_window={self.time_window_seconds}s, "
             f"buffer_max_age={buffer_max_age_seconds}s",
             extra={
                 "event_type": "correlation_service_init",
-                "time_window_seconds": time_window_seconds,
+                "time_window_seconds": self.time_window_seconds,
                 "buffer_max_age_seconds": buffer_max_age_seconds
             }
         )
@@ -195,10 +231,8 @@ class CorrelationService:
         Find events that correlate with the given event (AC1, AC2, AC5).
 
         Correlation criteria:
-        - Within time_window_seconds of the event timestamp
-        - Same or similar smart_detection_type
+        - Within time_window_seconds of the event timestamp (inclusive)
         - Different camera (same camera events never correlate)
-        - (Future: Same controller for stricter correlation)
 
         Args:
             event: Event to find correlations for
@@ -207,31 +241,20 @@ class CorrelationService:
             List of BufferedEvents that correlate with the input event
         """
         candidates = []
-        event_time = event.timestamp
-        window = timedelta(seconds=self.time_window_seconds)
+        event_time = _as_utc(event.timestamp)
 
         for _, buffered in self._buffer:
             # Skip self
             if buffered.id == event.id:
                 continue
 
-            # AC2: Different cameras only (same camera never correlates)
+            # Different cameras only (same camera never correlates)
             if buffered.camera_id == event.camera_id:
                 continue
 
-            # AC2: Time window check
-            time_diff = abs((buffered.timestamp - event_time).total_seconds())
+            time_diff = abs((_as_utc(buffered.timestamp) - event_time).total_seconds())
             if time_diff > self.time_window_seconds:
                 continue
-
-            # AC2: Same or similar detection type
-            if not self._detection_types_match(event.smart_detection_type, buffered.smart_detection_type):
-                continue
-
-            # (Future: Same controller check for stricter correlation)
-            # if event.protect_controller_id and buffered.protect_controller_id:
-            #     if event.protect_controller_id != buffered.protect_controller_id:
-            #         continue
 
             candidates.append(buffered)
 
@@ -247,26 +270,105 @@ class CorrelationService:
 
         return candidates
 
-    def _detection_types_match(self, type1: Optional[str], type2: Optional[str]) -> bool:
+    def _candidate_rows(self, db: Session, event: "Event") -> List["Event"]:
+        """Other cameras' events whose detection time is inside the window."""
+        from app.models.event import Event
+
+        timestamp = _as_utc(event.timestamp)
+        window = timedelta(seconds=self.time_window_seconds)
+        rows = (
+            db.query(Event)
+            .filter(
+                Event.id != event.id,
+                Event.camera_id != event.camera_id,
+                Event.timestamp >= timestamp - window,
+                Event.timestamp <= timestamp + window,
+            )
+            .all()
+        )
+        return [
+            row
+            for row in rows
+            if abs((_as_utc(row.timestamp) - timestamp).total_seconds())
+            <= self.time_window_seconds
+        ]
+
+    def _assign_group_locked(self, db: Session, event: "Event") -> Optional[str]:
+        """Link ``event`` to other cameras inside the window. Caller holds the lock.
+
+        Writes only ``correlation_group_id`` and ``correlated_event_ids``.
+        Per-camera descriptions, frames, and thumbnails stay as stored.
+        Returns the group id, or None when this event stands alone.
         """
-        Check if two detection types are compatible for correlation (AC2).
+        from app.models.event import Event
 
-        Currently requires exact match. Future enhancement could allow
-        related types (e.g., person correlates with package for delivery).
+        if event.timestamp is None or not event.id or not event.camera_id:
+            return None
 
-        Args:
-            type1: First detection type
-            type2: Second detection type
+        candidates = self._candidate_rows(db, event)
+        if not candidates:
+            return event.correlation_group_id
 
-        Returns:
-            True if types match for correlation purposes
+        ordered = sorted(
+            candidates,
+            key=lambda row: (_as_utc(row.timestamp), row.id),
+        )
+        group_id = next(
+            (row.correlation_group_id for row in ordered if row.correlation_group_id),
+            None,
+        )
+        if group_id is None:
+            group_id = event.correlation_group_id or str(uuid.uuid4())
+
+        member_ids = {event.id}
+        member_ids.update(row.id for row in candidates)
+        group_ids = {group_id}
+        group_ids.update(
+            row.correlation_group_id
+            for row in candidates
+            if row.correlation_group_id
+        )
+        existing = (
+            db.query(Event.id)
+            .filter(Event.correlation_group_id.in_(group_ids))
+            .all()
+        )
+        member_ids.update(row_id for (row_id,) in existing)
+
+        member_list = sorted(member_ids)
+        db.execute(
+            update(Event)
+            .where(Event.id.in_(member_list))
+            .values(
+                correlation_group_id=group_id,
+                correlated_event_ids=json.dumps(member_list),
+            )
+        )
+        db.commit()
+        event.correlation_group_id = group_id
+        event.correlated_event_ids = json.dumps(member_list)
+        return group_id
+
+    async def assign_group(self, db: Session, event: "Event") -> Optional[str]:
+        """Persist a cross-camera incident id for an already-stored event.
+
+        Serialized with an asyncio lock so two cameras that finish AI at the
+        same time join one group. This does not perform AI work.
         """
-        # Null types don't correlate (motion-only events)
-        if type1 is None or type2 is None:
-            return False
-
-        # Exact match for now
-        return type1.lower() == type2.lower()
+        async with self._lock:
+            try:
+                return self._assign_group_locked(db, event)
+            except Exception as exc:
+                db.rollback()
+                logger.warning(
+                    "Failed to assign correlation group",
+                    extra={
+                        "event_type": "correlation_assign_failed",
+                        "event_id": getattr(event, "id", None),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                return None
 
     def determine_correlation_group(
         self,

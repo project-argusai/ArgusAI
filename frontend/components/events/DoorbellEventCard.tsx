@@ -17,10 +17,13 @@ import { Bell, Video, ChevronDown, ChevronUp } from 'lucide-react';
 import type { IEvent } from '@/types/event';
 import { Card } from '@/components/ui/card';
 import { parseApiDate } from '@/lib/datetime';
+import { CorrelationIndicator } from './CorrelationIndicator';
 
 interface DoorbellEventCardProps {
   event: IEvent;
   onClick: () => void;
+  /** Opens another camera in this incident. */
+  onCorrelatedEventClick?: (eventId: string) => void;
 }
 
 const OBJECT_ICONS: Record<string, string> = {
@@ -46,6 +49,7 @@ function formatRelativeTime(date: Date): string {
 export const DoorbellEventCard = memo(function DoorbellEventCard({
   event,
   onClick,
+  onCorrelatedEventClick,
 }: DoorbellEventCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -168,6 +172,13 @@ export const DoorbellEventCard = memo(function DoorbellEventCard({
                 </span>
               ))}
           </div>
+
+          {event.correlated_events && event.correlated_events.length > 0 && onCorrelatedEventClick && (
+            <CorrelationIndicator
+              correlatedEvents={event.correlated_events}
+              onEventClick={onCorrelatedEventClick}
+            />
+          )}
         </div>
       </div>
     </Card>

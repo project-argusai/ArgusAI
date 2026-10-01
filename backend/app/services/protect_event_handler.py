@@ -154,6 +154,27 @@ class ProtectEventHandler:
         # Story P3-5.3: Track last audio transcription for passing to event storage
         self._last_audio_transcription: Optional[str] = None
 
+    async def _link_cross_camera_incident(self, db: Session, stored_event: Event) -> None:
+        """Group this stored event with other cameras inside the correlation window.
+
+        Runs only after the row is committed, so it adds no time to AI description
+        generation. Notifications are left unchanged: each camera still alerts on
+        its own event.
+        """
+        try:
+            from app.services.correlation_service import get_correlation_service
+
+            await get_correlation_service().assign_group(db, stored_event)
+        except Exception as exc:
+            logger.warning(
+                "Cross-camera correlation failed",
+                extra={
+                    "event_type": "correlation_link_failed",
+                    "event_id": getattr(stored_event, "id", None),
+                    "error_type": type(exc).__name__,
+                },
+            )
+
     def _persist_tracking_kwargs(self, media_fallback: Optional[str] = None) -> dict:
         """Assemble the analysis-mode tracking fields for event persistence from the
         AI pipeline's per-event state.
@@ -607,8 +628,8 @@ class ProtectEventHandler:
                                 db, stored_event, protect_event_id
                             )
                             # Broadcast the event even without AI description
+                            await self._link_cross_camera_incident(db, stored_event)
                             await self.broadcaster.broadcast_event_created(stored_event, camera)
-                            asyncio.create_task(self._process_correlation(stored_event))
                             # Publish to MQTT for Home Assistant (even without AI)
                             await self._publish_event_to_mqtt(stored_event, camera, None)
                             return True
@@ -658,12 +679,12 @@ class ProtectEventHandler:
                             }
                         )
 
+                    # Group with other cameras before the live update so the payload
+                    # carries correlation_group_id. MQTT stays on its existing path.
+                    await self._link_cross_camera_incident(db, stored_event)
+
                     # Story P2-3.3: Broadcast EVENT_CREATED via WebSocket (AC12)
                     await self.broadcaster.broadcast_event_created(stored_event, camera)
-
-                    # TODO(Phase 4): Re-enable correlation + MQTT via dedicated services
-                    # asyncio.create_task(self.correlation_service.process(stored_event))
-                    # await self.mqtt_service.publish_event(stored_event, camera, ai_result)
 
                     return True
 
@@ -1047,8 +1068,8 @@ class ProtectEventHandler:
                         self._apply_pending_protect_update(
                             db, stored_event, protect_event_id
                         )
+                        await self._link_cross_camera_incident(db, stored_event)
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
-                        # TODO(Phase 4): Correlation + MQTT
                         return True
                     return False
 
@@ -1088,9 +1109,9 @@ class ProtectEventHandler:
                         }
                     )
 
+                await self._link_cross_camera_incident(db, stored_event)
                 # Broadcast and publish event
                 await self.broadcaster.broadcast_event_created(stored_event, camera)
-                # TODO(Phase 4): Correlation + MQTT via dedicated services
 
                 return True
 

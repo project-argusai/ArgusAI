@@ -1027,6 +1027,20 @@ class EventProcessor:
                     db.add(event)
                     db.commit()
 
+                    try:
+                        from app.services.correlation_service import get_correlation_service
+
+                        await get_correlation_service().assign_group(db, event)
+                    except Exception as correlation_error:
+                        logger.warning(
+                            "Cross-camera correlation failed",
+                            extra={
+                                "event_type": "correlation_link_failed",
+                                "event_id": event_id,
+                                "error_type": type(correlation_error).__name__,
+                            },
+                        )
+
                     logger.info(
                         f"Event {event_id} stored successfully",
                         extra={"event_id": event_id, "camera_id": event_data["camera_id"]}

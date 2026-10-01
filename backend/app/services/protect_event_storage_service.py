@@ -32,6 +32,13 @@ from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
 
+# smart_detection_type is a single token (String(20)) matched with equality by
+# filters, HomeKit, and the event badge. Added types from a Protect update are
+# unioned into objects_detected instead of rewriting that token.
+_KNOWN_DETECTION_TYPES = frozenset(
+    {"person", "vehicle", "package", "animal", "motion", "ring"}
+)
+
 
 def ai_response_time_ms_from_result(ai_result: Optional[object]) -> Optional[int]:
     """Milliseconds recorded on an AI result, or None when it was not set."""
@@ -151,6 +158,103 @@ class ProtectEventStorageService:
         )
 
         return event
+
+    def find_by_protect_event_id(
+        self, db: Session, protect_event_id: Optional[str]
+    ) -> Optional[Event]:
+        """Return the earliest stored row for this Protect id, if any.
+
+        Historical duplicates are left in place. Callers update the earliest
+        row and do not insert another one.
+        """
+        if not protect_event_id:
+            return None
+        row = (
+            db.query(Event)
+            .filter(
+                Event.protect_event_id == str(protect_event_id),
+                Event.source_type == "protect",
+            )
+            .order_by(Event.timestamp.asc(), Event.id.asc())
+            .first()
+        )
+        # A non-Event result is not a stored Protect event. Fail closed rather
+        # than merging into an unexpected object.
+        if not isinstance(row, Event):
+            return None
+        return row
+
+    def merge_detection_types(
+        self,
+        db: Session,
+        event: Event,
+        detection_types: Optional[List[str]],
+        is_doorbell_ring: bool = False,
+    ) -> bool:
+        """Union newly reported smart-detect types into an existing Protect row.
+
+        Does not change an existing smart_detection_type. That column is a
+        single token used by exact-match filters. The original description,
+        thumbnail, and alert state are left alone. Returns True when a column
+        changed.
+        """
+        if event is None:
+            return False
+
+        allowed: List[str] = []
+        for detection_type in detection_types or []:
+            if (
+                isinstance(detection_type, str)
+                and detection_type in _KNOWN_DETECTION_TYPES
+                and detection_type not in allowed
+            ):
+                allowed.append(detection_type)
+
+        changed = False
+        parsed: Any
+        try:
+            parsed = json.loads(event.objects_detected) if event.objects_detected else []
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+
+        if isinstance(parsed, list):
+            for detection_type in allowed:
+                if detection_type not in parsed:
+                    parsed.append(detection_type)
+                    changed = True
+            if changed:
+                event.objects_detected = json.dumps(parsed)
+        elif allowed:
+            logger.warning(
+                "Skipping detection-type merge because objects_detected is not a JSON list",
+                extra={
+                    "event_type": "protect_event_merge_skipped",
+                    "event_id": event.id,
+                },
+            )
+
+        if is_doorbell_ring and not event.is_doorbell_ring:
+            event.is_doorbell_ring = True
+            changed = True
+
+        if not event.smart_detection_type and allowed:
+            event.smart_detection_type = allowed[0]
+            changed = True
+
+        if changed:
+            db.commit()
+            db.refresh(event)
+            logger.info(
+                "Merged Protect detection update into existing event",
+                extra={
+                    "event_type": "protect_event_types_merged",
+                    "event_id": event.id,
+                    "protect_event_id": event.protect_event_id,
+                    "detection_types": allowed,
+                    "is_doorbell_ring": bool(event.is_doorbell_ring),
+                },
+            )
+        return changed
 
 
 # Backward compatible getter (delegates to @singleton decorator)

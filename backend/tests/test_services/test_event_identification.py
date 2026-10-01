@@ -398,7 +398,7 @@ def test_identification_prompt_defines_a_package_and_a_carrier():
     assert "uniform" in prompt
     assert "branded vehicle" in prompt
     assert "scanner" in prompt
-    assert 'Do not say "package"' in prompt
+    assert 'When you are unsure whether an item is a package, use "none" or "cannot_tell" rather than "package".' in prompt
     # The rest of the #632 contract stays put.
     assert "3 to 6 sentences" in prompt
     assert "licence plate" in prompt

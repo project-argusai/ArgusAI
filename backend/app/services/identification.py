@@ -66,7 +66,7 @@ Fields:
 - direction: toward camera, away, left, right, or "cannot_tell"
 - package_or_carrier: "package", UPS, FedEx, USPS, Amazon, DHL, "none", or "cannot_tell"
 
-A package is a parcel, box, padded mailer, or delivery bag that is carried, dropped off or picked up, or lying at the door. Ordinary handheld items are not packages: paper, mail, a phone, an ordinary bag, a cup, a sheet of paper, or a small book. Use object_type "package" only for that same kind of item. Name a carrier (UPS, FedEx, USPS, Amazon, or DHL) only when a delivery-service cue is visible, such as a uniform, a branded vehicle, or a scanner. When unsure, use "none" or "cannot_tell". Do not say "package".
+A package is a parcel, box, padded mailer, or delivery bag that is carried, dropped off or picked up, or lying at the door. Ordinary handheld items are not packages: paper, mail, a phone, an ordinary bag, a cup, a sheet of paper, or a small book. Use object_type "package" only for that same kind of item. Name a carrier (UPS, FedEx, USPS, Amazon, or DHL) only when a delivery-service cue is visible, such as a uniform, a branded vehicle, or a scanner. When you are unsure whether an item is a package, use "none" or "cannot_tell" rather than "package".
 
 If the frames show no person, vehicle, package, or animal, set object_type to
 "none", count to 0, and action and direction to "cannot_tell". The description

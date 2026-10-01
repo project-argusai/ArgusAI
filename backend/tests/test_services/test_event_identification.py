@@ -493,6 +493,7 @@ def test_compare_script_dry_run_writes_json_and_markdown(tmp_path):
     assert row["new"]["description"] is None
     assert "subject_crop_used" in markdown
     assert IDENTIFICATION_MARKER in row["new"]["prompt"]
+    assert "3 to 6 sentences" in row["new"]["prompt"]
     assert IDENTIFICATION_MARKER not in row["old"]["prompt"]
 
     code = module.main(["--fixture", str(fixture), "--dry-run", "--output-dir", str(tmp_path / "cli")])

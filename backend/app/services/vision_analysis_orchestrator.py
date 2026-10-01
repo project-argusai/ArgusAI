@@ -142,6 +142,8 @@ class VisionAnalysisOrchestrator:
             effective_prompt, prompt_variant = None, None
 
         if effective_prompt:
+            from app.services.identification import ensure_identification_prompt
+            effective_prompt = ensure_identification_prompt(effective_prompt)
             logger.debug(f"Using selected prompt: '{effective_prompt[:50]}...', variant={prompt_variant}")
 
         # Preprocess image (now owned here)
@@ -264,6 +266,7 @@ class VisionAnalysisOrchestrator:
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
         camera_id: Optional[str] = None,
+        subject_crop_count: int = 0,
     ) -> AIResult:
         """
         Multi-frame / multi-image analysis (Phase 3.2).
@@ -335,6 +338,19 @@ class VisionAnalysisOrchestrator:
                 ocr_result=ocr_result,
                 analysis_mode="multi_frame",
                 num_frames=len(images_base64),
+            )
+
+        from app.services.identification import (
+            append_subject_crop_note,
+            ensure_identification_prompt,
+        )
+        effective_prompt = ensure_identification_prompt(effective_prompt)
+        crop_count = max(0, int(subject_crop_count or 0))
+        if crop_count and crop_count < len(images_base64):
+            effective_prompt = append_subject_crop_note(
+                effective_prompt,
+                len(images_base64) - crop_count,
+                crop_count,
             )
 
         # Provider order + fallback loop (same helper AIService uses)

@@ -77,6 +77,31 @@ def _normalize_thumbnail_path(thumbnail_path: str) -> str:
     return thumbnail_path
 
 
+def _event_identification(event) -> Optional[dict]:
+    """Parsed identification, or None when the column is empty or malformed."""
+    from app.services.identification import loads_identification
+    return loads_identification(getattr(event, "identification", None))
+
+
+def _stored_subject_box(event):
+    """First stored detection box, if the event has one. Protect timing is not stored."""
+    import json as _json
+    from app.services.event_sampling import box_from_mapping
+
+    raw = getattr(event, "bounding_boxes", None)
+    if isinstance(raw, str):
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(raw, list) or not raw:
+        return None
+    first = raw[0]
+    if not isinstance(first, dict):
+        return None
+    return box_from_mapping(first, source="stored")
+
+
 def _get_annotated_thumbnail_path(event) -> Optional[str]:
     """
     Get annotated thumbnail path for an event (Story P15-5.1).
@@ -618,6 +643,7 @@ def list_events(
                 "has_annotations": getattr(event, 'has_annotations', False),
                 "bounding_boxes": getattr(event, 'bounding_boxes', None),
                 "annotated_thumbnail_path": _get_annotated_thumbnail_path(event),
+                "identification": _event_identification(event),
             }
             # BUG-004: Include feedback if exists so UI can show persisted state
             if event.feedback:
@@ -1660,6 +1686,7 @@ async def get_event(
             "has_annotations": getattr(event, 'has_annotations', False),
             "bounding_boxes": getattr(event, 'bounding_boxes', None),
             "annotated_thumbnail_path": _get_annotated_thumbnail_path(event),
+            "identification": _event_identification(event),
         }
 
         # Story P4-3.3: Add matched entity if available (AC12)
@@ -1907,18 +1934,30 @@ async def reanalyze_event(
             )
 
         elif analysis_mode == 'multi_frame' and video_path:
-            # Extract frames and analyze. Honor the admin-configured frame_count
-            # (the AI cost driver) instead of hardcoding. extract_frames does not
-            # take sampling_strategy/offset_ms, so only the count is wired here;
-            # the live WS pipeline (extract_frames_with_timestamps) honors all three.
+            # Honor the admin-configured frame budget. A stored detection box
+            # replaces one full frame with a crop. With no box, keep the previous
+            # extract_frames call. The clip window stays the event timestamp +/- 5s.
             from app.services.settings_service import SettingsService
             frame_cfg = SettingsService(db).get_frame_extraction_config()
             frame_extractor = FrameExtractor()
-            extracted_frames = await frame_extractor.extract_frames(
-                clip_path=video_path,
-                frame_count=frame_cfg["frame_count"],
-                filter_blur=True
-            )
+            subject_crop_count = 0
+            stored_box = _stored_subject_box(event)
+            if stored_box is not None and int(frame_cfg.get("subject_crop_count") or 0) > 0:
+                from app.services.event_frame_assembly import assemble_event_frames
+                assembly = await assemble_event_frames(
+                    video_path,
+                    frame_cfg=frame_cfg,
+                    timing_source="fallback",
+                    box=stored_box,
+                )
+                extracted_frames = assembly.images
+                subject_crop_count = assembly.crop_count
+            else:
+                extracted_frames = await frame_extractor.extract_frames(
+                    clip_path=video_path,
+                    frame_count=frame_cfg["frame_count"],
+                    filter_blur=True
+                )
 
             if not extracted_frames:
                 raise HTTPException(
@@ -1942,16 +1981,19 @@ async def reanalyze_event(
                 images=frame_bytes,
                 camera_name=camera.name,
                 timestamp=event.timestamp.isoformat(),
-                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected
+                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
+                subject_crop_count=subject_crop_count,
             )
 
         elif analysis_mode == 'video_native' and video_path:
-            # Native video analysis
+            from app.services.settings_service import SettingsService
+            frame_cfg = SettingsService(db).get_frame_extraction_config()
             result = await ai_service.describe_video(
                 video_path=str(video_path),
                 camera_name=camera.name,
                 timestamp=event.timestamp.isoformat(),
-                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected
+                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
+                fps=frame_cfg["gemini_native_video_fps"],
             )
 
         if not result or not result.success:
@@ -1981,6 +2023,9 @@ async def reanalyze_event(
 
         if frame_count_used:
             event.frame_count_used = frame_count_used
+
+        if getattr(result, "identification", None):
+            event.identification = json.dumps(result.identification)
 
         # Story P15-5.1: Store bounding boxes from AI result
         if hasattr(result, 'bounding_boxes') and result.bounding_boxes:
@@ -2060,7 +2105,8 @@ async def reanalyze_event(
             reanalyzed_at=event.reanalyzed_at,
             reanalysis_count=event.reanalysis_count,
             has_annotations=event.has_annotations,
-            bounding_boxes=event.bounding_boxes
+            bounding_boxes=event.bounding_boxes,
+            identification=_event_identification(event),
         )
 
     except HTTPException:

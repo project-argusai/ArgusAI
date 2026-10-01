@@ -408,6 +408,26 @@ class SnapshotService:
             self._snapshot_failures_total += 1
             return None
 
+    async def process_provided_jpeg(
+        self,
+        image_bytes: bytes,
+        camera_id: str,
+        camera_name: str,
+        timestamp: datetime,
+    ) -> Optional[SnapshotResult]:
+        """Turn an already-fetched JPEG into the same SnapshotResult as a live snapshot.
+
+        Used for Protect's detection-time event thumbnail. Does not contact the camera.
+        """
+        if not image_bytes:
+            return None
+        return await self._process_snapshot(
+            image_bytes=image_bytes,
+            camera_id=camera_id,
+            camera_name=camera_name,
+            timestamp=timestamp,
+        )
+
     def _resize_for_ai(
         self,
         image: Image.Image,

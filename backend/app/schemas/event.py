@@ -321,6 +321,11 @@ class EventResponse(BaseModel):
     has_annotations: bool = Field(default=False, description="Whether bounding box annotations are available")
     bounding_boxes: Optional[List[BoundingBox]] = Field(None, description="Bounding boxes for detected objects")
     annotated_thumbnail_path: Optional[str] = Field(None, description="Path to annotated thumbnail with bounding boxes drawn")
+    # Structured identification. description remains the sentence clients already show.
+    identification: Optional[dict] = Field(
+        None,
+        description="Structured identification fields (object_type, count, identity, action, direction, package_or_carrier). Unknown values are explicit.",
+    )
 
     @field_validator('objects_detected', mode='before')
     @classmethod
@@ -356,6 +361,15 @@ class EventResponse(BaseModel):
         if isinstance(v, str):
             import json
             return json.loads(v)
+        return v
+
+    @field_validator('identification', mode='before')
+    @classmethod
+    def parse_identification_field(cls, v):
+        """Accept stored JSON. Malformed text becomes None so list endpoints still load."""
+        if isinstance(v, str):
+            from app.services.identification import loads_identification
+            return loads_identification(v)
         return v
 
     @field_validator('context_stats', mode='before')

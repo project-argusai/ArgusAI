@@ -79,7 +79,7 @@ class OpenAIProvider(AIProviderBase):
             confidence = ai_confidence if ai_confidence else self._calculate_confidence(description, tokens_used)
             objects = self._extract_objects(description)
 
-            return AIResult(
+            return self._with_identification(AIResult(
                 description=description,
                 confidence=confidence,
                 objects_detected=objects,
@@ -90,7 +90,7 @@ class OpenAIProvider(AIProviderBase):
                 success=True,
                 ai_confidence=ai_confidence,
                 bounding_boxes=bounding_boxes
-            )
+            ), raw_response)
 
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -150,7 +150,7 @@ class OpenAIProvider(AIProviderBase):
             confidence = ai_confidence if ai_confidence else 70
             objects = self._extract_objects(description)
 
-            return AIResult(
+            return self._with_identification(AIResult(
                 description=description,
                 confidence=confidence,
                 objects_detected=objects,
@@ -161,7 +161,7 @@ class OpenAIProvider(AIProviderBase):
                 success=True,
                 ai_confidence=ai_confidence,
                 bounding_boxes=bounding_boxes
-            )
+            ), raw_response)
 
         except Exception as e:
             elapsed_ms = int((time.time() - start_time) * 1000)

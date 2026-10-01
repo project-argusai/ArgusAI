@@ -206,4 +206,5 @@ class AIPromptService:
         else:
             parts.append("\n" + CONFIDENCE_INSTRUCTION)
 
-        return "\n".join(parts).strip()
+        from app.services.identification import ensure_identification_prompt
+        return ensure_identification_prompt("\n".join(parts).strip())

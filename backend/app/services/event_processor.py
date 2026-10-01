@@ -1020,6 +1020,7 @@ class EventProcessor:
                         # Story P15-5.1: AI Visual Annotations
                         has_annotations=has_annotations,
                         bounding_boxes=bounding_boxes_json,
+                        identification=event_data.get("identification"),
                     )
 
                     db.add(event)
@@ -1980,6 +1981,11 @@ class EventProcessor:
             "delivery_carrier": delivery_carrier,
             "has_annotations": has_annotations,
             "bounding_boxes": bounding_boxes_json,
+            "identification": (
+                json.dumps(ai_result.identification)
+                if getattr(ai_result, "identification", None)
+                else None
+            ),
         }
 
         logger.info(f"Storing event for camera {event.camera_name}: {ai_result.description[:50]}...")

@@ -44,6 +44,27 @@ FRAME_EXTRACT_MAX_COUNT = 20  # Story P8-2.3: Changed from 10 to 20 to support c
 FRAME_JPEG_QUALITY = 85
 FRAME_MAX_WIDTH = 1280
 
+
+def offsets_to_frame_indices(offsets, fps: float, total_frames: int) -> List[int]:
+    """Map clip-relative seconds to unique frame indexes, in the given order."""
+    if fps <= 0 or total_frames <= 0:
+        return []
+    duration = total_frames / float(fps)
+    seen = set()
+    indices: List[int] = []
+    for off in offsets or []:
+        try:
+            moment = float(off)
+        except (TypeError, ValueError):
+            continue
+        moment = min(max(0.0, moment), max(0.0, duration - (1.0 / float(fps))))
+        idx = int(round(moment * float(fps)))
+        idx = min(max(0, idx), total_frames - 1)
+        if idx not in seen:
+            seen.add(idx)
+            indices.append(idx)
+    return indices
+
 # Blur detection configuration (Story P3-2.2, FR9)
 FRAME_BLUR_THRESHOLD = 100  # Laplacian variance threshold for blur detection
 FRAME_EMPTY_STD_THRESHOLD = 10  # Std deviation threshold for empty/single-color frames
@@ -130,7 +151,71 @@ class FrameExtractor:
 
         return indices
 
-    def _encode_frame(self, frame: np.ndarray) -> bytes:
+    def _indices_with_offset(
+        self,
+        *,
+        total_frames: int,
+        fps: float,
+        frame_count: int,
+        sampling_strategy: str,
+        offset_ms: int,
+        clip_path: Path,
+    ) -> List[int]:
+        """Even or adaptive candidate indexes, after the configured start offset."""
+        offset_frames = 0
+        if offset_ms > 0:
+            offset_frames = int((offset_ms / 1000.0) * fps)
+            if offset_frames >= total_frames:
+                logger.warning(
+                    f"Clip too short for offset ({total_frames} frames < {offset_frames} offset frames), using offset=0",
+                    extra={
+                        "event_type": "frame_extraction_offset_fallback",
+                        "clip_path": str(clip_path),
+                        "total_frames": total_frames,
+                        "offset_frames": offset_frames,
+                        "offset_ms": offset_ms,
+                        "fps": fps,
+                    },
+                )
+                offset_frames = 0
+            else:
+                logger.debug(
+                    f"Applying extraction offset: skipping first {offset_frames} frames ({offset_ms}ms)",
+                    extra={
+                        "event_type": "frame_extraction_offset_applied",
+                        "clip_path": str(clip_path),
+                        "offset_frames": offset_frames,
+                        "offset_ms": offset_ms,
+                        "fps": fps,
+                        "total_frames": total_frames,
+                        "remaining_frames": total_frames - offset_frames,
+                    },
+                )
+
+        available_frames = total_frames - offset_frames
+        if available_frames <= 0:
+            logger.warning(
+                "No frames available after offset",
+                extra={
+                    "event_type": "frame_extraction_no_frames_after_offset",
+                    "clip_path": str(clip_path),
+                    "total_frames": total_frames,
+                    "offset_frames": offset_frames,
+                },
+            )
+            return []
+
+        if sampling_strategy in ["adaptive", "hybrid"]:
+            candidate_count = min(available_frames, frame_count * 3)
+            relative_indices = self._calculate_frame_indices(available_frames, candidate_count)
+        else:
+            relative_indices = self._calculate_frame_indices(available_frames, frame_count)
+
+        if not relative_indices:
+            return []
+        return [idx + offset_frames for idx in relative_indices]
+
+    def _encode_frame(self, frame: np.ndarray, *, resize: bool = True) -> bytes:
         """
         Encode a frame as JPEG bytes.
 
@@ -139,6 +224,7 @@ class FrameExtractor:
 
         Args:
             frame: RGB numpy array (H, W, 3)
+            resize: When False, keep the source resolution (subject crops).
 
         Returns:
             JPEG-encoded bytes
@@ -147,7 +233,7 @@ class FrameExtractor:
         img = Image.fromarray(frame)
 
         # Resize if needed (maintain aspect ratio)
-        if img.width > self.max_width:
+        if resize and img.width > self.max_width:
             ratio = self.max_width / img.width
             new_size = (self.max_width, int(img.height * ratio))
             img = img.resize(new_size, Image.LANCZOS)
@@ -891,7 +977,8 @@ class FrameExtractor:
         strategy: str = "evenly_spaced",
         filter_blur: bool = True,
         sampling_strategy: str = "uniform",
-        offset_ms: int = 0
+        offset_ms: int = 0,
+        target_offsets_s: Optional[List[float]] = None,
     ) -> Tuple[List[bytes], List[float]]:
         """
         Extract frames from a video clip with their timestamps (Story P3-7.5, P8-2.4, P9-2.1).
@@ -911,6 +998,9 @@ class FrameExtractor:
             offset_ms: Milliseconds to skip from clip start before extracting (Story P9-2.1)
                 - Default 0 (no offset)
                 - Helps capture subject when fully in frame instead of entering/exiting
+            target_offsets_s: When set, extract these clip-relative seconds instead of
+                an even grid. ``offset_ms`` and adaptive sampling are ignored so the
+                detection peak is not dropped. Blur filtering still follows ``filter_blur``.
 
         Returns:
             Tuple of (frames, timestamps):
@@ -928,8 +1018,14 @@ class FrameExtractor:
             }
         )
 
-        # Validate frame_count within bounds
-        if frame_count < FRAME_EXTRACT_MIN_COUNT:
+        # Validate frame_count within bounds. A caller that names exact times
+        # (event-aligned sampling) is allowed to ask for fewer than the usual
+        # minimum, because those times already include the detection.
+        if target_offsets_s:
+            if len(target_offsets_s) > FRAME_EXTRACT_MAX_COUNT:
+                target_offsets_s = list(target_offsets_s)[:FRAME_EXTRACT_MAX_COUNT]
+            frame_count = max(1, len(target_offsets_s))
+        elif frame_count < FRAME_EXTRACT_MIN_COUNT:
             frame_count = FRAME_EXTRACT_MIN_COUNT
         elif frame_count > FRAME_EXTRACT_MAX_COUNT:
             frame_count = FRAME_EXTRACT_MAX_COUNT
@@ -975,74 +1071,22 @@ class FrameExtractor:
                 if total_frames <= 0:
                     return [], []
 
-                # Story P9-2.1: Apply extraction offset
-                # Skip initial frames to capture subject when fully in frame
-                offset_frames = 0
-                effective_offset_ms = offset_ms
-
-                if offset_ms > 0:
-                    offset_frames = int((offset_ms / 1000.0) * fps)
-
-                    # Handle edge case: clip shorter than offset
-                    if offset_frames >= total_frames:
-                        # Fall back to 0 offset with warning
-                        logger.warning(
-                            f"Clip too short for offset ({total_frames} frames < {offset_frames} offset frames), using offset=0",
-                            extra={
-                                "event_type": "frame_extraction_offset_fallback",
-                                "clip_path": str(clip_path),
-                                "total_frames": total_frames,
-                                "offset_frames": offset_frames,
-                                "offset_ms": offset_ms,
-                                "fps": fps
-                            }
-                        )
-                        offset_frames = 0
-                        effective_offset_ms = 0
-                    else:
-                        logger.debug(
-                            f"Applying extraction offset: skipping first {offset_frames} frames ({offset_ms}ms)",
-                            extra={
-                                "event_type": "frame_extraction_offset_applied",
-                                "clip_path": str(clip_path),
-                                "offset_frames": offset_frames,
-                                "offset_ms": offset_ms,
-                                "fps": fps,
-                                "total_frames": total_frames,
-                                "remaining_frames": total_frames - offset_frames
-                            }
-                        )
-
-                # Calculate available frames after offset
-                available_frames = total_frames - offset_frames
-
-                if available_frames <= 0:
-                    logger.warning(
-                        "No frames available after offset",
-                        extra={
-                            "event_type": "frame_extraction_no_frames_after_offset",
-                            "clip_path": str(clip_path),
-                            "total_frames": total_frames,
-                            "offset_frames": offset_frames
-                        }
-                    )
-                    return [], []
-
-                # Story P8-2.4: For adaptive/hybrid, extract more candidate frames
-                # Story P9-2.1: Use available_frames (after offset) for index calculation
-                if sampling_strategy in ["adaptive", "hybrid"]:
-                    # Extract 3x the target count as candidates for adaptive selection
-                    candidate_count = min(available_frames, frame_count * 3)
-                    relative_indices = self._calculate_frame_indices(available_frames, candidate_count)
+                if target_offsets_s:
+                    indices = offsets_to_frame_indices(target_offsets_s, fps, total_frames)
+                    if not indices:
+                        return [], []
+                    sampling_strategy = "uniform"
                 else:
-                    # Calculate which frames to extract (uniform strategy)
-                    relative_indices = self._calculate_frame_indices(available_frames, frame_count)
-
-                if not relative_indices:
-                    return [], []
-
-                # Story P9-2.1: Add offset to get actual frame indices in the video
-                indices = [idx + offset_frames for idx in relative_indices]
+                    indices = self._indices_with_offset(
+                        total_frames=total_frames,
+                        fps=fps,
+                        frame_count=frame_count,
+                        sampling_strategy=sampling_strategy,
+                        offset_ms=offset_ms,
+                        clip_path=clip_path,
+                    )
+                    if not indices:
+                        return [], []
 
                 # Extract frames at calculated indices
                 # Store as tuples: (frame_index, quality_score, rgb_array, jpeg_bytes)
@@ -1190,6 +1234,41 @@ class FrameExtractor:
                 }
             )
             return [], []
+
+    async def extract_native_jpeg_at(self, clip_path: Path, offset_s: float) -> Optional[bytes]:
+        """Decode one frame at ``offset_s`` without the 1280px downscale.
+
+        Subject crops start from this frame so a distant person is not enlarged
+        from an already-shrunk image. Returns None when the clip cannot be read.
+        """
+        try:
+            with av.open(str(clip_path)) as container:
+                if not container.streams.video:
+                    return None
+                stream = container.streams.video[0]
+                fps = float(stream.average_rate) if stream.average_rate else 30.0
+                total_frames = stream.frames
+                if not total_frames or total_frames <= 0:
+                    if container.duration and stream.average_rate:
+                        total_frames = int((container.duration / 1_000_000.0) * fps)
+                    else:
+                        return None
+                indices = offsets_to_frame_indices([offset_s], fps, total_frames)
+                if not indices:
+                    return None
+                target = indices[0]
+                for index, frame in enumerate(container.decode(video=0)):
+                    if index == target:
+                        return self._encode_frame(frame.to_ndarray(format="rgb24"), resize=False)
+                    if index > target:
+                        break
+        except Exception as exc:
+            logger.warning(
+                "Native frame decode failed: %s",
+                type(exc).__name__,
+                extra={"event_type": "native_frame_decode_failed"},
+            )
+        return None
 
     def encode_frame_for_storage(self, frame_bytes: bytes, max_width: int = 320, quality: int = 70) -> str:
         """

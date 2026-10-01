@@ -158,6 +158,9 @@ class Event(Base):
     # Story P15-5.1: AI Visual Annotations - bounding boxes for detected objects
     has_annotations = Column(Boolean, nullable=False, default=False)  # True if bounding boxes are available
     bounding_boxes = Column(Text, nullable=True)  # JSON array of bounding box objects (null = no annotations)
+    # Structured identification (object type, count, identity, action). The
+    # description column stays the human-readable sentence for existing clients.
+    identification = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

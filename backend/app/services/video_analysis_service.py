@@ -47,6 +47,7 @@ class VideoAnalysisService:
         sla_timeout_ms: int = 30000,
         custom_prompt: Optional[str] = None,
         description_prompt: Optional[str] = None,
+        fps: Optional[int] = None,
     ) -> AIResult:
         """
         Generate natural language description from video clip.
@@ -126,13 +127,16 @@ class VideoAnalysisService:
                 continue
 
             try:
-                result = await provider.describe_video(
-                    video_path=video_path,
-                    camera_name=camera_name,
-                    timestamp=timestamp,
-                    detected_objects=detected_objects,
-                    custom_prompt=effective_prompt
-                )
+                call_kwargs = {
+                    "video_path": video_path,
+                    "camera_name": camera_name,
+                    "timestamp": timestamp,
+                    "detected_objects": detected_objects,
+                    "custom_prompt": effective_prompt,
+                }
+                if fps is not None:
+                    call_kwargs["fps"] = fps
+                result = await provider.describe_video(**call_kwargs)
 
                 if result.success:
                     return result

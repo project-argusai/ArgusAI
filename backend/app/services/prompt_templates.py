@@ -44,8 +44,9 @@ Guidelines:
 - If people, vehicles, or packages are visible, describe what they are doing and how they relate to each other.
 - Mention any notable interactions or unusual behavior.
 - Be factual and avoid speculation.
+- Some images may be zoomed crops of the detected subject. Use those for detail and the full frames for action and direction.
 
-Return only the description. Do not include any preamble or explanation.
+The reply must be the identification JSON. Its description field is the human-readable summary.
 """ + NAMING_AND_CARRIER_INSTRUCTION
 
 
@@ -70,3 +71,13 @@ Return the description in natural language, followed by the bounding box data in
 
 Respond in this exact JSON format:
 {"description": "your detailed description here", "confidence": 85, "bounding_boxes": [...] }"""
+
+
+def _append_identification_schema(prompt: str) -> str:
+    from app.services.identification import IDENTIFICATION_INSTRUCTION, IDENTIFICATION_MARKER
+    if IDENTIFICATION_MARKER in prompt:
+        return prompt
+    return prompt.rstrip() + "\n" + IDENTIFICATION_INSTRUCTION
+
+
+MULTI_FRAME_SYSTEM_PROMPT = _append_identification_schema(MULTI_FRAME_SYSTEM_PROMPT)

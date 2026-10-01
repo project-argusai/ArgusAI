@@ -47,6 +47,7 @@ class ProtectAIPipeline:
         self._last_extracted_frames: List[bytes] = []
         self._last_frame_timestamps: List[float] = []
         self._last_context_bundle = None
+        self._last_subject_crop_count = 0
 
     async def submit_snapshot_for_analysis(
         self,
@@ -55,6 +56,8 @@ class ProtectAIPipeline:
         event_type: str,
         is_doorbell_ring: bool = False,
         clip_path: Optional[Path] = None,
+        detection: Optional[Any] = None,
+        clip_plan: Optional[Any] = None,
     ) -> Optional["AIResult"]:
         """
         Submit a Protect snapshot (and optional clip) to the AI pipeline.
@@ -70,6 +73,7 @@ class ProtectAIPipeline:
         self._last_extracted_frames = []
         self._last_frame_timestamps = []
         self._last_context_bundle = None
+        self._last_subject_crop_count = 0
 
         # Lazy import to avoid circular dependency
         from app.services.vision_analysis_orchestrator import get_vision_analysis_orchestrator
@@ -138,15 +142,27 @@ class ProtectAIPipeline:
                             extra={"event_type": "protect_ai_video_native_success"}
                         )
                         return video_result
+                    self._last_fallback_reason = self._last_fallback_reason or "video_native_failed"
+                    logger.warning(
+                        "Gemini native video did not succeed for camera '%s'; falling back to multi-frame",
+                        camera.name,
+                        extra={"event_type": "video_native_fallback"},
+                    )
                 except Exception as e:
-                    self._last_fallback_reason = f"video_native_failed:{str(e)}"
-                    logger.warning(f"Video native analysis failed for camera '{camera.name}', falling back: {e}")
+                    self._last_fallback_reason = f"video_native_failed:{type(e).__name__}"
+                    logger.warning(
+                        "Video native analysis failed for camera '%s', falling back: %s",
+                        camera.name,
+                        type(e).__name__,
+                    )
 
             # === Multi-frame path (for multi_frame OR as the documented fallback
             #     step for a configured video_native camera) ===
             if requested_mode in ("multi_frame", "video_native") and clip_path:
                 try:
-                    frames, timestamps = await self._extract_frames_from_clip(clip_path, camera)
+                    frames, timestamps = await self._extract_frames_from_clip(
+                        clip_path, camera, detection=detection, clip_plan=clip_plan
+                    )
                     if frames:
                         ai_result = await get_vision_analysis_orchestrator().analyze_images(
                             images=frames,  # List[bytes] or List[np.ndarray] depending on orchestrator signature
@@ -155,6 +171,7 @@ class ProtectAIPipeline:
                             detected_objects=[event_type] if event_type else None,
                             custom_prompt=custom_prompt,
                             camera_id=camera.id,
+                            subject_crop_count=self._last_subject_crop_count,
                         )
                         self._last_analysis_mode = "multi_frame"
                         self._last_frame_count = len(frames)
@@ -230,49 +247,53 @@ class ProtectAIPipeline:
             self._last_fallback_reason = f"exception:{str(e)}"
             return None
 
-    async def _extract_frames_from_clip(self, clip_path: Path, camera: Camera) -> tuple[List[bytes], List[float]]:
+    async def _extract_frames_from_clip(
+        self,
+        clip_path: Path,
+        camera: Camera,
+        detection: Optional[Any] = None,
+        clip_plan: Optional[Any] = None,
+    ) -> tuple[List[bytes], List[float]]:
         """
-        Extract key frames from a Protect motion clip using the FrameExtractor service.
+        Extract key frames from a Protect motion clip.
 
-        Returns (frames_as_bytes, timestamps)
+        Returns (frames_as_bytes, timestamps). Crop count is stored on
+        ``_last_subject_crop_count``.
+
+        With no smart-detect timing and no subject box this keeps the historical
+        extractor call (count, strategy, offset). Timing or a box switches to
+        event-aligned samples and optional crops inside the same image budget.
         """
         try:
-            import numpy as np  # used by the np.ndarray byte-conversion check below
-            from app.services.frame_extractor import get_frame_extractor
+            from app.services.event_frame_assembly import assemble_event_frames
+            from app.services.event_sampling import choose_subject_box
             from app.services.settings_service import SettingsService
             from app.core.database import get_db_session
 
-            # Honor the admin-configured frame settings (count / sampling strategy /
-            # offset) instead of hardcoding. Falls back to schema defaults when
-            # unset or invalid. These directly drive multi-frame AI cost.
             with get_db_session() as db:
                 frame_cfg = SettingsService(db).get_frame_extraction_config()
 
-            extractor = get_frame_extractor()
-            # Use extract_frames_with_timestamps (returns a (frames, timestamps)
-            # tuple). NOTE: plain extract_frames() returns only List[bytes] and
-            # takes clip_path/frame_count — the previous call used
-            # video_path=/max_frames= and unpacked two values, raising TypeError
-            # (caught below) so this returned [] and multi-frame silently
-            # degraded to single-frame even when a clip was available.
-            frames, timestamps = await extractor.extract_frames_with_timestamps(
-                clip_path=clip_path,
-                frame_count=frame_cfg["frame_count"],
-                sampling_strategy=frame_cfg["sampling_strategy"],
-                offset_ms=frame_cfg["offset_ms"],
+            timing_source = getattr(clip_plan, "source", None) or "fallback"
+            has_timing = timing_source == "smart_detect" or (
+                detection is not None and getattr(detection, "has_timing", lambda: False)()
             )
+            box = None
+            if detection is not None:
+                box = choose_subject_box(getattr(detection, "boxes", None) or [], [])
 
-            # Convert to bytes if they come back as numpy arrays
-            frame_bytes = []
-            for frame in frames:
-                if isinstance(frame, np.ndarray):
-                    import cv2
-                    _, buffer = cv2.imencode('.jpg', frame)
-                    frame_bytes.append(buffer.tobytes())
-                else:
-                    frame_bytes.append(frame)
-
-            return frame_bytes, timestamps or []
+            assembly = await assemble_event_frames(
+                clip_path,
+                frame_cfg=frame_cfg,
+                detection=detection,
+                clip_duration_s=getattr(clip_plan, "duration_s", None),
+                detection_start_s=getattr(clip_plan, "detection_start_s", None),
+                detection_end_s=getattr(clip_plan, "detection_end_s", None),
+                peak_s=getattr(clip_plan, "peak_s", None),
+                timing_source="smart_detect" if has_timing else "fallback",
+                box=box,
+            )
+            self._last_subject_crop_count = assembly.crop_count
+            return assembly.images, assembly.timestamps
 
         except Exception as e:
             logger.warning(f"Frame extraction failed for clip {clip_path}: {e}")
@@ -304,6 +325,17 @@ class ProtectAIPipeline:
 
         try:
             bundle = self._last_context_bundle
+            fps = 3
+            try:
+                from app.services.settings_service import SettingsService
+                from app.core.database import get_db_session
+                with get_db_session() as db:
+                    fps = SettingsService(db).get_frame_extraction_config()["gemini_native_video_fps"]
+            except Exception as cfg_exc:
+                logger.warning(
+                    "Gemini video fps setting unreadable; using default 3: %s",
+                    type(cfg_exc).__name__,
+                )
             result = await gemini_provider.describe_video(
                 video_path=clip_path,
                 camera_name=camera.name,
@@ -313,6 +345,7 @@ class ProtectAIPipeline:
                 ),
                 detected_objects=[event_type] if event_type else None,
                 custom_prompt=getattr(bundle, "custom_prompt", None),
+                fps=fps,
             )
 
             if result and result.success:
@@ -320,8 +353,12 @@ class ProtectAIPipeline:
 
             return None
 
-        except Exception as e:
-            logger.warning(f"Gemini native video analysis failed: {e}")
+        except Exception as exc:
+            logger.warning(
+                "Gemini native video analysis failed: %s",
+                type(exc).__name__,
+                extra={"event_type": "gemini_native_video_failed"},
+            )
             return None
 
     def _get_providers(self):

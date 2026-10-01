@@ -1,0 +1,199 @@
+"""Structured identification fields parsed from a vision-model response.
+
+The human-readable description stays in ``AIResult.description``. These fields
+are optional and never replace that sentence. Missing or unusable values become
+``unknown`` or ``cannot_tell`` rather than a guess.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Dict, Optional
+
+from app.services.ai_types import AIResult
+
+OBJECT_TYPES = ("person", "vehicle", "package", "animal", "unknown")
+CARRIERS = ("ups", "fedex", "usps", "amazon", "dhl")
+PACKAGE_VALUES = ("none", "package", "unknown", "cannot_tell", *CARRIERS)
+CANNOT_TELL = "cannot_tell"
+UNKNOWN = "unknown"
+
+IDENTIFICATION_MARKER = "IDENTIFICATION_FIELDS"
+
+IDENTIFICATION_INSTRUCTION = f"""
+{IDENTIFICATION_MARKER}
+Reply with one JSON object and no other text. The description field is the only
+text shown to people, so write it as one or two factual sentences. Use a name
+only when HISTORICAL CONTEXT lists that person or vehicle and the image matches.
+Never invent a name.
+
+Fields:
+- description: the human-readable sentences
+- object_type: person, vehicle, package, animal, or unknown
+- count: integer count of that subject, or null if you cannot tell
+- identity: the matching name from context, otherwise "unknown". Use "cannot_tell" when a subject is visible but you cannot decide whether it is a known one
+- action: a short action, or "cannot_tell"
+- direction: toward camera, away, left, right, or "cannot_tell"
+- package_or_carrier: UPS, FedEx, USPS, Amazon, DHL, "package", or "none". Use "cannot_tell" when unsure
+
+If the subject is too small, dark, or absent, set the uncertain fields to
+"unknown" or "cannot_tell" instead of guessing.
+"""
+
+
+def ensure_identification_prompt(prompt: Optional[str]) -> str:
+    """Append the identification contract once."""
+    text = (prompt or "").strip()
+    if IDENTIFICATION_MARKER in text:
+        return text
+    if not text:
+        return IDENTIFICATION_INSTRUCTION.strip()
+    return text + "\n" + IDENTIFICATION_INSTRUCTION.strip()
+
+
+def append_subject_crop_note(prompt: str, full_count: int, crop_count: int) -> str:
+    """Tell an image-only model which images are zooms of the subject."""
+    if crop_count <= 0:
+        return prompt
+    note = (
+        f"The first {full_count} image(s) are full frames in time order. "
+        f"The last {crop_count} image(s) are zoomed crops of the detected subject "
+        "from the peak moment, at higher detail. Use the crop for who or what is "
+        "there, and the full frames for action and direction."
+    )
+    if "zoomed crops of the detected subject" in (prompt or ""):
+        return prompt
+    return (prompt or "").rstrip() + "\n\n" + note
+
+
+def _clip_text(value: Any, *, empty: str, limit: int = 80) -> str:
+    if value is None:
+        return empty
+    text = str(value).strip().replace("\n", " ")
+    if not text:
+        return empty
+    return text[:limit]
+
+
+def _parse_object_type(value: Any) -> str:
+    text = _clip_text(value, empty=UNKNOWN, limit=32).lower()
+    if text in OBJECT_TYPES:
+        return text
+    if text in ("cannot_tell", "cant_tell", "can't tell", "unsure"):
+        return UNKNOWN
+    return UNKNOWN
+
+
+def _parse_count(value: Any) -> Optional[int]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and value.strip().lower() in {CANNOT_TELL, UNKNOWN, "null", "none"}:
+        return None
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    if count < 0 or count > 20:
+        return None
+    return count
+
+
+def _parse_identity(value: Any) -> str:
+    text = _clip_text(value, empty=UNKNOWN)
+    lowered = text.lower()
+    if lowered in {UNKNOWN, CANNOT_TELL, "unk", "n/a", "none"}:
+        return UNKNOWN if lowered != CANNOT_TELL else CANNOT_TELL
+    return text
+
+
+def _parse_package(value: Any) -> str:
+    text = _clip_text(value, empty=CANNOT_TELL, limit=40).lower()
+    if text in PACKAGE_VALUES:
+        return text
+    for carrier in CARRIERS:
+        if carrier in text:
+            return carrier
+    if "package" in text or "parcel" in text or "box" in text:
+        return "package"
+    if text in {"no", "false", "n/a"}:
+        return "none"
+    return CANNOT_TELL
+
+
+def empty_identification() -> Dict[str, Any]:
+    return {
+        "object_type": UNKNOWN,
+        "count": None,
+        "identity": UNKNOWN,
+        "action": CANNOT_TELL,
+        "direction": CANNOT_TELL,
+        "package_or_carrier": CANNOT_TELL,
+    }
+
+
+def _from_mapping(data: dict) -> Dict[str, Any]:
+    ident = empty_identification()
+    ident["object_type"] = _parse_object_type(data.get("object_type"))
+    ident["count"] = _parse_count(data.get("count"))
+    ident["identity"] = _parse_identity(data.get("identity"))
+    ident["action"] = _clip_text(data.get("action"), empty=CANNOT_TELL).lower()
+    if ident["action"] in {"unknown", "n/a", "none"}:
+        ident["action"] = CANNOT_TELL
+    ident["direction"] = _clip_text(data.get("direction"), empty=CANNOT_TELL).lower()
+    if ident["direction"] in {"unknown", "n/a", "none"}:
+        ident["direction"] = CANNOT_TELL
+    ident["package_or_carrier"] = _parse_package(data.get("package_or_carrier"))
+    return ident
+
+
+def parse_identification(response_text: Optional[str]) -> Dict[str, Any]:
+    """Parse structured fields. Unparseable text yields the unknown/cannot-tell set."""
+    ident = empty_identification()
+    if not response_text:
+        return ident
+    start = response_text.find("{")
+    end = response_text.rfind("}")
+    if start == -1 or end <= start:
+        return ident
+    try:
+        data = json.loads(response_text[start:end + 1])
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return ident
+    if not isinstance(data, dict):
+        return ident
+    return _from_mapping(data)
+
+
+def apply_identification(result: AIResult, raw_response: Optional[str]) -> AIResult:
+    """Attach parsed fields. A known object type fills in keyword extraction."""
+    ident = parse_identification(raw_response)
+    result.identification = ident
+    object_type = ident.get("object_type")
+    if object_type in {"person", "vehicle", "package", "animal"}:
+        current = [o for o in (result.objects_detected or []) if o and o != UNKNOWN]
+        if object_type not in current:
+            current.insert(0, object_type)
+        result.objects_detected = current or [object_type]
+    return result
+
+
+def loads_identification(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Read a stored identification JSON value. Malformed text is None."""
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return _from_mapping(data)
+
+
+def carrier_from_identification(ident: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not ident:
+        return None
+    value = str(ident.get("package_or_carrier") or "").lower()
+    if value in CARRIERS:
+        return value
+    return None

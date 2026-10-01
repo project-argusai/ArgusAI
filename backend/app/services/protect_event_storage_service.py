@@ -100,6 +100,11 @@ class ProtectEventStorageService:
             recognition_status=recognition_status,
             enriched_description=enriched_description,
             matched_entity_ids=matched_entity_ids,
+            identification=(
+                json.dumps(ai_result.identification)
+                if ai_result and getattr(ai_result, "identification", None)
+                else None
+            ),
         )
 
         if event_id_override:

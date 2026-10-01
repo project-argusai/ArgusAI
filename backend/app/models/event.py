@@ -161,6 +161,12 @@ class Event(Base):
     # Structured identification (object type, count, identity, action). The
     # description column stays the human-readable sentence for existing clients.
     identification = Column(Text, nullable=True)
+    # Protect smart-detect timing and subject box. Null on older rows and on
+    # sources that do not carry a Protect detection (RTSP, USB, camera websocket).
+    detection_start = Column(DateTime(timezone=True), nullable=True)
+    detection_end = Column(DateTime(timezone=True), nullable=True)
+    detection_peak = Column(DateTime(timezone=True), nullable=True)
+    subject_box = Column(Text, nullable=True)  # JSON {x, y, width, height, normalized, source, label}
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     # Relationships

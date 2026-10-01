@@ -326,6 +326,14 @@ class EventResponse(BaseModel):
         None,
         description="Structured identification fields (object_type, count, identity, action, direction, package_or_carrier). Unknown values are explicit.",
     )
+    # Protect smart-detect timing. Null when the event was stored without it.
+    detection_start: Optional[UTCDateTime] = Field(None, description="Protect smart-detect start")
+    detection_end: Optional[UTCDateTime] = Field(None, description="Protect smart-detect end")
+    detection_peak: Optional[UTCDateTime] = Field(None, description="Protect detection peak (clockBestWall)")
+    subject_box: Optional[dict] = Field(
+        None,
+        description="Subject rectangle from Protect or a stored detection box (x, y, width, height).",
+    )
 
     @field_validator('objects_detected', mode='before')
     @classmethod
@@ -370,6 +378,21 @@ class EventResponse(BaseModel):
         if isinstance(v, str):
             from app.services.identification import loads_identification
             return loads_identification(v)
+        return v
+
+    @field_validator('subject_box', mode='before')
+    @classmethod
+    def parse_subject_box_field(cls, v):
+        """Accept stored JSON. Malformed text becomes None so list endpoints still load."""
+        if isinstance(v, str):
+            if not v.strip():
+                return None
+            import json
+            try:
+                parsed = json.loads(v)
+            except (ValueError, TypeError):
+                return None
+            return parsed if isinstance(parsed, dict) else None
         return v
 
     @field_validator('context_stats', mode='before')

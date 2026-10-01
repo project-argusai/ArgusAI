@@ -11,10 +11,11 @@ controller in this change.
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from app.services.event_sampling import SubjectBox, coerce_protect_coord
 
@@ -133,6 +134,37 @@ def extract_detection_hints(event_obj: Any) -> DetectionHints:
         )
         return DetectionHints()
     return hints
+
+
+def subject_box_to_json(box: SubjectBox) -> str:
+    """Serialize one subject box. Callers store this on ``events.subject_box``."""
+    payload: Dict[str, Any] = {
+        "x": box.x,
+        "y": box.y,
+        "width": box.width,
+        "height": box.height,
+        "normalized": bool(box.normalized),
+        "source": box.source,
+    }
+    if box.label:
+        payload["label"] = box.label
+    return json.dumps(payload)
+
+
+def detection_column_values(hints: Optional[DetectionHints]) -> Dict[str, Any]:
+    """Column values for a new event. Empty when Protect sent no timing or box."""
+    if hints is None or not hints.has_signal():
+        return {}
+    values: Dict[str, Any] = {}
+    if hints.start is not None:
+        values["detection_start"] = hints.start
+    if hints.end is not None:
+        values["detection_end"] = hints.end
+    if hints.peak is not None:
+        values["detection_peak"] = hints.peak
+    if hints.boxes:
+        values["subject_box"] = subject_box_to_json(hints.boxes[0])
+    return values
 
 
 async def fetch_event_thumbnail_bytes(event_obj: Any) -> Optional[bytes]:

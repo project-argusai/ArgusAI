@@ -65,6 +65,10 @@ class ProtectEventStorageService:
         recognition_status: Optional[str] = None,
         enriched_description: Optional[str] = None,
         matched_entity_ids: Optional[str] = None,
+        detection_start: Optional[datetime] = None,
+        detection_end: Optional[datetime] = None,
+        detection_peak: Optional[datetime] = None,
+        subject_box: Optional[str] = None,
     ) -> Event:
         """
         Construct and persist a fully enriched Protect Event record.
@@ -106,6 +110,10 @@ class ProtectEventStorageService:
                 if ai_result
                 else None
             ),
+            detection_start=detection_start,
+            detection_end=detection_end,
+            detection_peak=detection_peak,
+            subject_box=subject_box,
         )
 
         if event_id_override:

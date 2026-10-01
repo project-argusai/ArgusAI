@@ -858,10 +858,12 @@ class ProtectEventHandler:
 
                 # Retrieve media using the new service (Phase 4)
                 from app.services.protect_detection_hints import (
+                    detection_column_values,
                     extract_detection_hints,
                     fetch_event_thumbnail_bytes,
                 )
                 detection_hints = extract_detection_hints(event_obj)
+                detection_columns = detection_column_values(detection_hints)
                 anchor_jpeg = await fetch_event_thumbnail_bytes(event_obj)
                 media = await self.media_service.get_media_for_event(
                     controller_id=controller_id,
@@ -937,6 +939,7 @@ class ProtectEventHandler:
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
                         **persist_tracking,
+                        **detection_columns,
                     )
                     if stored_event:
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
@@ -956,6 +959,7 @@ class ProtectEventHandler:
                     is_doorbell_ring=is_doorbell_ring,
                     event_id_override=generated_event_id,
                     **persist_tracking,
+                    **detection_columns,
                     **self._post_ai_context_fields(ai_result, filter_type),
                 )
 

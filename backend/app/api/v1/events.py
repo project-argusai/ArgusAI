@@ -83,10 +83,42 @@ def _event_identification(event) -> Optional[dict]:
     return loads_identification(getattr(event, "identification", None))
 
 
+def _parse_subject_box_json(raw):
+    """Return a subject-box dict, or None when the stored text is empty or malformed."""
+    import json as _json
+
+    if isinstance(raw, str):
+        if not raw.strip():
+            return None
+        try:
+            raw = _json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    if isinstance(raw, dict):
+        return raw
+    return None
+
+
+def _event_detection_fields(event) -> dict:
+    """Additive timing fields. Missing columns and malformed boxes become null."""
+    return {
+        "detection_start": getattr(event, "detection_start", None),
+        "detection_end": getattr(event, "detection_end", None),
+        "detection_peak": getattr(event, "detection_peak", None),
+        "subject_box": _parse_subject_box_json(getattr(event, "subject_box", None)),
+    }
+
+
 def _stored_subject_box(event):
-    """First stored detection box, if the event has one. Protect timing is not stored."""
+    """Prefer the persisted Protect subject box, then the first stored detection box."""
     import json as _json
     from app.services.event_sampling import box_from_mapping
+
+    parsed = _parse_subject_box_json(getattr(event, "subject_box", None))
+    if isinstance(parsed, dict):
+        box = box_from_mapping(parsed, source=str(parsed.get("source") or "stored"))
+        if box is not None:
+            return box
 
     raw = getattr(event, "bounding_boxes", None)
     if isinstance(raw, str):
@@ -100,6 +132,29 @@ def _stored_subject_box(event):
     if not isinstance(first, dict):
         return None
     return box_from_mapping(first, source="stored")
+
+
+def _reanalyze_clip_window(event):
+    """Clip bounds for reanalysis.
+
+    Stored Protect start/end produce the smart-detect window. When those
+    columns are null the window stays the event timestamp plus or minus 5 seconds.
+    """
+    from datetime import timedelta
+
+    from app.services.event_sampling import DetectionTiming, plan_clip_window
+
+    anchor = event.timestamp
+    start = getattr(event, "detection_start", None)
+    end = getattr(event, "detection_end", None)
+    peak = getattr(event, "detection_peak", None)
+    fallback = (anchor - timedelta(seconds=5), anchor + timedelta(seconds=5), None)
+    if start is None and end is None and peak is None:
+        return fallback
+    clip = plan_clip_window(DetectionTiming(start=start, end=end, peak=peak, anchor=anchor))
+    if clip.source != "smart_detect":
+        return fallback
+    return clip.start, clip.end, clip
 
 
 def _get_annotated_thumbnail_path(event) -> Optional[str]:
@@ -644,6 +699,7 @@ def list_events(
                 "bounding_boxes": getattr(event, 'bounding_boxes', None),
                 "annotated_thumbnail_path": _get_annotated_thumbnail_path(event),
                 "identification": _event_identification(event),
+                **_event_detection_fields(event),
             }
             # BUG-004: Include feedback if exists so UI can show persisted state
             if event.feedback:
@@ -1687,6 +1743,7 @@ async def get_event(
             "bounding_boxes": getattr(event, 'bounding_boxes', None),
             "annotated_thumbnail_path": _get_annotated_thumbnail_path(event),
             "identification": _event_identification(event),
+            **_event_detection_fields(event),
         }
 
         # Story P4-3.3: Add matched entity if available (AC12)
@@ -1810,6 +1867,7 @@ async def reanalyze_event(
         image_base64 = None
         frames = []
         video_path = None
+        reanalyze_clip = None
 
         if analysis_mode == 'single_frame':
             # Use stored thumbnail
@@ -1864,9 +1922,9 @@ async def reanalyze_event(
             # method (that call raised AttributeError -> reanalyze 500).
             clip_service = get_clip_service()
 
-            # Determine clip time range (use event timestamp +/- 5 seconds)
-            event_start = event.timestamp - timedelta(seconds=5)
-            event_end = event.timestamp + timedelta(seconds=5)
+            # Stored Protect timing uses the smart-detect window. Older events
+            # keep the event timestamp plus or minus 5 seconds.
+            event_start, event_end, reanalyze_clip = _reanalyze_clip_window(event)
 
             try:
                 clip_path = await clip_service.download_clip(
@@ -1935,21 +1993,35 @@ async def reanalyze_event(
 
         elif analysis_mode == 'multi_frame' and video_path:
             # Honor the admin-configured frame budget. A stored detection box
-            # replaces one full frame with a crop. With no box, keep the previous
-            # extract_frames call. The clip window stays the event timestamp +/- 5s.
+            # replaces one full frame with a crop. Stored Protect timing samples
+            # the smart-detect window. With neither, keep the previous extract_frames call.
             from app.services.settings_service import SettingsService
             frame_cfg = SettingsService(db).get_frame_extraction_config()
             frame_extractor = FrameExtractor()
             subject_crop_count = 0
             stored_box = _stored_subject_box(event)
-            if stored_box is not None and int(frame_cfg.get("subject_crop_count") or 0) > 0:
+            use_aligned = reanalyze_clip is not None
+            use_crop = stored_box is not None and int(frame_cfg.get("subject_crop_count") or 0) > 0
+            if use_aligned or use_crop:
                 from app.services.event_frame_assembly import assemble_event_frames
-                assembly = await assemble_event_frames(
-                    video_path,
-                    frame_cfg=frame_cfg,
-                    timing_source="fallback",
-                    box=stored_box,
-                )
+                if use_aligned:
+                    assembly = await assemble_event_frames(
+                        video_path,
+                        frame_cfg=frame_cfg,
+                        timing_source="smart_detect",
+                        clip_duration_s=reanalyze_clip.duration_s,
+                        detection_start_s=reanalyze_clip.detection_start_s,
+                        detection_end_s=reanalyze_clip.detection_end_s,
+                        peak_s=reanalyze_clip.peak_s,
+                        box=stored_box,
+                    )
+                else:
+                    assembly = await assemble_event_frames(
+                        video_path,
+                        frame_cfg=frame_cfg,
+                        timing_source="fallback",
+                        box=stored_box,
+                    )
                 extracted_frames = assembly.images
                 subject_crop_count = assembly.crop_count
             else:
@@ -2109,6 +2181,7 @@ async def reanalyze_event(
             has_annotations=event.has_annotations,
             bounding_boxes=event.bounding_boxes,
             identification=_event_identification(event),
+            **_event_detection_fields(event),
         )
 
     except HTTPException:

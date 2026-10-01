@@ -353,6 +353,12 @@ def test_compare_script_dry_run_writes_json_and_markdown(tmp_path):
     assert cli_report["dry_run"] is True
     assert cli_report["ai_calls"] == 0
 
+    default_code = module.main(["--fixture", str(fixture), "--output-dir", str(tmp_path / "default")])
+    assert default_code == 0
+    default_report = json.loads((tmp_path / "default" / "comparison.json").read_text(encoding="utf-8"))
+    assert default_report["dry_run"] is True
+    assert default_report["ai_calls"] == 0
+
 
 def test_compare_describer_fills_fields_without_a_database(tmp_path):
     module = _load_compare_script()
@@ -416,3 +422,472 @@ def test_compare_database_access_is_read_only(tmp_path):
     module.assert_read_only("SELECT id FROM events")
     with pytest.raises(SystemExit):
         module.load_events_from_db(url, limit=1, event_ids=["not an id"])
+
+
+def test_event_detection_columns_are_nullable():
+    from app.models.event import Event
+
+    for name in ("detection_start", "detection_end", "detection_peak", "subject_box"):
+        assert Event.__table__.c[name].nullable is True
+
+
+def test_detection_column_values_store_timing_and_box():
+    from app.services.protect_detection_hints import DetectionHints, detection_column_values
+
+    assert detection_column_values(DetectionHints()) == {}
+    assert detection_column_values(None) == {}
+    box = SubjectBox(0.1, 0.2, 0.3, 0.4, source="protect", label="person", normalized=True)
+    hints = DetectionHints(
+        start=ANCHOR,
+        end=ANCHOR + timedelta(seconds=4),
+        peak=ANCHOR + timedelta(seconds=2),
+        boxes=[box],
+    )
+    values = detection_column_values(hints)
+    assert values["detection_start"] == ANCHOR
+    assert values["detection_end"] == ANCHOR + timedelta(seconds=4)
+    assert values["detection_peak"] == ANCHOR + timedelta(seconds=2)
+    parsed = json.loads(values["subject_box"])
+    assert parsed["width"] == 0.3
+    assert parsed["label"] == "person"
+    assert parsed["normalized"] is True
+
+
+def test_detection_fields_drop_a_malformed_box():
+    from types import SimpleNamespace
+    from app.api.v1.events import _event_detection_fields, _reanalyze_clip_window
+
+    event = SimpleNamespace(
+        timestamp=ANCHOR,
+        detection_start=None,
+        detection_end=None,
+        detection_peak=None,
+        subject_box="{not-json",
+    )
+    assert _event_detection_fields(event)["subject_box"] is None
+
+    start, end, clip = _reanalyze_clip_window(event)
+    assert clip is None
+    assert start == ANCHOR - timedelta(seconds=5)
+    assert end == ANCHOR + timedelta(seconds=5)
+
+    timed = SimpleNamespace(
+        timestamp=ANCHOR,
+        detection_start=ANCHOR,
+        detection_end=ANCHOR + timedelta(seconds=4),
+        detection_peak=ANCHOR + timedelta(seconds=2),
+        subject_box=json.dumps({"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4}),
+    )
+    start, end, clip = _reanalyze_clip_window(timed)
+    assert clip is not None
+    assert clip.source == "smart_detect"
+    assert start < ANCHOR
+    assert end > ANCHOR + timedelta(seconds=4)
+    assert _event_detection_fields(timed)["subject_box"]["width"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_persist_protect_event_stores_detection_columns():
+    from types import SimpleNamespace
+    from app.services.protect_event_storage_service import ProtectEventStorageService
+
+    service = ProtectEventStorageService()
+    db = MagicMock()
+    camera = SimpleNamespace(id="cam-1", name="Gate")
+    snap = SimpleNamespace(timestamp=ANCHOR, thumbnail_path=None)
+    event = await service.persist_protect_event(
+        db=db,
+        camera=camera,
+        snapshot_result=snap,
+        ai_result=None,
+        protect_event_id="protect-1",
+        event_type="person",
+        detection_start=ANCHOR,
+        detection_end=ANCHOR + timedelta(seconds=4),
+        detection_peak=ANCHOR + timedelta(seconds=2),
+        subject_box='{"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4}',
+    )
+    assert event.detection_start == ANCHOR
+    assert event.detection_peak == ANCHOR + timedelta(seconds=2)
+    assert event.subject_box.startswith("{")
+    db.add.assert_called_once()
+    db.commit.assert_called_once()
+
+
+def test_load_events_prefers_subject_box_and_omits_controller_secrets(tmp_path):
+    module = _load_compare_script()
+    from sqlalchemy import create_engine, text
+
+    url = f"sqlite:///{tmp_path / 'events.db'}"
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE events (id TEXT PRIMARY KEY, timestamp TEXT, bounding_boxes TEXT, "
+            "smart_detection_type TEXT, protect_event_id TEXT, camera_id TEXT, video_path TEXT, "
+            "detection_start TEXT, detection_end TEXT, detection_peak TEXT, subject_box TEXT)"
+        ))
+        conn.execute(text(
+            "CREATE TABLE cameras (id TEXT PRIMARY KEY, protect_controller_id TEXT, "
+            "protect_camera_id TEXT, host TEXT, password TEXT)"
+        ))
+        conn.execute(
+            text(
+                "INSERT INTO cameras (id, protect_controller_id, protect_camera_id, host, password) "
+                "VALUES (:id, :controller, :camera, :host, :password)"
+            ),
+            {
+                "id": "cam-1",
+                "controller": "abcdef12-3456-7890-abcd-ef1234567890",
+                "camera": "pcam",
+                "host": "controller.invalid",
+                "password": "fixture-password",
+            },
+        )
+        conn.execute(
+            text(
+                "INSERT INTO events (id, timestamp, bounding_boxes, smart_detection_type, "
+                "protect_event_id, camera_id, video_path, detection_start, detection_end, "
+                "detection_peak, subject_box) VALUES (:id, :timestamp, :boxes, :kind, "
+                ":protect_id, :camera_id, NULL, :start, :end, :peak, :box)"
+            ),
+            {
+                "id": "abcdef12-3456-7890-abcd-ef1234567890",
+                "timestamp": "2026-01-01T12:00:00",
+                "boxes": '[{"x": 9, "y": 9, "width": 9, "height": 9}]',
+                "kind": "person",
+                "protect_id": "protect-1",
+                "camera_id": "cam-1",
+                "start": "2026-01-01T12:00:00+00:00",
+                "end": "2026-01-01T12:00:04+00:00",
+                "peak": "2026-01-01T12:00:02+00:00",
+                "box": '{"x": 0.2, "y": 0.2, "width": 0.3, "height": 0.4}',
+            },
+        )
+
+    loaded = module.load_events_from_db(
+        url,
+        limit=5,
+        event_ids=["abcdef12-3456-7890-abcd-ef1234567890"],
+    )
+    assert loaded[0]["box"]["x"] == 0.2
+    assert loaded[0]["protect_event_id"] == "protect-1"
+    assert loaded[0]["protect_controller_id"].startswith("abcdef12")
+    assert "host" not in loaded[0]
+    assert "password" not in loaded[0]
+    blob = json.dumps(loaded)
+    assert "controller.invalid" not in blob
+    assert "fixture-password" not in blob
+    report = module.build_report(loaded, dry_run=True)
+    assert report["events"][0]["new"]["window_source"] == "smart_detect"
+
+
+@pytest.mark.asyncio
+async def test_fetch_protect_timing_maps_hints_without_connect(caplog):
+    module = _load_compare_script()
+    from app.services.protect_service import ProtectService
+
+    start = ANCHOR
+    end = ANCHOR + timedelta(seconds=4)
+    peak = ANCHOR + timedelta(seconds=2)
+    from types import SimpleNamespace
+
+    fake_event = SimpleNamespace(
+        start=start,
+        end=end,
+        metadata=SimpleNamespace(detected_thumbnails=[
+            SimpleNamespace(
+                confidence=90,
+                clock_best_wall=peak,
+                coord=[400, 300, 200, 400],
+                type="person",
+            )
+        ]),
+    )
+
+    closed = {"n": 0}
+
+    class FakeClient:
+        async def get_event(self, event_id):
+            assert event_id == "protect-evt-1"
+            return fake_event
+
+        async def close_session(self):
+            closed["n"] += 1
+
+    events = [{
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "protect_event_id": "protect-evt-1",
+        "protect_controller_id": "abcdef12-3456-7890-abcd-ef1234567890",
+    }]
+
+    async def open_client(controller_id):
+        assert controller_id.startswith("abcdef12")
+        return FakeClient()
+
+    with patch.object(ProtectService, "connect", side_effect=AssertionError("connect")):
+        with caplog.at_level("WARNING"):
+            await module.enrich_events_with_protect(events, open_client)
+
+    assert closed["n"] == 1
+    assert events[0]["timing_fetch"] == "ok"
+    report = module.build_report(events, dry_run=True)
+    assert report["events"][0]["new"]["window_source"] == "smart_detect"
+    blob = json.dumps(report)
+    assert "controller.invalid" not in blob
+    assert "fixture-password" not in blob
+
+
+@pytest.mark.asyncio
+async def test_protect_lookup_failure_does_not_record_secrets(caplog, monkeypatch):
+    module = _load_compare_script()
+    import sys
+    import types
+    from app.services.protect_service import ProtectService
+
+    created = {}
+
+    class FakeApi:
+        def __init__(self, **kwargs):
+            created.update(kwargs)
+
+        async def update(self):
+            created["updated"] = True
+
+        async def close_session(self):
+            created["closed"] = True
+
+    fake_mod = types.ModuleType("uiprotect")
+    fake_mod.ProtectApiClient = FakeApi
+    monkeypatch.setitem(sys.modules, "uiprotect", fake_mod)
+    monkeypatch.setattr(ProtectService, "connect", AsyncMock(side_effect=AssertionError("connect")))
+
+    with caplog.at_level("WARNING"):
+        client = await module.open_readonly_protect_client({
+            "host": "controller.invalid",
+            "port": 443,
+            "username": "fixture-user",
+            "password": "fixture-password",
+            "verify_ssl": False,
+        })
+    assert client is not None
+    assert created["updated"] is True
+    assert created["host"] == "controller.invalid"
+    assert ProtectService.connect.await_count == 0
+
+    class Boom(Exception):
+        pass
+
+    class BadClient:
+        async def get_event(self, event_id):
+            raise Boom("controller.invalid fixture-password")
+
+        async def close_session(self):
+            created["bad_closed"] = True
+
+    events = [{
+        "id": "abcdef12-3456-7890-abcd-ef1234567890",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "protect_event_id": "protect-evt-1",
+        "protect_controller_id": "controller-1",
+        "box": {"x": 0.2, "y": 0.2, "width": 0.2, "height": 0.2},
+    }]
+
+    async def open_client(controller_id):
+        return BadClient()
+
+    with caplog.at_level("WARNING"):
+        await module.enrich_events_with_protect(events, open_client)
+
+    assert events[0]["timing_fetch"] == "Boom"
+    assert events[0]["box"]["x"] == 0.2
+    report = module.build_report(events, dry_run=True)
+    blob = json.dumps(report)
+    assert "controller.invalid" not in blob
+    assert "fixture-password" not in blob
+    assert "controller.invalid" not in caplog.text
+    assert "fixture-password" not in caplog.text
+    assert created["bad_closed"] is True
+
+
+def test_live_without_yes_prints_estimate_and_stops(tmp_path, capsys, monkeypatch):
+    module = _load_compare_script()
+    fixture = tmp_path / "events.json"
+    fixture.write_text(json.dumps({"events": [{
+        "id": "evt-timed",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "frame_count": 4,
+    }]}), encoding="utf-8")
+
+    async def chain(*args, **kwargs):
+        raise AssertionError("provider chain must not run")
+
+    monkeypatch.setattr(module, "run_provider_chain", chain)
+    with pytest.raises(SystemExit):
+        module.main([
+            "--fixture", str(fixture),
+            "--live",
+            "--output-dir", str(tmp_path / "out"),
+        ])
+    out = capsys.readouterr().out
+    assert "Estimated cost before any vision call" in out
+    assert "--yes" in out
+    report = json.loads((tmp_path / "out" / "comparison.json").read_text(encoding="utf-8"))
+    assert report["dry_run"] is True
+    assert report["live_started"] is False
+    assert report["ai_calls"] == 0
+    assert report["blocked"] == "confirmation_required"
+
+
+def test_live_limit_and_dry_run_flags_fail_closed(tmp_path):
+    module = _load_compare_script()
+    with pytest.raises(SystemExit):
+        module.main([
+            "--fixture", str(tmp_path / "unused.json"),
+            "--live",
+            "--yes",
+            "--limit", "26",
+            "--output-dir", str(tmp_path / "out"),
+        ])
+    with pytest.raises(SystemExit, match="cannot be combined"):
+        module.main([
+            "--live",
+            "--dry-run",
+            "--output-dir", str(tmp_path / "out"),
+        ])
+
+
+@pytest.mark.asyncio
+async def test_run_provider_chain_falls_through_without_a_database(monkeypatch):
+    module = _load_compare_script()
+    from types import SimpleNamespace
+
+    def boom_db():
+        raise AssertionError("database opened")
+
+    monkeypatch.setattr("app.core.database.get_db_session", boom_db)
+
+    class Fail:
+        async def generate_multi_image_description(self, **kwargs):
+            return SimpleNamespace(
+                success=False,
+                error="timed out waiting",
+                description=None,
+                provider="bad",
+                tokens_used=1,
+                response_time_ms=5,
+                identification=None,
+            )
+
+    class Ok:
+        async def generate_multi_image_description(self, **kwargs):
+            return SimpleNamespace(
+                success=True,
+                error=None,
+                description="A person walks past.",
+                provider="fake",
+                tokens_used=12,
+                response_time_ms=40,
+                identification={"object_type": "person", "identity": "unknown"},
+            )
+
+    result = await module.run_provider_chain(
+        [Fail(), Ok()],
+        ["aaaa"],
+        "prompt",
+        "Gate",
+        "2026-01-01T00:00:00Z",
+        ["person"],
+    )
+    assert result["provider"] == "fake"
+    assert result["tokens_used"] == 12
+    assert result["latency_ms"] == 40
+    assert result["description"] == "A person walks past."
+    assert result["identification"]["identity"] == "unknown"
+    assert result["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_live_temp_clips_are_deleted(tmp_path, monkeypatch):
+    module = _load_compare_script()
+    events = [{
+        "id": "evt-1",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "protect_camera_id": "cam",
+        "protect_controller_id": "ctl",
+        "frame_count": 2,
+        "subject_crop_count": 0,
+        "smart_detection_type": "person",
+    }]
+    report = module.build_report(events, dry_run=True, frame_count=2, subject_crop_count=0)
+    created = []
+
+    async def download(controller_id, camera_id, start, end, output_file):
+        path = Path(output_file)
+        assert "data/clips" not in path.as_posix()
+        path.write_bytes(b"fake-mp4")
+        created.append(path)
+
+    async def images(clip_path, plan, box):
+        assert Path(clip_path).is_file()
+        return ["aaaa"]
+
+    async def chain(*args, **kwargs):
+        return {
+            "description": "A person walks past.",
+            "identification": {"identity": "unknown"},
+            "provider": "fake",
+            "latency_ms": 3,
+            "tokens_used": 9,
+            "error": None,
+        }
+
+    monkeypatch.setattr(module, "images_from_plan", images)
+    monkeypatch.setattr(module, "run_provider_chain", chain)
+    await module.fill_live_descriptions(events, report, providers=[object()], download=download)
+    assert len(created) == 2
+    assert all(not path.exists() for path in created)
+    assert report["dry_run"] is False
+    assert report["ai_calls"] == 2
+    assert report["events"][0]["old"]["tokens_used"] == 9
+    assert report["events"][0]["new"]["provider"] == "fake"
+    assert not (tmp_path / "data" / "clips").exists()
+
+
+@pytest.mark.asyncio
+async def test_stored_clip_is_not_deleted(tmp_path, monkeypatch):
+    module = _load_compare_script()
+    clip = tmp_path / "kept.mp4"
+    clip.write_bytes(b"stored")
+    events = [{
+        "id": "evt",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "video_path": str(clip),
+        "frame_count": 2,
+        "subject_crop_count": 0,
+    }]
+    report = module.build_report(events, dry_run=True, frame_count=2, subject_crop_count=0)
+
+    async def download(*args, **kwargs):
+        raise AssertionError("stored clip must not be downloaded again")
+
+    async def images(clip_path, plan, box):
+        assert Path(clip_path) == clip
+        return ["aaaa"]
+
+    async def chain(*args, **kwargs):
+        return {
+            "description": "A person walks past.",
+            "identification": {"identity": "unknown"},
+            "provider": "fake",
+            "latency_ms": 1,
+            "tokens_used": 2,
+            "error": None,
+        }
+
+    monkeypatch.setattr(module, "images_from_plan", images)
+    monkeypatch.setattr(module, "run_provider_chain", chain)
+    await module.fill_live_descriptions(events, report, providers=[object()], download=download)
+    assert clip.is_file() and clip.read_bytes() == b"stored"
+    assert report["events"][0]["clip_note"] == "stored_clip_offsets_are_file_offsets"
+

@@ -11,6 +11,7 @@ import anthropic
 
 from .base import AIProviderBase
 from app.services.ai_types import AIResult
+from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
 from app.services.ocr_service import OCRResult
 
 
@@ -42,7 +43,7 @@ class ClaudeProvider(AIProviderBase):
 
             response = await self.client.messages.create(
                 model=self.model,
-                max_tokens=300,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 messages=[
                     {
                         "role": "user",
@@ -132,7 +133,7 @@ class ClaudeProvider(AIProviderBase):
 
             response = await self.client.messages.create(
                 model=self.model,
-                max_tokens=500,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 messages=[{"role": "user", "content": content}],
                 timeout=20.0
             )

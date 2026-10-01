@@ -317,9 +317,40 @@ def test_identification_prompt_appends_once_and_multi_frame_still_formats():
     twice = ensure_identification_prompt(once)
     assert once == twice
     assert IDENTIFICATION_MARKER in once
+    assert "3 to 6 sentences" in once
+    assert "licence plate" in once
+    assert "no person, vehicle, animal, or package is visible" in once
     formatted = MULTI_FRAME_SYSTEM_PROMPT.format(num_frames=4)
     assert "4" in formatted
     assert IDENTIFICATION_MARKER in formatted
+    assert "1-2 concise" not in formatted
+
+
+def test_description_output_budget_covers_a_paragraph_on_every_provider():
+    import inspect
+
+    from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
+    from app.services.ai_providers.claude_provider import ClaudeProvider
+    from app.services.ai_providers.gemini_provider import GeminiProvider
+    from app.services.ai_providers.grok_provider import GrokProvider
+    from app.services.ai_providers.openai_provider import OpenAIProvider
+    from app.services.litellm_provider import LiteLLMProvider
+
+    assert DESCRIPTION_MAX_OUTPUT_TOKENS >= 1024
+    methods = [
+        OpenAIProvider.generate_description,
+        OpenAIProvider.generate_multi_image_description,
+        ClaudeProvider.generate_description,
+        ClaudeProvider.generate_multi_image_description,
+        GrokProvider.generate_description,
+        GrokProvider.generate_multi_image_description,
+        GeminiProvider.generate_description,
+        GeminiProvider.generate_multi_image_description,
+        GeminiProvider.describe_video,
+        LiteLLMProvider.describe_images,
+    ]
+    for method in methods:
+        assert "DESCRIPTION_MAX_OUTPUT_TOKENS" in inspect.getsource(method)
 
 
 def test_extract_frames_rejects_the_old_gemini_arguments():

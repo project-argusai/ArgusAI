@@ -11,6 +11,7 @@ import openai
 
 from .base import AIProviderBase
 from app.services.ai_types import AIResult
+from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
 from app.services.ocr_service import OCRResult
 
 
@@ -58,7 +59,7 @@ class OpenAIProvider(AIProviderBase):
                         ]
                     }
                 ],
-                max_tokens=300,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 timeout=10.0
             )
 
@@ -135,7 +136,7 @@ class OpenAIProvider(AIProviderBase):
                     {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": content}
                 ],
-                max_tokens=500,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 timeout=15.0
             )
 

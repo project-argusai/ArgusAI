@@ -14,7 +14,10 @@ import google.generativeai as genai
 
 from .base import AIProviderBase
 from app.services.ai_types import AIResult
-from app.services.identification import ensure_identification_prompt
+from app.services.identification import (
+    DESCRIPTION_MAX_OUTPUT_TOKENS,
+    ensure_identification_prompt,
+)
 from app.services.ocr_service import OCRResult
 
 logger = logging.getLogger(__name__)
@@ -56,7 +59,7 @@ class GeminiProvider(AIProviderBase):
                     user_prompt,
                     {"mime_type": "image/jpeg", "data": image_base64}
                 ],
-                generation_config={"max_output_tokens": 300}
+                generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS}
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -117,7 +120,10 @@ class GeminiProvider(AIProviderBase):
             for img in images_base64:
                 parts.append({"mime_type": "image/jpeg", "data": img})
 
-            response = await self.model.generate_content_async(parts)
+            response = await self.model.generate_content_async(
+                parts,
+                generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
+            )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
             raw_response = response.text.strip() if response.text else ""
@@ -196,13 +202,13 @@ class GeminiProvider(AIProviderBase):
                     parts = [prompt, {"mime_type": "video/mp4", "data": video_bytes}]
                     response = await self.model.generate_content_async(
                         parts,
-                        generation_config={"max_output_tokens": 500},
+                        generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
                     )
                 else:
                     uploaded = _upload_gemini_file(payload)
                     response = await self.model.generate_content_async(
                         [prompt, uploaded],
-                        generation_config={"max_output_tokens": 500},
+                        generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
                     )
             finally:
                 if owns_payload:

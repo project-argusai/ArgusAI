@@ -18,6 +18,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from litellm import Router, completion_cost
+
+from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
 import litellm
 
 logger = logging.getLogger(__name__)
@@ -239,7 +241,7 @@ class LiteLLMProvider:
             response = await self.router.acompletion(
                 model="vision",
                 messages=messages,
-                max_tokens=500,
+                max_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
                 temperature=0.4,
             )
 

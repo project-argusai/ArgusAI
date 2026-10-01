@@ -30,17 +30,34 @@ UNKNOWN = "unknown"
 
 IDENTIFICATION_MARKER = "IDENTIFICATION_FIELDS"
 
+# Output budget for a 3–6 sentence description plus the identification JSON.
+# 300–500 tokens truncated that paragraph on the live comparison.
+DESCRIPTION_MAX_OUTPUT_TOKENS = 1024
+
 IDENTIFICATION_INSTRUCTION = f"""
 {IDENTIFICATION_MARKER}
 Reply with one JSON object and no other text. The description field is the only
-text shown to people, so write it as one or two factual sentences. Use a name
-only when HISTORICAL CONTEXT lists that person or vehicle and the image matches.
-Never invent a name. Do not infer motion, identity, or an object you cannot
-see. A camera label, a detector type, or a closer crop is not evidence that a
-subject is present.
+text shown to people. Write it as 3 to 6 sentences, a short paragraph, with the
+detail of a full security-camera description. If an earlier line asked for one
+or two sentences, follow this length instead.
+
+Cover what is visible:
+- who or what: clothing, apparent age or build, vehicle make, model and color, or animal type
+- what they do across the frames, in time order
+- where they are in the scene
+- direction of travel
+- anything carried or delivered
+- other activity that matters to the event
+
+Do not inventory static scenery such as furniture, plants, or decorations unless
+it matters to the event. Do not read, transcribe, or quote a licence plate or
+license plate. Do not guess an identity. Use a name only when HISTORICAL CONTEXT
+lists that person or vehicle and the image matches. Never invent a name. Do not
+infer motion, identity, or an object you cannot see. A camera label, a detector
+type, or a closer crop is not evidence that a subject is present.
 
 Fields:
-- description: the human-readable sentences
+- description: the 3 to 6 sentence paragraph. When object_type is "none", say plainly that no person, vehicle, animal, or package is visible, and do not invent one
 - object_type: person, vehicle, package, animal, "none" when nothing of interest is there, or unknown
 - count: integer count of that subject, 0 when object_type is "none", or null if you cannot tell
 - identity: the matching name from context, otherwise "unknown". Use "cannot_tell" when a subject is visible but you cannot decide whether it is a known one
@@ -49,8 +66,9 @@ Fields:
 - package_or_carrier: UPS, FedEx, USPS, Amazon, DHL, "package", or "none". Use "cannot_tell" when unsure
 
 If the frames show no person, vehicle, package, or animal, set object_type to
-"none", count to 0, and action and direction to "cannot_tell". If a subject is
-too small or too dark to identify, use "unknown" or "cannot_tell" instead of guessing.
+"none", count to 0, and action and direction to "cannot_tell". The description
+must say that plainly and must not invent a subject. If a subject is too small
+or too dark to identify, use "unknown" or "cannot_tell" instead of guessing.
 """
 
 

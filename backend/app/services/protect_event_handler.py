@@ -23,16 +23,20 @@ Event Flow:
             ↓
     5. Check event type matches filter
             ↓ (if not matching → discard)
-    6. Check deduplication cooldown
+    6. If this protect_event_id is already stored or in flight, merge new
+       detection types and skip AI / notification (the 60s camera cooldown
+       expires before Protect's update for the same event)
+            ↓ (if known id → discard)
+    7. Check deduplication cooldown
             ↓ (if duplicate → discard)
-    7. Retrieve snapshot (Story P2-3.2)
+    8. Retrieve snapshot (Story P2-3.2)
             ↓
-    8. Submit to AI pipeline (Story P2-3.3)
+    9. Submit to AI pipeline (Story P2-3.3)
             ↓
-    9. Store event in database (Story P2-3.3)
+    10. Store event in database (Story P2-3.3)
             ↓
-    10. Broadcast EVENT_CREATED via WebSocket (Story P2-3.3)
-    11. Trigger HomeKit doorbell if ring event (Story P5-1.7)
+    11. Broadcast EVENT_CREATED via WebSocket (Story P2-3.3)
+    12. Trigger HomeKit doorbell if ring event (Story P5-1.7)
 """
 import asyncio
 import base64
@@ -302,6 +306,8 @@ class ProtectEventHandler:
         Returns:
             True if event was processed, False if filtered/skipped
         """
+        reservation_pid: Optional[str] = None
+        keep_reservation = False
         try:
             # Extract new_obj from message
             new_obj = getattr(msg, 'new_obj', None)
@@ -402,6 +408,20 @@ class ProtectEventHandler:
 
                 # Load and check smart_detection_types filter (AC5, AC6, AC7, AC8)
                 smart_detection_types = self._load_smart_detection_types(camera)
+                protect_event_id = self._extract_protect_event_id(msg)
+                accepted_types = self._accepted_filter_types(
+                    event_types, smart_detection_types, camera.name
+                )
+                # Same Protect id (a type added later, or the event ending) must
+                # not start a second analysis once the 60s camera cooldown ends.
+                if accepted_types and self._absorb_known_protect_event(
+                    db,
+                    camera,
+                    protect_event_id,
+                    accepted_types,
+                    is_doorbell_ring="ring" in accepted_types,
+                ):
+                    return False
 
                 for event_type in event_types:
                     # Map event type to filter type
@@ -416,6 +436,21 @@ class ProtectEventHandler:
                     # Check deduplication cooldown (delegated to ProtectEventFilter)
                     if self.event_filter.is_duplicate_event(camera.id, camera.name):
                         continue
+
+                    # Reserve the Protect id before any await so a concurrent
+                    # update cannot also pass the database lookup.
+                    if protect_event_id and not self.event_filter.try_begin_protect_event(
+                        protect_event_id
+                    ):
+                        self._absorb_known_protect_event(
+                            db,
+                            camera,
+                            protect_event_id,
+                            accepted_types,
+                            is_doorbell_ring="ring" in accepted_types,
+                        )
+                        return False
+                    reservation_pid = protect_event_id
 
                     # Event passed all filters - record it in the filter for cooldown tracking
                     self.event_filter.record_event(camera.id)
@@ -464,10 +499,6 @@ class ProtectEventHandler:
                             except Exception:
                                 pass  # Best effort cleanup
                         return False
-
-                    # Story P2-3.3: Submit to AI pipeline
-                    # Extract protect_event_id from WebSocket message
-                    protect_event_id = self._extract_protect_event_id(msg)
 
                     # Story P2-4.1 AC6: For doorbell rings, broadcast DOORBELL_RING immediately
                     # before AI processing for fast notification
@@ -525,19 +556,30 @@ class ProtectEventHandler:
                     if not ai_result or not ai_result.success:
                         # Story P3-3.5 AC3: Complete failure - all analysis modes exhausted
                         # Create event with "AI analysis unavailable" instead of returning False
+                        from app.services.ai_provider_order import analysis_failure_log_detail
+                        from app.services.protect_event_storage_service import (
+                            ai_response_time_ms_from_result,
+                        )
+
                         logger.error(
-                            f"AI pipeline completely failed for camera '{camera.name}' - saving event without description",
+                            "AI pipeline completely failed for camera '%s' - saving event without description",
+                            camera.name,
                             extra={
                                 "event_type": "protect_ai_complete_failure",
                                 "camera_id": camera.id,
                                 "camera_name": camera.name,
                                 "event_id": generated_event_id,
-                                "error": ai_result.error if ai_result else "No result",
+                                "error": (
+                                    analysis_failure_log_detail(ai_result.error)
+                                    if ai_result and ai_result.error
+                                    else "no_result"
+                                ),
                                 "fallback_chain": getattr(self, '_fallback_chain', [])
                             }
                         )
 
-                        # Store via new service (no AI result)
+                        # Store via new service (no AI result). Keep the vision-call
+                        # duration even though the description itself was not saved.
                         stored_event = await self.storage_service.persist_protect_event(
                             db=db,
                             camera=camera,
@@ -547,10 +589,15 @@ class ProtectEventHandler:
                             event_type=filter_type,
                             is_doorbell_ring=is_doorbell_ring,
                             event_id_override=generated_event_id,
+                            ai_response_time_ms=ai_response_time_ms_from_result(ai_result),
                             **persist_tracking,
                         )
 
                         if stored_event:
+                            keep_reservation = True
+                            self._apply_pending_protect_update(
+                                db, stored_event, protect_event_id
+                            )
                             # Broadcast the event even without AI description
                             await self.broadcaster.broadcast_event_created(stored_event, camera)
                             asyncio.create_task(self._process_correlation(stored_event))
@@ -576,6 +623,9 @@ class ProtectEventHandler:
 
                     if not stored_event:
                         return False
+
+                    keep_reservation = True
+                    self._apply_pending_protect_update(db, stored_event, protect_event_id)
 
                     await self._store_protect_embedding(stored_event.id)
 
@@ -622,6 +672,9 @@ class ProtectEventHandler:
                 }
             )
             return False
+        finally:
+            if reservation_pid and not keep_reservation:
+                self.event_filter.abandon_protect_event(reservation_pid)
 
     def _parse_event_types(self, obj: Any, model_type: str) -> List[str]:
         """
@@ -701,6 +754,8 @@ class ProtectEventHandler:
         Returns:
             True if event was processed, False if filtered/skipped
         """
+        reservation_pid: Optional[str] = None
+        keep_reservation = False
         try:
             # Get event properties
             event_type = getattr(event_obj, 'type', None)
@@ -814,6 +869,29 @@ class ProtectEventHandler:
                     )
                     return False
 
+                filter_types = []
+                for evt_type in matching_types:
+                    mapped = EVENT_TYPE_MAPPING.get(evt_type)
+                    if mapped and mapped not in filter_types:
+                        filter_types.append(mapped)
+
+                # Determine if this is a doorbell ring before the id check so a
+                # ring update can set the flag without sending a second alert.
+                is_doorbell_ring = event_type == ProtectEventType.RING
+                protect_event_id = str(protect_event_id) if protect_event_id else None
+
+                # A Protect update for an id we already stored (often ~60s later,
+                # when a smart-detect type is added or the event ends) must not
+                # run AI or send another notification.
+                if self._absorb_known_protect_event(
+                    db,
+                    camera,
+                    protect_event_id,
+                    filter_types,
+                    is_doorbell_ring,
+                ):
+                    return False
+
                 # Check deduplication cooldown (via filter)
                 if self.event_filter.is_duplicate_event(camera.id, camera.name):
                     logger.debug(
@@ -826,11 +904,21 @@ class ProtectEventHandler:
                     )
                     return False
 
+                if protect_event_id and not self.event_filter.try_begin_protect_event(
+                    protect_event_id
+                ):
+                    self._absorb_known_protect_event(
+                        db,
+                        camera,
+                        protect_event_id,
+                        filter_types,
+                        is_doorbell_ring,
+                    )
+                    return False
+                reservation_pid = protect_event_id
+
                 # Record the event for cooldown tracking
                 self.event_filter.record_event(camera.id)
-
-                # Determine if this is a doorbell ring
-                is_doorbell_ring = event_type == ProtectEventType.RING
 
                 # Get timestamp
                 event_timestamp = event_start or datetime.now(timezone.utc)
@@ -928,6 +1016,10 @@ class ProtectEventHandler:
                         logger.warning(f"Clip cleanup error: {e}")
 
                 if not ai_result or not ai_result.success:
+                    from app.services.protect_event_storage_service import (
+                        ai_response_time_ms_from_result,
+                    )
+
                     # Store event without AI description
                     stored_event = await self.storage_service.persist_protect_event(
                         db=db,
@@ -938,10 +1030,15 @@ class ProtectEventHandler:
                         event_type=filter_type,
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
+                        ai_response_time_ms=ai_response_time_ms_from_result(ai_result),
                         **persist_tracking,
                         **detection_columns,
                     )
                     if stored_event:
+                        keep_reservation = True
+                        self._apply_pending_protect_update(
+                            db, stored_event, protect_event_id
+                        )
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
                         # TODO(Phase 4): Correlation + MQTT
                         return True
@@ -965,6 +1062,9 @@ class ProtectEventHandler:
 
                 if not stored_event:
                     return False
+
+                keep_reservation = True
+                self._apply_pending_protect_update(db, stored_event, protect_event_id)
 
                 await self._store_protect_embedding(stored_event.id)
 
@@ -997,6 +1097,110 @@ class ProtectEventHandler:
                 exc_info=True
             )
             return False
+        finally:
+            if reservation_pid and not keep_reservation:
+                self.event_filter.abandon_protect_event(reservation_pid)
+
+    def _accepted_filter_types(
+        self,
+        event_types: List[str],
+        smart_detection_types: List[str],
+        camera_name: str,
+    ) -> List[str]:
+        """Filter types from this message that the camera is configured to keep."""
+        accepted: List[str] = []
+        for event_type in event_types:
+            filter_type = EVENT_TYPE_MAPPING.get(event_type)
+            if not filter_type or filter_type in accepted:
+                continue
+            if self.event_filter.should_process_event(
+                filter_type, smart_detection_types, camera_name
+            ):
+                accepted.append(filter_type)
+        return accepted
+
+    def _absorb_known_protect_event(
+        self,
+        db: Session,
+        camera: Camera,
+        protect_event_id: Optional[str],
+        detection_types: List[str],
+        is_doorbell_ring: bool,
+    ) -> bool:
+        """Skip AI and notification when this Protect id is already ours.
+
+        A stored row gets any newly reported detection types merged in.
+        An in-flight id (reserved, row not committed yet) queues those types
+        for the task that is creating the row. Returns True when the caller
+        must not start a new analysis.
+        """
+        if not protect_event_id:
+            return False
+        pid = str(protect_event_id)
+        existing = self.storage_service.find_by_protect_event_id(db, pid)
+        if existing is not None:
+            self.event_filter.remember_protect_event_id(pid)
+            pending_types, pending_ring = self.event_filter.take_pending_protect_update(pid)
+            merged_types = list(detection_types)
+            for detection_type in pending_types:
+                if detection_type not in merged_types:
+                    merged_types.append(detection_type)
+            self.storage_service.merge_detection_types(
+                db,
+                existing,
+                merged_types,
+                is_doorbell_ring or pending_ring,
+            )
+            logger.info(
+                "Protect update for an existing event skipped AI and notification",
+                extra={
+                    "event_type": "protect_event_id_deduplicated",
+                    "protect_event_id": pid,
+                    "event_id": existing.id,
+                    "camera_id": camera.id,
+                    "detection_types": merged_types,
+                },
+            )
+            return True
+
+        if self.event_filter.is_protect_event_known(pid):
+            # The row may have committed between the lookup above and here.
+            existing = self.storage_service.find_by_protect_event_id(db, pid)
+            if existing is not None:
+                return self._absorb_known_protect_event(
+                    db, camera, pid, detection_types, is_doorbell_ring
+                )
+            self.event_filter.note_pending_protect_update(
+                pid, detection_types, is_doorbell_ring
+            )
+            logger.info(
+                "Protect update for an in-flight event skipped AI and notification",
+                extra={
+                    "event_type": "protect_event_id_deduplicated",
+                    "protect_event_id": pid,
+                    "camera_id": camera.id,
+                    "detection_types": detection_types,
+                },
+            )
+            return True
+        return False
+
+    def _apply_pending_protect_update(
+        self,
+        db: Session,
+        event: Event,
+        protect_event_id: Optional[str],
+    ) -> None:
+        """Fold detection types that arrived while this row was being created."""
+        if event is None or not protect_event_id:
+            return
+        pending_types, pending_ring = self.event_filter.take_pending_protect_update(
+            str(protect_event_id)
+        )
+        if pending_types or pending_ring:
+            self.storage_service.merge_detection_types(
+                db, event, pending_types, pending_ring
+            )
 
     def _get_camera_by_protect_id(
         self,
@@ -1061,8 +1265,7 @@ class ProtectEventHandler:
         if camera_id:
             self.event_filter.clear_camera(camera_id)
         else:
-            # Note: full clear would need to be added to the filter if required
-            self.event_filter._last_event_times.clear()  # temporary direct access for full reset
+            self.event_filter.clear()
 
     def _extract_protect_event_id(self, msg: Any) -> Optional[str]:
         """

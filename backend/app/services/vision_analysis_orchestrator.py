@@ -6,7 +6,7 @@ Central orchestrator for all AI vision analysis (single-frame and multi-frame).
 This service owns the complex logic that used to live in AIService:
 
 - Provider fallback chain (configurable order from DB)
-- SLA timeout enforcement (<5s p95 target for single image, 10s for multi)
+- SLA timeout enforcement (5s single image, 25s multi-frame by default)
 - Circuit breaker integration (via AIResilienceService)
 - Rate-limit backoff with provider-specific policies
 - Usage/cost tracking
@@ -29,6 +29,7 @@ import asyncio
 import base64
 import io
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
@@ -40,6 +41,7 @@ from app.services.ai_prompt_service import AIPromptService
 from app.services.ai_provider_order import (
     classify_provider_error,
     format_chain_failure,
+    is_quota_error,
     load_ai_provider_order,
 )
 from app.services.ai_resilience_service import AIResilienceService
@@ -50,6 +52,50 @@ from app.services.ai_cost_and_usage_tracker import get_ai_cost_and_usage_tracker
 from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
+
+# Oct 1 2026 timings on main (after event-aligned frames and the structured
+# prompt): Grok multi-frame calls took 5.5–9.7s, and about 1 in 20 exceeded
+# the old 10s budget, so the chain never fell back and the event was saved
+# with no description. 25s covers a capped first call plus one fallback.
+DEFAULT_MULTI_IMAGE_SLA_MS = 25_000
+DEFAULT_SINGLE_IMAGE_SLA_MS = 5_000
+
+# First multi-frame call. 15s covers the observed band and the slow tail,
+# and leaves 10s of the 25s budget for a fallback.
+MAX_FIRST_PROVIDER_MS = 15_000
+MAX_FALLBACK_PROVIDER_MS = 12_000
+MIN_PROVIDER_CALL_MS = 2_000
+FALLBACK_RESERVE_MS = 10_000
+# One more attempt after the first real call fails or times out, even when
+# that call already consumed the wall-clock budget.
+FALLBACK_GRACE_MS = 10_000
+
+# Single-image chain stays a 5s target. Cap the first call so a hang cannot
+# consume it, and keep a short grace for one fallback.
+MAX_FIRST_SINGLE_MS = 3_000
+MAX_FALLBACK_SINGLE_MS = 3_000
+SINGLE_FALLBACK_RESERVE_MS = 2_000
+SINGLE_FALLBACK_GRACE_MS = 3_000
+
+
+def _sla_from_env(name: str, default: int) -> int:
+    """Read a positive millisecond budget from the environment.
+
+    A missing value uses ``default``. A malformed or non-positive value also
+    uses ``default`` and is not logged (the raw value might not be a number).
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning("Ignoring invalid %s; using default %s ms", name, default)
+        return default
+    if value <= 0:
+        logger.warning("Ignoring non-positive %s; using default %s ms", name, default)
+        return default
+    return value
 
 
 @singleton
@@ -79,9 +125,21 @@ class VisionAnalysisOrchestrator:
         self.prompt_service = prompt_service
         self.resilience_service = resilience_service
 
-        # Default SLA targets (can be overridden per call)
-        self.default_single_image_sla_ms = 5000
-        self.default_multi_image_sla_ms = 10000
+        # Default SLA targets (can be overridden per call).
+        # Multi-frame is configurable via AI_MULTI_IMAGE_SLA_MS.
+        self.default_single_image_sla_ms = DEFAULT_SINGLE_IMAGE_SLA_MS
+        self.default_multi_image_sla_ms = _sla_from_env(
+            "AI_MULTI_IMAGE_SLA_MS", DEFAULT_MULTI_IMAGE_SLA_MS
+        )
+        self.max_first_provider_ms = MAX_FIRST_PROVIDER_MS
+        self.max_fallback_provider_ms = MAX_FALLBACK_PROVIDER_MS
+        self.min_provider_call_ms = MIN_PROVIDER_CALL_MS
+        self.fallback_reserve_ms = FALLBACK_RESERVE_MS
+        self.fallback_grace_ms = FALLBACK_GRACE_MS
+        self.max_first_single_ms = MAX_FIRST_SINGLE_MS
+        self.max_fallback_single_ms = MAX_FALLBACK_SINGLE_MS
+        self.single_fallback_reserve_ms = SINGLE_FALLBACK_RESERVE_MS
+        self.single_fallback_grace_ms = SINGLE_FALLBACK_GRACE_MS
 
     def set_providers(self, providers: Dict[AIProvider, AIProviderBase]) -> None:
         """Update the provider map (called during AIService reconfiguration)."""
@@ -92,6 +150,56 @@ class VisionAnalysisOrchestrator:
 
     def set_resilience_service(self, resilience_service: AIResilienceService) -> None:
         self.resilience_service = resilience_service
+
+    def provider_call_timeout_ms(
+        self,
+        *,
+        elapsed_ms: int,
+        sla_timeout_ms: int,
+        calls_started: int,
+        multi: bool,
+    ) -> Optional[int]:
+        """Milliseconds to give the next provider call, or None to stop.
+
+        The first call is capped and a reserve is held back so a slow provider
+        cannot consume the whole budget. After that first real attempt fails
+        or times out, exactly one fallback is still started (using whatever
+        budget remains, or a grace window when the budget is already spent).
+        Further providers run only while budget remains.
+        """
+        remaining = sla_timeout_ms - elapsed_ms
+        if multi:
+            first_cap = self.max_first_provider_ms
+            later_cap = self.max_fallback_provider_ms
+            reserve = self.fallback_reserve_ms
+            grace = self.fallback_grace_ms
+        else:
+            first_cap = self.max_first_single_ms
+            later_cap = self.max_fallback_single_ms
+            reserve = self.single_fallback_reserve_ms
+            grace = self.single_fallback_grace_ms
+        floor = self.min_provider_call_ms
+
+        if calls_started <= 0:
+            if remaining <= 0:
+                return None
+            held = min(reserve, max(0, remaining // 2))
+            budget = remaining - held
+            if budget >= floor:
+                return min(budget, first_cap)
+            # Tight budget: still place the call. The fallback uses grace.
+            return min(remaining, first_cap)
+
+        if calls_started == 1:
+            if remaining >= floor:
+                return min(remaining, later_cap)
+            if remaining > 0:
+                return min(remaining, later_cap)
+            return min(grace, later_cap)
+
+        if remaining < floor:
+            return None
+        return min(remaining, later_cap)
 
     # =====================================================================
     # Public Analysis Entry Points (the ones AIService will delegate to)
@@ -152,6 +260,7 @@ class VisionAnalysisOrchestrator:
         # Get provider order (same helper AIService uses)
         provider_order = self._get_provider_order()
         attempts: List[str] = []
+        calls_started = 0
 
         # Check configured providers
         configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
@@ -167,21 +276,7 @@ class VisionAnalysisOrchestrator:
             )
 
         for provider_enum in provider_order:
-            # SLA check
             elapsed_ms = int((time.time() - start_time) * 1000)
-            if elapsed_ms >= sla_timeout_ms:
-                return self._failure_result(
-                    mode="single_image",
-                    reason=f"SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
-                    attempts=attempts,
-                    detected_objects=detected_objects,
-                    response_time_ms=elapsed_ms,
-                    provider="timeout",
-                    description=(
-                        f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)"
-                    ),
-                )
-
             provider = self.providers.get(provider_enum)
             if provider is None:
                 attempts.append(f"{provider_enum.value}:not_configured")
@@ -204,27 +299,52 @@ class VisionAnalysisOrchestrator:
                 )
                 continue
 
-            logger.info(f"Attempting {provider_name}... (elapsed: {elapsed_ms}ms)")
+            timeout_ms = self.provider_call_timeout_ms(
+                elapsed_ms=elapsed_ms,
+                sla_timeout_ms=sla_timeout_ms,
+                calls_started=calls_started,
+                multi=False,
+            )
+            if timeout_ms is None:
+                return self._failure_result(
+                    mode="single_image",
+                    reason=f"SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
+                    attempts=attempts,
+                    detected_objects=detected_objects,
+                    response_time_ms=elapsed_ms,
+                    provider="timeout",
+                    description=(
+                        f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)"
+                    ),
+                )
 
-            # Backoff + call (now owned by orchestrator)
-            result = await self._try_with_backoff(
-                provider,
-                image_base64,
-                camera_name,
-                timestamp,
-                detected_objects,
-                custom_prompt=effective_prompt,
-                provider_type=provider_enum,
-                audio_transcription=audio_transcription,
-                ocr_result=ocr_result
+            logger.info(
+                "Attempting %s (elapsed %dms, call budget %dms)",
+                provider_name,
+                elapsed_ms,
+                timeout_ms,
+            )
+            calls_started += 1
+            result = await self._run_with_deadline(
+                provider_name,
+                timeout_ms,
+                lambda timeout_s, _provider=provider: self._try_with_backoff(
+                    _provider,
+                    image_base64,
+                    camera_name,
+                    timestamp,
+                    detected_objects,
+                    custom_prompt=effective_prompt,
+                    provider_type=provider_enum,
+                    audio_transcription=audio_transcription,
+                    ocr_result=ocr_result,
+                    call_timeout_s=timeout_s,
+                ),
             )
 
             # Track usage (now owned here)
             self._track_usage(result, analysis_mode="single_image", image_count=1)
-
-            # Record resilience result
-            if self.resilience_service and result is not None:
-                self.resilience_service.record_result(provider_name, result.success)
+            self._record_provider_outcome(provider_name, result)
 
             if result.success:
                 total_elapsed_ms = int((time.time() - start_time) * 1000)
@@ -356,6 +476,7 @@ class VisionAnalysisOrchestrator:
         # Provider order + fallback loop (same helper AIService uses)
         provider_order = self._get_provider_order()
         attempts: List[str] = []
+        calls_started = 0
 
         configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
         if not configured_providers:
@@ -371,19 +492,6 @@ class VisionAnalysisOrchestrator:
 
         for provider_enum in provider_order:
             elapsed_ms = int((time.time() - start_time) * 1000)
-            if elapsed_ms >= sla_timeout_ms:
-                return self._failure_result(
-                    mode="multi_frame",
-                    reason=f"Multi-image SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
-                    attempts=attempts,
-                    detected_objects=detected_objects,
-                    response_time_ms=elapsed_ms,
-                    provider="timeout",
-                    description=(
-                        f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)"
-                    ),
-                )
-
             provider = self.providers.get(provider_enum)
             if provider is None:
                 attempts.append(f"{provider_enum.value}:not_configured")
@@ -404,24 +512,51 @@ class VisionAnalysisOrchestrator:
                 )
                 continue
 
-            logger.info(f"Attempting multi-image with {provider_name}...")
+            timeout_ms = self.provider_call_timeout_ms(
+                elapsed_ms=elapsed_ms,
+                sla_timeout_ms=sla_timeout_ms,
+                calls_started=calls_started,
+                multi=True,
+            )
+            if timeout_ms is None:
+                return self._failure_result(
+                    mode="multi_frame",
+                    reason=f"Multi-image SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
+                    attempts=attempts,
+                    detected_objects=detected_objects,
+                    response_time_ms=elapsed_ms,
+                    provider="timeout",
+                    description=(
+                        f"Failed to generate description - SLA timeout exceeded ({elapsed_ms}ms)"
+                    ),
+                )
 
-            result = await self._try_multi_image_with_backoff(
-                provider,
-                images_base64,
-                camera_name,
-                timestamp,
-                detected_objects,
-                custom_prompt=effective_prompt,
-                provider_type=provider_enum,
-                audio_transcription=audio_transcription,
-                ocr_result=ocr_result
+            logger.info(
+                "Attempting multi-image with %s (elapsed %dms, call budget %dms)",
+                provider_name,
+                elapsed_ms,
+                timeout_ms,
+            )
+            calls_started += 1
+            result = await self._run_with_deadline(
+                provider_name,
+                timeout_ms,
+                lambda timeout_s, _provider=provider: self._try_multi_image_with_backoff(
+                    _provider,
+                    images_base64,
+                    camera_name,
+                    timestamp,
+                    detected_objects,
+                    custom_prompt=effective_prompt,
+                    provider_type=provider_enum,
+                    audio_transcription=audio_transcription,
+                    ocr_result=ocr_result,
+                    call_timeout_s=timeout_s,
+                ),
             )
 
             self._track_usage(result, analysis_mode="multi_frame", image_count=len(images_base64))
-
-            if self.resilience_service and result is not None:
-                self.resilience_service.record_result(provider_name, result.success)
+            self._record_provider_outcome(provider_name, result)
 
             if result.success:
                 return result
@@ -567,6 +702,108 @@ class VisionAnalysisOrchestrator:
         logger.debug(f"Preprocessed image bytes: {len(image_base64)} chars base64, {size_mb:.2f}MB")
         return image_base64
 
+    def _retry_policy(self, provider_type: Optional[AIProvider]) -> tuple:
+        """Provider-specific retry delays and attempt counts.
+
+        Grok: 2 retries with 0.5s delay (Story P2-5.1 AC6).
+        Others: 3 attempts with 2/4/8s exponential backoff.
+        Quota and no-credit errors are never retried; see ``_is_retryable``.
+        """
+        if provider_type == AIProvider.GROK:
+            return [0.5, 0.5], 2
+        return [2.0, 4.0, 8.0], 3
+
+    @staticmethod
+    def _is_retryable(result: AIResult) -> bool:
+        """Transient 429/500/503 only. Quota and no-credit errors fail fast."""
+        if not result.error or is_quota_error(result.error):
+            return False
+        err = result.error
+        return "429" in err or "500" in err or "503" in err
+
+    def _timed_out_result(self, provider_name: str, elapsed_ms: int) -> AIResult:
+        return AIResult(
+            description="",
+            confidence=0,
+            objects_detected=[],
+            provider=provider_name,
+            tokens_used=0,
+            response_time_ms=elapsed_ms,
+            cost_estimate=0.0,
+            success=False,
+            error="timed out",
+        )
+
+    async def _run_with_deadline(self, provider_name: str, timeout_ms: int, factory) -> AIResult:
+        """Run one provider attempt and cancel it when ``timeout_ms`` elapses.
+
+        ``factory`` receives the timeout in seconds and returns a coroutine.
+        The error body is not logged; only the failure class is.
+        """
+        timeout_s = max(timeout_ms, 1) / 1000.0
+        started = time.perf_counter()
+        try:
+            result = await asyncio.wait_for(factory(timeout_s), timeout=timeout_s)
+        except (asyncio.TimeoutError, TimeoutError):
+            elapsed_ms = max(1, int((time.perf_counter() - started) * 1000))
+            logger.warning(
+                "%s timed out after %dms (limit %dms)",
+                provider_name,
+                elapsed_ms,
+                timeout_ms,
+                extra={
+                    "event_type": "ai_provider_timeout",
+                    "provider": provider_name,
+                    "response_time_ms": elapsed_ms,
+                    "timeout_ms": timeout_ms,
+                },
+            )
+            return self._timed_out_result(provider_name, elapsed_ms)
+
+        call_ms = max(0, int((time.perf_counter() - started) * 1000))
+        if not result.response_time_ms:
+            result.response_time_ms = call_ms
+        failure_class = None if result.success else classify_provider_error(result.error)
+        logger.info(
+            "%s call finished in %dms (limit %dms, success=%s%s)",
+            provider_name,
+            call_ms,
+            timeout_ms,
+            result.success,
+            "" if failure_class is None else f", {failure_class}",
+            extra={
+                "event_type": "ai_provider_call_timing",
+                "provider": provider_name,
+                "response_time_ms": call_ms,
+                "timeout_ms": timeout_ms,
+                "success": result.success,
+                "failure_class": failure_class,
+            },
+        )
+        return result
+
+    def _record_provider_outcome(self, provider_name: str, result: AIResult) -> None:
+        """Record the attempt and open a brief circuit on quota or no-credit."""
+        if result is not None and not result.success and is_quota_error(result.error):
+            self._trip_quota_breaker(provider_name)
+        if self.resilience_service and result is not None:
+            self.resilience_service.record_result(provider_name, result.success)
+
+    def _trip_quota_breaker(self, provider_name: str) -> None:
+        if self.resilience_service is None:
+            return
+        trip = getattr(self.resilience_service, "trip_quota", None)
+        if trip is None:
+            return
+        try:
+            trip(provider_name)
+        except Exception as exc:
+            logger.warning(
+                "Failed to open quota circuit for %s (%s)",
+                provider_name,
+                type(exc).__name__,
+            )
+
     async def _try_with_backoff(
         self,
         provider: AIProviderBase,
@@ -579,21 +816,26 @@ class VisionAnalysisOrchestrator:
         provider_type: Optional[AIProvider] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        call_timeout_s: Optional[float] = None,
     ) -> AIResult:
         """Try API call with backoff for rate limits.
 
         Uses provider-specific retry configuration:
         - Grok: 2 retries with 0.5s delay (per Story P2-5.1 AC6)
         - Others: 3 retries with 2/4/8s exponential backoff
+
+        Quota and no-credit errors are not retried. Retries that would run
+        past ``call_timeout_s`` are skipped so the fallback chain can proceed.
         """
-        # Provider-specific retry configuration
-        if provider_type == AIProvider.GROK:
-            delays = [0.5, 0.5]  # 2 retries, 500ms each (AC6)
-            max_retries = 2
-        else:
-            delays = [2, 4, 8]  # Exponential backoff delays (seconds)
+        delays, max_retries = self._retry_policy(provider_type)
+        deadline = None if call_timeout_s is None else time.monotonic() + call_timeout_s
+        provider_name = provider_type.value if provider_type else "unknown"
+        result = self._timed_out_result(provider_name, 0)
 
         for attempt in range(max_retries):
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            if deadline is not None and remaining <= 0:
+                return self._timed_out_result(provider_name, int((call_timeout_s or 0) * 1000))
             result = await provider.generate_description(
                 image_base64,
                 camera_name,
@@ -601,38 +843,25 @@ class VisionAnalysisOrchestrator:
                 detected_objects,
                 custom_prompt=custom_prompt,
                 audio_transcription=audio_transcription,
-                ocr_result=ocr_result
+                ocr_result=ocr_result,
+                request_timeout_s=remaining,
             )
 
-            # Check if rate limited (429) or transient error (500/503).
-            # BUT a 429 from quota/billing exhaustion will not recover within the
-            # retry/SLA window — retrying it only burns the SLA budget and starves
-            # the fallback chain (e.g. a working Gemini never gets tried). Treat
-            # those as non-retryable so we fail fast to the next provider.
-            err_str = str(result.error) if result.error else ""
-            quota_exhausted = any(s in err_str.lower() for s in (
-                'insufficient_quota', 'exceeded your current quota', 'billing'))
-            is_retryable = (
-                result.error and not quota_exhausted and
-                (
-                    '429' in err_str or
-                    '500' in err_str or
-                    '503' in err_str
+            if self._is_retryable(result) and attempt < max_retries - 1:
+                delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                if deadline is not None and time.monotonic() + delay >= deadline:
+                    return result
+                logger.warning(
+                    "Retryable error, waiting %ss before retry %s/%s",
+                    delay,
+                    attempt + 2,
+                    max_retries,
                 )
-            )
-            if is_retryable:
-                if attempt < max_retries - 1:
-                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
-                    logger.warning(
-                        f"Retryable error, waiting {delay}s before retry {attempt + 2}/{max_retries}"
-                    )
-                    await asyncio.sleep(delay)
-                    continue
+                await asyncio.sleep(delay)
+                continue
 
-            # Return result (success or non-retryable failure)
             return result
 
-        # Max retries exhausted
         return result
 
     async def _try_multi_image_with_backoff(
@@ -647,21 +876,26 @@ class VisionAnalysisOrchestrator:
         provider_type: Optional[AIProvider] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
+        call_timeout_s: Optional[float] = None,
     ) -> AIResult:
         """Try multi-image API call with backoff for rate limits (Story P3-2.3).
 
         Uses provider-specific retry configuration:
         - Grok: 2 retries with 0.5s delay (per Story P2-5.1 AC6)
         - Others: 3 retries with 2/4/8s exponential backoff
+
+        Quota and no-credit errors are not retried. The whole attempt, including
+        retries, is bounded by ``call_timeout_s``.
         """
-        # Provider-specific retry configuration
-        if provider_type == AIProvider.GROK:
-            delays = [0.5, 0.5]  # 2 retries, 500ms each (AC6)
-            max_retries = 2
-        else:
-            delays = [2, 4, 8]  # Exponential backoff delays (seconds)
+        delays, max_retries = self._retry_policy(provider_type)
+        deadline = None if call_timeout_s is None else time.monotonic() + call_timeout_s
+        provider_name = provider_type.value if provider_type else "unknown"
+        result = self._timed_out_result(provider_name, 0)
 
         for attempt in range(max_retries):
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            if deadline is not None and remaining <= 0:
+                return self._timed_out_result(provider_name, int((call_timeout_s or 0) * 1000))
             result = await provider.generate_multi_image_description(
                 images_base64,
                 camera_name,
@@ -669,42 +903,32 @@ class VisionAnalysisOrchestrator:
                 detected_objects,
                 custom_prompt=custom_prompt,
                 audio_transcription=audio_transcription,
-                ocr_result=ocr_result
+                ocr_result=ocr_result,
+                request_timeout_s=remaining,
             )
 
-            # Check if rate limited (429) or transient error (500/503).
-            # Quota/billing 429s won't recover in-window — fail fast (see single-image path).
-            err_str = str(result.error) if result.error else ""
-            quota_exhausted = any(s in err_str.lower() for s in (
-                'insufficient_quota', 'exceeded your current quota', 'billing'))
-            is_retryable = (
-                result.error and not quota_exhausted and
-                (
-                    '429' in err_str or
-                    '500' in err_str or
-                    '503' in err_str
+            if self._is_retryable(result) and attempt < max_retries - 1:
+                delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                if deadline is not None and time.monotonic() + delay >= deadline:
+                    return result
+                logger.warning(
+                    "Multi-image retryable error, waiting %ss before retry %s/%s",
+                    delay,
+                    attempt + 2,
+                    max_retries,
+                    extra={
+                        "event_type": "ai_multi_image_retry",
+                        "provider": provider_name,
+                        "attempt": attempt + 1,
+                        "max_retries": max_retries,
+                        "delay_seconds": delay,
+                    },
                 )
-            )
-            if is_retryable:
-                if attempt < max_retries - 1:
-                    delay = delays[attempt] if attempt < len(delays) else delays[-1]
-                    logger.warning(
-                        f"Multi-image retryable error, waiting {delay}s before retry {attempt + 2}/{max_retries}",
-                        extra={
-                            "event_type": "ai_multi_image_retry",
-                            "provider": provider_type.value if provider_type else "unknown",
-                            "attempt": attempt + 1,
-                            "max_retries": max_retries,
-                            "delay_seconds": delay,
-                        }
-                    )
-                    await asyncio.sleep(delay)
-                    continue
+                await asyncio.sleep(delay)
+                continue
 
-            # Return result (success or non-retryable failure)
             return result
 
-        # Max retries exhausted
         return result
 
     # =====================================================================

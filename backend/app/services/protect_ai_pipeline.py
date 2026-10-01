@@ -189,11 +189,17 @@ class ProtectAIPipeline:
                                 extra={"event_type": "protect_ai_multi_frame_success"}
                             )
                         else:
+                            from app.services.ai_provider_order import (
+                                analysis_failure_log_detail,
+                            )
+
                             logger.warning(
                                 "Multi-frame analysis failed for camera '%s' (%s frames): %s",
                                 camera.name,
                                 len(frames),
-                                getattr(ai_result, "error", None) or "unknown",
+                                analysis_failure_log_detail(
+                                    getattr(ai_result, "error", None)
+                                ),
                                 extra={"event_type": "protect_ai_multi_frame_failed"},
                             )
                         return ai_result
@@ -235,10 +241,14 @@ class ProtectAIPipeline:
             self._last_fallback_reason = self._last_fallback_reason or None
 
             if not ai_result or not ai_result.success:
+                from app.services.ai_provider_order import analysis_failure_log_detail
+
                 logger.warning(
                     "Single-frame analysis failed for camera '%s': %s",
                     camera.name,
-                    getattr(ai_result, "error", None) if ai_result else "no result",
+                    analysis_failure_log_detail(getattr(ai_result, "error", None))
+                    if ai_result
+                    else "no_result",
                     extra={"event_type": "protect_ai_single_frame_failed"},
                 )
 

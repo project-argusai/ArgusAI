@@ -5,6 +5,7 @@ tests mock ``google.genai`` and lock the behavior the fallback chain depends
 on: image parts, the 1024-token budget, timeouts, status-code errors, token
 and cost estimates, and the native-video fps clamp.
 """
+import asyncio
 import base64
 import io
 import os
@@ -169,7 +170,7 @@ async def test_provider_error_keeps_status_and_redacts_the_key():
     secret = "test-key"
     provider, client = _provider(secret)
     client.aio.models.generate_content = AsyncMock(
-        side_effect=RuntimeError(f"429 RESOURCE_EXHAUSTED for {secret}")
+        side_effect=RuntimeError(f"429 rate limit for {secret}")
     )
 
     result = await provider.generate_description(_jpeg_b64(), "Yard", "t", [])
@@ -178,6 +179,13 @@ async def test_provider_error_keeps_status_and_redacts_the_key():
     assert secret not in (result.error or "")
     assert "[redacted]" in (result.error or "")
     assert classify_provider_error(result.error) == "http_429"
+
+    client.aio.models.generate_content = AsyncMock(
+        side_effect=RuntimeError(f"429 RESOURCE_EXHAUSTED for {secret}")
+    )
+    quota = await provider.generate_description(_jpeg_b64(), "Yard", "t", [])
+    assert secret not in (quota.error or "")
+    assert classify_provider_error(quota.error) == "quota_exhausted"
 
 
 @pytest.mark.asyncio
@@ -192,6 +200,61 @@ async def test_timeout_is_classified_for_the_fallback_chain():
     assert result.success is False
     assert classify_provider_error(result.error) == "timeout"
     assert "test-key" not in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_deadline_cancels_the_call_and_replaces_the_fixed_timeout():
+    """A shorter orchestrator budget cancels Gemini and is the HTTP timeout."""
+    provider, client = _provider()
+    seen = {}
+
+    async def hang(**kwargs):
+        seen["timeout_ms"] = kwargs["config"].http_options.timeout
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            seen["cancelled"] = True
+            raise
+
+    client.aio.models.generate_content = hang
+    result = await provider.generate_description(
+        _jpeg_b64(), "Yard", "t", [], request_timeout_s=0.05
+    )
+
+    assert seen["timeout_ms"] == 50
+    assert seen.get("cancelled") is True
+    assert result.success is False
+    assert classify_provider_error(result.error) == "timeout"
+    assert "test-key" not in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_longer_orchestrator_deadline_is_not_cut_to_the_fixed_timeout():
+    """A budget above 10s/15s is sent as-is. The fixed default does not win."""
+    provider, client = _provider()
+    response = MagicMock()
+    response.text = "one two"
+    client.aio.models.generate_content = AsyncMock(return_value=response)
+
+    await provider.generate_description(
+        _jpeg_b64(), "Yard", "t", [], request_timeout_s=25
+    )
+    single = client.aio.models.generate_content.await_args.kwargs
+    assert single["config"].http_options.timeout == 25_000
+    assert single["config"].max_output_tokens == 1024
+
+    await provider.generate_multi_image_description(
+        [_jpeg_b64(), _jpeg_b64()], "Yard", "t", [], request_timeout_s=20
+    )
+    multi = client.aio.models.generate_content.await_args.kwargs
+    assert multi["config"].http_options.timeout == 20_000
+
+    await provider.generate_description(
+        _jpeg_b64(), "Yard", "t", [], request_timeout_s=0
+    )
+    # A non-positive budget uses the shared 30s fallback, not the 10s default.
+    fallback = client.aio.models.generate_content.await_args.kwargs
+    assert fallback["config"].http_options.timeout == 30_000
 
 
 @pytest.mark.asyncio

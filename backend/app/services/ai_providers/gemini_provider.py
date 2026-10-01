@@ -8,6 +8,7 @@ Extracted during Phase 3.3. Uses the supported ``google-genai`` SDK
 import base64
 import logging
 import tempfile
+import asyncio
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
@@ -15,7 +16,7 @@ from typing import List, Optional, Tuple, Union
 from google import genai
 from google.genai import types
 
-from .base import AIProviderBase
+from .base import AIProviderBase, resolve_request_timeout
 from app.services.ai_types import AIResult
 from app.services.identification import (
     DESCRIPTION_MAX_OUTPUT_TOKENS,
@@ -29,13 +30,31 @@ logger = logging.getLogger(__name__)
 GEMINI_INLINE_VIDEO_BYTES = 20 * 1024 * 1024
 DEFAULT_GEMINI_VIDEO_FPS = 3
 
-# Hung calls must return an error the fallback chain can classify.
-# Single-image matches the 10s provider timeout (#625 / OpenAI). Multi-image
-# matches OpenAI's 15s. Native video matches the 30s video SLA. Values are
-# milliseconds because google.genai HttpOptions.timeout is in milliseconds.
-_SINGLE_IMAGE_TIMEOUT_MS = 10_000
-_MULTI_IMAGE_TIMEOUT_MS = 15_000
-_VIDEO_TIMEOUT_MS = 30_000
+# Direct callers (no orchestrator budget) use these bounds so a hung call
+# still fails into the fallback chain. Single-image matches the 10s OpenAI
+# default, multi-image matches 15s, and native video matches the 30s video SLA.
+# When the orchestrator passes a remaining budget, that deadline replaces
+# these values. A fixed SDK timeout must not outlive a shorter budget or cut
+# a longer one short.
+_SINGLE_IMAGE_TIMEOUT_S = 10.0
+_MULTI_IMAGE_TIMEOUT_S = 15.0
+_VIDEO_TIMEOUT_S = 30.0
+
+
+def _timeout_ms(seconds: float) -> int:
+    """google.genai HttpOptions.timeout is milliseconds."""
+    return max(1, int(round(float(seconds) * 1000)))
+
+
+def _deadline_seconds(request_timeout_s: Optional[float], default_s: float) -> float:
+    """Orchestrator budget when one was passed; otherwise the direct-call default.
+
+    A missing budget keeps ``default_s``. A non-positive budget uses the same
+    30s fallback ``resolve_request_timeout`` applies for the other providers.
+    """
+    if request_timeout_s is None:
+        return default_s
+    return resolve_request_timeout(request_timeout_s, 30.0)
 
 
 def _redact_secret(text: str, secret: Optional[str]) -> str:
@@ -93,6 +112,34 @@ class GeminiProvider(AIProviderBase):
         self.cost_per_1k_input_tokens = 0.000075
         self.cost_per_1k_output_tokens = 0.0003
 
+    async def _generate_content(
+        self,
+        contents,
+        max_output_tokens: int,
+        request_timeout_s: Optional[float],
+        default_timeout_s: float,
+    ):
+        """Call Gemini and cancel the request when the orchestrator budget expires.
+
+        ``request_timeout_s`` is None for direct callers. The HTTP timeout is
+        then ``default_timeout_s``. A positive value is the remaining
+        per-provider budget: it is both the HTTP timeout and the
+        ``asyncio.wait_for`` deadline, so the in-flight call is cancelled
+        when that budget runs out.
+        """
+        timeout_s = _deadline_seconds(request_timeout_s, default_timeout_s)
+        coro = self.client.aio.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                max_output_tokens=max_output_tokens,
+                http_options=types.HttpOptions(timeout=_timeout_ms(timeout_s)),
+            ),
+        )
+        if request_timeout_s is None:
+            return await coro
+        return await asyncio.wait_for(coro, timeout=timeout_s)
+
     async def generate_description(
         self,
         image_base64: str,
@@ -101,20 +148,19 @@ class GeminiProvider(AIProviderBase):
         detected_objects: List[str],
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
+        ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         start_time = time.time()
 
         try:
             user_prompt = custom_prompt or "Describe the security camera image in detail."
 
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
-                contents=[user_prompt, _image_part(image_base64)],
-                config=types.GenerateContentConfig(
-                    max_output_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
-                    http_options=types.HttpOptions(timeout=_SINGLE_IMAGE_TIMEOUT_MS),
-                ),
+            response = await self._generate_content(
+                [user_prompt, _image_part(image_base64)],
+                DESCRIPTION_MAX_OUTPUT_TOKENS,
+                request_timeout_s,
+                _SINGLE_IMAGE_TIMEOUT_S,
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -164,7 +210,8 @@ class GeminiProvider(AIProviderBase):
         detected_objects: List[str],
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
+        ocr_result: Optional[OCRResult] = None,
+        request_timeout_s: Optional[float] = None,
     ) -> AIResult:
         start_time = time.time()
 
@@ -175,13 +222,11 @@ class GeminiProvider(AIProviderBase):
             for img in images_base64:
                 parts.append(_image_part(img))
 
-            response = await self.client.aio.models.generate_content(
-                model=self.model_name,
-                contents=parts,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
-                    http_options=types.HttpOptions(timeout=_MULTI_IMAGE_TIMEOUT_MS),
-                ),
+            response = await self._generate_content(
+                parts,
+                DESCRIPTION_MAX_OUTPUT_TOKENS,
+                request_timeout_s,
+                _MULTI_IMAGE_TIMEOUT_S,
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -259,7 +304,7 @@ class GeminiProvider(AIProviderBase):
                 )
                 video_config = types.GenerateContentConfig(
                     max_output_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
-                    http_options=types.HttpOptions(timeout=_VIDEO_TIMEOUT_MS),
+                    http_options=types.HttpOptions(timeout=_timeout_ms(_VIDEO_TIMEOUT_S)),
                 )
                 if len(video_bytes) <= GEMINI_INLINE_VIDEO_BYTES:
                     parts = [

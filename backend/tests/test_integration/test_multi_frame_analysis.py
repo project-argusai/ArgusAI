@@ -422,6 +422,7 @@ class TestMultiFrameEventStorage:
             assert event.analysis_mode == "multi_frame"
             assert event.frame_count_used == 5
             assert event.fallback_reason is None
+            assert event.ai_response_time_ms == 450
         finally:
             db.close()
 
@@ -481,5 +482,32 @@ class TestMultiFrameEventStorage:
 
             assert event is not None
             assert event.fallback_reason == "clip_download_failed"
+        finally:
+            db.close()
+
+    @pytest.mark.asyncio
+    async def test_failed_analysis_still_stores_response_time(
+        self, storage_service, test_camera_multi_frame, mock_snapshot_result
+    ):
+        """A failed vision call still records how long the chain took."""
+        db = TestingSessionLocal()
+        try:
+            event = await storage_service.persist_protect_event(
+                db=db,
+                camera=test_camera_multi_frame,
+                snapshot_result=mock_snapshot_result,
+                ai_result=None,
+                protect_event_id="protect-event-004",
+                event_type="person",
+                is_doorbell_ring=False,
+                analysis_mode="multi_frame",
+                frame_count_used=5,
+                ai_response_time_ms=12340,
+                event_id_override="test-event-failed-timing",
+            )
+
+            assert event.description == "AI analysis unavailable"
+            assert event.ai_response_time_ms == 12340
+            assert event.provider_used is None
         finally:
             db.close()

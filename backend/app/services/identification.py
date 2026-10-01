@@ -9,11 +9,54 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from app.services.ai_types import AIResult
 
 OBJECT_TYPES = ("person", "vehicle", "package", "animal", "unknown", "none")
+# Categories that can appear in events.objects_detected. "none" is not one of them.
+SUBJECT_TYPES = ("person", "vehicle", "animal", "package")
+
+# Provider keyword lists. Matching is word-boundary and negation-aware; these
+# tuples stay the words each provider already treated as a hit.
+BASE_OBJECT_KEYWORDS: Dict[str, tuple] = {
+    "person": ("person", "people", "man", "woman", "child", "human"),
+    "vehicle": ("vehicle", "car", "truck", "van", "motorcycle", "bike"),
+    "animal": ("animal", "dog", "cat", "bird", "pet"),
+    "package": ("package", "box", "delivery", "parcel"),
+}
+LITELLM_OBJECT_KEYWORDS: Dict[str, tuple] = {
+    "person": (
+        "person", "man", "woman", "child", "people", "someone", "individual",
+        "pedestrian", "visitor", "delivery", "driver", "worker",
+    ),
+    "vehicle": (
+        "car", "truck", "van", "suv", "vehicle", "automobile", "motorcycle",
+        "bike", "bicycle", "scooter", "bus",
+    ),
+    "package": ("package", "box", "parcel", "delivery", "amazon", "fedex", "ups", "usps"),
+    "animal": ("dog", "cat", "bird", "animal", "pet", "squirrel", "rabbit", "deer"),
+}
+
+_FUNCTION_WORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "visible", "seen", "present", "of", "interest", "in", "frame", "there",
+    "any", "this", "that", "to", "on", "at", "it", "its", "with", "for",
+})
+_NEGATION_RE = re.compile(
+    r"\b(?:no|not|without|neither|nor|nothing|none|never|cannot|can't)\b|n't\b",
+    re.IGNORECASE,
+)
+_CONTRAST_RE = re.compile(r"\b(?:but|however|although|except|whereas)\b", re.IGNORECASE)
+_BACKGROUND_RE = re.compile(
+    r"\b(?:in the background|in the distance|background)\b",
+    re.IGNORECASE,
+)
+_EMPTY_SCENE_RE = re.compile(
+    r"\bnothing visible\b|\bnothing of interest\b|\bno (?:person|people|vehicles?|animals?|packages?)\b",
+    re.IGNORECASE,
+)
+_KEYWORD_PATTERNS: Dict[str, re.Pattern] = {}
 _NONE_OBJECT_ALIASES = {
     "none",
     "no_subject",
@@ -248,16 +291,224 @@ def parse_identification(response_text: Optional[str]) -> Dict[str, Any]:
     return _from_mapping(data, check_package_wording=True)
 
 
-def apply_identification(result: AIResult, raw_response: Optional[str]) -> AIResult:
-    """Attach parsed fields. A known object type fills in keyword extraction."""
+def _package_is_subject(ident: Mapping[str, Any]) -> bool:
+    """Package counts only when it is the subject or a real carrier/package value.
+
+    ``none`` and ``cannot_tell`` are not a visible or delivered package.
+    """
+    if ident.get("object_type") == "package":
+        return True
+    value = str(ident.get("package_or_carrier") or "").strip().lower()
+    return bool(value) and value not in {"none", CANNOT_TELL}
+
+
+def objects_from_identification(ident: Optional[Mapping[str, Any]]) -> Optional[List[str]]:
+    """Categories implied by a parsed identification, or None when it has no subject.
+
+    ``object_type`` ``none`` is an empty frame: an empty list, not ``unknown``.
+    ``unknown`` (or a missing dict) returns None so the caller can fall back.
+    """
+    if not isinstance(ident, Mapping):
+        return None
+    object_type = ident.get("object_type")
+    if object_type == "none":
+        return []
+    if object_type not in SUBJECT_TYPES:
+        return None
+    objects: List[str] = []
+    if object_type != "package":
+        objects.append(str(object_type))
+    if _package_is_subject(ident):
+        objects.append("package")
+    return objects
+
+
+def subjects_from_smart_types(types: Optional[Any]) -> List[str]:
+    """Protect smart-detect labels that are real subjects. Motion and ring are not."""
+    if isinstance(types, str):
+        types = [types]
+    found: List[str] = []
+    for item in types or []:
+        if not isinstance(item, str):
+            continue
+        key = item.strip().lower()
+        if key in SUBJECT_TYPES and key not in found:
+            found.append(key)
+    return found
+
+
+def _keyword_pattern(word: str) -> re.Pattern:
+    cached = _KEYWORD_PATTERNS.get(word)
+    if cached is not None:
+        return cached
+    if word.endswith("s"):
+        pattern = re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
+    else:
+        pattern = re.compile(rf"\b{re.escape(word)}(?:es|s)?\b", re.IGNORECASE)
+    _KEYWORD_PATTERNS[word] = pattern
+    return pattern
+
+
+def _clause_bounds(text: str, pos: int) -> tuple:
+    start = 0
+    for sep in ".!?;":
+        idx = text.rfind(sep, 0, pos)
+        if idx >= start:
+            start = idx + 1
+    for match in _CONTRAST_RE.finditer(text, start, pos):
+        start = match.end()
+    end = len(text)
+    for sep in ".!?;":
+        idx = text.find(sep, pos)
+        if idx != -1 and idx < end:
+            end = idx
+    contrast = _CONTRAST_RE.search(text, pos, end)
+    if contrast:
+        end = contrast.start()
+    return start, end
+
+
+def _is_category_token(token: str, words: set) -> bool:
+    if token in words:
+        return True
+    if len(token) > 2 and token.endswith("es") and token[:-2] in words:
+        return True
+    if len(token) > 1 and token.endswith("s") and token[:-1] in words:
+        return True
+    return False
+
+
+def _negation_reaches(text: str, keyword_start: int, words: set) -> bool:
+    """True when a negation in this clause covers the keyword.
+
+    Scope runs from the nearest negation through a coordinated list
+    ("no person, vehicle, or package") and stops at a new noun phrase
+    ("and a person").
+    """
+    clause_start, _clause_end = _clause_bounds(text, keyword_start)
+    window = text[clause_start:keyword_start]
+    negations = list(_NEGATION_RE.finditer(window))
+    if not negations:
+        return False
+    between = window[negations[-1].end():]
+    tokens = re.findall(r"[a-zA-Z']+", between.lower())
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in _FUNCTION_WORDS:
+            index += 1
+            continue
+        if token in {"and", "or"}:
+            nxt = tokens[index + 1] if index + 1 < len(tokens) else None
+            if nxt is None or _is_category_token(nxt, words):
+                index += 1
+                continue
+            return False
+        if not _is_category_token(token, words):
+            return False
+        index += 1
+    return True
+
+
+def _incidental_background(text: str, keyword_start: int, keyword_end: int, words: set) -> bool:
+    """A car mentioned only as background is not the subject of the event."""
+    _clause_start, clause_end = _clause_bounds(text, keyword_start)
+    after = text[keyword_end:min(clause_end, keyword_end + 48)]
+    background = _BACKGROUND_RE.search(after)
+    if background:
+        preceding = after[:background.start()]
+        earlier = re.findall(r"[a-zA-Z']+", preceding.lower())
+        if any(_is_category_token(token, words) for token in earlier):
+            return False
+        return True
+    before = text[max(_clause_start, keyword_start - 36):keyword_start]
+    return _BACKGROUND_RE.search(before) is not None
+
+
+def _keyword_words(keywords: Mapping[str, Sequence[str]]) -> set:
+    words = set()
+    for group in keywords.values():
+        words.update(word.lower() for word in group)
+    return words
+
+
+def extract_objects_from_description(
+    description: str,
+    keywords: Optional[Mapping[str, Sequence[str]]] = None,
+) -> List[str]:
+    """Text fallback. Negated mentions and background asides do not count.
+
+    An empty frame ("nothing visible", or every mention negated) is an empty
+    list. Text with no subject words stays ``["unknown"]``.
+    """
+    text = description or ""
+    if not text.strip():
+        return ["unknown"]
+    table = keywords or BASE_OBJECT_KEYWORDS
+    words = _keyword_words(table)
+    objects: List[str] = []
+    saw_negated = False
+    for category, group in table.items():
+        present = False
+        for word in group:
+            for match in _keyword_pattern(word).finditer(text):
+                if _negation_reaches(text, match.start(), words):
+                    saw_negated = True
+                    continue
+                if _incidental_background(text, match.start(), match.end(), words):
+                    continue
+                present = True
+                break
+            if present:
+                break
+        if present and category not in objects:
+            objects.append(category)
+    if objects:
+        return objects
+    if saw_negated or _EMPTY_SCENE_RE.search(text):
+        return []
+    return ["unknown"]
+
+
+def resolve_objects_detected(
+    *,
+    identification: Optional[Mapping[str, Any]] = None,
+    description: str = "",
+    smart_detection_types: Optional[Any] = None,
+    keywords: Optional[Mapping[str, Sequence[str]]] = None,
+) -> List[str]:
+    """Subjects for a new event.
+
+    Structured identification wins. Protect smart-detect types are the fallback
+    when identification has no subject. Negation-aware text is last.
+    """
+    derived = objects_from_identification(identification)
+    if derived is not None:
+        return derived
+    smart = subjects_from_smart_types(smart_detection_types)
+    if smart:
+        return smart
+    return extract_objects_from_description(description, keywords=keywords)
+
+
+def apply_identification(
+    result: AIResult,
+    raw_response: Optional[str],
+    smart_detection_types: Optional[Any] = None,
+) -> AIResult:
+    """Attach parsed fields and replace keyword objects with the resolved list.
+
+    A known subject, including an explicit empty frame, replaces whatever
+    substring matching found in the description. Missing identification keeps
+    the smart-detect or text fallback.
+    """
     ident = parse_identification(raw_response)
     result.identification = ident
-    object_type = ident.get("object_type")
-    if object_type in {"person", "vehicle", "package", "animal"}:
-        current = [o for o in (result.objects_detected or []) if o and o != UNKNOWN]
-        if object_type not in current:
-            current.insert(0, object_type)
-        result.objects_detected = current or [object_type]
+    result.objects_detected = resolve_objects_detected(
+        identification=ident,
+        description=result.description or "",
+        smart_detection_types=smart_detection_types,
+    )
     return result
 
 

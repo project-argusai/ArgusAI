@@ -175,20 +175,14 @@ class AIProviderBase(ABC):
         return apply_identification(result, raw_response)
 
     def _extract_objects(self, description: str) -> List[str]:
-        """Extract object types from description text"""
-        objects = []
-        description_lower = description.lower()
+        """Extract object types from description text.
 
-        if any(word in description_lower for word in ['person', 'people', 'man', 'woman', 'child', 'human']):
-            objects.append('person')
-        if any(word in description_lower for word in ['vehicle', 'car', 'truck', 'van', 'motorcycle', 'bike']):
-            objects.append('vehicle')
-        if any(word in description_lower for word in ['animal', 'dog', 'cat', 'bird', 'pet']):
-            objects.append('animal')
-        if any(word in description_lower for word in ['package', 'box', 'delivery', 'parcel']):
-            objects.append('package')
-
-        if not objects:
-            objects.append('unknown')
-
-        return objects
+        Fallback for replies that have no structured identification. Negated
+        mentions ("no package", "nothing visible") and background asides are
+        not subjects.
+        """
+        from app.services.identification import (
+            BASE_OBJECT_KEYWORDS,
+            extract_objects_from_description,
+        )
+        return extract_objects_from_description(description, keywords=BASE_OBJECT_KEYWORDS)

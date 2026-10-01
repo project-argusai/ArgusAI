@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.models.event import Event
 from app.models.camera import Camera
 from app.services.ai_service import AIResult
-from app.services.identification import dumps_identification
+from app.services.identification import dumps_identification, resolve_objects_detected
 from app.services.snapshot_service import SnapshotResult
 from app.core.decorators import singleton
 
@@ -38,6 +38,31 @@ logger = logging.getLogger(__name__)
 _KNOWN_DETECTION_TYPES = frozenset(
     {"person", "vehicle", "package", "animal", "motion", "ring"}
 )
+
+
+def _objects_for_new_event(ai_result: Optional[AIResult], event_type: str) -> List[str]:
+    """Objects stored on a new Protect event.
+
+    Identification (including an empty frame) wins. When it has no subject,
+    the Protect smart-detect type is the fallback. Results that never parsed
+    identification keep the list the caller already set, so test doubles are
+    unchanged. A missing AI result still records the raw event type.
+    """
+    if ai_result is None:
+        return [event_type]
+    ident = getattr(ai_result, "identification", None)
+    if not isinstance(ident, dict):
+        detected = getattr(ai_result, "objects_detected", None)
+        if isinstance(detected, list):
+            return detected
+        return [event_type]
+    objects = resolve_objects_detected(
+        identification=ident,
+        description=getattr(ai_result, "description", "") or "",
+        smart_detection_types=[event_type] if event_type else None,
+    )
+    ai_result.objects_detected = objects
+    return objects
 
 
 def ai_response_time_ms_from_result(ai_result: Optional[object]) -> Optional[int]:
@@ -96,7 +121,7 @@ class ProtectEventStorageService:
             timestamp=snapshot_result.timestamp,
             description=ai_result.description if ai_result else "AI analysis unavailable",
             confidence=ai_result.confidence if ai_result else 0.0,
-            objects_detected=json.dumps(ai_result.objects_detected) if ai_result else json.dumps([event_type]),
+            objects_detected=json.dumps(_objects_for_new_event(ai_result, event_type)),
             thumbnail_path=snapshot_result.thumbnail_path,
             thumbnail_base64=None,
             alert_triggered=False,

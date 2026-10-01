@@ -308,8 +308,7 @@ def test_parse_identification_none_is_a_false_alarm():
         "object_type": "none",
     }))
     assert result.identification["object_type"] == "none"
-    assert "none" not in result.objects_detected
-    assert "animal" not in result.objects_detected
+    assert result.objects_detected == []
 
 
 @pytest.mark.parametrize(

@@ -386,33 +386,18 @@ class LiteLLMProvider:
         return description, ai_confidence, bounding_boxes
 
     def _extract_objects(self, description: str) -> List[str]:
+        """Extract detected object types from description text.
+
+        Negated mentions and background asides are not subjects. Structured
+        identification, when the caller applies it, replaces this list.
         """
-        Extract detected object types from description.
-
-        Args:
-            description: AI-generated description text
-
-        Returns:
-            List of detected object types
-        """
-        objects = []
-        description_lower = description.lower()
-
-        # Object detection keywords
-        object_keywords = {
-            "person": ["person", "man", "woman", "child", "people", "someone", "individual",
-                      "pedestrian", "visitor", "delivery", "driver", "worker"],
-            "vehicle": ["car", "truck", "van", "suv", "vehicle", "automobile", "motorcycle",
-                       "bike", "bicycle", "scooter", "bus"],
-            "package": ["package", "box", "parcel", "delivery", "amazon", "fedex", "ups", "usps"],
-            "animal": ["dog", "cat", "bird", "animal", "pet", "squirrel", "rabbit", "deer"],
-        }
-
-        for obj_type, keywords in object_keywords.items():
-            if any(kw in description_lower for kw in keywords):
-                objects.append(obj_type)
-
-        return objects if objects else ["unknown"]
+        from app.services.identification import (
+            LITELLM_OBJECT_KEYWORDS,
+            extract_objects_from_description,
+        )
+        return extract_objects_from_description(
+            description, keywords=LITELLM_OBJECT_KEYWORDS
+        )
 
 
 # Singleton instance for easy access

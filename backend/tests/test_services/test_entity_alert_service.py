@@ -234,7 +234,7 @@ class TestDescriptionEnrichment:
         """Test enriching vehicle-related description."""
         original = "A vehicle is entering the driveway."
         enriched = entity_alert_service.enrich_description(original, [sample_vehicle_entity])
-        assert enriched == "Family Car's vehicle is entering the driveway."
+        assert enriched == "The Family Car is entering the driveway."
 
     def test_enrich_composes_person_and_vehicle(
         self, entity_alert_service, sample_entity_john
@@ -247,14 +247,74 @@ class TestDescriptionEnrichment:
         vehicle.vehicle_make = "BMW"
         vehicle.vehicle_model = "X3"
 
-        original = "A person arrives in a vehicle at the driveway."
+        original = "A person arrives in a vehicle at the driveway. It is a red BMW."
         enriched = entity_alert_service.enrich_description(
             original, [sample_entity_john, vehicle]
         )
         assert "John Smith" in enriched
-        assert "BMW" in enriched or "X3" in enriched
+        assert "red BMW X3" in enriched
+        assert "BMW X3's vehicle" not in enriched
         assert "a person" not in enriched.lower()
         assert "a vehicle" not in enriched.lower()
+
+    def test_enrich_does_not_adopt_a_contradicting_make(
+        self, entity_alert_service
+    ):
+        """A Tesla the model can see must not be rewritten as the BMW X3 label."""
+        vehicle = MagicMock(spec=RecognizedEntity)
+        vehicle.name = "BMW X3"
+        vehicle.entity_type = "vehicle"
+        vehicle.vehicle_color = None
+        vehicle.vehicle_make = None
+        vehicle.vehicle_model = None
+
+        original = "A red Tesla Model Y pulls into the driveway."
+        enriched = entity_alert_service.enrich_description(original, [vehicle])
+        assert enriched == original
+
+    def test_enrich_does_not_treat_an_attribute_less_label_as_the_suv(
+        self, entity_alert_service
+    ):
+        vehicle = MagicMock(spec=RecognizedEntity)
+        vehicle.name = "BMW X3"
+        vehicle.entity_type = "vehicle"
+        vehicle.vehicle_color = None
+        vehicle.vehicle_make = None
+        vehicle.vehicle_model = None
+
+        original = "A red SUV moves leftward along the road."
+        enriched = entity_alert_service.enrich_description(original, [vehicle])
+        assert enriched == original
+        assert "BMW X3's vehicle" not in enriched
+
+    def test_identity_drops_a_label_the_description_does_not_support(self):
+        from app.services.entity_alert_service import suppress_inconsistent_vehicle_identity
+
+        vehicle = MagicMock(spec=RecognizedEntity)
+        vehicle.name = "BMW X3"
+        vehicle.entity_type = "vehicle"
+        vehicle.vehicle_color = None
+        vehicle.vehicle_make = None
+        vehicle.vehicle_model = None
+        identification = {"object_type": "vehicle", "identity": "BMW X3"}
+
+        suppress_inconsistent_vehicle_identity(
+            "A red Tesla Model Y pulls into the driveway.",
+            identification,
+            [vehicle],
+        )
+        assert identification["identity"] == "cannot_tell"
+
+        confirmed = {"object_type": "vehicle", "identity": "BMW X3"}
+        vehicle.vehicle_color = "red"
+        vehicle.vehicle_make = "BMW"
+        vehicle.vehicle_model = "X3"
+        suppress_inconsistent_vehicle_identity(
+            "A red BMW X3 leaves the driveway.",
+            confirmed,
+            [vehicle],
+        )
+        assert confirmed["identity"] == "BMW X3"
 
     def test_enrich_no_match_no_change(self, entity_alert_service, sample_entity_john):
         """Test that descriptions without matching patterns are unchanged."""

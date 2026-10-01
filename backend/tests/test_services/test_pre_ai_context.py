@@ -201,6 +201,9 @@ class TestPromptContract:
         assert "UPS" in NAMING_AND_CARRIER_INSTRUCTION
         assert "FedEx" in NAMING_AND_CARRIER_INSTRUCTION
         assert "HISTORICAL CONTEXT" in NAMING_AND_CARRIER_INSTRUCTION
+        assert "red BMW X3" not in NAMING_AND_CARRIER_INSTRUCTION
+        assert "label" in NAMING_AND_CARRIER_INSTRUCTION.lower()
+        assert "visible color, make, and model" in NAMING_AND_CARRIER_INSTRUCTION
 
     def test_multi_frame_placeholder_is_formatted(self):
         service = AIPromptService()
@@ -329,11 +332,12 @@ class TestComposedEnrichment:
         vehicle.vehicle_model = "X3"
 
         enriched = service.enrich_description(
-            "A person arrives in a vehicle at the driveway.",
+            "A person arrives in a vehicle at the driveway. It is a red BMW.",
             [person, vehicle],
         )
         assert "Isaac" in enriched
-        assert "BMW" in enriched or "X3" in enriched
+        assert "red BMW X3" in enriched
+        assert "BMW's vehicle" not in enriched
         assert not enriched.lower().startswith("a person")
 
     def test_unnamed_not_applied(self):

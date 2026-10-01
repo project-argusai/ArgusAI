@@ -21,11 +21,138 @@ from sqlalchemy.orm import Session
 
 from app.models.recognized_entity import RecognizedEntity
 from app.models.event import Event
+from app.services.vehicle_signature_matcher import (
+    SKIP_WORDS,
+    VEHICLE_COLORS,
+    VEHICLE_MAKES,
+    VEHICLE_MODELS,
+)
 
 logger = logging.getLogger(__name__)
 
+_MAKE_ALIASES = {
+    "chevy": "chevrolet",
+    "vw": "volkswagen",
+    "mercedes-benz": "mercedes",
+    "range rover": "land rover",
+}
+_COLOR_ALIASES = {"grey": "gray"}
 
-# Singleton instance
+
+def _norm_token(value) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower().replace("-", "").replace(" ", "")
+    return text or None
+
+
+def _earliest_vocab(text: str, vocab: List[str], aliases: Dict[str, str]) -> Optional[str]:
+    lowered = text.lower()
+    best = None
+    best_at = len(lowered) + 1
+    surface = None
+    for word in vocab:
+        match = re.search(rf"\b{re.escape(word)}\b", lowered)
+        if match and match.start() < best_at:
+            best_at = match.start()
+            surface = word
+            best = aliases.get(word, word)
+    return best if surface else None
+
+
+def _model_after_make(text: str, make: Optional[str]) -> Optional[str]:
+    if not make:
+        return None
+    match = re.search(rf"\b{re.escape(make)}\s+(\w+[-\w]*)\b", text.lower())
+    if not match:
+        return None
+    token = match.group(1)
+    if token in SKIP_WORDS or len(token) < 2:
+        return None
+    return token.replace("-", "")
+
+
+def visible_vehicle_details(description: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Color, make, and model actually named in a description. Any may be missing."""
+    text = description or ""
+    color = _earliest_vocab(text, VEHICLE_COLORS, _COLOR_ALIASES)
+    make = _earliest_vocab(text, VEHICLE_MAKES, _MAKE_ALIASES)
+    model = _earliest_vocab(text, VEHICLE_MODELS, {})
+    if model:
+        model = _norm_token(model)
+    elif make:
+        model = _model_after_make(text, make)
+    return color, make, model
+
+
+def vehicle_label_agrees(description: str, entity) -> bool:
+    """Whether a stored vehicle name can be shown for this description.
+
+    The name is a hint. A make or model written into the name (or stored on
+    the entity) is used only when the description shows that same make.
+    A different visible make, model, or stored color disagrees. A nickname
+    with no make or model agrees unless the description names some other make.
+    """
+    name = entity.name if isinstance(getattr(entity, "name", None), str) else ""
+    name = name.strip()
+    if not name:
+        return False
+    visible_color, visible_make, visible_model = visible_vehicle_details(description or "")
+    label_make = _earliest_vocab(name, VEHICLE_MAKES, _MAKE_ALIASES)
+    label_model = _earliest_vocab(name, VEHICLE_MODELS, {})
+    if label_model:
+        label_model = _norm_token(label_model)
+    elif label_make:
+        label_model = _model_after_make(name, label_make)
+    stored_color = _norm_token(getattr(entity, "vehicle_color", None))
+    if stored_color == "grey":
+        stored_color = "gray"
+    raw_make = getattr(entity, "vehicle_make", None)
+    if isinstance(raw_make, str):
+        raw_make = _MAKE_ALIASES.get(raw_make.strip().lower(), raw_make)
+    stored_make = _norm_token(raw_make if isinstance(raw_make, str) else None)
+    stored_model = _norm_token(getattr(entity, "vehicle_model", None))
+
+    expected_makes = {token for token in (label_make, stored_make) if token}
+    expected_models = {token for token in (label_model, stored_model) if token}
+
+    if visible_make and expected_makes and visible_make not in expected_makes:
+        return False
+    if visible_make and not expected_makes:
+        return False
+    if visible_model and expected_models and visible_model not in expected_models:
+        return False
+    if visible_color and stored_color and visible_color != stored_color:
+        return False
+    if expected_makes and visible_make not in expected_makes:
+        # "BMW X3" is not confirmed by "a red SUV" or "a vehicle".
+        return False
+    return True
+
+
+def suppress_inconsistent_vehicle_identity(
+    description: str,
+    identification: Optional[dict],
+    entities: List,
+) -> None:
+    """Drop a vehicle label from identity when the description does not support it."""
+    if not isinstance(identification, dict):
+        return
+    identity = identification.get("identity")
+    if not isinstance(identity, str):
+        return
+    token = identity.strip()
+    if not token or token.lower() in {"unknown", "cannot_tell"}:
+        return
+    for entity in entities or []:
+        if getattr(entity, "entity_type", None) != "vehicle":
+            continue
+        name = getattr(entity, "name", None)
+        if not isinstance(name, str) or token.lower() != name.strip().lower():
+            continue
+        if not vehicle_label_agrees(description, entity):
+            identification["identity"] = "cannot_tell"
+        return
 
 
 
@@ -176,11 +303,18 @@ class EntityAlertService:
         named_vehicles = [
             e for e in named_entities
             if getattr(e, "entity_type", None) == "vehicle"
+            and vehicle_label_agrees(original_description, e)
         ]
         # Fall back to the old "all named entities" list when type is missing
-        # (some callers/tests only set .name).
+        # (some callers/tests only set .name). A vehicle the description
+        # disagrees with stays out of that list.
         if not named_persons and not named_vehicles:
-            named_persons = named_entities
+            untyped = [
+                e for e in named_entities
+                if getattr(e, "entity_type", None) not in ("person", "vehicle")
+            ]
+            if untyped:
+                named_persons = untyped
 
         person_str = self._join_entity_names(named_persons)
         vehicle_phrase = self._format_vehicle_phrase(named_vehicles, person_str)
@@ -196,7 +330,7 @@ class EntityAlertService:
                 r'\b[Aa] (?:red|blue|white|black|silver|gray|grey|green)\s+(?:suv|sedan|truck|van|coupe|hatchback)\b',
             ]
             for pattern in vehicle_patterns:
-                updated = re.sub(pattern, vehicle_phrase, enriched, count=1, flags=re.IGNORECASE)
+                updated = self._replace_vehicle_phrase(enriched, pattern, vehicle_phrase)
                 if updated != enriched:
                     enriched = updated
                     break
@@ -251,13 +385,27 @@ class EntityAlertService:
         if details and person_str:
             return f"{person_str}'s {details}"
         if details:
-            return details
-        name = vehicle.name
+            return f"the {details}"
+        name = self._optional_str(getattr(vehicle, "name", None))
         if person_str and name:
             return f"{person_str}'s {name}"
         if name:
-            return f"{name}'s vehicle"
+            return f"the {name}"
         return None
+
+    @staticmethod
+    def _replace_vehicle_phrase(text: str, pattern: str, phrase: str) -> str:
+        """Swap one generic vehicle mention for a natural noun phrase."""
+
+        def _repl(match: re.Match) -> str:
+            replacement = phrase
+            start = match.start()
+            at_boundary = start == 0 or (start >= 2 and text[start - 2] in ".!?")
+            if at_boundary and replacement[:1].islower():
+                replacement = replacement[0].upper() + replacement[1:]
+            return replacement
+
+        return re.sub(pattern, _repl, text, count=1, flags=re.IGNORECASE)
 
     async def should_suppress_alert(
         self, db: Session, matched_entity_ids: List[str]

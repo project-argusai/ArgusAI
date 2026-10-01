@@ -413,12 +413,16 @@ class MCPContextProvider:
                 vehicle_labels = []
                 for v in vehicles:
                     parts = [p for p in (v.vehicle_color, v.vehicle_make, v.vehicle_model) if p]
-                    label = v.name
                     if parts:
                         label = f"{v.name} ({' '.join(parts)})"
+                    else:
+                        label = f"{v.name} (label only, no stored color/make/model)"
                     vehicle_labels.append(label)
                 if vehicle_labels:
-                    extra_hints.append(f"Known household vehicles: {', '.join(vehicle_labels)}")
+                    extra_hints.append(
+                        "Known vehicle labels, not confirmed makes or models: "
+                        + ", ".join(vehicle_labels)
+                    )
                 carrier_names = [c[0] for c in carriers if c and c[0]]
                 if carrier_names:
                     extra_hints.append(f"Carriers seen at this camera: {', '.join(carrier_names)}")
@@ -1439,6 +1443,15 @@ class MCPContextProvider:
         primary = f"Known entity: {entity.name} ({entity.entity_type})"
         parts.append(primary)
         total_chars += len(primary)
+
+        if entity.entity_type == "vehicle" and not entity.attributes:
+            hint = (
+                "This name is a label only. It has no stored color, make, or model, "
+                "so do not treat it as the vehicle's make or model."
+            )
+            if total_chars + len(hint) <= self.MAX_ENTITY_CONTEXT_CHARS:
+                parts.append(hint)
+                total_chars += len(hint)
 
         # Vehicle-specific attributes (color, make, model)
         if entity.attributes:

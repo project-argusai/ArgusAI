@@ -9,10 +9,11 @@ Story: Phase B - Decomposition of ai_service.py (Phase 2.1)
 
 NAMING_AND_CARRIER_INSTRUCTION = """
 When writing the description:
-- If HISTORICAL CONTEXT names a person or vehicle and the image matches, use that name. Never invent names that are not listed there.
-- If a known vehicle is listed, use its color, make, and model (for example "red BMW X3") instead of "a vehicle" or "a car".
+- If HISTORICAL CONTEXT names a person and the image matches, use that name. Never invent names that are not listed there.
+- Describe a vehicle's visible color, make, and model from the image. A known-entity name is a label, not a make or model. Mention that label only when it matches the vehicle you see. If the label has no stored color, make, or model, do not treat it as the vehicle's make or model.
+- Do not adopt a stored name when the visible color, make, or model disagrees with it.
 - If a delivery uniform or logo is visible, name the carrier (UPS, FedEx, USPS, Amazon, or DHL).
-- State the local time and camera/location naturally (for example "at 9:05 PM at the front door, Isaac arrives in his red BMW X3"). The identification description is a short paragraph, not a single sentence.
+- State the local time and camera/location naturally (for example "at 9:05 PM at the front door, a person arrives in a red vehicle"). The identification description is a short paragraph, not a single sentence.
 """
 
 CONFIDENCE_INSTRUCTION = """

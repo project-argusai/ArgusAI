@@ -79,6 +79,37 @@ class EntityMatchResult:
     occurrence_count: int
     similarity_score: float
     is_new: bool
+    # Copied so the vision prompt can tell a label from stored attributes.
+    # Matching itself does not read these.
+    vehicle_color: Optional[str] = None
+    vehicle_make: Optional[str] = None
+    vehicle_model: Optional[str] = None
+
+
+def _text_attr(entity, name: str) -> Optional[str]:
+    value = getattr(entity, name, None)
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _match_result(entity, *, similarity_score: float, is_new: bool) -> EntityMatchResult:
+    """Build a match result, including vehicle attributes when the row has them."""
+    vehicle = getattr(entity, "entity_type", None) == "vehicle"
+    return EntityMatchResult(
+        entity_id=entity.id,
+        entity_type=entity.entity_type,
+        name=entity.name,
+        first_seen_at=entity.first_seen_at,
+        last_seen_at=entity.last_seen_at,
+        occurrence_count=entity.occurrence_count,
+        similarity_score=similarity_score,
+        is_new=is_new,
+        vehicle_color=_text_attr(entity, "vehicle_color") if vehicle else None,
+        vehicle_make=_text_attr(entity, "vehicle_make") if vehicle else None,
+        vehicle_model=_text_attr(entity, "vehicle_model") if vehicle else None,
+    )
 
 
 def apply_event_thumbnail_to_entity(entity, event) -> None:
@@ -396,16 +427,7 @@ class EntityService:
                 }
             )
 
-            return EntityMatchResult(
-                entity_id=entity.id,
-                entity_type=entity.entity_type,
-                name=entity.name,
-                first_seen_at=entity.first_seen_at,
-                last_seen_at=entity.last_seen_at,
-                occurrence_count=entity.occurrence_count,
-                similarity_score=best_score,
-                is_new=False,
-            )
+            return _match_result(entity, similarity_score=best_score, is_new=False)
         else:
             logger.debug(
                 f"No entity match found for context (best score: {max(similarities) if similarities else 0:.4f})",
@@ -607,13 +629,8 @@ class EntityService:
         # Update cache
         self._entity_cache[entity_id] = embedding
 
-        return EntityMatchResult(
-            entity_id=entity_id,
-            entity_type=entity_type,
-            name=None,
-            first_seen_at=event_timestamp,
-            last_seen_at=event_timestamp,
-            occurrence_count=1,
+        return _match_result(
+            new_entity,
             similarity_score=1.0,
             is_new=True,
         )
@@ -663,16 +680,7 @@ class EntityService:
         db.commit()
         db.refresh(entity)
 
-        return EntityMatchResult(
-            entity_id=entity.id,
-            entity_type=entity.entity_type,
-            name=entity.name,
-            first_seen_at=entity.first_seen_at,
-            last_seen_at=entity.last_seen_at,
-            occurrence_count=entity.occurrence_count,
-            similarity_score=similarity_score,
-            is_new=False,
-        )
+        return _match_result(entity, similarity_score=similarity_score, is_new=False)
 
     async def get_all_entities(
         self,

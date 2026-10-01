@@ -96,15 +96,17 @@ Cover what is visible:
 Do not inventory static scenery such as furniture, plants, or decorations unless
 it matters to the event. Do not read, transcribe, or quote a licence plate or
 license plate. Do not guess an identity. Use a name only when HISTORICAL CONTEXT
-lists that person or vehicle and the image matches. Never invent a name. Do not
-infer motion, identity, or an object you cannot see. A camera label, a detector
-type, or a closer crop is not evidence that a subject is present.
+lists that person or vehicle and the image matches. A vehicle label is not its
+make or model: describe the color, make, and model you can see, and mention the
+label only when they agree. Never invent a name. Do not infer motion, identity,
+or an object you cannot see. A camera label, a detector type, or a closer crop
+is not evidence that a subject is present.
 
 Fields:
 - description: the 3 to 6 sentence paragraph. When object_type is "none", say plainly that no person, vehicle, animal, or package is visible, and do not invent one
 - object_type: person, vehicle, package, animal, "none" when nothing of interest is there, or unknown
 - count: integer count of that subject, 0 when object_type is "none", or null if you cannot tell
-- identity: the matching name from context, otherwise "unknown". Use "cannot_tell" when a subject is visible but you cannot decide whether it is a known one
+- identity: a HISTORICAL CONTEXT name only when the visible person or vehicle matches that label. If a vehicle's visible color, make, or model disagrees with the label, or the label has no stored color, make, or model and you cannot confirm it from the image, use "cannot_tell". Otherwise "unknown" when nothing in context matches. Never copy a stored name into identity when it conflicts with the image
 - action: a short action you can actually see, or "cannot_tell"
 - direction: toward camera, away, left, right, or "cannot_tell"
 - package_or_carrier: "package", UPS, FedEx, USPS, Amazon, DHL, "none", or "cannot_tell"

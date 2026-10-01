@@ -41,6 +41,7 @@ from app.services.ai_circuit_breaker import (
     AICircuitBreaker,
     CircuitBreakerConfig,
     CircuitState,
+    QUOTA_CIRCUIT_OPEN_SECONDS,
 )
 from app.services.ai_types import AIProvider  # used in get_ai_resilience_status / reset (was missing -> NameError)
 
@@ -195,6 +196,35 @@ class AIResilienceService:
                     "to": current_state,
                 },
             )
+
+    def trip_quota(self, provider: str, cooldown_s: float = QUOTA_CIRCUIT_OPEN_SECONDS) -> None:
+        """Open the provider circuit immediately after a quota or no-credit failure.
+
+        The cooldown is brief (two minutes by default) so a burst of events
+        skips the exhausted provider, and a misclassification recovers on its
+        own. The provider error body is not accepted here and is not logged.
+        """
+        name = provider.lower()
+        breaker = self.circuit_breakers.get(name)
+        if breaker is None:
+            logger.info(
+                "No circuit breaker for %s; quota failure is not cached",
+                name,
+                extra={"event_type": "ai_circuit_quota_untracked", "provider": name},
+            )
+            return
+
+        previous_state = breaker.state.value
+        breaker.force_open(cooldown_s, reason="quota_exhausted")
+
+        ai_circuit_breaker_state.labels(provider=name).set(breaker.get_state_value())
+        current_state = breaker.state.value
+        if previous_state != current_state:
+            ai_circuit_breaker_transitions_total.labels(
+                provider=name,
+                from_state=previous_state,
+                to_state=current_state,
+            ).inc()
 
     # =====================================================================
     # Status & Management APIs (used by /api/v1/system/ai-resilience*)

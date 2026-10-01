@@ -1021,6 +1021,7 @@ class EventProcessor:
                         has_annotations=has_annotations,
                         bounding_boxes=bounding_boxes_json,
                         identification=event_data.get("identification"),
+                        ai_response_time_ms=event_data.get("ai_response_time_ms"),
                     )
 
                     db.add(event)

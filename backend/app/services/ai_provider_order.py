@@ -95,6 +95,33 @@ def load_ai_provider_order() -> List[AIProvider]:
     return effective
 
 
+# Quota and no-credit failures do not recover inside one event. Matching is
+# done on these phrases only; the raw body is never logged.
+_QUOTA_ERROR_MARKERS = (
+    "insufficient_quota",
+    "exceeded your current quota",
+    "quota exceeded",
+    "billing",
+    "no credit",
+    "out of credits",
+    "insufficient credits",
+    "credit balance",
+    "spending limit",
+    "resource_exhausted",
+)
+
+
+def is_quota_error(error: Optional[str]) -> bool:
+    """True when a provider error is a quota or no-credit failure.
+
+    Rate-limit 429s that do not match these phrases stay retryable.
+    """
+    if not error:
+        return False
+    text = error.lower()
+    return any(marker in text for marker in _QUOTA_ERROR_MARKERS)
+
+
 def classify_provider_error(error: Optional[str]) -> str:
     """Map a provider error to a status or error class safe to log.
 
@@ -105,14 +132,7 @@ def classify_provider_error(error: Optional[str]) -> str:
         return "unknown"
 
     text = error.lower()
-    if any(
-        token in text
-        for token in (
-            "insufficient_quota",
-            "exceeded your current quota",
-            "billing",
-        )
-    ):
+    if is_quota_error(error):
         return "quota_exhausted"
     if "timed out" in text or "timeout" in text:
         return "timeout"
@@ -146,3 +166,25 @@ def format_chain_failure(reason: str, attempts: Sequence[str]) -> str:
     """One-line failure summary: reason plus provider:class attempts."""
     attempted = ", ".join(attempts) if attempts else "none"
     return f"{reason}. attempted=[{attempted}]"
+
+
+# Chain summaries are class labels only (``grok:quota_exhausted``). A summary
+# that matches this shape is safe to log; anything else is reduced to a class.
+_SAFE_CHAIN_SUMMARY_RE = re.compile(
+    r"^[A-Za-z0-9 _().:,-]{1,160}\. attempted=\["
+    r"(?:none|[a-z0-9_]+:[a-z0-9_]+(?:, [a-z0-9_]+:[a-z0-9_]+)*)\]$"
+)
+
+
+def analysis_failure_log_detail(error: Optional[str]) -> str:
+    """Return a log-safe description of an analysis failure.
+
+    Summaries from ``format_chain_failure`` stay intact so operators can see
+    which provider failed and why. Any other text, including provider response
+    bodies, is reduced to a class label and is never returned.
+    """
+    if error:
+        stripped = error.strip()
+        if _SAFE_CHAIN_SUMMARY_RE.fullmatch(stripped):
+            return stripped
+    return classify_provider_error(error)

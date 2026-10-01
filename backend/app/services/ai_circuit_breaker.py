@@ -21,6 +21,11 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# How long a quota or no-credit failure keeps the provider out of the chain.
+# Long enough to skip a burst of motion events, short enough to recover if
+# the classification was wrong or credits were added.
+QUOTA_CIRCUIT_OPEN_SECONDS = 120.0
+
 
 class CircuitState(str, Enum):
     CLOSED = "closed"
@@ -68,6 +73,10 @@ class AICircuitBreaker:
         # Keep a short history of state transitions for UI / auditing
         self._transitions: list[dict] = []  # last 30 transitions
 
+        # Absolute open deadline for a quota trip. None means the configured
+        # recovery_timeout applies instead.
+        self._open_until: Optional[float] = None
+
     @property
     def state(self) -> CircuitState:
         """Current state of the circuit breaker."""
@@ -77,16 +86,23 @@ class AICircuitBreaker:
 
     def _update_state(self) -> None:
         """Check if we should transition from OPEN to HALF_OPEN."""
-        if self._state == CircuitState.OPEN and self._last_failure_time is not None:
-            if time.time() - self._last_failure_time >= self.config.recovery_timeout:
-                old_state = self._state.value
-                self._state = CircuitState.HALF_OPEN
-                self._half_open_calls = 0
-                self._record_transition(old_state, "half_open", "recovery_timeout_reached")
-                logger.info(
-                    f"Circuit breaker for {self.provider_name} moved to HALF_OPEN",
-                    extra={"event_type": "ai_circuit_half_opened", "provider": self.provider_name}
-                )
+        if self._state != CircuitState.OPEN or self._last_failure_time is None:
+            return
+        now = time.time()
+        if self._open_until is not None:
+            if now < self._open_until:
+                return
+            self._open_until = None
+        elif now - self._last_failure_time < self.config.recovery_timeout:
+            return
+        old_state = self._state.value
+        self._state = CircuitState.HALF_OPEN
+        self._half_open_calls = 0
+        self._record_transition(old_state, "half_open", "recovery_timeout_reached")
+        logger.info(
+            f"Circuit breaker for {self.provider_name} moved to HALF_OPEN",
+            extra={"event_type": "ai_circuit_half_opened", "provider": self.provider_name}
+        )
 
     def _cleanup_old_outcomes(self) -> None:
         """Remove outcomes older than the window."""
@@ -195,6 +211,35 @@ class AICircuitBreaker:
                     }
                 )
 
+    def force_open(self, cooldown_seconds: float, reason: str = "quota_exhausted") -> None:
+        """Open immediately and stay open until ``cooldown_seconds`` elapses.
+
+        Used for quota and no-credit failures, which will not recover by
+        retrying the same provider on the next event. ``reason`` is a short
+        label; the provider error body is not accepted or logged.
+        """
+        with self._lock:
+            now = time.time()
+            old_state = self._state.value
+            self._state = CircuitState.OPEN
+            self._failure_count = max(self._failure_count, self.config.failure_threshold)
+            self._last_failure_time = now
+            self._open_until = now + max(0.0, float(cooldown_seconds))
+            if old_state != CircuitState.OPEN.value:
+                self._record_transition(old_state, "open", reason)
+            logger.warning(
+                "Circuit breaker for %s opened (%s, cooldown %.0fs)",
+                self.provider_name,
+                reason,
+                max(0.0, float(cooldown_seconds)),
+                extra={
+                    "event_type": "ai_circuit_quota_open",
+                    "provider": self.provider_name,
+                    "reason": reason,
+                    "cooldown_s": max(0.0, float(cooldown_seconds)),
+                },
+            )
+
     def reset(self) -> None:
         """Manually reset the circuit breaker to CLOSED state."""
         with self._lock:
@@ -203,6 +248,7 @@ class AICircuitBreaker:
             self._failure_count = 0
             self._half_open_calls = 0
             self._last_failure_time = None
+            self._open_until = None
             self._recent_outcomes.clear()
             self._transitions.clear()
             self._record_transition(old_state, "closed", "manual_reset")

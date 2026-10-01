@@ -416,7 +416,7 @@ class AIService:
         camera_name: str,
         timestamp: Optional[str] = None,
         detected_objects: Optional[List[str]] = None,
-        sla_timeout_ms: int = 10000,
+        sla_timeout_ms: Optional[int] = None,
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
@@ -428,15 +428,16 @@ class AIService:
         Analyzes a sequence of frames together and returns a single combined description
         covering all frames. Useful for multi-frame analysis of motion clips.
 
-        Enforces SLA timeout by tracking total elapsed time across provider attempts
-        and aborting fallback chain if approaching the timeout limit.
+        Each provider call is bounded by the remaining budget. The default budget
+        is the orchestrator's multi-frame SLA (AI_MULTI_IMAGE_SLA_MS, 25000 ms).
 
         Args:
             images: List of raw image bytes (from FrameExtractor, 3-5 frames typical)
             camera_name: Name of camera for context
             timestamp: ISO 8601 timestamp of first frame (default: now)
             detected_objects: Objects detected by motion detection
-            sla_timeout_ms: Maximum time allowed in milliseconds (default: 10000ms = 10s)
+            sla_timeout_ms: Maximum time allowed in milliseconds. None uses the
+                orchestrator default (AI_MULTI_IMAGE_SLA_MS, 25000 ms).
             custom_prompt: Optional custom prompt to use instead of default
             audio_transcription: Optional transcribed speech from doorbell audio (Story P3-5.3)
             ocr_result: Optional OCR extraction from frame overlay (Story P9-3.2)

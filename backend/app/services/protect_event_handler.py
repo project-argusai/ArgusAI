@@ -525,19 +525,30 @@ class ProtectEventHandler:
                     if not ai_result or not ai_result.success:
                         # Story P3-3.5 AC3: Complete failure - all analysis modes exhausted
                         # Create event with "AI analysis unavailable" instead of returning False
+                        from app.services.ai_provider_order import analysis_failure_log_detail
+                        from app.services.protect_event_storage_service import (
+                            ai_response_time_ms_from_result,
+                        )
+
                         logger.error(
-                            f"AI pipeline completely failed for camera '{camera.name}' - saving event without description",
+                            "AI pipeline completely failed for camera '%s' - saving event without description",
+                            camera.name,
                             extra={
                                 "event_type": "protect_ai_complete_failure",
                                 "camera_id": camera.id,
                                 "camera_name": camera.name,
                                 "event_id": generated_event_id,
-                                "error": ai_result.error if ai_result else "No result",
+                                "error": (
+                                    analysis_failure_log_detail(ai_result.error)
+                                    if ai_result and ai_result.error
+                                    else "no_result"
+                                ),
                                 "fallback_chain": getattr(self, '_fallback_chain', [])
                             }
                         )
 
-                        # Store via new service (no AI result)
+                        # Store via new service (no AI result). Keep the vision-call
+                        # duration even though the description itself was not saved.
                         stored_event = await self.storage_service.persist_protect_event(
                             db=db,
                             camera=camera,
@@ -547,6 +558,7 @@ class ProtectEventHandler:
                             event_type=filter_type,
                             is_doorbell_ring=is_doorbell_ring,
                             event_id_override=generated_event_id,
+                            ai_response_time_ms=ai_response_time_ms_from_result(ai_result),
                             **persist_tracking,
                         )
 
@@ -928,6 +940,10 @@ class ProtectEventHandler:
                         logger.warning(f"Clip cleanup error: {e}")
 
                 if not ai_result or not ai_result.success:
+                    from app.services.protect_event_storage_service import (
+                        ai_response_time_ms_from_result,
+                    )
+
                     # Store event without AI description
                     stored_event = await self.storage_service.persist_protect_event(
                         db=db,
@@ -938,6 +954,7 @@ class ProtectEventHandler:
                         event_type=filter_type,
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
+                        ai_response_time_ms=ai_response_time_ms_from_result(ai_result),
                         **persist_tracking,
                         **detection_columns,
                     )

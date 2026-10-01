@@ -33,6 +33,16 @@ from app.core.decorators import singleton
 logger = logging.getLogger(__name__)
 
 
+def ai_response_time_ms_from_result(ai_result: Optional[object]) -> Optional[int]:
+    """Milliseconds recorded on an AI result, or None when it was not set."""
+    raw = getattr(ai_result, "response_time_ms", None) if ai_result is not None else None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    if raw < 0:
+        return None
+    return int(raw)
+
+
 @singleton
 class ProtectEventStorageService:
     """
@@ -69,6 +79,7 @@ class ProtectEventStorageService:
         detection_end: Optional[datetime] = None,
         detection_peak: Optional[datetime] = None,
         subject_box: Optional[str] = None,
+        ai_response_time_ms: Optional[int] = None,
     ) -> Event:
         """
         Construct and persist a fully enriched Protect Event record.
@@ -114,6 +125,11 @@ class ProtectEventStorageService:
             detection_end=detection_end,
             detection_peak=detection_peak,
             subject_box=subject_box,
+            ai_response_time_ms=(
+                ai_response_time_ms
+                if ai_response_time_ms is not None
+                else ai_response_time_ms_from_result(ai_result)
+            ),
         )
 
         if event_id_override:

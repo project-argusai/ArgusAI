@@ -387,7 +387,6 @@ async def _call_provider_for_refinement(provider, provider_enum, meta_prompt: st
     """
     import openai
     import anthropic
-    import google.generativeai as genai
     from app.services.ai_service import AIProvider
 
     response_text = ""
@@ -430,14 +429,12 @@ async def _call_provider_for_refinement(provider, provider_enum, meta_prompt: st
         response_text = response.content[0].text
 
     elif provider_enum == AIProvider.GEMINI:
-        # Gemini text-only request
-        import asyncio
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: provider.model.generate_content(meta_prompt)
+        # Text-only request on the same google-genai client as vision calls.
+        response = await provider.client.aio.models.generate_content(
+            model=provider.model_name,
+            contents=meta_prompt,
         )
-        response_text = response.text
+        response_text = response.text or ""
 
     else:
         raise ValueError(f"Unsupported provider: {provider_enum}")

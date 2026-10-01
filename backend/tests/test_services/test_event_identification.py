@@ -363,19 +363,22 @@ def test_extract_frames_rejects_the_old_gemini_arguments():
 
 
 def _gemini_provider():
-    with patch("google.generativeai.configure"), patch("google.generativeai.GenerativeModel") as model_cls:
-        model = MagicMock()
-        model_cls.return_value = model
+    with patch("app.services.ai_providers.gemini_provider.genai.Client") as client_cls:
+        client = MagicMock()
+        client_cls.return_value = client
         with patch("app.services.ai_providers.model_resolver.resolve_model", return_value="gemini-test"):
             from app.services.ai_providers.gemini_provider import GeminiProvider
             provider = GeminiProvider("test-key")
-        return provider, model
+        client_cls.assert_called_once()
+        assert client_cls.call_args.kwargs["api_key"] == "test-key"
+        assert client_cls.call_args.kwargs["vertexai"] is False
+        return provider, client
 
 
 @pytest.mark.asyncio
 async def test_describe_video_sends_mp4_bytes_and_does_not_extract_frames(tmp_path, monkeypatch):
     monkeypatch.setattr("app.services.frame_extractor.get_frame_extractor", lambda: (_ for _ in ()).throw(AssertionError("extractor")))
-    provider, model = _gemini_provider()
+    provider, client = _gemini_provider()
     response = MagicMock()
     response.text = json.dumps({
         "description": "A person walks toward the camera.",
@@ -387,15 +390,19 @@ async def test_describe_video_sends_mp4_bytes_and_does_not_extract_frames(tmp_pa
         "package_or_carrier": "none",
     })
     response.usage_metadata = None
-    model.generate_content_async = AsyncMock(return_value=response)
+    client.aio.models.generate_content = AsyncMock(return_value=response)
 
     clip = tmp_path / "clip.mp4"
     clip.write_bytes(b"not-a-real-mp4")
     result = await provider.describe_video(clip, "Gate", "2026-01-01T00:00:00Z", ["motion"])
 
-    parts = model.generate_content_async.await_args.args[0]
-    assert parts[1]["mime_type"] == "video/mp4"
-    assert parts[1]["data"] == clip.read_bytes()
+    call = client.aio.models.generate_content.await_args
+    parts = call.kwargs["contents"]
+    assert IDENTIFICATION_MARKER in parts[0]
+    assert parts[1].inline_data.mime_type == "video/mp4"
+    assert parts[1].inline_data.data == clip.read_bytes()
+    assert call.kwargs["config"].max_output_tokens == 1024
+    assert call.kwargs["config"].http_options.timeout == 30_000
     assert result.success is True
     assert result.description == "A person walks toward the camera."
     assert result.identification["identity"] == "unknown"
@@ -404,8 +411,8 @@ async def test_describe_video_sends_mp4_bytes_and_does_not_extract_frames(tmp_pa
 
 @pytest.mark.asyncio
 async def test_describe_video_logs_a_warning_instead_of_hiding_the_failure(tmp_path, caplog):
-    provider, model = _gemini_provider()
-    model.generate_content_async = AsyncMock(side_effect=RuntimeError("provider down"))
+    provider, client = _gemini_provider()
+    client.aio.models.generate_content = AsyncMock(side_effect=RuntimeError("provider down"))
     clip = tmp_path / "clip.mp4"
     clip.write_bytes(b"not-a-real-mp4")
 
@@ -427,23 +434,24 @@ async def test_describe_video_uses_files_api_above_the_inline_limit(tmp_path, mo
     import app.services.ai_providers.gemini_provider as gemini_mod
 
     monkeypatch.setattr(gemini_mod, "GEMINI_INLINE_VIDEO_BYTES", 1)
-    provider, model = _gemini_provider()
+    provider, client = _gemini_provider()
     response = MagicMock()
     response.text = '{"description": "A vehicle passes.", "object_type": "vehicle", "count": 1, "identity": "unknown", "action": "passing", "direction": "left", "package_or_carrier": "none"}'
     response.usage_metadata = None
-    model.generate_content_async = AsyncMock(return_value=response)
+    client.aio.models.generate_content = AsyncMock(return_value=response)
     uploaded = MagicMock()
     uploaded.name = "files/abc"
     uploaded.state.name = "ACTIVE"
+    client.files.upload.return_value = uploaded
 
     clip = tmp_path / "clip.mp4"
     clip.write_bytes(b"0123456789")
-    with patch("google.generativeai.upload_file", return_value=uploaded) as upload:
-        result = await provider.describe_video(clip, "Drive", "2026-01-01T00:00:00Z", [])
+    result = await provider.describe_video(clip, "Drive", "2026-01-01T00:00:00Z", [])
 
-    upload.assert_called_once()
+    client.files.upload.assert_called_once()
+    assert client.files.upload.call_args.kwargs["config"]["mime_type"] == "video/mp4"
     assert result.success is True
-    sent = model.generate_content_async.await_args.args[0]
+    sent = client.aio.models.generate_content.await_args.kwargs["contents"]
     assert sent[1] is uploaded
 
 

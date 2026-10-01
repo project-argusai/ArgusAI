@@ -1,16 +1,19 @@
 """
 Gemini Provider (Google) Implementation
 
-Extracted during Phase 3.3.
+Extracted during Phase 3.3. Uses the supported ``google-genai`` SDK
+(``from google import genai``).
 """
 
+import base64
 import logging
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from .base import AIProviderBase
 from app.services.ai_types import AIResult
@@ -26,16 +29,67 @@ logger = logging.getLogger(__name__)
 GEMINI_INLINE_VIDEO_BYTES = 20 * 1024 * 1024
 DEFAULT_GEMINI_VIDEO_FPS = 3
 
+# Hung calls must return an error the fallback chain can classify.
+# Single-image matches the 10s provider timeout (#625 / OpenAI). Multi-image
+# matches OpenAI's 15s. Native video matches the 30s video SLA. Values are
+# milliseconds because google.genai HttpOptions.timeout is in milliseconds.
+_SINGLE_IMAGE_TIMEOUT_MS = 10_000
+_MULTI_IMAGE_TIMEOUT_MS = 15_000
+_VIDEO_TIMEOUT_MS = 30_000
+
+
+def _redact_secret(text: str, secret: Optional[str]) -> str:
+    """Remove an API key if a provider exception echoes it. Never log the key."""
+    if secret and secret in text:
+        return text.replace(secret, "[redacted]")
+    return text
+
+
+def _error_for_fallback(exc: BaseException, api_key: Optional[str]) -> str:
+    """Error text the fallback chain already understands (status codes, timeout)."""
+    text = _redact_secret(str(exc) or type(exc).__name__, api_key)
+    lowered = text.lower()
+    if "timeout" in type(exc).__name__.lower() and "timeout" not in lowered and "timed out" not in lowered:
+        text = f"timeout: {text}"
+    return text
+
+
+def _jpeg_bytes(image: Union[str, bytes, bytearray]) -> bytes:
+    """Decode the base64 text callers pass. Raw bytes are sent unchanged."""
+    if isinstance(image, (bytes, bytearray)):
+        return bytes(image)
+    return base64.b64decode(image)
+
+
+def _image_part(image: Union[str, bytes, bytearray]) -> types.Part:
+    return types.Part.from_bytes(data=_jpeg_bytes(image), mime_type="image/jpeg")
+
+
+def _file_state_name(uploaded) -> str:
+    """Files API state, for both the enum and a test double with ``.name``."""
+    state = getattr(uploaded, "state", None)
+    if state is None:
+        return ""
+    value = getattr(state, "value", None)
+    if isinstance(value, str) and value:
+        return value
+    name = getattr(state, "name", None)
+    if isinstance(name, str) and name:
+        return name
+    return str(state)
+
 
 class GeminiProvider(AIProviderBase):
     """Google Gemini Flash vision provider"""
 
     def __init__(self, api_key: str, model: str = None):
         super().__init__(api_key)
-        genai.configure(api_key=api_key)
         from app.services.ai_providers.model_resolver import resolve_model
         self.model_name = resolve_model("gemini", api_key, override=model)
-        self.model = genai.GenerativeModel(self.model_name)
+        # Developer API key from settings. vertexai=False keeps a host-level
+        # GOOGLE_GENAI_USE_VERTEXAI flag from sending that key to Vertex.
+        # The key is not logged.
+        self.client = genai.Client(api_key=api_key, vertexai=False)
         self.cost_per_1k_input_tokens = 0.000075
         self.cost_per_1k_output_tokens = 0.0003
 
@@ -54,12 +108,13 @@ class GeminiProvider(AIProviderBase):
         try:
             user_prompt = custom_prompt or "Describe the security camera image in detail."
 
-            response = await self.model.generate_content_async(
-                [
-                    user_prompt,
-                    {"mime_type": "image/jpeg", "data": image_base64}
-                ],
-                generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS}
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name,
+                contents=[user_prompt, _image_part(image_base64)],
+                config=types.GenerateContentConfig(
+                    max_output_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
+                    http_options=types.HttpOptions(timeout=_SINGLE_IMAGE_TIMEOUT_MS),
+                ),
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -98,7 +153,7 @@ class GeminiProvider(AIProviderBase):
                 response_time_ms=elapsed_ms,
                 cost_estimate=0.0,
                 success=False,
-                error=str(e)
+                error=_error_for_fallback(e, self.api_key)
             )
 
     async def generate_multi_image_description(
@@ -118,11 +173,15 @@ class GeminiProvider(AIProviderBase):
 
             parts = [user_prompt]
             for img in images_base64:
-                parts.append({"mime_type": "image/jpeg", "data": img})
+                parts.append(_image_part(img))
 
-            response = await self.model.generate_content_async(
-                parts,
-                generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name,
+                contents=parts,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
+                    http_options=types.HttpOptions(timeout=_MULTI_IMAGE_TIMEOUT_MS),
+                ),
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -156,7 +215,7 @@ class GeminiProvider(AIProviderBase):
                 response_time_ms=elapsed_ms,
                 cost_estimate=0.0,
                 success=False,
-                error=str(e)
+                error=_error_for_fallback(e, self.api_key)
             )
 
     def _calculate_confidence(self, description: str, tokens_used: int) -> int:
@@ -198,17 +257,28 @@ class GeminiProvider(AIProviderBase):
                 prompt = ensure_identification_prompt(
                     custom_prompt or "Describe this security camera clip."
                 )
+                video_config = types.GenerateContentConfig(
+                    max_output_tokens=DESCRIPTION_MAX_OUTPUT_TOKENS,
+                    http_options=types.HttpOptions(timeout=_VIDEO_TIMEOUT_MS),
+                )
                 if len(video_bytes) <= GEMINI_INLINE_VIDEO_BYTES:
-                    parts = [prompt, {"mime_type": "video/mp4", "data": video_bytes}]
-                    response = await self.model.generate_content_async(
-                        parts,
-                        generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
+                    parts = [
+                        prompt,
+                        types.Part(
+                            inline_data=types.Blob(data=video_bytes, mime_type="video/mp4"),
+                        ),
+                    ]
+                    response = await self.client.aio.models.generate_content(
+                        model=self.model_name,
+                        contents=parts,
+                        config=video_config,
                     )
                 else:
-                    uploaded = _upload_gemini_file(payload)
-                    response = await self.model.generate_content_async(
-                        [prompt, uploaded],
-                        generation_config={"max_output_tokens": DESCRIPTION_MAX_OUTPUT_TOKENS},
+                    uploaded = _upload_gemini_file(self.client, payload)
+                    response = await self.client.aio.models.generate_content(
+                        model=self.model_name,
+                        contents=[prompt, uploaded],
+                        config=video_config,
                     )
             finally:
                 if owns_payload:
@@ -312,15 +382,15 @@ def _prepare_gemini_clip(src: Path, fps: int) -> Tuple[Path, bool]:
     return src, False
 
 
-def _upload_gemini_file(path: Path):
+def _upload_gemini_file(client, path: Path):
     """Files API path for clips at or above the inline limit."""
-    uploaded = genai.upload_file(path=str(path), mime_type="video/mp4")
+    uploaded = client.files.upload(file=str(path), config={"mime_type": "video/mp4"})
     deadline = time.time() + 30
-    state_name = getattr(getattr(uploaded, "state", None), "name", "")
+    state_name = _file_state_name(uploaded)
     while state_name == "PROCESSING" and time.time() < deadline:
         time.sleep(1)
-        uploaded = genai.get_file(uploaded.name)
-        state_name = getattr(getattr(uploaded, "state", None), "name", "")
+        uploaded = client.files.get(name=uploaded.name)
+        state_name = _file_state_name(uploaded)
     if state_name == "FAILED":
         raise RuntimeError("Gemini file processing failed")
     return uploaded

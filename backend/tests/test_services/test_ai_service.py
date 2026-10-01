@@ -178,7 +178,7 @@ class TestGeminiProvider:
         img.save(buffer, format='JPEG')
         valid_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
 
-        with patch.object(provider.model, 'generate_content_async', new=AsyncMock(return_value=mock_response)):
+        with patch.object(provider.client.aio.models, 'generate_content', new=AsyncMock(return_value=mock_response)):
             result = await provider.generate_description(
                 valid_base64,
                 "Backyard Camera",
@@ -1239,8 +1239,8 @@ class TestGeminiMultiImageProvider:
         mock_response.text = "Multiple frames show a person jogging past the house."
 
         with patch.object(
-            provider.model,
-            'generate_content_async',
+            provider.client.aio.models,
+            'generate_content',
             new=AsyncMock(return_value=mock_response)
         ) as mock_create:
             result = await provider.generate_multi_image_description(
@@ -1252,17 +1252,16 @@ class TestGeminiMultiImageProvider:
 
             # Verify Gemini parts format
             call_args = mock_create.call_args
-            parts = call_args[0][0]
+            parts = call_args.kwargs["contents"]
 
             # First part should be prompt text
             assert isinstance(parts[0], str)
-            # Subsequent parts should be image dicts with inline_data
-            image_parts = [p for p in parts[1:] if isinstance(p, dict)]
+            image_parts = parts[1:]
             assert len(image_parts) == 3
             for part in image_parts:
-                assert 'mime_type' in part
-                assert 'data' in part
-                assert part['mime_type'] == 'image/jpeg'
+                assert part.inline_data.mime_type == "image/jpeg"
+                assert part.inline_data.data
+            assert call_args.kwargs["config"].max_output_tokens == 1024
 
         assert result.success is True
         assert result.provider == "gemini"

@@ -47,12 +47,15 @@ if str(backend_dir) not in sys.path:
     sys.path.insert(0, str(backend_dir))
 
 from app.services.event_sampling import (  # noqa: E402
+    DEFAULT_CROP_MIN_AREA_FRACTION,
+    DEFAULT_CROP_MIN_SIDE_PX,
     DetectionTiming,
     SubjectBox,
     allocate_subject_crops,
     legacy_uniform_offsets,
     plan_clip_window,
     plan_frame_offsets,
+    subject_crop_is_useful,
 )
 from app.services.identification import (  # noqa: E402
     append_subject_crop_note,
@@ -90,15 +93,28 @@ LIVE_DEFAULT_CAP = 10
 LIVE_HARD_MAX = 25
 SLA_MS = 10000
 
-# The previous multi-frame prompt did not ask for identification JSON.
+# Short stand-in used by dry runs. It is not the production Protect prompt.
+# --production-old-prompt switches the old side to that prompt.
 OLD_PROMPT = (
     "These are frames from one security camera, in time order. "
     "Describe what the subject does in one or two factual sentences."
 )
 
-# Local estimate only. Not a billed amount and not a provider response.
-_TOKENS_PER_IMAGE = 85
-_USD_PER_1K_TOKENS = 0.00015
+# Per-image input budgets. Grok's 1000 is from a measured 10-image call
+# (~10k tokens). OpenAI uses its high-detail vision budget. Claude and Gemini
+# use their published image budgets. These are estimates, not billed amounts.
+_IMAGE_TOKENS_BY_PROVIDER = {
+    "grok": 1000,
+    "openai": 765,
+    "claude": 1334,
+    "gemini": 258,
+}
+_USD_PER_1K_INPUT = {
+    "grok": 0.00010,
+    "openai": 0.00015,
+    "claude": 0.00025,
+    "gemini": 0.000075,
+}
 
 
 def assert_read_only(statement: Optional[str]) -> None:
@@ -178,20 +194,43 @@ def _sample_payload(samples) -> Dict[str, Any]:
     }
 
 
-def _estimate(image_count: int, prompt: str) -> Dict[str, Any]:
-    tokens = int(len(prompt) / 4) + int(image_count) * _TOKENS_PER_IMAGE
+def production_old_prompt() -> str:
+    """The user prompt Protect multi-frame analysis sent before identification JSON.
+
+    That path passes the pre-AI base prompt as the custom prompt. It does not
+    use the multi-frame template, does not append a detector label, and does
+    not ask for an identification object.
+    """
+    from app.services.pre_ai_context_service import DEFAULT_BASE_PROMPT
+
+    return DEFAULT_BASE_PROMPT.strip()
+
+
+def _estimate(image_count: int, prompt: str, provider: str = "grok") -> Dict[str, Any]:
+    name = (provider or "grok").strip().lower()
+    per_image = _IMAGE_TOKENS_BY_PROVIDER.get(name, _IMAGE_TOKENS_BY_PROVIDER["grok"])
+    rate = _USD_PER_1K_INPUT.get(name, _USD_PER_1K_INPUT["grok"])
+    tokens = int(len(prompt) / 4) + int(image_count) * per_image
     return {
         "tokens_estimate": tokens,
-        "cost_estimate_usd": round(tokens / 1000.0 * _USD_PER_1K_TOKENS, 6),
-        "estimate_source": "local_image_budget",
+        "cost_estimate_usd": round(tokens / 1000.0 * rate, 6),
+        "estimate_source": "provider_image_budget",
+        "estimate_provider": name if name in _IMAGE_TOKENS_BY_PROVIDER else "grok",
     }
 
 
-def plan_old(event: dict, frame_count: int, offset_ms: int) -> Dict[str, Any]:
+def plan_old(
+    event: dict,
+    frame_count: int,
+    offset_ms: int,
+    *,
+    production_prompt: bool = False,
+    estimate_provider: str = "grok",
+) -> Dict[str, Any]:
     """Fixed 15s/15s window, even spacing, no subject crop."""
     duration = 30.0
     samples = legacy_uniform_offsets(duration, frame_count, offset_ms)
-    prompt = OLD_PROMPT
+    prompt = production_old_prompt() if production_prompt else OLD_PROMPT
     return {
         "window_source": "fixed_30s",
         "duration_s": duration,
@@ -201,11 +240,20 @@ def plan_old(event: dict, frame_count: int, offset_ms: int) -> Dict[str, Any]:
         "image_count": len(samples),
         "prompt": prompt,
         **_sample_payload(samples),
-        **_estimate(len(samples), prompt),
+        **_estimate(len(samples), prompt, estimate_provider),
     }
 
 
-def plan_new(event: dict, frame_count: int, offset_ms: int, crop_count: int) -> Dict[str, Any]:
+def plan_new(
+    event: dict,
+    frame_count: int,
+    offset_ms: int,
+    crop_count: int,
+    *,
+    estimate_provider: str = "grok",
+    min_area_fraction: float = DEFAULT_CROP_MIN_AREA_FRACTION,
+    min_side_px: int = DEFAULT_CROP_MIN_SIDE_PX,
+) -> Dict[str, Any]:
     """Smart-detect window when the event has timing, otherwise the old window."""
     peak_raw = event.get("peak")
     if peak_raw in (None, ""):
@@ -241,7 +289,21 @@ def plan_new(event: dict, frame_count: int, offset_ms: int, crop_count: int) -> 
     crop_n = 0
     crop_offsets: List[float] = []
     kept = samples
-    if box is not None and crop_count > 0 and len(samples) >= 2:
+    frame_w = event.get("frame_width")
+    frame_h = event.get("frame_height")
+    try:
+        frame_w = int(frame_w) if frame_w else None
+        frame_h = int(frame_h) if frame_h else None
+    except (TypeError, ValueError):
+        frame_w, frame_h = None, None
+    useful = box is not None and subject_crop_is_useful(
+        box,
+        frame_w,
+        frame_h,
+        min_area_fraction=min_area_fraction,
+        min_side_px=min_side_px,
+    )
+    if useful and crop_count > 0 and len(samples) >= 2:
         kept, crop_times = allocate_subject_crops(samples, crop_count, clip.peak_s)
         # A crop replaces a full frame. If nothing could be dropped, skip the crop
         # so the image budget does not grow.
@@ -269,7 +331,7 @@ def plan_new(event: dict, frame_count: int, offset_ms: int, crop_count: int) -> 
         "image_count": image_count,
         "prompt": prompt,
         **_sample_payload(kept),
-        **_estimate(image_count, prompt),
+        **_estimate(image_count, prompt, estimate_provider),
     }
 
 
@@ -305,6 +367,10 @@ def build_report(
     subject_crop_count: int = 1,
     offset_ms: int = 2000,
     describe=None,
+    production_old_prompt: bool = False,
+    estimate_provider: str = "grok",
+    min_area_fraction: float = DEFAULT_CROP_MIN_AREA_FRACTION,
+    min_side_px: int = DEFAULT_CROP_MIN_SIDE_PX,
 ) -> Dict[str, Any]:
     """Side-by-side plans. ``describe`` is invoked only when ``dry_run`` is false."""
     rows = []
@@ -313,8 +379,22 @@ def build_report(
         count = int(event.get("frame_count") or frame_count)
         crops = int(event.get("subject_crop_count") if event.get("subject_crop_count") is not None else subject_crop_count)
         offset = int(event.get("offset_ms") if event.get("offset_ms") is not None else offset_ms)
-        old = plan_old(event, count, offset)
-        new = plan_new(event, count, offset, crops)
+        old = plan_old(
+            event,
+            count,
+            offset,
+            production_prompt=production_old_prompt,
+            estimate_provider=estimate_provider,
+        )
+        new = plan_new(
+            event,
+            count,
+            offset,
+            crops,
+            estimate_provider=estimate_provider,
+            min_area_fraction=min_area_fraction,
+            min_side_px=min_side_px,
+        )
         if dry_run or describe is None:
             old_ai = _ai_fields(None)
             new_ai = _ai_fields(None)
@@ -322,6 +402,8 @@ def build_report(
             old_ai = _ai_fields(describe(event, old, "old"))
             new_ai = _ai_fields(describe(event, new, "new"))
             ai_calls += 2
+        # The old path does not ask for structured identification.
+        old_ai["identification"] = None
         rows.append({
             "id": event.get("id"),
             "timing_fetch": event.get("timing_fetch"),
@@ -337,6 +419,7 @@ def build_report(
             if dry_run
             else "Descriptions are filled only when a describer is provided. The database is not updated."
         ),
+        "estimate_provider": estimate_provider,
         "events": rows,
     }
 
@@ -361,8 +444,10 @@ def estimate_report_cost(report: Dict[str, Any]) -> Dict[str, Any]:
 
 def format_cost_estimate(report: Dict[str, Any]) -> str:
     summary = estimate_report_cost(report)
+    provider = report.get("estimate_provider") or "grok"
     return (
-        "Estimated cost before any vision call: "
+        "Estimated cost before any vision call "
+        f"({provider} image budget, not a billed amount): "
         f"${summary['cost_estimate_usd']:.6f} USD "
         f"({summary['tokens_estimate']} tokens, {summary['events']} events, "
         f"{summary['calls']} calls). Pass --yes to proceed."
@@ -762,8 +847,13 @@ async def run_provider_chain(
     timestamp: str,
     detected_objects: Optional[Sequence[str]],
     sla_ms: int = SLA_MS,
+    attach_identification: bool = True,
 ) -> Dict[str, Any]:
-    """Call providers in order. Does not record usage and does not open the database."""
+    """Call providers in order. Does not record usage and does not open the database.
+
+    ``attach_identification`` stays false for the old side. That path does not
+    ask for the structured object, so a JSON-looking reply is not stored as one.
+    """
     from app.services.ai_provider_order import classify_provider_error
     from app.services.identification import parse_identification
 
@@ -809,9 +899,11 @@ async def run_provider_chain(
         else:
             latency = int(latency)
         if getattr(result, "success", False):
-            identification = getattr(result, "identification", None)
-            if not isinstance(identification, dict):
-                identification = parse_identification(getattr(result, "description", None))
+            identification = None
+            if attach_identification:
+                identification = getattr(result, "identification", None)
+                if not isinstance(identification, dict):
+                    identification = parse_identification(getattr(result, "description", None))
             provider_name = getattr(result, "provider", None)
             if not isinstance(provider_name, str):
                 provider_name = None
@@ -872,8 +964,11 @@ async def fill_live_descriptions(
                     plan.get("prompt") or "",
                     str(event.get("camera_name") or "camera"),
                     str(event.get("timestamp") or ""),
-                    [event["smart_detection_type"]] if event.get("smart_detection_type") else [],
+                    None,
+                    attach_identification=(side == "new"),
                 )
+                if side == "old":
+                    described["identification"] = None
                 row[side].update(_ai_fields(described))
                 ai_calls += 1
             except Exception as exc:
@@ -1040,6 +1135,20 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--frame-count", type=int, default=10)
     parser.add_argument("--subject-crop-count", type=int, default=1)
     parser.add_argument("--offset-ms", type=int, default=2000)
+    parser.add_argument(
+        "--production-old-prompt",
+        action="store_true",
+        help=(
+            "Use the production Protect multi-frame prompt on the old side "
+            "(the pre-AI base prompt). It does not request identification JSON."
+        ),
+    )
+    parser.add_argument(
+        "--estimate-provider",
+        default="grok",
+        choices=sorted(_IMAGE_TOKENS_BY_PROVIDER),
+        help="Per-image token budget for the cost line (default: grok, ~1000 tokens per image).",
+    )
     args = parser.parse_args(argv)
     _guard_live_flags(args)
 
@@ -1069,6 +1178,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         subject_crop_count=args.subject_crop_count,
         offset_ms=args.offset_ms,
         describe=None,
+        production_old_prompt=args.production_old_prompt,
+        estimate_provider=args.estimate_provider,
     )
     if not args.live:
         write_report(report, args.output_dir)

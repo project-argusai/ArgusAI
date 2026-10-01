@@ -120,6 +120,8 @@ async def assemble_event_frames(
             crop_budget,
             peak_s=times[len(times) // 2] if times else None,
             sampling="uniform",
+            min_area_fraction=frame_cfg.get("subject_crop_min_area_fraction"),
+            min_side_px=frame_cfg.get("subject_crop_min_side_px"),
         )
 
     if use_crop:
@@ -166,6 +168,8 @@ async def assemble_event_frames(
         sampling=sampling,
         preselected_crop_times=crop_times,
         preselected_kept=kept,
+        min_area_fraction=frame_cfg.get("subject_crop_min_area_fraction"),
+        min_side_px=frame_cfg.get("subject_crop_min_side_px"),
     )
 
 
@@ -181,8 +185,14 @@ async def _apply_crops(
     sampling: str,
     preselected_crop_times: Optional[List[float]] = None,
     preselected_kept: Optional[List[FrameSample]] = None,
+    min_area_fraction: Optional[float] = None,
+    min_side_px: Optional[int] = None,
 ) -> FrameAssembly:
-    from app.services.event_sampling import crop_jpeg
+    from app.services.event_sampling import (
+        DEFAULT_CROP_MIN_AREA_FRACTION,
+        DEFAULT_CROP_MIN_SIDE_PX,
+        crop_jpeg,
+    )
 
     if box is None or crop_budget <= 0 or len(images) < 2:
         times = [s.offset_seconds for s in samples] or []
@@ -209,9 +219,19 @@ async def _apply_crops(
 
     crops = []
     used_times = []
+    area_limit = (
+        float(min_area_fraction)
+        if min_area_fraction is not None
+        else DEFAULT_CROP_MIN_AREA_FRACTION
+    )
+    side_limit = int(min_side_px) if min_side_px is not None else DEFAULT_CROP_MIN_SIDE_PX
     for offset in crop_times:
         native = await extractor.extract_native_jpeg_at(clip_path, offset)
-        cropped = crop_jpeg(native, box) if native else None
+        cropped = (
+            crop_jpeg(native, box, min_area_fraction=area_limit, min_side_px=side_limit)
+            if native
+            else None
+        )
         if cropped:
             crops.append(cropped)
             used_times.append(offset)

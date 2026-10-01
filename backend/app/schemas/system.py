@@ -252,6 +252,18 @@ Keep the summary concise (2-3 paragraphs).""",
         le=5,
         description="Frame rate for Gemini native video clips (2-5, default 3). Image-only providers ignore this."
     )
+    subject_crop_min_area_fraction: float = Field(
+        default=0.02,
+        ge=0,
+        le=1,
+        description="Skip a subject crop when the box covers less than this fraction of the frame (default 0.02)"
+    )
+    subject_crop_min_side_px: int = Field(
+        default=160,
+        ge=0,
+        le=4096,
+        description="Skip a subject crop when its shortest side would be under this many native pixels (default 160). Tiny crops are not upscaled."
+    )
 
     class Config:
         json_schema_extra = {
@@ -430,6 +442,12 @@ class SystemSettingsUpdate(BaseModel):
     )
     gemini_native_video_fps: Optional[int] = Field(
         None, ge=2, le=5, description="Gemini native video frame rate (2-5, default 3)"
+    )
+    subject_crop_min_area_fraction: Optional[float] = Field(
+        None, ge=0, le=1, description="Minimum subject-box area as a fraction of the frame (default 0.02)"
+    )
+    subject_crop_min_side_px: Optional[int] = Field(
+        None, ge=0, le=4096, description="Minimum native crop side in pixels (default 160). Smaller boxes stay full-frame."
     )
 
     # Story P11-1.1: Cloudflare Tunnel Settings

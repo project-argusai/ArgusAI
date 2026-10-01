@@ -44,7 +44,7 @@ Guidelines:
 - If people, vehicles, or packages are visible, describe what they are doing and how they relate to each other.
 - Mention any notable interactions or unusual behavior.
 - Be factual and avoid speculation.
-- Some images may be zoomed crops of the detected subject. Use those for detail and the full frames for action and direction.
+- Some images may be a closer look at one region of a frame. A crop does not mean a subject is present. If the crop shows nothing of interest, say so.
 
 The reply must be the identification JSON. Its description field is the human-readable summary.
 """ + NAMING_AND_CARRIER_INSTRUCTION

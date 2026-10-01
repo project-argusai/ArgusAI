@@ -164,11 +164,13 @@ class ProtectAIPipeline:
                         clip_path, camera, detection=detection, clip_plan=clip_plan
                     )
                     if frames:
+                        # event_type is Protect's unverified smart-detect label.
+                        # It is not passed as a confirmed object list.
                         ai_result = await get_vision_analysis_orchestrator().analyze_images(
                             images=frames,  # List[bytes] or List[np.ndarray] depending on orchestrator signature
                             camera_name=camera.name,
                             timestamp=local_timestamp,
-                            detected_objects=[event_type] if event_type else None,
+                            detected_objects=None,
                             custom_prompt=custom_prompt,
                             camera_id=camera.id,
                             subject_crop_count=self._last_subject_crop_count,
@@ -223,7 +225,7 @@ class ProtectAIPipeline:
                 frame=frame,
                 camera_name=camera.name,
                 timestamp=local_timestamp,
-                detected_objects=[event_type] if event_type else None,
+                detected_objects=None,
                 custom_prompt=custom_prompt,
                 camera_id=camera.id,
             )
@@ -343,7 +345,7 @@ class ProtectAIPipeline:
                     getattr(bundle, "local_timestamp", None)
                     or datetime.now(timezone.utc).isoformat()
                 ),
-                detected_objects=[event_type] if event_type else None,
+                detected_objects=None,
                 custom_prompt=getattr(bundle, "custom_prompt", None),
                 fps=fps,
             )

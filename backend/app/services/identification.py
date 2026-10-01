@@ -12,7 +12,17 @@ from typing import Any, Dict, Optional
 
 from app.services.ai_types import AIResult
 
-OBJECT_TYPES = ("person", "vehicle", "package", "animal", "unknown")
+OBJECT_TYPES = ("person", "vehicle", "package", "animal", "unknown", "none")
+_NONE_OBJECT_ALIASES = {
+    "none",
+    "no_subject",
+    "false_alarm",
+    "false_positive",
+    "nothing",
+    "absent",
+    "no_object",
+    "empty",
+}
 CARRIERS = ("ups", "fedex", "usps", "amazon", "dhl")
 PACKAGE_VALUES = ("none", "package", "unknown", "cannot_tell", *CARRIERS)
 CANNOT_TELL = "cannot_tell"
@@ -25,19 +35,22 @@ IDENTIFICATION_INSTRUCTION = f"""
 Reply with one JSON object and no other text. The description field is the only
 text shown to people, so write it as one or two factual sentences. Use a name
 only when HISTORICAL CONTEXT lists that person or vehicle and the image matches.
-Never invent a name.
+Never invent a name. Do not infer motion, identity, or an object you cannot
+see. A camera label, a detector type, or a closer crop is not evidence that a
+subject is present.
 
 Fields:
 - description: the human-readable sentences
-- object_type: person, vehicle, package, animal, or unknown
-- count: integer count of that subject, or null if you cannot tell
+- object_type: person, vehicle, package, animal, "none" when nothing of interest is there, or unknown
+- count: integer count of that subject, 0 when object_type is "none", or null if you cannot tell
 - identity: the matching name from context, otherwise "unknown". Use "cannot_tell" when a subject is visible but you cannot decide whether it is a known one
-- action: a short action, or "cannot_tell"
+- action: a short action you can actually see, or "cannot_tell"
 - direction: toward camera, away, left, right, or "cannot_tell"
 - package_or_carrier: UPS, FedEx, USPS, Amazon, DHL, "package", or "none". Use "cannot_tell" when unsure
 
-If the subject is too small, dark, or absent, set the uncertain fields to
-"unknown" or "cannot_tell" instead of guessing.
+If the frames show no person, vehicle, package, or animal, set object_type to
+"none", count to 0, and action and direction to "cannot_tell". If a subject is
+too small or too dark to identify, use "unknown" or "cannot_tell" instead of guessing.
 """
 
 
@@ -51,17 +64,27 @@ def ensure_identification_prompt(prompt: Optional[str]) -> str:
     return text + "\n" + IDENTIFICATION_INSTRUCTION.strip()
 
 
+_CROP_NOTE_MARKER = "A closer crop does not mean a subject is present."
+
+
 def append_subject_crop_note(prompt: str, full_count: int, crop_count: int) -> str:
-    """Tell an image-only model which images are zooms of the subject."""
+    """Tell an image-only model which images are closer looks at a region.
+
+    The crop is not evidence that anything is there. A tiny static region can
+    be a leaf, a highlight, or an empty patch of frame.
+    """
     if crop_count <= 0:
         return prompt
     note = (
         f"The first {full_count} image(s) are full frames in time order. "
-        f"The last {crop_count} image(s) are zoomed crops of the detected subject "
-        "from the peak moment, at higher detail. Use the crop for who or what is "
-        "there, and the full frames for action and direction."
+        f"The last {crop_count} image(s) are a closer look at one region of the "
+        "peak frame. "
+        f"{_CROP_NOTE_MARKER} "
+        "If that region shows nothing of interest, set object_type to none. "
+        "Do not infer motion or identity from the crop. Use the full frames for "
+        "the wider scene."
     )
-    if "zoomed crops of the detected subject" in (prompt or ""):
+    if _CROP_NOTE_MARKER in (prompt or ""):
         return prompt
     return (prompt or "").rstrip() + "\n\n" + note
 
@@ -76,10 +99,12 @@ def _clip_text(value: Any, *, empty: str, limit: int = 80) -> str:
 
 
 def _parse_object_type(value: Any) -> str:
-    text = _clip_text(value, empty=UNKNOWN, limit=32).lower()
+    text = _clip_text(value, empty=UNKNOWN, limit=32).lower().replace(" ", "_").replace("-", "_")
+    if text in _NONE_OBJECT_ALIASES:
+        return "none"
     if text in OBJECT_TYPES:
         return text
-    if text in ("cannot_tell", "cant_tell", "can't tell", "unsure"):
+    if text in ("cannot_tell", "cant_tell", "can't_tell", "unsure"):
         return UNKNOWN
     return UNKNOWN
 
@@ -143,6 +168,13 @@ def _from_mapping(data: dict) -> Dict[str, Any]:
     if ident["direction"] in {"unknown", "n/a", "none"}:
         ident["direction"] = CANNOT_TELL
     ident["package_or_carrier"] = _parse_package(data.get("package_or_carrier"))
+    if ident["object_type"] == "none":
+        # A false alarm is not a counted subject and has no visible motion.
+        ident["count"] = 0
+        ident["identity"] = UNKNOWN
+        ident["action"] = CANNOT_TELL
+        ident["direction"] = CANNOT_TELL
+        ident["package_or_carrier"] = "none"
     return ident
 
 

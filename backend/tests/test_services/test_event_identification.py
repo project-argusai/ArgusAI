@@ -13,7 +13,9 @@ from PIL import Image
 
 from app.services.event_sampling import (
     DetectionTiming,
+    FrameSample,
     SubjectBox,
+    _enforce_min_spacing,
     allocate_subject_crops,
     coerce_protect_coord,
     crop_jpeg,
@@ -98,6 +100,67 @@ def test_start_only_uses_a_minimum_window():
     assert plan.end > plan.start
 
 
+def test_sampler_drops_frames_closer_than_half_a_second():
+    kept = _enforce_min_spacing([
+        FrameSample(20.490, "peak"),
+        FrameSample(20.491, "dense"),
+        FrameSample(0.0, "edge"),
+        FrameSample(30.0, "edge"),
+    ])
+    offsets = [sample.offset_seconds for sample in kept]
+    assert offsets == pytest.approx([0.0, 20.490, 30.0])
+    assert [sample.kind for sample in kept][1] == "peak"
+
+    samples = plan_frame_offsets(30.0, 10, 5.0, 25.0, 15.0, offset_ms=0)
+    spaced = [sample.offset_seconds for sample in samples]
+    assert len(samples) <= 10
+    assert all(right - left >= 0.5 - 1e-6 for left, right in zip(spaced, spaced[1:]))
+    assert any(sample.kind == "peak" and sample.offset_seconds == pytest.approx(15.0) for sample in samples)
+
+
+def test_long_detection_is_not_cut_to_thirty_seconds():
+    plan = plan_clip_window(DetectionTiming(
+        start=ANCHOR,
+        end=ANCHOR + timedelta(seconds=27),
+        peak=ANCHOR + timedelta(seconds=10),
+        anchor=ANCHOR,
+    ))
+    assert plan.source == "smart_detect"
+    assert plan.duration_s == pytest.approx(33.0)
+    assert plan.duration_s <= 45.0
+    assert plan.detection_start_s == pytest.approx(3.0)
+    assert plan.detection_end_s == pytest.approx(30.0)
+    assert plan.peak_s == pytest.approx(13.0)
+
+
+def test_over_cap_detection_keeps_the_peak_and_both_ends():
+    plan = plan_clip_window(DetectionTiming(
+        start=ANCHOR,
+        end=ANCHOR + timedelta(seconds=64),
+        peak=ANCHOR + timedelta(seconds=40),
+        anchor=ANCHOR,
+    ))
+    assert plan.duration_s == pytest.approx(45.0)
+    assert 0.0 < plan.peak_s < plan.duration_s
+    samples = plan_frame_offsets(
+        plan.duration_s,
+        10,
+        plan.detection_start_s,
+        plan.detection_end_s,
+        plan.peak_s,
+        offset_ms=0,
+    )
+    assert len(samples) <= 10
+    assert any(
+        sample.kind == "peak" and sample.offset_seconds == pytest.approx(plan.peak_s)
+        for sample in samples
+    )
+    assert samples[0].offset_seconds == pytest.approx(0.0, abs=0.05)
+    assert samples[-1].offset_seconds == pytest.approx(plan.duration_s, abs=0.05)
+    offsets = [sample.offset_seconds for sample in samples]
+    assert all(right - left >= 0.5 - 1e-6 for left, right in zip(offsets, offsets[1:]))
+
+
 def test_allocate_subject_crops_keeps_the_budget_and_the_peak_frame():
     samples = plan_frame_offsets(20.0, 10, 8.0, 12.0, 10.0, offset_ms=0)
     kept, crop_times = allocate_subject_crops(samples, 1, 10.0)
@@ -111,18 +174,29 @@ def test_allocate_subject_crops_keeps_the_budget_and_the_peak_frame():
 
 
 def test_crop_jpeg_uses_a_normalized_box_and_rejects_empty_boxes():
-    raw = _jpeg(200, 160)
-    box = SubjectBox(0.25, 0.25, 0.4, 0.4, source="protect", normalized=True)
+    raw = _jpeg(800, 600)
+    box = SubjectBox(0.2, 0.2, 0.4, 0.5, source="protect", normalized=True)
     cropped = crop_jpeg(raw, box)
     assert cropped
     image = Image.open(io.BytesIO(cropped))
-    assert image.width < 200
-    assert image.height < 160
-    assert image.width >= 32
+    assert image.width < 800
+    assert image.height < 600
+    assert min(image.width, image.height) >= 160
 
     assert crop_jpeg(b"", box) is None
     assert crop_jpeg(raw, SubjectBox(0, 0, 0, 1, source="protect")) is None
     assert coerce_protect_coord([0, 0, 0, 10]) is None
+
+
+def test_crop_jpeg_skips_a_tiny_box_without_upscaling():
+    """A ~50x95 leaf in a 2688x1512 frame is not zoomed into an animal."""
+    raw = _jpeg(2688, 1512)
+    box = SubjectBox(0.42, 0.55, 50 / 2688, 95 / 1512, source="protect", normalized=True)
+    assert crop_jpeg(raw, box) is None
+
+    wide_but_short = SubjectBox(0.2, 0.4, 0.4, 90 / 1512, source="protect", normalized=True)
+    assert wide_but_short.width * wide_but_short.height > 0.02
+    assert crop_jpeg(raw, wide_but_short) is None
 
 
 def test_coerce_protect_coord_thousandths_and_pixels():
@@ -135,11 +209,12 @@ def test_coerce_protect_coord_thousandths_and_pixels():
     pixels = coerce_protect_coord([40, 50, 1200, 400])
     assert pixels is not None
     assert pixels.normalized is False
-    raw = _jpeg(200, 200)
-    cropped = crop_jpeg(raw, SubjectBox(20, 30, 80, 90, source="stored", normalized=False))
+    raw = _jpeg(1000, 800)
+    cropped = crop_jpeg(raw, SubjectBox(100, 80, 400, 320, source="stored", normalized=False))
     assert cropped
     image = Image.open(io.BytesIO(cropped))
-    assert image.width < 200
+    assert image.width < 1000
+    assert min(image.size) >= 160
 
 
 def test_dumps_identification_skips_non_dicts():
@@ -193,6 +268,48 @@ def test_parse_identification_unknown_and_cannot_tell():
     invalid_type = parse_identification('{"object_type": "bicycle", "count": 2}')
     assert invalid_type["object_type"] == "unknown"
     assert invalid_type["count"] == 2
+
+
+def test_parse_identification_none_is_a_false_alarm():
+    from app.services.ai_types import AIResult
+    from app.services.identification import apply_identification
+
+    parsed = parse_identification(json.dumps({
+        "description": "Nothing of interest is in the frame.",
+        "object_type": "none",
+        "count": 1,
+        "identity": "a bird",
+        "action": "a bird flies into view",
+        "direction": "left",
+        "package_or_carrier": "package",
+    }))
+    assert parsed["object_type"] == "none"
+    assert parsed["count"] == 0
+    assert parsed["identity"] == "unknown"
+    assert parsed["action"] == "cannot_tell"
+    assert parsed["direction"] == "cannot_tell"
+    assert parsed["package_or_carrier"] == "none"
+
+    alias = parse_identification('{"object_type": "false_alarm", "description": "Static leaf."}')
+    assert alias["object_type"] == "none"
+
+    result = AIResult(
+        description="",
+        confidence=0,
+        objects_detected=["unknown"],
+        provider="test",
+        tokens_used=0,
+        response_time_ms=0,
+        cost_estimate=0.0,
+        success=True,
+    )
+    apply_identification(result, json.dumps({
+        "description": "Nothing is there.",
+        "object_type": "none",
+    }))
+    assert result.identification["object_type"] == "none"
+    assert "none" not in result.objects_detected
+    assert "animal" not in result.objects_detected
 
 
 def test_identification_prompt_appends_once_and_multi_frame_still_formats():
@@ -380,6 +497,7 @@ def test_compare_describer_fills_fields_without_a_database(tmp_path):
     assert report["ai_calls"] == 2
     assert report["events"][0]["new"]["provider"] == "fake"
     assert report["events"][0]["new"]["identification"]["identity"] == "unknown"
+    assert report["events"][0]["old"]["identification"] is None
     assert report["events"][0]["old"]["latency_ms"] == 12
 
 
@@ -850,7 +968,9 @@ async def test_live_temp_clips_are_deleted(tmp_path, monkeypatch):
     assert report["dry_run"] is False
     assert report["ai_calls"] == 2
     assert report["events"][0]["old"]["tokens_used"] == 9
+    assert report["events"][0]["old"]["identification"] is None
     assert report["events"][0]["new"]["provider"] == "fake"
+    assert report["events"][0]["new"]["identification"]["identity"] == "unknown"
     assert not (tmp_path / "data" / "clips").exists()
 
 
@@ -890,4 +1010,71 @@ async def test_stored_clip_is_not_deleted(tmp_path, monkeypatch):
     await module.fill_live_descriptions(events, report, providers=[object()], download=download)
     assert clip.is_file() and clip.read_bytes() == b"stored"
     assert report["events"][0]["clip_note"] == "stored_clip_offsets_are_file_offsets"
+
+
+def test_compare_cost_uses_measured_grok_image_tokens():
+    module = _load_compare_script()
+    estimate = module._estimate(10, "x" * 40, provider="grok")
+    assert estimate["tokens_estimate"] >= 10000
+    assert estimate["tokens_estimate"] < 10100
+    assert estimate["estimate_provider"] == "grok"
+    assert estimate["estimate_source"] == "provider_image_budget"
+    # The old 85-token budget was about 8x low for this call.
+    assert estimate["tokens_estimate"] > 10 * 85 * 8
+
+    claude = module._estimate(1, "", provider="claude")
+    assert claude["tokens_estimate"] == 1334
+
+
+def test_tiny_box_skips_the_crop_in_the_comparison_plan():
+    module = _load_compare_script()
+    events = [{
+        "id": "leaf",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "detection_start": "2026-01-01T12:00:00+00:00",
+        "detection_end": "2026-01-01T12:00:04+00:00",
+        "peak": "2026-01-01T12:00:02+00:00",
+        "box": {"x": 0.42, "y": 0.55, "width": 50 / 2688, "height": 95 / 1512},
+        "frame_count": 10,
+        "subject_crop_count": 1,
+        "smart_detection_type": "animal",
+    }]
+    report = module.build_report(events, dry_run=True)
+    new = report["events"][0]["new"]
+    assert new["subject_crop_used"] is False
+    assert "closer crop does not mean" not in new["prompt"]
+    assert "Detected objects" not in new["prompt"]
+
+
+def test_production_old_prompt_is_the_protect_base_prompt(tmp_path):
+    module = _load_compare_script()
+    events = [{
+        "id": "evt",
+        "timestamp": "2026-01-01T12:00:00+00:00",
+        "smart_detection_type": "animal",
+    }]
+    report = module.build_report(events, dry_run=True, production_old_prompt=True)
+    old = report["events"][0]["old"]["prompt"]
+    new = report["events"][0]["new"]["prompt"]
+    assert "WHO (people" in old
+    assert IDENTIFICATION_MARKER not in old
+    assert "Detected objects" not in old
+    assert IDENTIFICATION_MARKER in new
+    assert report["events"][0]["old"]["identification"] is None
+
+    code = module.main([
+        "--fixture", str(_write_fixture(tmp_path, events)),
+        "--production-old-prompt",
+        "--output-dir", str(tmp_path / "out"),
+    ])
+    assert code == 0
+    saved = json.loads((tmp_path / "out" / "comparison.json").read_text(encoding="utf-8"))
+    assert "WHO (people" in saved["events"][0]["old"]["prompt"]
+    assert IDENTIFICATION_MARKER not in saved["events"][0]["old"]["prompt"]
+
+
+def _write_fixture(tmp_path, events):
+    path = tmp_path / "events.json"
+    path.write_text(json.dumps({"events": events}), encoding="utf-8")
+    return path
 

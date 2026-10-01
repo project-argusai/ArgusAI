@@ -6,9 +6,10 @@ Protect timing is optional. When start/end/peak are missing the window matches
 the previous fixed policy (15s before and after the anchor) so callers can keep
 the existing extractor path.
 
-Bounding boxes are normalized to 0-1 before a crop is taken. Protect's
-``detected_thumbnails[].coord`` is not verified against a live controller; see
-``coerce_protect_coord``.
+Bounding boxes are normalized to 0-1 before a crop is taken. A live comparison
+confirmed Protect ``detected_thumbnails[].coord`` as 0-1 fractions
+``[x, y, width, height]``. Thousandths and pixel layouts remain defensive
+fallbacks in ``coerce_protect_coord``.
 """
 
 from __future__ import annotations
@@ -28,10 +29,17 @@ FALLBACK_AFTER_S = 15.0
 PAD_BEFORE_S = 3.0
 PAD_AFTER_S = 3.0
 MIN_WINDOW_S = 6.0
-MAX_WINDOW_S = 30.0
+# A 27s detection plus 3s of padding on each side is 33s. 30s cut every
+# measured detection. 45s covers that padding without downloading a minute-long clip.
+MAX_WINDOW_S = 45.0
 DENSE_FRACTION = 0.7
+# Peak-snapping can land 1ms from an even sample. Keep one of them.
+MIN_FRAME_SPACING_S = 0.5
 CROP_PAD_FRACTION = 0.15
-MIN_CROP_SIDE_PX = 32
+# Skip a zoom when the subject is a speck. Area is a fraction of the frame.
+# The side threshold is native pixels, so a 50px leaf is not upscaled.
+DEFAULT_CROP_MIN_AREA_FRACTION = 0.02
+DEFAULT_CROP_MIN_SIDE_PX = 160
 
 
 @dataclass(frozen=True)
@@ -82,6 +90,62 @@ def _aware(value: Optional[datetime]) -> Optional[datetime]:
     return value.astimezone(timezone.utc)
 
 
+def _fit_detection_window(
+    det_start: datetime,
+    det_end: datetime,
+    peak: datetime,
+) -> Tuple[datetime, datetime]:
+    """Fit a detection into ``MAX_WINDOW_S``.
+
+    Padding is trimmed before the detection itself is cut. When the detection
+    is longer than the cap, the window stays on the cap, includes the peak, and
+    extends toward both the start and the end.
+    """
+    if peak < det_start:
+        det_start = peak
+    elif peak > det_end:
+        det_end = peak
+    det_span = (det_end - det_start).total_seconds()
+    if det_span > MAX_WINDOW_S:
+        before = max(0.0, (peak - det_start).total_seconds())
+        after = max(0.0, (det_end - peak).total_seconds())
+        total = before + after
+        if total <= 0:
+            half = MAX_WINDOW_S / 2.0
+            return peak - timedelta(seconds=half), peak + timedelta(seconds=half)
+        take_before = min(before, MAX_WINDOW_S * (before / total))
+        take_after = min(after, MAX_WINDOW_S - take_before)
+        leftover = MAX_WINDOW_S - (take_before + take_after)
+        if leftover > 0 and before > take_before:
+            add = min(leftover, before - take_before)
+            take_before += add
+            leftover -= add
+        if leftover > 0 and after > take_after:
+            take_after += min(leftover, after - take_after)
+        return (
+            peak - timedelta(seconds=take_before),
+            peak + timedelta(seconds=take_after),
+        )
+
+    clip_start = det_start - timedelta(seconds=PAD_BEFORE_S)
+    clip_end = det_end + timedelta(seconds=PAD_AFTER_S)
+    duration = (clip_end - clip_start).total_seconds()
+    if duration > MAX_WINDOW_S:
+        overflow = duration - MAX_WINDOW_S
+        trim_before = min(PAD_BEFORE_S, overflow / 2.0)
+        trim_after = min(PAD_AFTER_S, overflow - trim_before)
+        if trim_before + trim_after < overflow:
+            extra = overflow - (trim_before + trim_after)
+            add_before = min(PAD_BEFORE_S - trim_before, extra)
+            trim_before += add_before
+            trim_after += min(PAD_AFTER_S - trim_after, extra - add_before)
+        clip_start = det_start - timedelta(seconds=PAD_BEFORE_S - trim_before)
+        clip_end = det_end + timedelta(seconds=PAD_AFTER_S - trim_after)
+    if (clip_end - clip_start).total_seconds() < MIN_WINDOW_S:
+        return _clamp_window(clip_start, clip_end, peak)
+    return clip_start, clip_end
+
+
 def _clamp_window(start: datetime, end: datetime, center: datetime) -> Tuple[datetime, datetime]:
     duration = (end - start).total_seconds()
     if duration > MAX_WINDOW_S:
@@ -113,11 +177,12 @@ def plan_clip_window(
     anchor = _aware(timing.anchor) or peak_t or start_t or _aware(now) or datetime.now(timezone.utc)
 
     source = "fallback"
+    fitted = False
     if start_t and end_t and end_t > start_t:
-        clip_start = start_t - timedelta(seconds=PAD_BEFORE_S)
-        clip_end = end_t + timedelta(seconds=PAD_AFTER_S)
         center = peak_t or start_t + (end_t - start_t) / 2
+        clip_start, clip_end = _fit_detection_window(start_t, end_t, center)
         source = "smart_detect"
+        fitted = True
     elif start_t and peak_t and peak_t >= start_t:
         clip_start = start_t - timedelta(seconds=PAD_BEFORE_S)
         clip_end = peak_t + timedelta(seconds=PAD_AFTER_S)
@@ -138,7 +203,7 @@ def plan_clip_window(
         clip_end = anchor + timedelta(seconds=fallback_after_s)
         center = anchor
 
-    if source == "smart_detect":
+    if source == "smart_detect" and not fitted:
         clip_start, clip_end = _clamp_window(clip_start, clip_end, center)
 
     def _offset(moment: Optional[datetime]) -> Optional[float]:
@@ -264,14 +329,22 @@ def plan_frame_offsets(
             if right_n:
                 sparse.extend(_even_times(det_end, duration_s, right_n, "sparse"))
 
-    merged = _unique_sorted(dense + sparse)
+    anchors = [
+        FrameSample(det_start, "edge"),
+        FrameSample(det_end, "edge"),
+    ]
+    if peak is not None:
+        anchors.append(FrameSample(peak, "peak"))
+    merged = _enforce_min_spacing(_unique_sorted(dense + sparse + anchors))
     if len(merged) > frame_count:
         merged = _prefer(merged, frame_count, peak)
+        merged = _enforce_min_spacing(merged)
     elif len(merged) < frame_count:
         extra = _even_times(det_start, det_end, frame_count - len(merged), "dense")
-        merged = _unique_sorted(merged + extra)
+        merged = _enforce_min_spacing(_unique_sorted(merged + extra))
         if len(merged) > frame_count:
             merged = _prefer(merged, frame_count, peak)
+            merged = _enforce_min_spacing(merged)
     return _fill_to_count(merged, frame_count, duration_s)
 
 
@@ -287,9 +360,16 @@ def _fill_to_count(samples: Sequence[FrameSample], count: int, duration_s: float
             for i in range(len(points) - 1)
         ]
         span, left, right = max(gaps, key=lambda item: item[0])
-        if span < 0.05:
+        # The new point has to sit at least MIN_FRAME_SPACING_S from both neighbors.
+        if span < MIN_FRAME_SPACING_S * 2:
             break
-        filled = _unique_sorted(filled + [FrameSample(round((left + right) / 2.0, 3), "dense")])
+        midpoint = round((left + right) / 2.0, 3)
+        if any(abs(midpoint - sample.offset_seconds) < MIN_FRAME_SPACING_S for sample in filled):
+            break
+        grown = _unique_sorted(filled + [FrameSample(midpoint, "dense")])
+        if len(grown) == len(filled):
+            break
+        filled = grown
     if len(filled) > count:
         return _prefer(filled, count, None)
     return filled
@@ -297,7 +377,7 @@ def _fill_to_count(samples: Sequence[FrameSample], count: int, duration_s: float
 
 def _unique_sorted(samples: Sequence[FrameSample]) -> List[FrameSample]:
     best = {}
-    rank = {"peak": 3, "dense": 2, "sparse": 1, "uniform": 0}
+    rank = {"peak": 4, "edge": 3, "dense": 2, "sparse": 1, "uniform": 0}
     for sample in samples:
         key = round(sample.offset_seconds, 3)
         current = best.get(key)
@@ -306,9 +386,30 @@ def _unique_sorted(samples: Sequence[FrameSample]) -> List[FrameSample]:
     return [best[k] for k in sorted(best)]
 
 
+def _kind_rank(kind: str) -> int:
+    return {"peak": 4, "edge": 3, "dense": 2, "sparse": 1, "uniform": 0}.get(kind, 0)
+
+
+def _enforce_min_spacing(
+    samples: Sequence[FrameSample],
+    min_spacing: float = MIN_FRAME_SPACING_S,
+) -> List[FrameSample]:
+    """Drop the lower-rank sample when two frames are closer than ``min_spacing``."""
+    ordered = sorted(
+        samples,
+        key=lambda sample: (-_kind_rank(sample.kind), sample.offset_seconds),
+    )
+    kept: List[FrameSample] = []
+    for sample in ordered:
+        if any(abs(sample.offset_seconds - other.offset_seconds) < min_spacing for other in kept):
+            continue
+        kept.append(sample)
+    return sorted(kept, key=lambda sample: sample.offset_seconds)
+
+
 def _prefer(samples: Sequence[FrameSample], count: int, peak: Optional[float]) -> List[FrameSample]:
     def sort_key(sample: FrameSample) -> Tuple[int, float]:
-        kind_rank = 0 if sample.kind == "peak" else 1 if sample.kind == "dense" else 2
+        kind_rank = {"peak": 0, "edge": 1, "dense": 2, "sparse": 3, "uniform": 4}.get(sample.kind, 5)
         distance = 0.0 if peak is None else abs(sample.offset_seconds - peak)
         return (kind_rank, distance)
 
@@ -365,9 +466,9 @@ def allocate_subject_crops(
 def coerce_protect_coord(coord, *, label: Optional[str] = None) -> Optional[SubjectBox]:
     """Turn a Protect coord into a SubjectBox.
 
-    Assumed layout is ``[x, y, width, height]`` (UniFi thumbnail metadata).
-    Values in 0-1 are fractions. Values that fit in 0-1000 are thousandths of
-    the frame. Anything larger is pixels.
+    Live controllers send ``[x, y, width, height]`` as 0-1 fractions. Values
+    that fit in 0-1000 are treated as thousandths, and anything larger as
+    pixels, so an odd payload still parses.
     """
     if coord is None:
         return None
@@ -454,17 +555,56 @@ def _to_normalized(box: SubjectBox, frame_w: int, frame_h: int) -> Optional[Tupl
     )
 
 
+def subject_crop_is_useful(
+    box: Optional[SubjectBox],
+    frame_width: Optional[int] = None,
+    frame_height: Optional[int] = None,
+    *,
+    min_area_fraction: float = DEFAULT_CROP_MIN_AREA_FRACTION,
+    min_side_px: int = DEFAULT_CROP_MIN_SIDE_PX,
+) -> bool:
+    """False when a zoom would be a speck rather than a subject.
+
+    Area is the box as a fraction of the frame. The shortest-side check uses
+    native pixels when the frame size is known. A normalized box with no frame
+    size is judged on area only; ``crop_jpeg`` applies the pixel check once it
+    has the image.
+    """
+    if box is None or box.width <= 0 or box.height <= 0:
+        return False
+    if box.normalized:
+        area = float(box.width) * float(box.height)
+        short = None
+        if frame_width and frame_height and frame_width > 0 and frame_height > 0:
+            short = min(float(box.width) * frame_width, float(box.height) * frame_height)
+    else:
+        space_w = frame_width or box.space_width
+        space_h = frame_height or box.space_height
+        if space_w and space_h and space_w > 0 and space_h > 0:
+            area = (float(box.width) / space_w) * (float(box.height) / space_h)
+        else:
+            area = None
+        short = min(float(box.width), float(box.height))
+    if area is not None and area < float(min_area_fraction):
+        return False
+    if short is not None and short < float(min_side_px):
+        return False
+    return True
+
+
 def crop_jpeg(
     image_bytes: bytes,
     box: SubjectBox,
     *,
     pad_fraction: float = CROP_PAD_FRACTION,
     quality: int = 90,
+    min_area_fraction: float = DEFAULT_CROP_MIN_AREA_FRACTION,
+    min_side_px: int = DEFAULT_CROP_MIN_SIDE_PX,
 ) -> Optional[bytes]:
     """Crop ``image_bytes`` to ``box`` at the source resolution.
 
-    Returns None when the box is missing or the crop would be empty. The crop
-    is not downscaled; callers already resize full frames separately.
+    Returns None when the box is missing, the crop would be empty, or the
+    subject is too small to be useful. Tiny boxes are not upscaled.
     """
     if not image_bytes or box is None:
         return None
@@ -479,6 +619,15 @@ def crop_jpeg(
         return None
     x, y, w, h = norm
     if w <= 0 or h <= 0:
+        return None
+    normalized_box = SubjectBox(x, y, w, h, source=box.source, normalized=True)
+    if not subject_crop_is_useful(
+        normalized_box,
+        image.width,
+        image.height,
+        min_area_fraction=min_area_fraction,
+        min_side_px=min_side_px,
+    ):
         return None
 
     pad_w = w * pad_fraction
@@ -499,20 +648,8 @@ def crop_jpeg(
     px_right = min(max(px_left + 1, px_right), image.width)
     px_bottom = min(max(px_top + 1, px_bottom), image.height)
 
-    crop_w = px_right - px_left
-    crop_h = px_bottom - px_top
-    if crop_w < MIN_CROP_SIDE_PX or crop_h < MIN_CROP_SIDE_PX:
-        # Expand around the center up to the minimum, still inside the frame.
-        cx = (px_left + px_right) / 2.0
-        cy = (px_top + px_bottom) / 2.0
-        half_w = max(crop_w, MIN_CROP_SIDE_PX) / 2.0
-        half_h = max(crop_h, MIN_CROP_SIDE_PX) / 2.0
-        px_left = int(max(0, cx - half_w))
-        px_top = int(max(0, cy - half_h))
-        px_right = int(min(image.width, cx + half_w))
-        px_bottom = int(min(image.height, cy + half_h))
-        if px_right - px_left < 8 or px_bottom - px_top < 8:
-            return None
+    if px_right - px_left < 8 or px_bottom - px_top < 8:
+        return None
 
     cropped = image.crop((px_left, px_top, px_right, px_bottom))
     buffer = io.BytesIO()

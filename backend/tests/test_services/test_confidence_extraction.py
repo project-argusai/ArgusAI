@@ -277,9 +277,14 @@ class TestProviderConfidenceIntegration:
 
     async def test_openai_provider_returns_ai_confidence(self):
         """OpenAI provider should include ai_confidence in result"""
-        with patch('openai.AsyncOpenAI') as mock_openai:
+        with patch(
+            "app.services.ai_providers.openai_provider.build_openai_client"
+        ) as mock_build, patch(
+            "app.services.ai_providers.model_resolver.resolve_model",
+            return_value="gpt-4o-mini",
+        ):
             mock_client = AsyncMock()
-            mock_openai.return_value = mock_client
+            mock_build.return_value = mock_client
 
             # Mock response with JSON containing confidence
             mock_response = MagicMock()
@@ -302,9 +307,14 @@ class TestProviderConfidenceIntegration:
 
     async def test_provider_handles_missing_confidence(self):
         """Provider should handle response without confidence gracefully"""
-        with patch('openai.AsyncOpenAI') as mock_openai:
+        with patch(
+            "app.services.ai_providers.openai_provider.build_openai_client"
+        ) as mock_build, patch(
+            "app.services.ai_providers.model_resolver.resolve_model",
+            return_value="gpt-4o-mini",
+        ):
             mock_client = AsyncMock()
-            mock_openai.return_value = mock_client
+            mock_build.return_value = mock_client
 
             # Mock response without structured confidence
             mock_response = MagicMock()

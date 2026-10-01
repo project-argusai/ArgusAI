@@ -214,3 +214,41 @@ async def test_persist_uses_identification_and_smart_detect_fallback():
     )
     assert json.loads(stored.objects_detected) == ["animal"]
     assert missing.objects_detected == ["animal"]
+
+
+def test_empty_frame_merge_does_not_restore_the_smart_detect_type():
+    """A later Protect update must not put vehicle back on an empty frame."""
+    from app.services.identification import dumps_identification
+
+    service = ProtectEventStorageService()
+    event = SimpleNamespace(
+        id="evt-empty",
+        objects_detected="[]",
+        smart_detection_type="vehicle",
+        is_doorbell_ring=False,
+        protect_event_id="prot-1",
+        identification=dumps_identification({
+            "object_type": "none",
+            "count": 0,
+            "identity": "unknown",
+            "action": "cannot_tell",
+            "direction": "cannot_tell",
+            "package_or_carrier": "none",
+        }),
+    )
+    changed = service.merge_detection_types(MagicMock(), event, ["vehicle"], False)
+    assert changed is False
+    assert json.loads(event.objects_detected) == []
+
+    # Missing identification still accepts the Protect label.
+    unlabeled = SimpleNamespace(
+        id="evt-open",
+        objects_detected="[]",
+        smart_detection_type="vehicle",
+        is_doorbell_ring=False,
+        protect_event_id="prot-2",
+        identification=None,
+    )
+    changed = service.merge_detection_types(MagicMock(), unlabeled, ["vehicle"], False)
+    assert changed is True
+    assert json.loads(unlabeled.objects_detected) == ["vehicle"]

@@ -780,7 +780,10 @@ class AIProcessingCoordinator:
             # Named rewrite before first persist / push (safety net + compose)
             if pre_ai_bundle and pre_ai_bundle.named_identities and ai_result.description:
                 try:
-                    from app.services.entity_alert_service import get_entity_alert_service
+                    from app.services.entity_alert_service import (
+                        get_entity_alert_service,
+                        suppress_inconsistent_vehicle_identity,
+                    )
 
                     class _E:
                         pass
@@ -797,6 +800,11 @@ class AIProcessingCoordinator:
                         e.vehicle_model = getattr(match, "vehicle_model", None)
                         entities.append(e)
                     if entities:
+                        suppress_inconsistent_vehicle_identity(
+                            ai_result.description,
+                            getattr(ai_result, "identification", None),
+                            entities,
+                        )
                         rewritten = get_entity_alert_service().enrich_description(
                             ai_result.description, entities
                         )

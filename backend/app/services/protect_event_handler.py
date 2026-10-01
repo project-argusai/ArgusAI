@@ -179,7 +179,10 @@ class ProtectEventHandler:
         """Carrier extract + named rewrite before first persist/notify."""
         import json
         from app.services.carrier_extractor import extract_carrier
-        from app.services.entity_alert_service import get_entity_alert_service
+        from app.services.entity_alert_service import (
+            get_entity_alert_service,
+            suppress_inconsistent_vehicle_identity,
+        )
 
         bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
         delivery_carrier = None
@@ -219,6 +222,11 @@ class ProtectEventHandler:
                     entities.append(e)
                     matched_ids.append(match.entity_id)
                 if entities:
+                    suppress_inconsistent_vehicle_identity(
+                        description,
+                        getattr(ai_result, "identification", None) if ai_result is not None else None,
+                        entities,
+                    )
                     enriched = get_entity_alert_service().enrich_description(
                         description, entities
                     )

@@ -133,6 +133,42 @@ def test_long_detection_is_not_cut_to_thirty_seconds():
     assert plan.peak_s == pytest.approx(13.0)
 
 
+def test_over_cap_window_keeps_the_detection_end_when_the_peak_is_early():
+    """An early peak must not drop the end, where a vehicle finishes turning in."""
+    plan = plan_clip_window(DetectionTiming(
+        start=ANCHOR,
+        end=ANCHOR + timedelta(seconds=64),
+        peak=ANCHOR + timedelta(seconds=5),
+        anchor=ANCHOR,
+    ))
+    assert plan.end == ANCHOR + timedelta(seconds=64)
+    assert plan.duration_s == pytest.approx(45.0)
+    assert plan.detection_end_s == pytest.approx(plan.duration_s)
+    samples = plan_frame_offsets(
+        plan.duration_s,
+        10,
+        plan.detection_start_s,
+        plan.detection_end_s,
+        plan.peak_s,
+        offset_ms=0,
+    )
+    assert any(
+        abs(sample.offset_seconds - plan.detection_end_s) <= 0.05 for sample in samples
+    )
+
+
+def test_open_detection_looks_past_the_first_peak():
+    peak = ANCHOR + timedelta(seconds=2)
+    plan = plan_clip_window(DetectionTiming(start=ANCHOR, peak=peak, anchor=ANCHOR))
+    assert plan.source == "smart_detect"
+    assert plan.end >= peak + timedelta(seconds=15)
+    assert plan.duration_s <= 45.0
+
+    start_only = plan_clip_window(DetectionTiming(start=ANCHOR, anchor=ANCHOR))
+    assert start_only.end >= ANCHOR + timedelta(seconds=15)
+    assert start_only.duration_s <= 45.0
+
+
 def test_over_cap_detection_keeps_the_peak_and_both_ends():
     plan = plan_clip_window(DetectionTiming(
         start=ANCHOR,

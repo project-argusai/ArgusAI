@@ -227,6 +227,9 @@ class TestEntityContextFormatting:
         result = self.service._format_entity_context(entity)
 
         assert "Seen once before" in result
+        assert "Known vehicle label" in result
+        assert "no stored color, make, or model" in result
+        assert "not a make or model" in result
 
     def test_format_entity_returns_none_for_none_input(self):
         """Test that None input returns None."""
@@ -740,7 +743,7 @@ class TestBuildContextEnhancedPrompt:
         # Check format structure
         assert "HISTORICAL CONTEXT:" in result.prompt
         assert "- " in result.prompt  # Bullet points
-        assert "Use HISTORICAL CONTEXT names" in result.prompt
+        assert "Use a HISTORICAL CONTEXT name only when the image matches" in result.prompt
         assert "name the carrier" in result.prompt
         # Base prompt should come first
         assert result.prompt.index(base_prompt) < result.prompt.index("HISTORICAL CONTEXT:")

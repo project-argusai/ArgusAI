@@ -40,6 +40,14 @@ _KNOWN_DETECTION_TYPES = frozenset(
 )
 
 
+def _explicit_empty_frame(event: Event) -> bool:
+    """True when identification already said nothing of interest is there."""
+    from app.services.identification import loads_identification
+
+    ident = loads_identification(getattr(event, "identification", None))
+    return isinstance(ident, dict) and ident.get("object_type") == "none"
+
+
 def _objects_for_new_event(ai_result: Optional[AIResult], event_type: str) -> List[str]:
     """Objects stored on a new Protect event.
 
@@ -242,13 +250,16 @@ class ProtectEventStorageService:
         except (json.JSONDecodeError, TypeError):
             parsed = None
 
+        # An explicit empty frame stays []. A later Protect smart-detect
+        # label must not put "vehicle" back. Missing identification still merges.
         if isinstance(parsed, list):
-            for detection_type in allowed:
-                if detection_type not in parsed:
-                    parsed.append(detection_type)
-                    changed = True
-            if changed:
-                event.objects_detected = json.dumps(parsed)
+            if not _explicit_empty_frame(event):
+                for detection_type in allowed:
+                    if detection_type not in parsed:
+                        parsed.append(detection_type)
+                        changed = True
+                if changed:
+                    event.objects_detected = json.dumps(parsed)
         elif allowed:
             logger.warning(
                 "Skipping detection-type merge because objects_detected is not a JSON list",

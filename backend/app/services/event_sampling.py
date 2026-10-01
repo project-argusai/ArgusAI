@@ -28,6 +28,10 @@ FALLBACK_BEFORE_S = 15.0
 FALLBACK_AFTER_S = 15.0
 PAD_BEFORE_S = 3.0
 PAD_AFTER_S = 3.0
+# Protect often delivers the opening of a smart detection before `end` is set.
+# Three seconds after that opening stops while an arriving vehicle is still
+# on the street. Keep looking for the turn-in.
+OPEN_DETECTION_TAIL_S = 15.0
 MIN_WINDOW_S = 6.0
 # A 27s detection plus 3s of padding on each side is 33s. 30s cut every
 # measured detection. 45s covers that padding without downloading a minute-long clip.
@@ -98,8 +102,8 @@ def _fit_detection_window(
     """Fit a detection into ``MAX_WINDOW_S``.
 
     Padding is trimmed before the detection itself is cut. When the detection
-    is longer than the cap, the window stays on the cap, includes the peak, and
-    extends toward both the start and the end.
+    is longer than the cap, the window is the last ``MAX_WINDOW_S`` of the
+    detection so the end stays in the clip.
     """
     if peak < det_start:
         det_start = peak
@@ -107,25 +111,11 @@ def _fit_detection_window(
         det_end = peak
     det_span = (det_end - det_start).total_seconds()
     if det_span > MAX_WINDOW_S:
-        before = max(0.0, (peak - det_start).total_seconds())
-        after = max(0.0, (det_end - peak).total_seconds())
-        total = before + after
-        if total <= 0:
-            half = MAX_WINDOW_S / 2.0
-            return peak - timedelta(seconds=half), peak + timedelta(seconds=half)
-        take_before = min(before, MAX_WINDOW_S * (before / total))
-        take_after = min(after, MAX_WINDOW_S - take_before)
-        leftover = MAX_WINDOW_S - (take_before + take_after)
-        if leftover > 0 and before > take_before:
-            add = min(leftover, before - take_before)
-            take_before += add
-            leftover -= add
-        if leftover > 0 and after > take_after:
-            take_after += min(leftover, after - take_after)
-        return (
-            peak - timedelta(seconds=take_before),
-            peak + timedelta(seconds=take_after),
-        )
+        # The clip cannot hold the whole detection. Keep its end: that is
+        # when a vehicle finishes turning into the driveway. A window share
+        # around an early peak can stop while the car is still on the street.
+        # The peak stays in the clip when it falls inside this tail.
+        return det_end - timedelta(seconds=MAX_WINDOW_S), det_end
 
     clip_start = det_start - timedelta(seconds=PAD_BEFORE_S)
     clip_end = det_end + timedelta(seconds=PAD_AFTER_S)
@@ -185,12 +175,12 @@ def plan_clip_window(
         fitted = True
     elif start_t and peak_t and peak_t >= start_t:
         clip_start = start_t - timedelta(seconds=PAD_BEFORE_S)
-        clip_end = peak_t + timedelta(seconds=PAD_AFTER_S)
+        clip_end = peak_t + timedelta(seconds=OPEN_DETECTION_TAIL_S)
         center = peak_t
         source = "smart_detect"
     elif start_t:
         clip_start = start_t - timedelta(seconds=PAD_BEFORE_S)
-        clip_end = start_t + timedelta(seconds=max(PAD_AFTER_S, MIN_WINDOW_S - PAD_BEFORE_S))
+        clip_end = start_t + timedelta(seconds=OPEN_DETECTION_TAIL_S)
         center = peak_t or start_t
         source = "smart_detect"
     elif peak_t:

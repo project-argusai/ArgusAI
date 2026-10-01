@@ -54,6 +54,34 @@ from app.services.mcp_context import (
 logger = logging.getLogger(__name__)
 
 
+def _attr(entity, name: str) -> Optional[str]:
+    value = getattr(entity, name, None)
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
+def _vehicle_label_line(entity) -> str:
+    """A stored vehicle name is a hint, not a confirmed make or model."""
+    color = _attr(entity, "vehicle_color")
+    make = _attr(entity, "vehicle_make")
+    model = _attr(entity, "vehicle_model")
+    stored = " ".join(part for part in (color, make, model) if part)
+    if stored:
+        return (
+            f'Known vehicle label: "{entity.name}" '
+            f"(stored attributes: {stored}). "
+            "Describe the color, make, and model you can see. "
+            "Mention this label only if it matches that vehicle."
+        )
+    return (
+        f'Known vehicle label: "{entity.name}". '
+        "This label has no stored color, make, or model, so it is not a make or model. "
+        "Describe the vehicle you see. Mention this label only if it matches."
+    )
+
+
 @dataclass
 class ContextEnhancedPromptResult:
     """Result from context-enhanced prompt building."""
@@ -321,8 +349,11 @@ class ContextEnhancedPromptService:
         if context_parts:
             context_section = "HISTORICAL CONTEXT:\n" + "\n".join(f"- {part}" for part in context_parts)
             context_section += (
-                "\n\nUse HISTORICAL CONTEXT names when the image matches a listed "
-                "person or vehicle. If a vehicle is listed, use its color/make/model. "
+                "\n\nUse a HISTORICAL CONTEXT name only when the image matches that "
+                "person or vehicle. Describe a vehicle's visible color, make, and model. "
+                "A listed vehicle name is a label, not a make or model. Mention it only "
+                "when it matches what you see. If the label has no stored color, make, "
+                "or model, do not treat it as the vehicle's make or model. "
                 "If a delivery uniform or logo is visible, name the carrier "
                 "(UPS/FedEx/USPS/Amazon/DHL). State local time and camera/location "
                 "naturally. Do not invent names that are not in HISTORICAL CONTEXT."
@@ -390,7 +421,10 @@ class ContextEnhancedPromptService:
         if not entity.name or not str(entity.name).strip():
             return None
 
-        visitor_name = f'Known visitor: "{entity.name}" (named by user)'
+        if getattr(entity, "entity_type", None) == "vehicle":
+            visitor_name = _vehicle_label_line(entity)
+        else:
+            visitor_name = f'Known visitor: "{entity.name}" (named by user)'
 
         # Format dates naturally
         first_seen_str = self._format_relative_date(entity.first_seen_at)

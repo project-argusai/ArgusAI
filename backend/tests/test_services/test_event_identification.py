@@ -312,6 +312,102 @@ def test_parse_identification_none_is_a_false_alarm():
     assert "animal" not in result.objects_detected
 
 
+@pytest.mark.parametrize(
+    ("description", "expected"),
+    [
+        (
+            "A man walks to the house holding a white sheet of paper or a small book.",
+            "none",
+        ),
+        (
+            "A person at the door holds a phone, a cup, and an ordinary bag of mail.",
+            "none",
+        ),
+        (
+            "Someone stands by the mailbox with a sheet of paper.",
+            "none",
+        ),
+        (
+            "A person walks to the front door, sets a cardboard box on the step, and leaves.",
+            "package",
+        ),
+        (
+            "A padded mailer is lying at the door.",
+            "package",
+        ),
+        (
+            "Someone drops off a delivery bag and walks away.",
+            "package",
+        ),
+        (
+            "A parcel is picked up from the porch.",
+            "package",
+        ),
+    ],
+)
+def test_package_label_follows_the_description(description, expected):
+    """Paper is not a package. A box, mailer, delivery bag, or parcel is."""
+    parsed = parse_identification(json.dumps({
+        "description": description,
+        "object_type": "person",
+        "count": 1,
+        "identity": "unknown",
+        "action": "walking",
+        "direction": "toward camera",
+        "package_or_carrier": "package",
+    }))
+    assert parsed["package_or_carrier"] == expected
+    assert parsed["object_type"] == "person"
+
+
+def test_package_check_does_not_rewrite_carriers_or_stored_rows():
+    from app.services.identification import loads_identification
+
+    unsure = parse_identification(json.dumps({
+        "description": "A man holds a white sheet of paper.",
+        "object_type": "person",
+        "package_or_carrier": "cannot_tell",
+    }))
+    assert unsure["package_or_carrier"] == "cannot_tell"
+
+    carrier = parse_identification(json.dumps({
+        "description": "A driver in a brown uniform sets a box on the step.",
+        "object_type": "person",
+        "package_or_carrier": "UPS",
+    }))
+    assert carrier["package_or_carrier"] == "ups"
+
+    # A fresh reply that says package and never describes one is downgraded.
+    bare = parse_identification('{"object_type": "person", "package_or_carrier": "package"}')
+    assert bare["package_or_carrier"] == "none"
+
+    # Reloading a stored row has no description, so an accepted package stays.
+    loaded = loads_identification('{"object_type": "person", "package_or_carrier": "package"}')
+    assert loaded["package_or_carrier"] == "package"
+
+
+def test_identification_prompt_defines_a_package_and_a_carrier():
+    from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
+
+    prompt = ensure_identification_prompt("Describe the scene.")
+    assert "A package is a parcel, box, padded mailer, or delivery bag" in prompt
+    assert "carried, dropped off or picked up, or lying at the door" in prompt
+    assert "Ordinary handheld items are not packages" in prompt
+    for item in ("paper", "mail", "a phone", "an ordinary bag", "a cup", "a small book"):
+        assert item in prompt
+    assert "uniform" in prompt
+    assert "branded vehicle" in prompt
+    assert "scanner" in prompt
+    assert 'Do not say "package"' in prompt
+    # The rest of the #632 contract stays put.
+    assert "3 to 6 sentences" in prompt
+    assert "licence plate" in prompt
+    assert "license plate" in prompt
+    assert "A camera label, a detector" in prompt
+    assert 'set object_type to\n"none"' in prompt
+    assert DESCRIPTION_MAX_OUTPUT_TOKENS == 1024
+
+
 def test_identification_prompt_appends_once_and_multi_frame_still_formats():
     once = ensure_identification_prompt("Describe the scene.")
     twice = ensure_identification_prompt(once)

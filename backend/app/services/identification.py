@@ -8,6 +8,7 @@ are optional and never replace that sentence. Missing or unusable values become
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, Optional
 
 from app.services.ai_types import AIResult
@@ -63,7 +64,9 @@ Fields:
 - identity: the matching name from context, otherwise "unknown". Use "cannot_tell" when a subject is visible but you cannot decide whether it is a known one
 - action: a short action you can actually see, or "cannot_tell"
 - direction: toward camera, away, left, right, or "cannot_tell"
-- package_or_carrier: UPS, FedEx, USPS, Amazon, DHL, "package", or "none". Use "cannot_tell" when unsure
+- package_or_carrier: "package", UPS, FedEx, USPS, Amazon, DHL, "none", or "cannot_tell"
+
+A package is a parcel, box, padded mailer, or delivery bag that is carried, dropped off or picked up, or lying at the door. Ordinary handheld items are not packages: paper, mail, a phone, an ordinary bag, a cup, a sheet of paper, or a small book. Use object_type "package" only for that same kind of item. Name a carrier (UPS, FedEx, USPS, Amazon, or DHL) only when a delivery-service cue is visible, such as a uniform, a branded vehicle, or a scanner. When unsure, use "none" or "cannot_tell". Do not say "package".
 
 If the frames show no person, vehicle, package, or animal, set object_type to
 "none", count to 0, and action and direction to "cannot_tell". The description
@@ -149,6 +152,33 @@ def _parse_identity(value: Any) -> str:
     return text
 
 
+# Description words that support package_or_carrier == "package".
+# "mail" and a plain "bag" are ordinary items; "mailer" and "delivery bag" are not.
+_PACKAGE_WORDING = re.compile(
+    r"\b(?:packages?|parcels?|boxes|box|mailers?)\b|\bdelivery bags?\b",
+    re.IGNORECASE,
+)
+
+
+def _description_supports_package(description: Any) -> bool:
+    text = description if isinstance(description, str) else ""
+    return _PACKAGE_WORDING.search(text) is not None
+
+
+def _downgrade_unsupported_package(ident: Dict[str, Any], description: Any) -> None:
+    """Drop a package label the description does not support.
+
+    A sheet of paper or a book was stored as package. Keep "package" only when
+    the description itself uses package-like wording. Otherwise use "none".
+    "cannot_tell" is left as the model sent it.
+    """
+    if ident.get("package_or_carrier") != "package":
+        return
+    if _description_supports_package(description):
+        return
+    ident["package_or_carrier"] = "none"
+
+
 def _parse_package(value: Any) -> str:
     text = _clip_text(value, empty=CANNOT_TELL, limit=40).lower()
     if text in PACKAGE_VALUES:
@@ -174,7 +204,7 @@ def empty_identification() -> Dict[str, Any]:
     }
 
 
-def _from_mapping(data: dict) -> Dict[str, Any]:
+def _from_mapping(data: dict, *, check_package_wording: bool = False) -> Dict[str, Any]:
     ident = empty_identification()
     ident["object_type"] = _parse_object_type(data.get("object_type"))
     ident["count"] = _parse_count(data.get("count"))
@@ -186,6 +216,10 @@ def _from_mapping(data: dict) -> Dict[str, Any]:
     if ident["direction"] in {"unknown", "n/a", "none"}:
         ident["direction"] = CANNOT_TELL
     ident["package_or_carrier"] = _parse_package(data.get("package_or_carrier"))
+    if check_package_wording:
+        # Fresh model JSON only. Stored rows have no description, and re-checking
+        # them would clear a package that was already accepted.
+        _downgrade_unsupported_package(ident, data.get("description"))
     if ident["object_type"] == "none":
         # A false alarm is not a counted subject and has no visible motion.
         ident["count"] = 0
@@ -211,7 +245,7 @@ def parse_identification(response_text: Optional[str]) -> Dict[str, Any]:
         return ident
     if not isinstance(data, dict):
         return ident
-    return _from_mapping(data)
+    return _from_mapping(data, check_package_wording=True)
 
 
 def apply_identification(result: AIResult, raw_response: Optional[str]) -> AIResult:

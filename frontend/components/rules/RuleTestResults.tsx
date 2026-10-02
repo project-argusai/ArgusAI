@@ -37,7 +37,7 @@ export function RuleTestResults({ ruleId }: RuleTestResultsProps) {
       if (!testResult?.matching_event_ids.length) return [];
       // Fetch first 5 matching events for preview
       const eventPromises = testResult.matching_event_ids.slice(0, 5).map(id =>
-        apiClient.events.get(Number(id)).catch(() => null)
+        apiClient.events.get(id).catch(() => null)
       );
       const events = await Promise.all(eventPromises);
       return events.filter((e): e is IEvent => e !== null);

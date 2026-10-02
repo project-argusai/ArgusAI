@@ -38,7 +38,7 @@ export function RulesList({ onCreateRule, onEditRule, onDeleteRule }: RulesListP
   // Toggle enabled mutation with optimistic update
   const toggleEnabledMutation = useMutation({
     mutationFn: async ({ id, is_enabled }: { id: string; is_enabled: boolean }) => {
-      return apiClient.alertRules.update(Number(id), { is_enabled });
+      return apiClient.alertRules.update(id, { is_enabled });
     },
     onMutate: async ({ id, is_enabled }) => {
       // Cancel outgoing refetches

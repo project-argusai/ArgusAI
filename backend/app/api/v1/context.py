@@ -11,6 +11,7 @@ Provides endpoints for:
 - Person matching for face recognition (P4-8.2)
 - Entity adjustment history for ML training (P9-4.6)
 """
+import asyncio
 import base64
 import logging
 import os
@@ -21,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, release_db_connection
 from app.models.event import Event
 from app.services.service_container import container
 from app.models.event_embedding import EventEmbedding
@@ -853,12 +854,23 @@ async def get_entity(
     Raises:
         404: If entity not found
     """
-    entity = await entity_service.get_entity(
-        db=db,
-        entity_id=entity_id,
-        include_events=True,
-        event_limit=event_limit,
-    )
+    def _load_entity():
+        try:
+            return asyncio.run(
+                entity_service.get_entity(
+                    db=db,
+                    entity_id=entity_id,
+                    include_events=True,
+                    event_limit=event_limit,
+                )
+            )
+        finally:
+            # The detail payload is a plain dict. Do not keep the connection
+            # while the response is serialized, and do not run the query on
+            # the event loop (a pool wait there stalls every other request).
+            release_db_connection(db)
+
+    entity = await asyncio.to_thread(_load_entity)
 
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
@@ -1113,7 +1125,13 @@ async def get_entity_thumbnail(
     """
     from fastapi.responses import FileResponse
 
-    thumbnail_path = await entity_service.get_entity_thumbnail_path(db, entity_id)
+    def _load_thumbnail_path():
+        try:
+            return asyncio.run(entity_service.get_entity_thumbnail_path(db, entity_id))
+        finally:
+            release_db_connection(db)
+
+    thumbnail_path = await asyncio.to_thread(_load_thumbnail_path)
 
     if not thumbnail_path:
         raise HTTPException(

@@ -25,7 +25,7 @@ import io
 import asyncio
 from pathlib import Path
 
-from app.core.database import get_db
+from app.core.database import get_db, release_db_connection
 from app.schemas.types import iso_utc
 from app.models.event import Event
 from app.models.camera import Camera
@@ -3071,6 +3071,8 @@ async def get_event_frame_image(
 
         # Every request rechecks authentication; browsers and proxies must not
         # retain sensitive frames after logout or account deactivation.
+        # Drop the pooled connection before the file is read.
+        release_db_connection(db)
         return FileResponse(
             path=frame_file,
             media_type="image/jpeg",
@@ -3152,6 +3154,8 @@ async def stream_event_video(
             )
 
         file_size = os.path.getsize(video_file)
+        # The stream can run for the whole clip. Do not hold a connection for that.
+        release_db_connection(db)
 
         # Parse Range header for partial content support
         range_header = request.headers.get("range")
@@ -3292,6 +3296,7 @@ async def download_event_video(
 
         # Generate filename with event ID for uniqueness
         filename = f"argusai-event-{event_id}.mp4"
+        release_db_connection(db)
 
         logger.debug(
             f"Downloading video for event {event_id}",

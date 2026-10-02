@@ -8,8 +8,9 @@ Middleware that:
 - Validates token and adds user to request.state
 - Excludes health, auth, metrics, docs endpoints
 """
+import asyncio
 import logging
-from typing import Callable, Set
+from typing import Callable, Optional, Set
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -172,43 +173,39 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 headers=_get_cors_headers(request),
             )
 
-        # Fetch user from database
-        with get_db_session() as db:
-            user = db.query(User).filter(User.id == user_id).first()
+        # Pool checkout must not run on the event loop. A full pool waits on
+        # a threading lock for pool_timeout seconds; doing that here froze
+        # every other request, including /health.
+        user_info = await asyncio.to_thread(_load_session_user, user_id)
+        if user_info is None:
+            logger.warning(
+                "Token valid but user not found",
+                extra={
+                    "event_type": "auth_user_not_found",
+                    "user_id": user_id,
+                }
+            )
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "User not found"},
+                headers=_get_cors_headers(request),
+            )
 
-            if not user:
-                logger.warning(
-                    "Token valid but user not found",
-                    extra={
-                        "event_type": "auth_user_not_found",
-                        "user_id": user_id,
-                    }
-                )
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "User not found"},
-                    headers=_get_cors_headers(request),
-                )
+        if user_info is False:
+            logger.warning(
+                "Token valid but user disabled",
+                extra={
+                    "event_type": "auth_user_disabled",
+                    "user_id": user_id,
+                }
+            )
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Account disabled"},
+                headers=_get_cors_headers(request),
+            )
 
-            if not user.is_active:
-                logger.warning(
-                    "Token valid but user disabled",
-                    extra={
-                        "event_type": "auth_user_disabled",
-                        "user_id": user_id,
-                    }
-                )
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "Account disabled"},
-                    headers=_get_cors_headers(request),
-                )
-
-            # Add user info to request state
-            request.state.user = {
-                "id": user.id,
-                "username": user.username,
-            }
+        request.state.user = user_info
 
         # Continue to route handler
         return await call_next(request)
@@ -263,39 +260,61 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not api_key_header:
             return False
 
-        with get_db_session() as db:
-            service = container.api_key_service
-            api_key = service.verify_key(db, api_key_header)
-
-            if api_key:
-                # Store API key in request state for downstream use
-                request.state.api_key = {
-                    "id": api_key.id,
-                    "name": api_key.name,
-                    "scopes": api_key.scopes,
-                }
-
-                # Record usage
-                client_ip = None
-                if request.client:
-                    client_ip = request.client.host
-                service.record_usage(db, api_key, ip_address=client_ip)
-
-                logger.debug(
-                    "API key authenticated",
-                    extra={
-                        "event_type": "api_key_auth_success",
-                        "api_key_id": api_key.id,
-                        "api_key_name": api_key.name,
-                    }
-                )
-                return True
-
+        client_ip = request.client.host if request.client else None
+        key_info = await asyncio.to_thread(
+            _load_api_key, api_key_header, client_ip
+        )
+        if key_info:
+            request.state.api_key = key_info
             logger.debug(
-                "Invalid API key",
+                "API key authenticated",
                 extra={
-                    "event_type": "api_key_auth_failed",
-                    "path": request.url.path,
+                    "event_type": "api_key_auth_success",
+                    "api_key_id": key_info["id"],
+                    "api_key_name": key_info["name"],
                 }
             )
+            return True
+
+        logger.debug(
+            "Invalid API key",
+            extra={
+                "event_type": "api_key_auth_failed",
+                "path": request.url.path,
+            }
+        )
+        return False
+
+
+def _load_session_user(user_id: str) -> Optional[dict | bool]:
+    """Load the session user off the event loop.
+
+    Returns a plain dict, False when the account is disabled, or None when
+    the user row is missing. The session is closed before return.
+    """
+    with get_db_session() as db:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user is None:
+            return None
+        if not user.is_active:
             return False
+        return {"id": user.id, "username": user.username}
+
+
+def _load_api_key(raw_key: str, client_ip: Optional[str]) -> Optional[dict]:
+    """Verify an API key and record usage. Connection is closed before return."""
+    with get_db_session() as db:
+        service = container.api_key_service
+        api_key = service.verify_key(db, raw_key)
+        if not api_key:
+            return None
+        scopes = api_key.scopes
+        if isinstance(scopes, list):
+            scopes = list(scopes)
+        info = {
+            "id": api_key.id,
+            "name": api_key.name,
+            "scopes": scopes,
+        }
+        service.record_usage(db, api_key, ip_address=client_ip)
+        return info

@@ -5,10 +5,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from datetime import datetime, timezone
 from typing import List, Optional
+import asyncio
 import secrets
 import logging
 
-from app.core.database import get_db
+from app.core.database import get_db, release_db_connection
 from app.core.config import settings
 from app.models.user import User, UserRole
 from app.models.session import Session as SessionModel
@@ -107,7 +108,14 @@ def get_media_principal(request: Request, db: Session = Depends(get_db)) -> User
     api_key = getattr(request.state, "api_key", None)
     if api_key is not None:
         return api_key
-    return get_current_user(request, db)
+    user = get_current_user(request, db)
+    # Detach before the connection goes back. Thumbnail and frame routes keep
+    # this dependency's session until the file response finishes; leaving the
+    # connection checked out across that I/O filled the pool (16 concurrent
+    # entity-grid images against a 15-connection QueuePool).
+    db.expunge(user)
+    release_db_connection(db)
+    return user
 
 
 def authenticate_websocket(
@@ -208,8 +216,8 @@ async def require_websocket_user(websocket: WebSocket) -> Optional[User]:
         await websocket.close(code=WS_CLOSE_AUTH, reason="Origin required")
         return None
 
-    user = authenticate_websocket(websocket)
-    if user is None or not websocket_session_is_active(websocket):
+    user = await asyncio.to_thread(authenticate_websocket, websocket)
+    if user is None or not await asyncio.to_thread(websocket_session_is_active, websocket):
         await websocket.close(code=WS_CLOSE_AUTH, reason="Authentication required")
         return None
 

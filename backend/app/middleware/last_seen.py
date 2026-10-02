@@ -74,7 +74,8 @@ class LastSeenMiddleware(BaseHTTPMiddleware):
         if not user_id:
             return response
 
-        # Update last_seen asynchronously (fire and forget)
+        # Update last_seen asynchronously (fire and forget). The write itself
+        # runs in a worker thread so a pool wait cannot stall the event loop.
         asyncio.create_task(
             self._update_last_seen(device_id, user_id)
         )
@@ -93,11 +94,15 @@ class LastSeenMiddleware(BaseHTTPMiddleware):
         return False
 
     async def _update_last_seen(self, device_id: str, user_id: str) -> None:
+        """Update device last_seen_at off the event loop."""
+        await asyncio.to_thread(self._update_last_seen_sync, device_id, user_id)
+
+    def _update_last_seen_sync(self, device_id: str, user_id: str) -> None:
         """
         Update device last_seen_at timestamp.
 
-        Runs asynchronously to avoid blocking the main request.
-        Uses a separate database session for isolation.
+        Uses a separate database session for isolation. Runs in a worker
+        thread: the session checkout must not block the event loop.
         """
         try:
             with get_db_session() as db:

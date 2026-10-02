@@ -1,10 +1,11 @@
 """Database connection and session management"""
 from contextlib import contextmanager
-from typing import Generator
+from typing import Generator, Optional
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.pool import NullPool, StaticPool
 from app.core.config import settings
 from app.core.logging_config import configure_sqlalchemy_query_logging
 
@@ -25,8 +26,15 @@ engine_kwargs = {
 
 if _is_sqlite:
     # SQLite requires check_same_thread=False for multi-threaded access (camera
-    # threads + asyncio workers). It is single-writer, so pool sizing is N/A.
+    # threads + asyncio workers). Do not use QueuePool here. SQLAlchemy's
+    # default QueuePool is size 5, overflow 10, timeout 30s, and that checkout
+    # waits on a threading lock. When the wait runs on the asyncio thread, the
+    # whole process stops serving, including /health. File SQLite opens a
+    # connection per checkout and closes it on return (NullPool). An in-memory
+    # URL must share one connection (StaticPool) or each checkout is empty.
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+    _memory = ":memory:" in settings.DATABASE_URL or "mode=memory" in settings.DATABASE_URL
+    engine_kwargs["poolclass"] = StaticPool if _memory else NullPool
 else:
     # PostgreSQL (prod): bound the connection pool explicitly so concurrent
     # workers/replicas cannot exhaust the server's max_connections. All values
@@ -67,6 +75,22 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Base class for ORM models
 Base = declarative_base()
+
+
+def release_db_connection(db: Optional[Session]) -> None:
+    """Return a request session's connection before slow work.
+
+    ``rollback()`` ends the read transaction and gives the connection back to
+    the pool (or closes it, for SQLite's NullPool). Call this before file or
+    network I/O on a ``Depends(get_db)`` session. A later ``close()`` from the
+    dependency is safe. Do not use ORM objects loaded by ``db`` after this.
+    """
+    if db is None:
+        return
+    rollback = getattr(db, "rollback", None)
+    if not callable(rollback):
+        return
+    rollback()
 
 
 def get_db():

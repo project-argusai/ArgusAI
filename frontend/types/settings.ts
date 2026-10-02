@@ -94,7 +94,8 @@ export const CLAUDE_MODELS: { value: ClaudeModel; label: string; description: st
 ];
 
 export interface StorageStats {
-  total_events: number;
+  /** Matches GET /api/v1/system/storage (`StorageResponse.event_count`). */
+  event_count: number;
   database_mb: number;
   thumbnails_mb: number;
   total_mb: number;

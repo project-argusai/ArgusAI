@@ -30,6 +30,7 @@ from app.schemas.types import iso_utc
 from app.models.event import Event
 from app.models.camera import Camera
 from app.schemas.event import (
+    CorrelatedEventResponse,
     EventCreate,
     EventResponse,
     EventListResponse,
@@ -75,6 +76,63 @@ def _normalize_thumbnail_path(thumbnail_path: str) -> str:
     if thumbnail_path.startswith('/api/v1/thumbnails/'):
         return thumbnail_path[len('/api/v1/thumbnails/'):]
     return thumbnail_path
+
+
+def _correlated_event_response(related: Event, camera_names: dict) -> CorrelatedEventResponse:
+    """Summary of one other camera in the same incident."""
+    thumbnail_url = None
+    if related.thumbnail_path:
+        thumbnail_url = f"/api/v1/thumbnails/{related.thumbnail_path}"
+    camera_name = camera_names.get(related.camera_id) or f"Camera {related.camera_id[:8]}"
+    return CorrelatedEventResponse(
+        id=related.id,
+        camera_name=camera_name,
+        thumbnail_url=thumbnail_url,
+        timestamp=related.timestamp,
+    )
+
+
+def _correlated_responses_by_event_id(
+    db: Session,
+    events: list,
+) -> dict:
+    """Batch-load incident siblings for a page of events.
+
+    Returns a map of event id to other cameras in that event's group.
+    Events with no group are omitted. One query for the groups on the page.
+    """
+    group_ids = {event.correlation_group_id for event in events if event.correlation_group_id}
+    if not group_ids:
+        return {}
+
+    related_rows = (
+        db.query(Event)
+        .filter(Event.correlation_group_id.in_(group_ids))
+        .all()
+    )
+    camera_ids = {row.camera_id for row in related_rows}
+    camera_names = {}
+    if camera_ids:
+        cameras = db.query(Camera.id, Camera.name).filter(Camera.id.in_(camera_ids)).all()
+        camera_names = {camera.id: camera.name for camera in cameras}
+
+    by_group: dict = {}
+    for row in related_rows:
+        by_group.setdefault(row.correlation_group_id, []).append(row)
+
+    summaries = {}
+    for event in events:
+        group_id = event.correlation_group_id
+        if not group_id:
+            continue
+        others = [row for row in by_group.get(group_id, []) if row.id != event.id]
+        if not others:
+            summaries[event.id] = None
+            continue
+        summaries[event.id] = [
+            _correlated_event_response(row, camera_names) for row in others
+        ]
+    return summaries
 
 
 def _event_identification(event) -> Optional[dict]:
@@ -658,6 +716,7 @@ def list_events(
                 }
 
         # Enrich events with camera_name and feedback
+        correlated_by_event = _correlated_responses_by_event_id(db, events)
         enriched_events = []
         for event in events:
             event_dict = {
@@ -677,7 +736,7 @@ def list_events(
                 "is_doorbell_ring": event.is_doorbell_ring,
                 "created_at": event.created_at,
                 "correlation_group_id": event.correlation_group_id,
-                "correlated_events": None,
+                "correlated_events": correlated_by_event.get(event.id),
                 "provider_used": event.provider_used,
                 "prompt_variant": getattr(event, 'prompt_variant', None),
                 "fallback_reason": event.fallback_reason,
@@ -1661,7 +1720,7 @@ async def get_event(
     Example:
         GET /events/123e4567-e89b-12d3-a456-426614174000
     """
-    from app.schemas.event import CorrelatedEventResponse, MatchedEntitySummary
+    from app.schemas.event import MatchedEntitySummary
     from app.services.entity_service import get_entity_service
 
     try:
@@ -1676,32 +1735,7 @@ async def get_event(
         logger.debug(f"Retrieved event {event_id}")
 
         # Story P2-4.4: Populate correlated_events if event has correlation_group_id
-        correlated_events = None
-        if event.correlation_group_id:
-            # Find all events in the same correlation group, excluding this event
-            related_events = db.query(Event).filter(
-                Event.correlation_group_id == event.correlation_group_id,
-                Event.id != event_id
-            ).all()
-
-            if related_events:
-                correlated_events = []
-                for related in related_events:
-                    # Get camera name
-                    camera = db.query(Camera).filter(Camera.id == related.camera_id).first()
-                    camera_name = camera.name if camera else f"Camera {related.camera_id[:8]}"
-
-                    # Build thumbnail URL
-                    thumbnail_url = None
-                    if related.thumbnail_path:
-                        thumbnail_url = f"/api/v1/thumbnails/{related.thumbnail_path}"
-
-                    correlated_events.append(CorrelatedEventResponse(
-                        id=related.id,
-                        camera_name=camera_name,
-                        thumbnail_url=thumbnail_url,
-                        timestamp=related.timestamp
-                    ))
+        correlated_events = _correlated_responses_by_event_id(db, [event]).get(event.id)
 
         # FF-003: Get camera name for this event
         event_camera = db.query(Camera).filter(Camera.id == event.camera_id).first()

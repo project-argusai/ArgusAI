@@ -81,6 +81,27 @@ class Settings(BaseSettings):
     MAX_CAMERAS: int = 1  # MVP limitation
     DEFAULT_FRAME_RATE: int = 5
 
+    # Cross-camera incident window (issue #642). Events on different cameras
+    # whose detection times fall within this many seconds share one group.
+    # <= 0 uses the 2 second default. Values above 30 are capped at 30.
+    CORRELATION_WINDOW_SECONDS: float = 2
+
+    @field_validator("CORRELATION_WINDOW_SECONDS", mode="before")
+    @classmethod
+    def blank_correlation_window(cls, v: object) -> object:
+        if v is None or v == "":
+            return 2
+        return v
+
+    @field_validator("CORRELATION_WINDOW_SECONDS", mode="after")
+    @classmethod
+    def clamp_correlation_window(cls, v: float) -> float:
+        if v <= 0:
+            return 2.0
+        if v > 30:
+            return 30.0
+        return v
+
     # Live Streaming Settings (Story P16-2.2)
     STREAM_MAX_CONCURRENT: int = 10  # Max concurrent streams server-wide
     STREAM_DEFAULT_QUALITY: str = "medium"  # Default quality: low, medium, high

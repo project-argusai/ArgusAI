@@ -14,6 +14,7 @@ import { formatDistanceToNow } from 'date-fns';
 import Link from 'next/link';
 import { getConfidenceColor } from '@/types/event';
 import { parseApiDate } from '@/lib/datetime';
+import { collapseIncidentTimeline } from '@/lib/incident-groups';
 
 export function RecentActivity() {
   const { data, isLoading, error } = useRecentEvents(5);
@@ -84,7 +85,7 @@ export function RecentActivity() {
           </div>
         ) : (
           <div className="space-y-3">
-            {data.events.map((event) => (
+            {collapseIncidentTimeline(data.events).map((event) => (
               <Link
                 key={event.id}
                 href={`/events?highlight=${event.id}`}
@@ -125,6 +126,11 @@ export function RecentActivity() {
                       <Clock className="h-3 w-3 mr-1" />
                       {formatDistanceToNow(parseApiDate(event.timestamp)!, { addSuffix: true })}
                     </span>
+                    {event.correlated_events && event.correlated_events.length > 0 && (
+                      <span>
+                        Also {event.correlated_events.map((related) => related.camera_name).join(', ')}
+                      </span>
+                    )}
                     {event.objects_detected?.length > 0 && (
                       <span className="flex items-center gap-1">
                         {event.objects_detected.slice(0, 2).map((obj) => (

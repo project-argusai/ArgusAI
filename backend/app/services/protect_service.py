@@ -150,31 +150,33 @@ class ProtectService:
         """
         from app.models.protect_controller import ProtectController
         
-        reset_count = 0
-        with get_db_session() as db:
-            # Find controllers marked as connected
-            stale_controllers = db.query(ProtectController).filter(
-                ProtectController.is_connected == True
-            ).all()
-            
-            for controller in stale_controllers:
-                controller.is_connected = False
-                # Keep last_error for debugging, but add context
-                if controller.last_error:
-                    controller.last_error = f"[Stale after restart] {controller.last_error}"
-                reset_count += 1
-                
-            if reset_count > 0:
-                db.commit()
-                logger.info(
-                    f"Reset {reset_count} stale controller connection states",
-                    extra={
-                        "event_type": "protect_stale_state_reset",
-                        "reset_count": reset_count
-                    }
-                )
-        
-        return reset_count
+        def _reset() -> int:
+            reset_count = 0
+            with get_db_session() as db:
+                # Find controllers marked as connected
+                stale_controllers = db.query(ProtectController).filter(
+                    ProtectController.is_connected == True
+                ).all()
+
+                for controller in stale_controllers:
+                    controller.is_connected = False
+                    # Keep last_error for debugging, but add context
+                    if controller.last_error:
+                        controller.last_error = f"[Stale after restart] {controller.last_error}"
+                    reset_count += 1
+
+                if reset_count > 0:
+                    db.commit()
+                    logger.info(
+                        f"Reset {reset_count} stale controller connection states",
+                        extra={
+                            "event_type": "protect_stale_state_reset",
+                            "reset_count": reset_count
+                        }
+                    )
+            return reset_count
+
+        return await asyncio.to_thread(_reset)
 
     async def test_connection(
         self,
@@ -869,27 +871,41 @@ class ProtectService:
 
             # Attempt reconnection
             try:
-                # Refresh controller from database in case credentials changed
-                with get_db_session() as db:
+                # Refresh controller from database in case credentials changed.
+                # Copy scalars inside the worker so the session is closed before
+                # the network connect, and the checkout is not on the event loop.
+                def _load_controller_credentials():
                     from app.models.protect_controller import ProtectController as PC
-                    fresh_controller = db.query(PC).filter(PC.id == controller_id).first()
-                    if not fresh_controller:
-                        logger.error(
-                            "Controller no longer exists",
-                            extra={
-                                "event_type": "protect_reconnect_controller_gone",
-                                "controller_id": controller_id
-                            }
-                        )
-                        break
+                    with get_db_session() as db:
+                        fresh_controller = db.query(PC).filter(PC.id == controller_id).first()
+                        if fresh_controller is None:
+                            return None
+                        return {
+                            "host": fresh_controller.host,
+                            "port": fresh_controller.port,
+                            "username": fresh_controller.username,
+                            "password": fresh_controller.get_decrypted_password(),
+                            "verify_ssl": fresh_controller.verify_ssl,
+                        }
+
+                creds = await asyncio.to_thread(_load_controller_credentials)
+                if creds is None:
+                    logger.error(
+                        "Controller no longer exists",
+                        extra={
+                            "event_type": "protect_reconnect_controller_gone",
+                            "controller_id": controller_id
+                        }
+                    )
+                    break
 
                 # Create new client with WebSocket timeouts
                 client = ProtectApiClient(
-                    host=fresh_controller.host,
-                    port=fresh_controller.port,
-                    username=fresh_controller.username,
-                    password=fresh_controller.get_decrypted_password(),
-                    verify_ssl=fresh_controller.verify_ssl,
+                    host=creds["host"],
+                    port=creds["port"],
+                    username=creds["username"],
+                    password=creds["password"],
+                    verify_ssl=creds["verify_ssl"],
                     ws_timeout=WS_CONNECTION_TIMEOUT_SECONDS,
                     ws_receive_timeout=WS_RECEIVE_TIMEOUT_SECONDS
                 )
@@ -1003,7 +1019,7 @@ class ProtectService:
             last_connected_at: Timestamp of successful connection (optional)
             last_error: Error message or None to clear (optional)
         """
-        try:
+        def _write_state() -> None:
             with get_db_session() as db:
                 from app.models.protect_controller import ProtectController as PC
                 controller = db.query(PC).filter(PC.id == controller_id).first()
@@ -1017,6 +1033,9 @@ class ProtectService:
                         controller.last_error = last_error if last_error else None
 
                     db.commit()
+
+        try:
+            await asyncio.to_thread(_write_state)
         except Exception as e:
             logger.error(
                 f"Failed to update controller state",

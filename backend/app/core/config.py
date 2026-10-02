@@ -13,10 +13,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./data/app.db"
 
-    # Database connection pool (12-Factor IV/VIII; tuned for Postgres prod deploys).
-    # Defaults match SQLAlchemy's own defaults so existing behavior is unchanged.
-    # pool_pre_ping eliminates stale-connection errors after idle periods; size/overflow
-    # are only applied to non-SQLite engines (SQLite is single-writer and ignores them).
+    # Database connection pool (12-Factor IV/VIII; Postgres only).
+    # SQLite does not use QueuePool: its default size 5 / overflow 10 / timeout 30s
+    # checkout lock wedged the single uvicorn process when many thumbnails were
+    # in flight. See database.py. These knobs apply to PostgreSQL engines.
+    # pool_pre_ping replaces connections dropped while idle.
     DB_POOL_SIZE: int = 5
     DB_MAX_OVERFLOW: int = 10
     DB_POOL_TIMEOUT: int = 30

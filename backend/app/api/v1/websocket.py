@@ -102,7 +102,9 @@ async def send_heartbeat(websocket: WebSocket):
     try:
         while True:
             await asyncio.sleep(HEARTBEAT_INTERVAL)
-            if not websocket_session_is_active(websocket):
+            # Session lookup is synchronous. Running it on the loop blocks
+            # every other request for the whole pool-checkout timeout.
+            if not await asyncio.to_thread(websocket_session_is_active, websocket):
                 await websocket.close(code=WS_CLOSE_AUTH, reason="Session expired")
                 break
             try:

@@ -293,7 +293,7 @@ describe('EntityAlertModal', () => {
       />
     );
 
-    expect(screen.getByText(/Create Alert for Unknown person/)).toBeInTheDocument();
+    expect(screen.getByText(/Create Alert for Person #entity-1/)).toBeInTheDocument();
   });
 
   it('handles vehicle entity type', () => {

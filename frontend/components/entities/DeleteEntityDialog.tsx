@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useDeleteEntity, isApiError } from '@/hooks/useEntities';
 import { toast } from 'sonner';
+import { getEntityDisplayName } from '@/lib/entity-display-name';
 import type { IEntity } from '@/types/entity';
 
 interface DeleteEntityDialogProps {
@@ -49,11 +50,7 @@ export function DeleteEntityDialog({
 
     try {
       await deleteMutation.mutateAsync(entity.id);
-      toast.success(
-        entity.name
-          ? `Deleted "${entity.name}"`
-          : 'Entity deleted'
-      );
+      toast.success(`Deleted "${getEntityDisplayName(entity)}"`);
       onDeleted?.();
       onClose();
     } catch (error) {
@@ -70,7 +67,7 @@ export function DeleteEntityDialog({
     }
   };
 
-  const displayName = entity?.name || `Unknown ${entity?.entity_type || 'entity'}`;
+  const displayName = entity ? getEntityDisplayName(entity) : 'Unknown entity';
 
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>

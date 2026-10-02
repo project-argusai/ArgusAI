@@ -1204,6 +1204,105 @@ class TestRecognizedEntityDisplayName:
 
         assert entity.display_name == "Vehicle #abcd1234"
 
+    def test_display_name_prefers_vehicle_attributes_over_signature(self):
+        """Unnamed vehicles show color, make, and model before the signature."""
+        from app.models.recognized_entity import RecognizedEntity
+
+        entity = RecognizedEntity(
+            id="1c915ee6-aaaa-bbbb-cccc-ddddeeeeffff",
+            entity_type="vehicle",
+            name=None,
+            reference_embedding="[]",
+            first_seen_at=datetime.now(timezone.utc),
+            last_seen_at=datetime.now(timezone.utc),
+            occurrence_count=1,
+            vehicle_color="red",
+            vehicle_make="tesla",
+            vehicle_model="model y",
+            vehicle_signature="red-tesla-modely",
+        )
+
+        assert entity.display_name == "Red Tesla Model Y"
+
+    def test_display_name_uses_partial_vehicle_attributes(self):
+        """Make and model alone are enough for a label."""
+        from app.models.recognized_entity import RecognizedEntity
+
+        entity = RecognizedEntity(
+            id="abcd1234-efgh-ijkl-mnop-qrstuvwxyz12",
+            entity_type="vehicle",
+            name=None,
+            reference_embedding="[]",
+            first_seen_at=datetime.now(timezone.utc),
+            last_seen_at=datetime.now(timezone.utc),
+            occurrence_count=1,
+            vehicle_make="kia",
+            vehicle_model="seltos",
+        )
+
+        assert entity.display_name == "Kia Seltos"
+
+
+@pytest.mark.asyncio
+async def test_get_all_entities_search_matches_vehicle_attributes(db_session):
+    """Search finds unnamed vehicles by color, make, model, or signature."""
+    from tests.conftest import make_entity
+
+    reset_entity_service()
+    service = EntityService()
+    make_entity(
+        db_session=db_session,
+        entity_type="vehicle",
+        name=None,
+        vehicle_color="red",
+        vehicle_make="tesla",
+        vehicle_model="model y",
+        vehicle_signature="red-tesla-modely",
+    )
+    make_entity(
+        db_session=db_session,
+        entity_type="vehicle",
+        name=None,
+        vehicle_color="black",
+        vehicle_make="kia",
+        vehicle_model="seltos",
+        vehicle_signature="black-kia-seltos",
+    )
+    make_entity(
+        db_session=db_session,
+        entity_type="vehicle",
+        name=None,
+        vehicle_signature="blue-ford-f150",
+    )
+    make_entity(db_session=db_session, entity_type="person", name="Alice")
+
+    entities, total = await service.get_all_entities(db=db_session, search="tesla")
+    assert total == 1
+    assert entities[0]["vehicle_make"] == "tesla"
+    assert entities[0]["vehicle_model"] == "model y"
+    assert entities[0]["vehicle_color"] == "red"
+    assert entities[0]["vehicle_signature"] == "red-tesla-modely"
+
+    entities, total = await service.get_all_entities(db=db_session, search="red model")
+    assert total == 1
+    assert entities[0]["vehicle_make"] == "tesla"
+
+    entities, total = await service.get_all_entities(db=db_session, search="seltos")
+    assert total == 1
+    assert entities[0]["vehicle_make"] == "kia"
+
+    entities, total = await service.get_all_entities(db=db_session, search="ford")
+    assert total == 1
+    assert entities[0]["vehicle_signature"] == "blue-ford-f150"
+
+    entities, total = await service.get_all_entities(db=db_session, search="alice")
+    assert total == 1
+    assert entities[0]["name"] == "Alice"
+
+    entities, total = await service.get_all_entities(db=db_session, search="%")
+    assert total == 0
+    assert entities == []
+
 
 class TestEntityServiceMerge:
     """Tests for EntityService.merge_entities (Story P9-4.5)."""

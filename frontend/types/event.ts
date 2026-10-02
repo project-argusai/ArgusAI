@@ -157,7 +157,12 @@ export interface IEvent {
   feedback?: IEventFeedback | null;     // User feedback on this event's description
   // Story P9-4.4: Entity association for assignment UI
   entity_id?: string | null;            // UUID of linked entity (null if no entity linked)
-  entity_name?: string | null;          // Name of linked entity (null if no entity linked)
+  entity_name?: string | null;          // User-assigned name (null when the entity is unnamed)
+  entity_type?: string | null;          // Linked entity type (person/vehicle/unknown)
+  entity_vehicle_color?: string | null;
+  entity_vehicle_make?: string | null;
+  entity_vehicle_model?: string | null;
+  entity_vehicle_signature?: string | null;
   // Story P4-7.2: Anomaly scoring
   anomaly_score?: number | null;        // Anomaly score 0.0-1.0 (null = not scored)
   // Story P8-3.2: Full motion video storage

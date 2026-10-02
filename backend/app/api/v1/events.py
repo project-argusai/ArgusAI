@@ -704,6 +704,10 @@ def list_events(
                 RecognizedEntity.id,
                 RecognizedEntity.name,
                 RecognizedEntity.entity_type,
+                RecognizedEntity.vehicle_color,
+                RecognizedEntity.vehicle_make,
+                RecognizedEntity.vehicle_model,
+                RecognizedEntity.vehicle_signature,
             ).join(
                 RecognizedEntity, EntityEvent.entity_id == RecognizedEntity.id
             ).filter(
@@ -712,7 +716,12 @@ def list_events(
             for link in entity_links:
                 entity_map[link.event_id] = {
                     "entity_id": link.id,
-                    "entity_name": link.name or f"{link.entity_type.title()} entity",
+                    "entity_name": link.name,
+                    "entity_type": link.entity_type,
+                    "entity_vehicle_color": link.vehicle_color,
+                    "entity_vehicle_make": link.vehicle_make,
+                    "entity_vehicle_model": link.vehicle_model,
+                    "entity_vehicle_signature": link.vehicle_signature,
                 }
 
         # Enrich events with camera_name and feedback
@@ -753,6 +762,11 @@ def list_events(
                 # Story P9-4.4: Entity association for assignment UI
                 "entity_id": entity_map.get(event.id, {}).get("entity_id"),
                 "entity_name": entity_map.get(event.id, {}).get("entity_name"),
+                "entity_type": entity_map.get(event.id, {}).get("entity_type"),
+                "entity_vehicle_color": entity_map.get(event.id, {}).get("entity_vehicle_color"),
+                "entity_vehicle_make": entity_map.get(event.id, {}).get("entity_vehicle_make"),
+                "entity_vehicle_model": entity_map.get(event.id, {}).get("entity_vehicle_model"),
+                "entity_vehicle_signature": entity_map.get(event.id, {}).get("entity_vehicle_signature"),
                 # Story P15-5.1: AI Visual Annotations
                 "has_annotations": getattr(event, 'has_annotations', False),
                 "bounding_boxes": getattr(event, 'bounding_boxes', None),

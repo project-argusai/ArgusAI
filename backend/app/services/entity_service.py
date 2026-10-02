@@ -94,6 +94,46 @@ def _text_attr(entity, name: str) -> Optional[str]:
     return value or None
 
 
+def _vehicle_api_fields(entity) -> dict:
+    """Read-only vehicle attributes for entity API payloads."""
+    return {
+        "vehicle_color": _text_attr(entity, "vehicle_color"),
+        "vehicle_make": _text_attr(entity, "vehicle_make"),
+        "vehicle_model": _text_attr(entity, "vehicle_model"),
+        "vehicle_signature": _text_attr(entity, "vehicle_signature"),
+    }
+
+
+def _entity_text_search(search: str):
+    """Match every token against name or vehicle color, make, model, or signature.
+
+    LIKE wildcards in the caller's text are escaped so a search for '%' does
+    not match every row. Returns None when the query has no tokens.
+    """
+    from sqlalchemy import and_, or_
+
+    from app.models.recognized_entity import RecognizedEntity
+
+    tokens = [token for token in search.split() if token.strip()][:8]
+    if not tokens:
+        return None
+
+    columns = (
+        RecognizedEntity.name,
+        RecognizedEntity.vehicle_color,
+        RecognizedEntity.vehicle_make,
+        RecognizedEntity.vehicle_model,
+        RecognizedEntity.vehicle_signature,
+        RecognizedEntity.id,
+    )
+    clauses = []
+    for token in tokens:
+        escaped = token.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        clauses.append(or_(*(column.ilike(pattern, escape="\\") for column in columns)))
+    return and_(*clauses)
+
+
 def _match_result(entity, *, similarity_score: float, is_new: bool) -> EntityMatchResult:
     """Build a match result, including vehicle attributes when the row has them."""
     vehicle = getattr(entity, "entity_type", None) == "vehicle"
@@ -700,7 +740,7 @@ class EntityService:
             offset: Pagination offset
             entity_type: Filter by entity type (person, vehicle, etc.)
             named_only: If True, only return named entities
-            search: Search string to filter by name (case-insensitive partial match)
+            search: Case-insensitive match on name or vehicle color, make, model, or signature
 
         Returns:
             Tuple of (list of entity dicts, total count)
@@ -716,9 +756,10 @@ class EntityService:
         if named_only:
             query = query.filter(RecognizedEntity.name.isnot(None))
 
-        if search:
-            # Case-insensitive search on name field
-            query = query.filter(RecognizedEntity.name.ilike(f"%{search}%"))
+        if search and search.strip():
+            text_filter = _entity_text_search(search)
+            if text_filter is not None:
+                query = query.filter(text_filter)
 
         total = query.count()
 
@@ -757,6 +798,7 @@ class EntityService:
                 "occurrence_count": e.occurrence_count,
                 "is_vip": e.is_vip,
                 "is_blocked": e.is_blocked,
+                **_vehicle_api_fields(e),
             }
             for e in entities
         ], total
@@ -803,6 +845,7 @@ class EntityService:
             "is_blocked": entity.is_blocked,
             "created_at": entity.created_at,
             "updated_at": entity.updated_at,
+            **_vehicle_api_fields(entity),
         }
 
         if include_events:
@@ -940,10 +983,7 @@ class EntityService:
             "occurrence_count": new_entity.occurrence_count,
             "is_vip": new_entity.is_vip,
             "is_blocked": new_entity.is_blocked,
-            "vehicle_color": new_entity.vehicle_color,
-            "vehicle_make": new_entity.vehicle_make,
-            "vehicle_model": new_entity.vehicle_model,
-            "vehicle_signature": new_entity.vehicle_signature,
+            **_vehicle_api_fields(new_entity),
             "created_at": new_entity.created_at,
             "updated_at": new_entity.updated_at,
         }
@@ -1060,6 +1100,7 @@ class EntityService:
             "occurrence_count": entity.occurrence_count,
             "is_vip": entity.is_vip,
             "is_blocked": entity.is_blocked,
+            **_vehicle_api_fields(entity),
         }
 
     async def delete_entity(self, db: Session, entity_id: str) -> bool:
@@ -1516,8 +1557,8 @@ class EntityService:
 
         db.commit()
 
-        entity_name = target_entity.name or f"{target_entity.entity_type.title()} entity"
-        message = f"Event {'moved to' if action == 'move' else 'added to'} {entity_name}"
+        entity_label = target_entity.display_name
+        message = f"Event {'moved to' if action == 'move' else 'added to'} {entity_label}"
 
         return {
             "success": True,

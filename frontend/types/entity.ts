@@ -21,6 +21,11 @@ export interface IEntity {
   first_seen_at: string;
   last_seen_at: string;
   occurrence_count: number;
+  /** Stored vehicle attributes. Present for vehicles; null or omitted otherwise. */
+  vehicle_color?: string | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  vehicle_signature?: string | null;
 }
 
 /**

@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEntities } from '@/hooks/useEntities';
+import { entityMatchesSearch, getEntityDisplayName } from '@/lib/entity-display-name';
 import { cn } from '@/lib/utils';
 import type { EntityType } from '@/types/entity';
 
@@ -53,6 +54,10 @@ interface EntityListItem {
   occurrence_count: number;
   first_seen_at: string;
   last_seen_at: string;
+  vehicle_color?: string | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  vehicle_signature?: string | null;
 }
 
 const ENTITY_ICONS: Record<EntityType, React.ReactNode> = {
@@ -98,8 +103,9 @@ export function EntitySelectModal({
   });
 
   const entities = useMemo(() => {
-    return (entitiesData?.entities ?? []) as EntityListItem[];
-  }, [entitiesData]);
+    const listed = (entitiesData?.entities ?? []) as EntityListItem[];
+    return listed.filter((entity) => entityMatchesSearch(entity, searchQuery));
+  }, [entitiesData, searchQuery]);
 
   // Get selected entity details
   const selectedEntity = useMemo(() => {
@@ -123,7 +129,7 @@ export function EntitySelectModal({
         setShowConfirmation(true);
       } else {
         // Skip confirmation and assign directly
-        onSelect(selectedEntity.id, selectedEntity.name);
+        onSelect(selectedEntity.id, getEntityDisplayName(selectedEntity));
       }
     }
   }, [selectedEntity, onSelect, showConfirmDialog, skipWarning]);
@@ -131,7 +137,7 @@ export function EntitySelectModal({
   // Story P16-4.1: Handle confirmation dialog confirm
   const handleConfirmDialogConfirm = useCallback(() => {
     if (selectedEntity) {
-      onSelect(selectedEntity.id, selectedEntity.name);
+      onSelect(selectedEntity.id, getEntityDisplayName(selectedEntity));
       setShowConfirmation(false);
     }
   }, [selectedEntity, onSelect]);
@@ -150,12 +156,6 @@ export function EntitySelectModal({
     }
     onOpenChange(newOpen);
   }, [onOpenChange]);
-
-  // Format entity display name
-  const getEntityDisplayName = (entity: EntityListItem) => {
-    if (entity.name) return entity.name;
-    return `${entity.entity_type.charAt(0).toUpperCase() + entity.entity_type.slice(1)} #${entity.id.slice(0, 8)}`;
-  };
 
   // Story P10-4.1: Handle "Create New Entity" button click (AC-4.1.7)
   const handleCreateNew = useCallback((e: React.MouseEvent) => {
@@ -187,6 +187,7 @@ export function EntitySelectModal({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
+            maxLength={100}
             autoFocus
           />
         </div>

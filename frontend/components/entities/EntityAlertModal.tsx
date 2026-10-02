@@ -31,6 +31,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Bell, Clock, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { getEntityDisplayName } from '@/lib/entity-display-name';
 import type { IEntity } from '@/types/entity';
 
 export interface EntityAlertModalProps {
@@ -53,8 +54,7 @@ export function EntityAlertModal({ isOpen, onClose, entity }: EntityAlertModalPr
   const [timeRange, setTimeRange] = useState<'all-day' | 'custom'>('all-day');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Display name with fallback
-  const displayName = entity.name || `Unknown ${entity.entity_type}`;
+  const displayName = getEntityDisplayName(entity);
 
   // Handle save - create alert rule for entity
   const handleSave = async () => {

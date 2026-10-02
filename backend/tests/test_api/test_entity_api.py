@@ -100,6 +100,32 @@ class TestListEntitiesAPI:
         assert data["entities"][0]["id"] == "test-entity-001"
         assert data["entities"][0]["entity_type"] == "person"
 
+    def test_get_entities_includes_vehicle_attributes(self, client, mock_entity_service):
+        """List responses expose stored vehicle fields for unnamed-vehicle labels."""
+        entities = [{
+            "id": "1c915ee6-aaaa-bbbb-cccc-ddddeeeeffff",
+            "entity_type": "vehicle",
+            "name": None,
+            "first_seen_at": datetime.now(timezone.utc),
+            "last_seen_at": datetime.now(timezone.utc),
+            "occurrence_count": 2,
+            "vehicle_color": "red",
+            "vehicle_make": "tesla",
+            "vehicle_model": "model y",
+            "vehicle_signature": "red-tesla-modely",
+        }]
+        mock_entity_service.get_all_entities.return_value = (entities, 1)
+
+        response = client.get("/api/v1/context/entities")
+
+        assert response.status_code == 200
+        vehicle = response.json()["entities"][0]
+        assert vehicle["vehicle_color"] == "red"
+        assert vehicle["vehicle_make"] == "tesla"
+        assert vehicle["vehicle_model"] == "model y"
+        assert vehicle["vehicle_signature"] == "red-tesla-modely"
+        assert vehicle["name"] is None
+
     def test_get_entities_with_type_filter(self, client, mock_entity_service):
         """Test filtering entities by type."""
         mock_entity_service.get_all_entities.return_value = ([], 0)

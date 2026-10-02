@@ -305,7 +305,12 @@ class EventResponse(BaseModel):
     matched_entity: Optional["MatchedEntitySummary"] = Field(None, description="Matched recurring entity, if any")
     # Story P9-4.4: Simplified entity fields for event card display
     entity_id: Optional[str] = Field(None, description="UUID of linked entity (for assignment UI)")
-    entity_name: Optional[str] = Field(None, description="Name of linked entity (for display)")
+    entity_name: Optional[str] = Field(None, description="User-assigned name of the linked entity")
+    entity_type: Optional[str] = Field(None, description="Type of the linked entity (person/vehicle/unknown)")
+    entity_vehicle_color: Optional[str] = Field(None, description="Linked vehicle color, when known")
+    entity_vehicle_make: Optional[str] = Field(None, description="Linked vehicle make, when known")
+    entity_vehicle_model: Optional[str] = Field(None, description="Linked vehicle model, when known")
+    entity_vehicle_signature: Optional[str] = Field(None, description="Linked vehicle signature, when known")
     # Story P4-5.1: User Feedback
     feedback: Optional[FeedbackResponse] = Field(None, description="User feedback on this event's description")
     # Story P6-3.2: Audio event detection

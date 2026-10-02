@@ -17,12 +17,21 @@ import { cn } from '@/lib/utils';
 interface EntityNameEditProps {
   entityId: string;
   currentName: string | null;
+  /** Read-only label when currentName is empty. The editor still saves the raw name. */
+  fallbackLabel?: string;
+  /** Italic style for a generic type-and-id fallback. */
+  fallbackIsGeneric?: boolean;
 }
 
 /**
  * Inline entity name editor with save/cancel
  */
-export function EntityNameEdit({ entityId, currentName }: EntityNameEditProps) {
+export function EntityNameEdit({
+  entityId,
+  currentName,
+  fallbackLabel,
+  fallbackIsGeneric = false,
+}: EntityNameEditProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(currentName || '');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -128,10 +137,10 @@ export function EntityNameEdit({ entityId, currentName }: EntityNameEditProps) {
       <span
         className={cn(
           'text-lg font-semibold',
-          !currentName && 'text-muted-foreground italic'
+          !currentName && (fallbackIsGeneric || !fallbackLabel) && 'text-muted-foreground italic'
         )}
       >
-        {currentName || 'Unnamed'}
+        {currentName || fallbackLabel || 'Unnamed'}
       </span>
       <Button
         variant="ghost"

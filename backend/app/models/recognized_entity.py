@@ -22,6 +22,15 @@ import uuid
 from app.core.database import Base
 
 
+def _title_words(value: str) -> str:
+    """Capitalize each whitespace-separated word. 'model y' -> 'Model Y'."""
+    return " ".join(
+        f"{word[:1].upper()}{word[1:].lower()}"
+        for word in value.split()
+        if word
+    )
+
+
 class RecognizedEntity(Base):
     """
     Recurring visitor entity model.
@@ -186,14 +195,27 @@ class RecognizedEntity(Base):
 
         Priority:
         1. User-assigned name
-        2. Vehicle signature formatted as title case
-        3. Default to entity type with ID prefix
+        2. Vehicle color, make, and model (any subset), title-cased
+        3. Vehicle signature formatted as title case
+        4. Entity type with ID prefix
         """
-        if self.name:
-            return self.name
-        if self.entity_type == "vehicle" and self.vehicle_signature:
-            return self.vehicle_signature.replace("-", " ").title()
-        return f"{self.entity_type.title()} #{str(self.id)[:8]}"
+        name = self.name.strip() if isinstance(self.name, str) else ""
+        if name:
+            return name
+        if self.entity_type == "vehicle":
+            parts = []
+            for value in (self.vehicle_color, self.vehicle_make, self.vehicle_model):
+                text = value.strip() if isinstance(value, str) else ""
+                if text:
+                    parts.append(_title_words(text))
+            if parts:
+                return " ".join(parts)
+            signature = self.vehicle_signature.strip() if isinstance(self.vehicle_signature, str) else ""
+            if signature:
+                return _title_words(signature.replace("-", " "))
+        entity_type = self.entity_type if isinstance(self.entity_type, str) and self.entity_type.strip() else "unknown"
+        type_label = entity_type[:1].upper() + entity_type[1:]
+        return f"{type_label} #{str(self.id)[:8]}"
 
     def __repr__(self):
         return (

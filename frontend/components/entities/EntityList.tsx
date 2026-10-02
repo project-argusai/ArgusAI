@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { useEntities, type UseEntitiesParams } from '@/hooks/useEntities';
 import { EntityCard } from './EntityCard';
@@ -97,19 +97,19 @@ export function EntityList({
   const [pageSize, setPageSize] = useState(defaultPageSize);
   const [currentPage, setCurrentPage] = useState(0);
 
-  // Update URL when search or filter changes (Story P7-4.2 AC5)
-  const updateURL = useCallback((search: string, type: EntityType | 'all') => {
-    const params = new URLSearchParams();
-    if (search) params.set('search', search);
-    if (type !== 'all') params.set('type', type);
-    const queryString = params.toString();
-    router.replace(`${pathname}${queryString ? `?${queryString}` : ''}`, { scroll: false });
-  }, [router, pathname]);
-
-  // Sync URL when debounced search changes
+  // Sync search and type into the URL (Story P7-4.2 AC5).
+  // router.replace is a navigation. Calling it when the query string is already
+  // current shows the root loading state and remounts the providers above this
+  // page, which recreates the QueryClient and refetches the entity list.
   useEffect(() => {
-    updateURL(debouncedSearch, entityTypeFilter);
-  }, [debouncedSearch, entityTypeFilter, updateURL]);
+    const params = new URLSearchParams();
+    if (debouncedSearch) params.set('search', debouncedSearch);
+    if (entityTypeFilter !== 'all') params.set('type', entityTypeFilter);
+    const queryString = params.toString();
+    if (queryString === searchParams.toString()) return;
+    const nextURL = queryString ? `${pathname}?${queryString}` : pathname;
+    router.replace(nextURL, { scroll: false });
+  }, [debouncedSearch, entityTypeFilter, pathname, router, searchParams]);
 
   // Build query params
   const queryParams: UseEntitiesParams = useMemo(() => ({

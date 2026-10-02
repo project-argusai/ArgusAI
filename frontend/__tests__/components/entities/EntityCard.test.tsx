@@ -55,7 +55,7 @@ describe('EntityCard', () => {
     expect(screen.getByText('John Doe')).toBeInTheDocument();
   });
 
-  it('renders "Unknown person" when name is null', () => {
+  it('renders a type and id fallback when name is null', () => {
     const unnamedEntity: IEntity = {
       ...mockEntity,
       name: null,
@@ -69,7 +69,7 @@ describe('EntityCard', () => {
       { wrapper: createWrapper() }
     );
 
-    expect(screen.getByText('Unknown person')).toBeInTheDocument();
+    expect(screen.getByText('Person #entity-1')).toBeInTheDocument();
   });
 
   it('displays occurrence count', () => {
@@ -192,7 +192,7 @@ describe('EntityCard', () => {
       { wrapper: createWrapper() }
     );
 
-    const nameElement = screen.getByText('Unknown person');
+    const nameElement = screen.getByText('Person #entity-1');
     expect(nameElement).toHaveClass('italic');
   });
 

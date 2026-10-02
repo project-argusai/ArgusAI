@@ -448,6 +448,13 @@ class EntityResponse(BaseModel):
     occurrence_count: int = Field(description="Number of times this entity has been seen")
     is_vip: bool = Field(default=False, description="VIP status for priority notifications")
     is_blocked: bool = Field(default=False, description="Blocked status to suppress notifications")
+    vehicle_color: Optional[str] = Field(default=None, description="Vehicle color, when known")
+    vehicle_make: Optional[str] = Field(default=None, description="Vehicle make, when known")
+    vehicle_model: Optional[str] = Field(default=None, description="Vehicle model, when known")
+    vehicle_signature: Optional[str] = Field(
+        default=None,
+        description="Normalized vehicle signature, when known",
+    )
 
 
 class EventSummaryForEntity(BaseModel):
@@ -472,6 +479,13 @@ class EntityDetailResponse(BaseModel):
     occurrence_count: int = Field(description="Number of times this entity has been seen")
     is_vip: bool = Field(default=False, description="VIP status for priority notifications")
     is_blocked: bool = Field(default=False, description="Blocked status to suppress notifications")
+    vehicle_color: Optional[str] = Field(default=None, description="Vehicle color, when known")
+    vehicle_make: Optional[str] = Field(default=None, description="Vehicle make, when known")
+    vehicle_model: Optional[str] = Field(default=None, description="Vehicle model, when known")
+    vehicle_signature: Optional[str] = Field(
+        default=None,
+        description="Normalized vehicle signature, when known",
+    )
     created_at: datetime = Field(description="Record creation timestamp")
     updated_at: datetime = Field(description="Record update timestamp")
     recent_events: list[EventSummaryForEntity] = Field(
@@ -589,7 +603,11 @@ async def list_entities(
     ),
     search: Optional[str] = Query(
         default=None,
-        description="Search by entity name (case-insensitive partial match)"
+        max_length=100,
+        description=(
+            "Case-insensitive search. Each word must match the name or, for "
+            "vehicles, the color, make, model, or signature."
+        ),
     ),
     db: Session = Depends(get_db),
     entity_service: EntityService = Depends(get_entity_service),
@@ -608,7 +626,7 @@ async def list_entities(
         offset: Pagination offset
         entity_type: Filter by entity type
         named_only: Only return entities that have been named
-        search: Search string to filter by name
+        search: Search string matched against name and vehicle color, make, model, or signature
         db: Database session
         entity_service: Entity service instance
 
@@ -695,6 +713,10 @@ async def create_entity(
         occurrence_count=entity["occurrence_count"],
         is_vip=entity["is_vip"],
         is_blocked=entity["is_blocked"],
+        vehicle_color=entity.get("vehicle_color"),
+        vehicle_make=entity.get("vehicle_make"),
+        vehicle_model=entity.get("vehicle_model"),
+        vehicle_signature=entity.get("vehicle_signature"),
         created_at=entity["created_at"],
         updated_at=entity["updated_at"],
         recent_events=[],
@@ -886,6 +908,10 @@ async def get_entity(
         occurrence_count=entity["occurrence_count"],
         is_vip=entity.get("is_vip", False),
         is_blocked=entity.get("is_blocked", False),
+        vehicle_color=entity.get("vehicle_color"),
+        vehicle_make=entity.get("vehicle_make"),
+        vehicle_model=entity.get("vehicle_model"),
+        vehicle_signature=entity.get("vehicle_signature"),
         created_at=entity["created_at"],
         updated_at=entity["updated_at"],
         recent_events=[

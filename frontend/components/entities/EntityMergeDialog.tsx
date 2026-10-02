@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { useMergeEntities } from '@/hooks/useEntities';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { getEntityDisplayName } from '@/lib/entity-display-name';
 import type { IEntity } from '@/types/entity';
 
 interface EntityMergeDialogProps {
@@ -70,7 +71,7 @@ function EntityPreview({
       : `${apiUrl}${entity.thumbnail_path}`
     : null;
 
-  const displayName = entity.name || `Unknown ${entity.entity_type}`;
+  const displayName = getEntityDisplayName(entity);
 
   return (
     <div
@@ -173,8 +174,8 @@ export function EntityMergeDialog({
     }
   };
 
-  const primaryName = primaryEntity?.name || `Unknown ${primaryEntity?.entity_type}`;
-  const secondaryName = secondaryEntity?.name || `Unknown ${secondaryEntity?.entity_type}`;
+  const primaryName = primaryEntity ? getEntityDisplayName(primaryEntity) : 'Unknown';
+  const secondaryName = secondaryEntity ? getEntityDisplayName(secondaryEntity) : 'Unknown';
 
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>

@@ -20,6 +20,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { entityHasResolvedLabel, getEntityDisplayName } from '@/lib/entity-display-name';
 import { cn } from '@/lib/utils';
 import { EntityAlertModal } from './EntityAlertModal';
 import { EntityEditModal, type EntityEditData } from './EntityEditModal';
@@ -120,9 +121,8 @@ export const EntityCard = memo(function EntityCard({
   const lastSeenDate = parseApiDate(entity.last_seen_at)!;
   const lastSeenRelative = formatDistanceToNow(lastSeenDate, { addSuffix: true });
 
-  // Display name with fallback
-  const displayName = entity.name || `Unknown ${entity.entity_type}`;
-  const isNamed = !!entity.name;
+  const displayName = getEntityDisplayName(entity);
+  const isNamed = entityHasResolvedLabel(entity);
 
   return (
     <Card

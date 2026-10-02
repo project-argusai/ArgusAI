@@ -36,6 +36,7 @@ import { useEntity } from '@/hooks/useEntities';
 import { EntityNameEdit } from './EntityNameEdit';
 import { EntityEventList } from './EntityEventList';
 import { EntityAlertRules } from './EntityAlertRules';
+import { entityHasResolvedLabel, getEntityDisplayName } from '@/lib/entity-display-name';
 import { cn } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { IEntity } from '@/types/entity';
@@ -126,8 +127,9 @@ export function EntityDetail({
       : `${apiUrl}${mostRecentEvent.thumbnail_url}`
     : null;
 
-  const displayName = entityDetail?.name || entity?.name || `Unknown ${entity?.entity_type || 'entity'}`;
-  const isNamed = !!(entityDetail?.name || entity?.name);
+  const labelSource = entityDetail ?? entity;
+  const displayName = labelSource ? getEntityDisplayName(labelSource) : 'Unknown entity';
+  const isNamed = labelSource ? entityHasResolvedLabel(labelSource) : false;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -209,6 +211,8 @@ export function EntityDetail({
                   <EntityNameEdit
                     entityId={entityDetail.id}
                     currentName={entityDetail.name}
+                    fallbackLabel={getEntityDisplayName(entityDetail)}
+                    fallbackIsGeneric={!entityHasResolvedLabel(entityDetail)}
                   />
 
                   {/* Type badge */}

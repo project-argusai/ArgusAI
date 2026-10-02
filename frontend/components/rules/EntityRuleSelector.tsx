@@ -14,6 +14,7 @@ import { UseFormReturn } from 'react-hook-form';
 import { User, UserX, Users } from 'lucide-react';
 
 import { apiClient } from '@/lib/api-client';
+import { getEntityDisplayName } from '@/lib/entity-display-name';
 import { ENTITY_MATCH_MODES } from '@/types/alert-rule';
 import type { RuleFormValues } from './RuleFormDialog';
 import {
@@ -135,7 +136,7 @@ export function EntityRuleSelector({ form }: EntityRuleSelectorProps) {
                               <span className="capitalize text-xs text-muted-foreground">
                                 [{entity.entity_type}]
                               </span>
-                              <span>{entity.name || `Unnamed ${entity.entity_type}`}</span>
+                              <span>{getEntityDisplayName(entity)}</span>
                               <span className="text-xs text-muted-foreground">
                                 ({entity.occurrence_count} visits)
                               </span>

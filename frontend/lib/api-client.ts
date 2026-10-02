@@ -2368,6 +2368,10 @@ export const apiClient = {
         first_seen_at: string;
         last_seen_at: string;
         occurrence_count: number;
+        vehicle_color?: string | null;
+        vehicle_make?: string | null;
+        vehicle_model?: string | null;
+        vehicle_signature?: string | null;
       }>;
       total: number;
     }> => {
@@ -2398,6 +2402,10 @@ export const apiClient = {
       first_seen_at: string;
       last_seen_at: string;
       occurrence_count: number;
+      vehicle_color?: string | null;
+      vehicle_make?: string | null;
+      vehicle_model?: string | null;
+      vehicle_signature?: string | null;
       created_at?: string;
       updated_at?: string;
       recent_events: Array<{

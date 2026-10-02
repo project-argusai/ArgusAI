@@ -29,6 +29,7 @@ import { VideoPlayerModal } from '@/components/video/VideoPlayerModal';
 import { EntitySelectModal } from '@/components/entities/EntitySelectModal';
 import { EntityCreateModal } from '@/components/entities/EntityCreateModal';
 import { useAssignEventToEntity } from '@/hooks/useEntities';
+import { getEntityDisplayName } from '@/lib/entity-display-name';
 import { cn } from '@/lib/utils';
 import { parseApiDate } from '@/lib/datetime';
 
@@ -347,7 +348,15 @@ export const EventCard = memo(function EventCard({
                   ) : (
                     <User className="h-3 w-3" />
                   )}
-                  {event.entity_name}
+                  {getEntityDisplayName({
+                    id: event.entity_id,
+                    entity_type: event.entity_type,
+                    name: event.entity_name,
+                    vehicle_color: event.entity_vehicle_color,
+                    vehicle_make: event.entity_vehicle_make,
+                    vehicle_model: event.entity_vehicle_model,
+                    vehicle_signature: event.entity_vehicle_signature,
+                  })}
                 </span>
               )}
               {/* Add to Entity / Move to Entity button */}

@@ -541,7 +541,7 @@ export const apiClient = {
     /**
      * Get single event by ID
      */
-    get: async (id: number): Promise<IEvent> => {
+    get: async (id: string): Promise<IEvent> => {
       return apiFetch(`/events/${id}`);
     },
 
@@ -1014,7 +1014,7 @@ export const apiClient = {
     /**
      * Get single alert rule
      */
-    get: async (id: number): Promise<IAlertRule> => {
+    get: async (id: string): Promise<IAlertRule> => {
       return apiFetch(`/alert-rules/${id}`);
     },
 
@@ -1031,7 +1031,7 @@ export const apiClient = {
     /**
      * Update alert rule
      */
-    update: async (id: number, rule: IAlertRuleUpdate): Promise<IAlertRule> => {
+    update: async (id: string, rule: IAlertRuleUpdate): Promise<IAlertRule> => {
       return apiFetch(`/alert-rules/${id}`, {
         method: 'PUT',
         body: JSON.stringify(rule),
@@ -1041,7 +1041,7 @@ export const apiClient = {
     /**
      * Delete alert rule
      */
-    delete: async (id: number): Promise<void> => {
+    delete: async (id: string): Promise<void> => {
       return apiFetch(`/alert-rules/${id}`, {
         method: 'DELETE',
       });
@@ -1050,7 +1050,7 @@ export const apiClient = {
     /**
      * Toggle alert rule enabled status
      */
-    toggle: async (id: number, enabled: boolean): Promise<IAlertRule> => {
+    toggle: async (id: string, enabled: boolean): Promise<IAlertRule> => {
       return apiFetch(`/alert-rules/${id}/toggle`, {
         method: 'PATCH',
         body: JSON.stringify({ enabled }),

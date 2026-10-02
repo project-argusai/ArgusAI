@@ -36,6 +36,11 @@ import { ConnectionErrorBanner, getConnectionErrorType } from '@/components/prot
 
 import { apiClient } from '@/lib/api-client';
 import { completeSettingsSchema } from '@/lib/settings-validation';
+import {
+  deleteAllDataDescription,
+  loadedStorageEventCount,
+  type StorageStatsStatus,
+} from '@/lib/storage-event-count';
 import { useSettings } from '@/contexts/SettingsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import type { SystemSettings, StorageStats } from '@/types/settings';
@@ -90,6 +95,7 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [storageStatsStatus, setStorageStatsStatus] = useState<StorageStatsStatus>('loading');
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     title: string;
@@ -186,11 +192,15 @@ export default function SettingsPage() {
   };
 
   const loadStorageStats = async () => {
+    setStorageStatsStatus('loading');
     try {
       const stats = await apiClient.settings.storage();
       setStorageStats(stats);
+      setStorageStatsStatus('ready');
     } catch (error) {
       console.error('Failed to load storage stats:', error);
+      setStorageStats(null);
+      setStorageStatsStatus('error');
     }
   };
 
@@ -250,11 +260,11 @@ export default function SettingsPage() {
   };
 
   const handleDeleteAllData = () => {
-    const eventCount = storageStats?.total_events || 0;
+    const eventCount = loadedStorageEventCount(storageStatsStatus, storageStats);
     setConfirmDialog({
       open: true,
       title: 'Delete All Data?',
-      description: `This will permanently delete all ${eventCount} events and thumbnails. This action cannot be undone.`,
+      description: deleteAllDataDescription(eventCount),
       onConfirm: async () => {
         try {
           await apiClient.settings.deleteAllData();
@@ -270,6 +280,8 @@ export default function SettingsPage() {
       requireCheckbox: true,
     });
   };
+
+  const displayedEventCount = loadedStorageEventCount(storageStatsStatus, storageStats);
 
   if (isLoading) {
     return (
@@ -1039,7 +1051,9 @@ Keep the summary concise (2-3 paragraphs).`}
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <span className="text-muted-foreground">Total Events:</span>{' '}
-                          <span className="font-medium">{(storageStats.total_events ?? 0).toLocaleString()}</span>
+                          <span className="font-medium">
+                            {displayedEventCount === null ? 'unavailable' : displayedEventCount.toLocaleString()}
+                          </span>
                         </div>
                         <div>
                           <span className="text-muted-foreground">Database:</span>{' '}

@@ -42,7 +42,7 @@ export type EntityMatchMode = typeof ENTITY_MATCH_MODES[number]['value'];
 
 // Full alert rule response from API
 export interface IAlertRule {
-  id: string;
+  id: string; // UUID. Never coerce with Number() or parseInt.
   name: string;
   is_enabled: boolean;
   conditions: IAlertRuleConditions;

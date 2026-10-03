@@ -197,12 +197,18 @@ class AIResilienceService:
                 },
             )
 
-    def trip_quota(self, provider: str, cooldown_s: float = QUOTA_CIRCUIT_OPEN_SECONDS) -> None:
-        """Open the provider circuit immediately after a quota or no-credit failure.
+    def trip_quota(
+        self,
+        provider: str,
+        cooldown_s: float = QUOTA_CIRCUIT_OPEN_SECONDS,
+        reason: str = "quota_exhausted",
+    ) -> None:
+        """Open the provider circuit immediately after quota or auth failure.
 
         The cooldown is brief (two minutes by default) so a burst of events
         skips the exhausted provider, and a misclassification recovers on its
-        own. The provider error body is not accepted here and is not logged.
+        own. ``reason`` is a short class label. The provider error body is not
+        accepted here and is not logged.
         """
         name = provider.lower()
         breaker = self.circuit_breakers.get(name)
@@ -214,8 +220,9 @@ class AIResilienceService:
             )
             return
 
+        label = reason if reason in ("quota_exhausted", "auth_error") else "quota_exhausted"
         previous_state = breaker.state.value
-        breaker.force_open(cooldown_s, reason="quota_exhausted")
+        breaker.force_open(cooldown_s, reason=label)
 
         ai_circuit_breaker_state.labels(provider=name).set(breaker.get_state_value())
         current_state = breaker.state.value

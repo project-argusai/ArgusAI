@@ -291,6 +291,33 @@ describe('ReAnalyzeModal', () => {
       })
     })
 
+    it('shows the server message when providers fail', async () => {
+      const event = mockEvent({ source_type: 'protect' })
+      const serverMessage =
+        'AI re-analysis failed: insufficient remaining budget: 1572 ms left. Attempted grok (timed out), claude (quota exhausted).'
+      vi.mocked(apiClient.events.reanalyze).mockRejectedValue(new Error(serverMessage))
+
+      const { user } = render(
+        <ReAnalyzeModal
+          event={event}
+          isOpen={true}
+          onClose={mockOnClose}
+          onSuccess={mockOnSuccess}
+        />
+      )
+
+      await user.click(screen.getByRole('button', { name: /confirm/i }))
+
+      await waitFor(() => {
+        expect(toast.error).toHaveBeenCalledWith(
+          'Re-analysis failed',
+          expect.objectContaining({
+            description: serverMessage,
+          })
+        )
+      })
+    })
+
     it('shows rate limit error message for 429 response', async () => {
       const event = mockEvent({ source_type: 'protect' })
       vi.mocked(apiClient.events.reanalyze).mockRejectedValue(new Error('429 Too Many Requests'))

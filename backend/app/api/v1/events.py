@@ -1826,6 +1826,30 @@ async def get_event(
         )
 
 
+def _reanalysis_provider_failure(result) -> HTTPException:
+    """Map a failed vision chain to 502 or 503 with a human detail.
+
+    The detail is built from provider names and error classes. Provider
+    response bodies are not copied into it.
+    """
+    from app.services.ai_provider_order import (
+        analysis_failure_log_detail,
+        client_reanalysis_error,
+    )
+
+    raw = getattr(result, "error", None) if result is not None else None
+    summary = analysis_failure_log_detail(raw)
+    timed_out = (
+        "SLA timeout" in summary or "insufficient remaining budget" in summary
+    )
+    code = (
+        status.HTTP_502_BAD_GATEWAY
+        if timed_out
+        else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
+    return HTTPException(status_code=code, detail=client_reanalysis_error(raw))
+
+
 @router.post("/{event_id}/reanalyze", response_model=EventResponse, dependencies=_REQUIRE_OPERATOR)
 async def reanalyze_event(
     event_id: str,
@@ -1854,7 +1878,8 @@ async def reanalyze_event(
         404: Event not found
         400: Invalid analysis mode for camera type
         429: Rate limit exceeded (max 3 per hour)
-        500: Re-analysis failed
+        502: The provider chain stopped because the deadline ran out
+        503: Configured providers failed (quota, auth, or other provider errors)
 
     Example:
         POST /events/123e4567-e89b-12d3-a456-426614174000/reanalyze
@@ -1862,6 +1887,9 @@ async def reanalyze_event(
     """
     from app.models.camera import Camera
     from app.services.ai_service import AIService  # Thin facade; consider VisionAnalysisOrchestrator for multi-mode reanalysis in future
+    from app.services.vision_analysis_orchestrator import (
+        MANUAL_ANALYSIS_SLA_MS as _MANUAL_ANALYSIS_SLA_MS,
+    )
     from app.services.clip_service import ClipService, get_clip_service
     from app.services.protect_service import ProtectService
     from app.services.frame_extractor import FrameExtractor
@@ -2036,7 +2064,9 @@ async def reanalyze_event(
                 frame=frame,
                 camera_name=camera.name,
                 timestamp=event.timestamp.isoformat(),
-                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected
+                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
+                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
+                user_initiated=True,
             )
 
         elif analysis_mode == 'multi_frame' and video_path:
@@ -2103,6 +2133,8 @@ async def reanalyze_event(
                 timestamp=event.timestamp.isoformat(),
                 detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
                 subject_crop_count=subject_crop_count,
+                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
+                user_initiated=True,
             )
 
         elif analysis_mode == 'video_native' and video_path:
@@ -2114,13 +2146,11 @@ async def reanalyze_event(
                 timestamp=event.timestamp.isoformat(),
                 detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
                 fps=frame_cfg["gemini_native_video_fps"],
+                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
             )
 
         if not result or not result.success:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI re-analysis failed"
-            )
+            raise _reanalysis_provider_failure(result)
 
         # 8. Check for vagueness in new description
         vagueness_detector = VaguenessDetector()

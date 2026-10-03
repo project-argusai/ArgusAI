@@ -176,6 +176,48 @@ _SAFE_CHAIN_SUMMARY_RE = re.compile(
 )
 
 
+_ATTEMPT_LABELS = {
+    "quota_exhausted": "quota exhausted",
+    "auth_error": "authentication failed",
+    "http_401": "authentication failed",
+    "http_403": "authentication failed",
+    "timeout": "timed out",
+    "circuit_open": "unavailable",
+    "not_configured": "not configured",
+    "provider_error": "failed",
+}
+
+
+def client_reanalysis_error(error: Optional[str]) -> str:
+    """Human message for a failed re-analysis response.
+
+    Only the safe chain summary (provider names and error classes) is expanded.
+    Provider bodies, keys, and anything else are reduced to a class label.
+    """
+    if error and error.startswith("No AI providers configured"):
+        return "AI re-analysis failed: no AI providers are configured."
+
+    summary = analysis_failure_log_detail(error)
+    if not summary or not _SAFE_CHAIN_SUMMARY_RE.fullmatch(summary):
+        label = (summary or "unknown").replace("_", " ")
+        return f"AI re-analysis failed ({label})."
+
+    reason, _, tail = summary.partition(". attempted=[")
+    raw = tail[:-1] if tail.endswith("]") else ""
+    if not raw or raw == "none":
+        return f"AI re-analysis failed: {reason}."
+
+    parts = []
+    for item in raw.split(", "):
+        name, sep, klass = item.partition(":")
+        if not sep or not name:
+            continue
+        parts.append(f"{name} ({_ATTEMPT_LABELS.get(klass, klass.replace('_', ' '))})")
+    if not parts:
+        return f"AI re-analysis failed: {reason}."
+    return f"AI re-analysis failed: {reason}. Attempted {', '.join(parts)}."
+
+
 def analysis_failure_log_detail(error: Optional[str]) -> str:
     """Return a log-safe description of an analysis failure.
 

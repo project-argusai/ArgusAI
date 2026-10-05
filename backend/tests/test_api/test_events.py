@@ -13,6 +13,7 @@ from main import app
 from app.core.database import Base, get_db
 from app.models.event import Event
 from app.models.camera import Camera
+from app.models.recognized_entity import EntityEvent, RecognizedEntity
 
 
 # Create module-level temp database
@@ -1684,6 +1685,155 @@ def _reanalyze_event(event_id: str, thumbnail_b64: str, camera_id: str) -> None:
             thumbnail_base64=thumbnail_b64,
         ))
         db.commit()
+    finally:
+        db.close()
+
+
+def _mock_reanalyze_provider(monkeypatch, description: str):
+    from unittest.mock import AsyncMock
+
+    from app.services.ai_service import AIService
+    from app.services.ai_types import AIProvider, AIResult
+    from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
+
+    async def grok_call(*args, **kwargs):
+        return AIResult(
+            description=description,
+            confidence=88,
+            objects_detected=["person"],
+            provider="grok",
+            tokens_used=20,
+            response_time_ms=100,
+            cost_estimate=0.001,
+            success=True,
+            ai_confidence=90,
+        )
+
+    grok = AsyncMock()
+    grok.generate_description = grok_call
+
+    async def _load(self, db):
+        self.use_litellm = False
+        self.vision_orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok}
+        )
+
+    monkeypatch.setattr(AIService, "load_api_keys_from_db", _load)
+    monkeypatch.setattr(
+        "app.services.vision_analysis_orchestrator.load_ai_provider_order",
+        lambda: [AIProvider.GROK],
+    )
+
+
+def test_reanalyze_replaces_stale_enriched_description(test_camera, monkeypatch):
+    """A new description replaces the previous enriched sentence when nothing matches."""
+    from app.services.entity_alert_service import reset_entity_alert_service
+
+    reset_entity_alert_service()
+    stale = "At 10:15 AM a red SUV entering the driveway in the first frame."
+    fresh = "At 3:15 PM a red sedan is parked in the driveway."
+    _mock_reanalyze_provider(monkeypatch, fresh)
+
+    db = TestingSessionLocal()
+    try:
+        db.add(Event(
+            id="event-stale-enriched",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Old multi-frame description",
+            enriched_description=stale,
+            confidence=40,
+            objects_detected=json.dumps(["vehicle"]),
+            alert_triggered=False,
+            source_type="rtsp",
+            low_confidence=True,
+            thumbnail_base64=_tiny_jpeg_b64(),
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-stale-enriched/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["description"] == fresh
+
+    db = TestingSessionLocal()
+    try:
+        stored = db.query(Event).filter(Event.id == "event-stale-enriched").one()
+        assert stored.description == fresh
+        assert stored.enriched_description == fresh
+        assert stale not in (stored.enriched_description or "")
+    finally:
+        db.close()
+
+
+def test_reanalyze_rewrites_description_with_linked_entity(test_camera, monkeypatch):
+    """A linked person name replaces the generic phrase in both description columns."""
+    from app.services.entity_alert_service import reset_entity_alert_service
+
+    reset_entity_alert_service()
+    _mock_reanalyze_provider(
+        monkeypatch,
+        "A person in a blue jacket walked to the front door.",
+    )
+
+    db = TestingSessionLocal()
+    try:
+        event = Event(
+            id="event-named-reanalyze",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Old description",
+            enriched_description="At 10:15 AM a red SUV entering the driveway in the first frame.",
+            confidence=40,
+            objects_detected=json.dumps(["person"]),
+            alert_triggered=False,
+            source_type="rtsp",
+            low_confidence=True,
+            thumbnail_base64=_tiny_jpeg_b64(),
+        )
+        entity = RecognizedEntity(
+            id="entity-john-reanalyze",
+            entity_type="person",
+            name="John Smith",
+            reference_embedding=json.dumps([0.1] * 512),
+            first_seen_at=datetime.now(timezone.utc),
+            last_seen_at=datetime.now(timezone.utc),
+            occurrence_count=2,
+            is_vip=False,
+            is_blocked=False,
+        )
+        db.add(event)
+        db.add(entity)
+        db.flush()
+        db.add(EntityEvent(
+            entity_id=entity.id,
+            event_id=event.id,
+            similarity_score=1.0,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-named-reanalyze/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["description"] == "John Smith in a blue jacket walked to the front door."
+    assert "A person" not in body["description"]
+
+    db = TestingSessionLocal()
+    try:
+        stored = db.query(Event).filter(Event.id == "event-named-reanalyze").one()
+        assert stored.description == body["description"]
+        assert stored.enriched_description == body["description"]
     finally:
         db.close()
 

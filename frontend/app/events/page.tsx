@@ -11,7 +11,9 @@ import { EventCard } from '@/components/events/EventCard';
 import { DoorbellEventCard } from '@/components/events/DoorbellEventCard';
 import { EventFilters } from '@/components/events/EventFilters';
 import { EventDetailModal } from '@/components/events/EventDetailModal';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEvents, useInvalidateEvents } from '@/lib/hooks/useEvents';
+import { applyReanalyzedEvent, mergeReanalyzedEvent, resolveOpenEvent } from '@/lib/reanalyzed-event';
 import { useWebSocket } from '@/lib/hooks/useWebSocket';
 import { apiClient } from '@/lib/api-client';
 import { collapseIncidentTimeline } from '@/lib/incident-groups';
@@ -132,6 +134,15 @@ export default function EventsPage() {
   const [cameras, setCameras] = useState<ICamera[]>([]);
   const [newEventsCount, setNewEventsCount] = useState(0);
   const invalidateEvents = useInvalidateEvents();
+  const queryClient = useQueryClient();
+
+  const handleReanalyze = useCallback((updatedEvent: IEvent) => {
+    applyReanalyzedEvent(queryClient, updatedEvent);
+    setSelectedEvent((current) => {
+      if (!current || current.id !== updatedEvent.id) return current;
+      return mergeReanalyzedEvent(current, updatedEvent);
+    });
+  }, [queryClient]);
 
   // FF-010: Multi-select state
   const [selectionMode, setSelectionMode] = useState(false);
@@ -539,6 +550,7 @@ export default function EventsPage() {
                       event={event}
                       onClick={() => !selectionMode && setSelectedEvent(event)}
                       onCorrelatedEventClick={handleCorrelatedEventClick}
+                      onReanalyze={handleReanalyze}
                     />
                   )}
                 </div>
@@ -580,7 +592,7 @@ export default function EventsPage() {
 
       {/* Event Detail Modal */}
       <EventDetailModal
-        event={selectedEvent}
+        event={resolveOpenEvent(selectedEvent, allEvents)}
         open={!!selectedEvent}
         onClose={() => setSelectedEvent(null)}
         allEvents={allEvents}

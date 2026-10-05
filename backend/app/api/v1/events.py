@@ -2152,16 +2152,29 @@ async def reanalyze_event(
         if not result or not result.success:
             raise _reanalysis_provider_failure(result)
 
-        # 8. Check for vagueness in new description
-        vagueness_detector = VaguenessDetector()
-        vague_result = vagueness_detector.is_vague(result.description)
+        # 8–9. Named entities already linked to this event rewrite generic
+        # phrases the same way live Protect ingest does. Both description
+        # columns store that text so a previous multi-frame sentence cannot
+        # linger. Vagueness is scored on the sentence that is stored.
+        from app.services.entity_alert_service import get_entity_alert_service
+        from app.services.identification import dumps_identification
 
-        # Determine low_confidence flag
+        identification = getattr(result, "identification", None)
+        if not isinstance(identification, dict):
+            identification = None
+        description = await get_entity_alert_service().rewrite_reanalysis_description(
+            db,
+            event,
+            result.description or "",
+            identification,
+        )
+        vagueness_detector = VaguenessDetector()
+        vague_result = vagueness_detector.is_vague(description)
         ai_confidence = result.ai_confidence
         low_confidence = (ai_confidence is not None and ai_confidence < 50) or vague_result.is_vague
 
-        # 9. Update event with new description
-        event.description = result.description
+        event.description = description
+        event.enriched_description = description
         event.confidence = result.confidence
         event.ai_confidence = ai_confidence
         event.low_confidence = low_confidence
@@ -2174,8 +2187,7 @@ async def reanalyze_event(
         if frame_count_used:
             event.frame_count_used = frame_count_used
 
-        from app.services.identification import dumps_identification
-        stored_identification = dumps_identification(getattr(result, "identification", None))
+        stored_identification = dumps_identification(identification)
         if stored_identification is not None:
             event.identification = stored_identification
 
@@ -2433,12 +2445,30 @@ async def smart_reanalyze_event(
                 detail="AI analysis failed"
             )
 
-        # 10. Update event with new description
-        event.description = result.description
+        # 10. Update event with new description, then the same named rewrite
+        # used by standard reanalyze so description and enriched_description agree.
+        from app.services.entity_alert_service import get_entity_alert_service
+
+        identification = getattr(result, "identification", None)
+        if not isinstance(identification, dict):
+            identification = _event_identification(event)
+        description = await get_entity_alert_service().rewrite_reanalysis_description(
+            db,
+            event,
+            result.description or "",
+            identification,
+        )
+        event.description = description
+        event.enriched_description = description
         event.ai_confidence = result.ai_confidence
         event.provider_used = result.provider
         event.reanalyzed_at = datetime.now(timezone.utc)
         event.reanalysis_count = (event.reanalysis_count or 0) + 1
+
+        from app.services.identification import dumps_identification
+        stored_identification = dumps_identification(identification)
+        if stored_identification is not None:
+            event.identification = stored_identification
 
         db.commit()
 
@@ -2457,7 +2487,7 @@ async def smart_reanalyze_event(
         # 11. Build response
         return SmartReanalyzeResponse(
             event_id=event_id,
-            description=result.description,
+            description=event.description,
             query=request.query,
             frames_selected=len(selected_frame_indices),
             frames_available=total_frame_embeddings,

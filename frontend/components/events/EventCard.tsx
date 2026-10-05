@@ -30,6 +30,7 @@ import { EntitySelectModal } from '@/components/entities/EntitySelectModal';
 import { EntityCreateModal } from '@/components/entities/EntityCreateModal';
 import { useAssignEventToEntity } from '@/hooks/useEntities';
 import { getEntityDisplayName } from '@/lib/entity-display-name';
+import { applyReanalyzedEvent } from '@/lib/reanalyzed-event';
 import { cn } from '@/lib/utils';
 import { parseApiDate } from '@/lib/datetime';
 
@@ -103,11 +104,10 @@ export const EventCard = memo(function EventCard({
               : 'Updated description with entity context',
           });
 
-          // Invalidate event queries to refresh with new description
+          applyReanalyzedEvent(queryClient, updatedEvent);
           queryClient.invalidateQueries({ queryKey: ['events'] });
           queryClient.invalidateQueries({ queryKey: ['event', event.id] });
 
-          // Call onReanalyze callback if provided
           onReanalyze?.(updatedEvent);
         } catch (reclassifyError) {
           // AC3: Show error toast but keep entity assignment. The API detail

@@ -70,12 +70,29 @@ FALLBACK_RESERVE_MS = 10_000
 # that call already consumed the wall-clock budget.
 FALLBACK_GRACE_MS = 10_000
 
-# Single-image chain stays a 5s target. Cap the first call so a hang cannot
-# consume it, and keep a short grace for one fallback.
+# Live single-image chain stays a 5s target. Cap the first call so a hang
+# cannot consume it, and keep a short grace for one fallback. Manual
+# re-analysis does not use these caps; it uses the multi-frame caps above.
 MAX_FIRST_SINGLE_MS = 3_000
 MAX_FALLBACK_SINGLE_MS = 3_000
 SINGLE_FALLBACK_RESERVE_MS = 2_000
 SINGLE_FALLBACK_GRACE_MS = 3_000
+
+# User-initiated re-analysis (single image or multi-frame). The first call
+# gets the same 15s cap as the live multi-frame path so a slow Grok can
+# finish. 45s still leaves room for Gemini and OpenAI after that call.
+MANUAL_ANALYSIS_SLA_MS = 45_000
+
+# Quota and auth failures are terminal for that provider. They must not
+# spend a fallback slot or the SLA clock, or the next provider is skipped
+# while the wall clock is still under the deadline.
+_NON_CONSUMING_FAILURES = frozenset({
+    "quota_exhausted",
+    "auth_error",
+    "http_401",
+    "http_403",
+})
+_AUTH_FAILURES = frozenset({"auth_error", "http_401", "http_403"})
 
 
 def _sla_from_env(name: str, default: int) -> int:
@@ -201,6 +218,55 @@ class VisionAnalysisOrchestrator:
             return None
         return min(remaining, later_cap)
 
+    def _effective_sla_ms(
+        self,
+        sla_timeout_ms: Optional[int],
+        *,
+        user_initiated: bool,
+        live_default: int,
+    ) -> int:
+        """Deadline for this call.
+
+        Live analysis keeps its existing default. A manual re-analysis is
+        never shorter than ``MANUAL_ANALYSIS_SLA_MS`` so the 15s first-call
+        cap and the later providers still fit.
+        """
+        if not user_initiated:
+            return live_default if sla_timeout_ms is None else sla_timeout_ms
+        requested = MANUAL_ANALYSIS_SLA_MS if sla_timeout_ms is None else sla_timeout_ms
+        return max(requested, MANUAL_ANALYSIS_SLA_MS)
+
+    @staticmethod
+    def _budget_elapsed_ms(start_time: float, budget_credit_ms: int) -> int:
+        wall_ms = int((time.time() - start_time) * 1000)
+        return max(0, wall_ms - budget_credit_ms)
+
+    @staticmethod
+    def _stop_reason(elapsed_ms: int, sla_timeout_ms: int, *, multi: bool) -> str:
+        """Why the chain stopped before the next provider.
+
+        ``elapsed >= sla`` is a real SLA timeout. Stopping while time remains
+        means the next call would be shorter than the minimum attempt.
+        """
+        remaining = sla_timeout_ms - elapsed_ms
+        if remaining <= 0:
+            label = "Multi-image SLA timeout" if multi else "SLA timeout"
+            return f"{label}: {elapsed_ms}ms exceeded {sla_timeout_ms}ms"
+        return f"insufficient remaining budget: {remaining} ms left"
+
+    def _account_failed_attempt(
+        self,
+        *,
+        calls_started: int,
+        budget_credit_ms: int,
+        call_ms: int,
+        failure_class: str,
+    ) -> tuple:
+        """Drop quota and auth failures from the provider slot and the SLA clock."""
+        if failure_class in _NON_CONSUMING_FAILURES:
+            return max(0, calls_started - 1), budget_credit_ms + max(0, call_ms)
+        return calls_started, budget_credit_ms
+
     # =====================================================================
     # Public Analysis Entry Points (the ones AIService will delegate to)
     # =====================================================================
@@ -217,6 +283,7 @@ class VisionAnalysisOrchestrator:
         camera_id: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
         analysis_mode: str = "single_image",
+        user_initiated: bool = False,
     ) -> AIResult:
         """
         Main entry point for single-frame analysis (Phase 3.2).
@@ -224,8 +291,14 @@ class VisionAnalysisOrchestrator:
         This is the extracted version of the old AIService.generate_description.
         Owns SLA enforcement, provider fallback, resilience checks, and backoff.
         """
-        if sla_timeout_ms is None:
-            sla_timeout_ms = self.default_single_image_sla_ms
+        sla_timeout_ms = self._effective_sla_ms(
+            sla_timeout_ms,
+            user_initiated=user_initiated,
+            live_default=self.default_single_image_sla_ms,
+        )
+        # Manual re-analysis uses the live multi-frame per-provider caps
+        # (15s first call) so a slow Grok is not cut off at 3s.
+        use_multi_budget = user_initiated
 
         start_time = time.time()
 
@@ -261,6 +334,7 @@ class VisionAnalysisOrchestrator:
         provider_order = self._get_provider_order()
         attempts: List[str] = []
         calls_started = 0
+        budget_credit_ms = 0
 
         # Check configured providers
         configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
@@ -276,7 +350,7 @@ class VisionAnalysisOrchestrator:
             )
 
         for provider_enum in provider_order:
-            elapsed_ms = int((time.time() - start_time) * 1000)
+            elapsed_ms = self._budget_elapsed_ms(start_time, budget_credit_ms)
             provider = self.providers.get(provider_enum)
             if provider is None:
                 attempts.append(f"{provider_enum.value}:not_configured")
@@ -303,12 +377,14 @@ class VisionAnalysisOrchestrator:
                 elapsed_ms=elapsed_ms,
                 sla_timeout_ms=sla_timeout_ms,
                 calls_started=calls_started,
-                multi=False,
+                multi=use_multi_budget,
             )
             if timeout_ms is None:
                 return self._failure_result(
                     mode="single_image",
-                    reason=f"SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
+                    reason=self._stop_reason(
+                        elapsed_ms, sla_timeout_ms, multi=False
+                    ),
                     attempts=attempts,
                     detected_objects=detected_objects,
                     response_time_ms=elapsed_ms,
@@ -325,6 +401,7 @@ class VisionAnalysisOrchestrator:
                 timeout_ms,
             )
             calls_started += 1
+            call_started = time.perf_counter()
             result = await self._run_with_deadline(
                 provider_name,
                 timeout_ms,
@@ -341,6 +418,7 @@ class VisionAnalysisOrchestrator:
                     call_timeout_s=timeout_s,
                 ),
             )
+            call_ms = max(0, int((time.perf_counter() - call_started) * 1000))
 
             # Track usage (now owned here)
             self._track_usage(result, analysis_mode="single_image", image_count=1)
@@ -358,6 +436,12 @@ class VisionAnalysisOrchestrator:
                 return result
 
             failure_class = classify_provider_error(result.error)
+            calls_started, budget_credit_ms = self._account_failed_attempt(
+                calls_started=calls_started,
+                budget_credit_ms=budget_credit_ms,
+                call_ms=call_ms,
+                failure_class=failure_class,
+            )
             attempts.append(f"{provider_enum.value}:{failure_class}")
             logger.warning(
                 "%s failed (%s). Trying next provider...",
@@ -387,14 +471,18 @@ class VisionAnalysisOrchestrator:
         ocr_result: Optional[OCRResult] = None,
         camera_id: Optional[str] = None,
         subject_crop_count: int = 0,
+        user_initiated: bool = False,
     ) -> AIResult:
         """
         Multi-frame / multi-image analysis (Phase 3.2).
 
         Extracted from the old describe_images path. Supports 3-20 frames.
         """
-        if sla_timeout_ms is None:
-            sla_timeout_ms = self.default_multi_image_sla_ms
+        sla_timeout_ms = self._effective_sla_ms(
+            sla_timeout_ms,
+            user_initiated=user_initiated,
+            live_default=self.default_multi_image_sla_ms,
+        )
 
         start_time = time.time()
 
@@ -477,6 +565,7 @@ class VisionAnalysisOrchestrator:
         provider_order = self._get_provider_order()
         attempts: List[str] = []
         calls_started = 0
+        budget_credit_ms = 0
 
         configured_providers = [p for p in provider_order if self.providers.get(p) is not None]
         if not configured_providers:
@@ -491,7 +580,7 @@ class VisionAnalysisOrchestrator:
             )
 
         for provider_enum in provider_order:
-            elapsed_ms = int((time.time() - start_time) * 1000)
+            elapsed_ms = self._budget_elapsed_ms(start_time, budget_credit_ms)
             provider = self.providers.get(provider_enum)
             if provider is None:
                 attempts.append(f"{provider_enum.value}:not_configured")
@@ -521,7 +610,7 @@ class VisionAnalysisOrchestrator:
             if timeout_ms is None:
                 return self._failure_result(
                     mode="multi_frame",
-                    reason=f"Multi-image SLA timeout: {elapsed_ms}ms > {sla_timeout_ms}ms",
+                    reason=self._stop_reason(elapsed_ms, sla_timeout_ms, multi=True),
                     attempts=attempts,
                     detected_objects=detected_objects,
                     response_time_ms=elapsed_ms,
@@ -538,6 +627,7 @@ class VisionAnalysisOrchestrator:
                 timeout_ms,
             )
             calls_started += 1
+            call_started = time.perf_counter()
             result = await self._run_with_deadline(
                 provider_name,
                 timeout_ms,
@@ -554,6 +644,7 @@ class VisionAnalysisOrchestrator:
                     call_timeout_s=timeout_s,
                 ),
             )
+            call_ms = max(0, int((time.perf_counter() - call_started) * 1000))
 
             self._track_usage(result, analysis_mode="multi_frame", image_count=len(images_base64))
             self._record_provider_outcome(provider_name, result)
@@ -562,6 +653,12 @@ class VisionAnalysisOrchestrator:
                 return result
 
             failure_class = classify_provider_error(result.error)
+            calls_started, budget_credit_ms = self._account_failed_attempt(
+                calls_started=calls_started,
+                budget_credit_ms=budget_credit_ms,
+                call_ms=call_ms,
+                failure_class=failure_class,
+            )
             attempts.append(f"{provider_enum.value}:{failure_class}")
             logger.warning(
                 "%s failed (%s). Trying next provider...",
@@ -715,8 +812,10 @@ class VisionAnalysisOrchestrator:
 
     @staticmethod
     def _is_retryable(result: AIResult) -> bool:
-        """Transient 429/500/503 only. Quota and no-credit errors fail fast."""
+        """Transient 429/500/503 only. Quota and auth errors fail fast."""
         if not result.error or is_quota_error(result.error):
+            return False
+        if classify_provider_error(result.error) in _NON_CONSUMING_FAILURES:
             return False
         err = result.error
         return "429" in err or "500" in err or "503" in err
@@ -783,20 +882,27 @@ class VisionAnalysisOrchestrator:
         return result
 
     def _record_provider_outcome(self, provider_name: str, result: AIResult) -> None:
-        """Record the attempt and open a brief circuit on quota or no-credit."""
-        if result is not None and not result.success and is_quota_error(result.error):
-            self._trip_quota_breaker(provider_name)
+        """Record the attempt and open a brief circuit on quota or auth failure."""
+        if result is not None and not result.success:
+            failure_class = classify_provider_error(result.error)
+            if failure_class == "quota_exhausted" or is_quota_error(result.error):
+                self._trip_quota_breaker(provider_name)
+            elif failure_class in _AUTH_FAILURES:
+                self._trip_quota_breaker(provider_name, reason="auth_error")
         if self.resilience_service and result is not None:
             self.resilience_service.record_result(provider_name, result.success)
 
-    def _trip_quota_breaker(self, provider_name: str) -> None:
+    def _trip_quota_breaker(self, provider_name: str, reason: Optional[str] = None) -> None:
         if self.resilience_service is None:
             return
         trip = getattr(self.resilience_service, "trip_quota", None)
         if trip is None:
             return
         try:
-            trip(provider_name)
+            if reason is None:
+                trip(provider_name)
+            else:
+                trip(provider_name, reason=reason)
         except Exception as exc:
             logger.warning(
                 "Failed to open quota circuit for %s (%s)",

@@ -110,10 +110,14 @@ export const EventCard = memo(function EventCard({
           // Call onReanalyze callback if provided
           onReanalyze?.(updatedEvent);
         } catch (reclassifyError) {
-          // AC3: Show error toast but keep entity assignment
-          console.error('Re-classification failed:', reclassifyError);
+          // AC3: Show error toast but keep entity assignment. The API detail
+          // lists which providers were attempted.
+          const detail =
+            reclassifyError instanceof Error ? reclassifyError.message.trim() : '';
           toast.error('Re-classification failed', {
-            description: 'Entity was assigned but description could not be updated',
+            description: detail
+              ? `Entity was assigned, but the description could not be updated. ${detail}`
+              : 'Entity was assigned but description could not be updated',
           });
         } finally {
           setIsReclassifying(false);

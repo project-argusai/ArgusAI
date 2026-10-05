@@ -154,14 +154,16 @@ export function ReAnalyzeModal({
       onSuccess?.(updatedEvent);
     },
     onError: (error: Error) => {
-      // AC5: Show error toast
+      // AC5: Show error toast. The API detail (provider attempts, budget)
+      // is the message on ApiError; show it instead of a generic failure.
+      const message = error.message?.trim() ?? '';
+      const lower = message.toLowerCase();
       let errorMessage = 'Failed to re-analyze event';
 
-      // Check for rate limit error
-      if (error.message.includes('429') || error.message.includes('rate limit')) {
+      if (lower.includes('429') || lower.includes('rate limit')) {
         errorMessage = 'Rate limit exceeded. Please try again later (max 3 per hour).';
-      } else if (error.message.includes('400')) {
-        errorMessage = error.message || 'Invalid analysis mode for this camera type';
+      } else if (message) {
+        errorMessage = message;
       }
 
       toast.error('Re-analysis failed', {

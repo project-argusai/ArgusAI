@@ -370,7 +370,8 @@ class AIService:
         custom_prompt: Optional[str] = None,
         audio_transcription: Optional[str] = None,
         camera_id: Optional[str] = None,
-        ocr_result: Optional[OCRResult] = None
+        ocr_result: Optional[OCRResult] = None,
+        user_initiated: bool = False,
     ) -> AIResult:
         """
         Generate natural language description from camera frame.
@@ -408,6 +409,7 @@ class AIService:
             audio_transcription=audio_transcription,
             camera_id=camera_id,
             ocr_result=ocr_result,
+            user_initiated=user_initiated,
         )
 
     async def describe_images(
@@ -421,6 +423,7 @@ class AIService:
         audio_transcription: Optional[str] = None,
         ocr_result: Optional[OCRResult] = None,
         subject_crop_count: int = 0,
+        user_initiated: bool = False,
     ) -> AIResult:
         """
         Generate natural language description from multiple camera frames (Story P3-2.3 AC1).
@@ -550,6 +553,7 @@ class AIService:
             audio_transcription=audio_transcription,
             ocr_result=ocr_result,
             subject_crop_count=subject_crop_count,
+            user_initiated=user_initiated,
         )
 
     async def describe_video(

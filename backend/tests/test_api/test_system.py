@@ -454,6 +454,29 @@ class TestEventsExportEndpoint:
         assert "description" in header
         assert "confidence" in header
 
+    def test_export_csv_neutralizes_formula_cells(self):
+        """CSV export prefixes formula-like description cells (CR-012)."""
+        db = TestingSessionLocal()
+        try:
+            db.add(Event(
+                id="export-formula-1",
+                camera_id="camera-1",
+                timestamp=datetime.now(timezone.utc),
+                description="=CMD|' /C calc'!A0",
+                confidence=90,
+                objects_detected='["=1+1"]',
+                thumbnail_path=None,
+                alert_triggered=False,
+            ))
+            db.commit()
+        finally:
+            db.close()
+
+        response = client.get("/api/v1/events/export?format=csv")
+        assert response.status_code == 200
+        assert "'=CMD|' /C calc'!A0" in response.text
+        assert "'=1+1" in response.text
+
     def test_export_with_date_filter(self):
         """Test GET /events/export with date range filter"""
         today = date.today()

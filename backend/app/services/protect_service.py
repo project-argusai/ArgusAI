@@ -1266,6 +1266,33 @@ class ProtectService:
             "has_task": controller_id in self._listener_tasks and not self._listener_tasks[controller_id].done()
         }
 
+    def get_cached_camera_online(
+        self,
+        controller_id: Optional[str],
+        protect_camera_id: Optional[str],
+    ) -> Optional[bool]:
+        """Last known online state for a Protect camera, or None when unknown.
+
+        Reads the connected client's bootstrap cache, then the last websocket
+        status change. Never performs network I/O (issue #648 camera_status).
+        """
+        if not protect_camera_id:
+            return None
+        camera_key = str(protect_camera_id)
+        client = self._connections.get(controller_id) if controller_id else None
+        bootstrap = getattr(client, "bootstrap", None) if client is not None else None
+        cameras = getattr(bootstrap, "cameras", None) if bootstrap is not None else None
+        if cameras:
+            try:
+                camera = cameras.get(camera_key)
+            except Exception:
+                camera = None
+            connected = getattr(camera, "is_connected", None) if camera is not None else None
+            if connected is not None:
+                return bool(connected)
+        last = self._last_camera_status.get(camera_key)
+        return None if last is None else bool(last)
+
     def get_all_connection_statuses(self) -> Dict[str, Dict[str, Any]]:
         """
         Get connection status for all tracked controllers (AC9).

@@ -65,6 +65,7 @@ from app.api.v1.devices import router as devices_router  # Story P11-2.4: Device
 from app.api.v1.mobile_auth import router as mobile_auth_router  # Story P12-3: Mobile Auth
 from app.api.v1.api_keys import router as api_keys_router  # Story P13-1: API Key Management
 from app.api.v1.users import router as users_router  # Story P15-2.3: User Management
+from app.api.v1.mcp import router as mcp_router, MCPEndpoint, MCP_PATH  # Issue #648: read-only MCP connector
 from app.services.event_processor import initialize_event_processor, shutdown_event_processor
 from app.services.retention_jobs import register_retention_jobs
 from app.services.service_container import container
@@ -1066,6 +1067,9 @@ app.include_router(devices_router, prefix=settings.API_V1_PREFIX)  # Story P11-2
 app.include_router(mobile_auth_router, prefix=settings.API_V1_PREFIX)  # Story P12-3 - Mobile Auth
 app.include_router(api_keys_router, prefix=settings.API_V1_PREFIX)  # Story P13-1 - API Key Management
 app.include_router(users_router, prefix=settings.API_V1_PREFIX)  # Story P15-2.3 - User Management
+app.include_router(mcp_router, prefix=settings.API_V1_PREFIX)  # Issue #648 - signed MCP thumbnail links
+# Issue #648 - read-only MCP connector (Streamable HTTP, API key with read:mcp only)
+app.router.add_route(MCP_PATH, MCPEndpoint(), methods=["GET", "POST"], include_in_schema=False)
 
 # Thumbnail serving endpoint. Browser image tags send the same httpOnly session
 # cookie used for API requests when the frontend uses the API proxy.

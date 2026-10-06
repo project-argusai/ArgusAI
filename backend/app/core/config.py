@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from typing import List, Optional
 from pathlib import Path
 from cryptography.fernet import Fernet
@@ -222,6 +222,19 @@ class Settings(BaseSettings):
         return v
 
     # Security key validation (Story for Phase A - Issue #421)
+    @field_validator('MCP_PUBLIC_BASE_URL', mode='after')
+    @classmethod
+    def validate_mcp_public_base_url(cls, v: Optional[str]) -> Optional[str]:
+        """Accept an absolute http(s) origin (optionally with a path); blank means unset."""
+        if v is None or not v.strip():
+            return None
+        from urllib.parse import urlsplit
+        value = v.strip().rstrip('/')
+        parts = urlsplit(value)
+        if parts.scheme not in ('http', 'https') or not parts.netloc or parts.query or parts.fragment:
+            raise ValueError("MCP_PUBLIC_BASE_URL must be an http(s) URL such as https://argusai.example.com")
+        return value
+
     @field_validator('JWT_SECRET_KEY', 'ENCRYPTION_KEY', mode='after')
     @classmethod
     def validate_required_secrets(cls, v: str, info) -> str:
@@ -300,6 +313,13 @@ class Settings(BaseSettings):
 
     # Refresh Token Endpoint Rate Limit (Phase A - Web Auth Refresh)
     REFRESH_RATE_LIMIT: str = "20/minute"  # Rate limit specifically for /auth/refresh (sensitive endpoint)
+
+    # Read-only MCP connector (issue #648). The endpoint only accepts API keys
+    # whose scopes include read:mcp and contain no write or admin scope.
+    MCP_ENABLED: bool = True  # Kill switch for POST /api/v1/mcp
+    MCP_RATE_LIMIT_PER_MINUTE: int = Field(default=60, ge=1, le=1000)  # Ceiling per key; a lower per-key limit wins
+    MCP_THUMBNAIL_URL_TTL_SECONDS: int = Field(default=600, ge=30, le=3600)  # Signed thumbnail URL lifetime
+    MCP_PUBLIC_BASE_URL: Optional[str] = None  # e.g. https://argusai.example.com; unset = relative thumbnail URLs
 
     @property
     def fcm_ready(self) -> bool:

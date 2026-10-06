@@ -254,9 +254,38 @@ export default function SettingsPage() {
     toast.info('Changes cancelled');
   };
 
-  const handleExportData = async (_format: 'json' | 'csv') => {
-    // TODO: Implement data export API endpoint (tracked in backlog)
-    toast.error(`Data export not yet implemented`);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportData = async (format: 'json' | 'csv') => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const { blob, filename } = await apiClient.events.exportEvents(format);
+      if (blob.size === 0) {
+        toast.info('No events to export for the current filters.');
+        return;
+      }
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(anchor);
+      toast.success(`Events ${format.toUpperCase()} downloaded (${filename})`);
+    } catch (error) {
+      console.error('Export failed:', error);
+      if (error instanceof Error && 'statusCode' in error && (error as { statusCode?: number }).statusCode === 403) {
+        toast.error('You do not have permission to export events.');
+      } else if (error instanceof Error && 'statusCode' in error && (error as { statusCode?: number }).statusCode === 401) {
+        toast.error('Sign in again to export events.');
+      } else {
+        toast.error('Failed to export events. Please try again.');
+      }
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleDeleteAllData = () => {
@@ -1148,24 +1177,39 @@ Keep the summary concise (2-3 paragraphs).`}
 
                   <div className="space-y-3 pt-4 border-t">
                     <h4 className="font-medium">Data Management</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Export downloads event records (JSON or CSV) for analysis or evidence.
+                      It is not a full system backup — use Backup &amp; Restore below to create a
+                      restorable snapshot of the database, settings, and thumbnails.
+                    </p>
                     <div className="flex flex-col sm:flex-row gap-2">
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => handleExportData('json')}
+                        disabled={isExporting}
                         className="flex-1"
                       >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export JSON
+                        {isExporting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 mr-2" />
+                        )}
+                        Export events (JSON)
                       </Button>
                       <Button
                         type="button"
                         variant="outline"
                         onClick={() => handleExportData('csv')}
+                        disabled={isExporting}
                         className="flex-1"
                       >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export CSV
+                        {isExporting ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Download className="h-4 w-4 mr-2" />
+                        )}
+                        Export events (CSV)
                       </Button>
                     </div>
                     <Button

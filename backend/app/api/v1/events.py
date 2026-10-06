@@ -55,6 +55,22 @@ _REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
 logger = logging.getLogger(__name__)
 audit_logger = logging.getLogger(f"{__name__}.audit")  # Dedicated audit logger for compliance
 
+
+def _csv_formula_safe(value) -> str:
+    """Neutralize spreadsheet formula injection in exported CSV cells.
+
+    Cells that begin with =, +, -, @, tab, or CR can be interpreted as formulas
+    by Excel/Sheets. Prefix with a single quote so the value is treated as text.
+    """
+    if value is None:
+        return ""
+    text_value = value if isinstance(value, str) else str(value)
+    if text_value and text_value[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text_value
+    return text_value
+
+
+
 router = APIRouter(prefix="/events", tags=["events"])
 
 # Thumbnail storage directory
@@ -881,6 +897,7 @@ def get_package_deliveries_today(
 
 @router.get("/export")
 async def export_events(
+    request: Request,
     format: str = Query(..., pattern="^(json|csv)$", description="Export format (json or csv)"),
     start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
@@ -955,6 +972,24 @@ async def export_events(
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"events_export_{timestamp_str}.{format}"
 
+        actor = getattr(request.state, "user", None) or getattr(request.state, "api_key", None)
+        actor_id = None
+        if isinstance(actor, dict):
+            actor_id = actor.get("id") or actor.get("key_id") or actor.get("user_id")
+        elif actor is not None:
+            actor_id = getattr(actor, "id", None)
+        audit_logger.warning(
+            "AUDIT: Events export started",
+            extra={
+                "audit_event": "events_export",
+                "format": format,
+                "start_date": str(start_date) if start_date else None,
+                "end_date": str(end_date) if end_date else None,
+                "camera_id": camera_id,
+                "min_confidence": min_confidence,
+                "actor_id": str(actor_id) if actor_id is not None else None,
+            },
+        )
         logger.info(
             f"Starting export: format={format}, start_date={start_date}, "
             f"end_date={end_date}, camera={camera_id}, min_confidence={min_confidence}"
@@ -1024,14 +1059,17 @@ async def export_events(
                 )
 
                 for event in events:
+                    objects = json.loads(event.objects_detected) if event.objects_detected else []
+                    if not isinstance(objects, list):
+                        objects = [objects]
                     writer.writerow({
                         "id": event.id,
                         "camera_id": event.camera_id,
                         "timestamp": iso_utc(event.timestamp),
-                        "description": event.description,
+                        "description": _csv_formula_safe(event.description),
                         "confidence": event.confidence,
-                        "objects_detected": ",".join(json.loads(event.objects_detected)),
-                        "thumbnail_path": event.thumbnail_path or "",
+                        "objects_detected": _csv_formula_safe(",".join(str(o) for o in objects)),
+                        "thumbnail_path": _csv_formula_safe(event.thumbnail_path or ""),
                         "alert_triggered": event.alert_triggered,
                         "created_at": iso_utc(event.created_at)
                     })

@@ -874,6 +874,45 @@ export const apiClient = {
     },
 
     /**
+     * Export events to JSON (NDJSON) or CSV (CR-012 / #602).
+     * Partial export of event records only — not a restorable system backup.
+     */
+    exportEvents: async (
+      format: 'json' | 'csv',
+      filters?: {
+        start_date?: string;
+        end_date?: string;
+        camera_id?: string;
+        min_confidence?: number;
+      }
+    ): Promise<{ blob: Blob; filename: string }> => {
+      const params = new URLSearchParams();
+      params.set('format', format);
+      if (filters?.start_date) params.set('start_date', filters.start_date);
+      if (filters?.end_date) params.set('end_date', filters.end_date);
+      if (filters?.camera_id) params.set('camera_id', filters.camera_id);
+      if (filters?.min_confidence != null) {
+        params.set('min_confidence', String(filters.min_confidence));
+      }
+      const response = await fetch(
+        `${API_BASE_URL}${API_V1_PREFIX}/events/export?${params.toString()}`,
+        {
+          method: 'GET',
+          credentials: 'include',
+          headers: getAuthHeaders(),
+        }
+      );
+      if (!response.ok) {
+        throw new ApiError('Failed to export events', response.status);
+      }
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename=([^;]+)/i);
+      const fallback = `events_export.${format === 'csv' ? 'csv' : 'json'}`;
+      const filename = match ? match[1].trim().replace(/"/g, '') : fallback;
+      return { blob: await response.blob(), filename };
+    },
+
+    /**
      * Export events to CSV format (Story P11-5.4)
      * @param filters Optional filters (date range, camera)
      * @returns Blob containing CSV file
@@ -883,20 +922,8 @@ export const apiClient = {
       end_date?: string;
       camera_id?: string;
     }): Promise<Blob> => {
-      const params = new URLSearchParams();
-      params.set('format', 'csv');
-      if (filters?.start_date) params.set('start_date', filters.start_date);
-      if (filters?.end_date) params.set('end_date', filters.end_date);
-      if (filters?.camera_id) params.set('camera_id', filters.camera_id);
-      const queryString = params.toString();
-      const response = await fetch(`${API_BASE_URL}${API_V1_PREFIX}/events/export?${queryString}`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
-      if (!response.ok) {
-        throw new ApiError('Failed to export events', response.status);
-      }
-      return response.blob();
+      const { blob } = await apiClient.events.exportEvents('csv', filters);
+      return blob;
     },
   },
 

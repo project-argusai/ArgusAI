@@ -581,4 +581,44 @@ describe('EventCard', () => {
       expect(robotBadge).toHaveTextContent('❓')
     })
   })
+
+  describe('entities (issue #652)', () => {
+    it('renders a chip for every entity on the event', () => {
+      const event = createMockEvent({
+        objects_detected: ['person', 'vehicle'],
+        entity_id: 'isaac',
+        entity_name: 'Isaac',
+        entity_type: 'person',
+        entities: [
+          { id: 'isaac', name: 'Isaac', entity_type: 'person', is_primary: true },
+          {
+            id: 'bmw-x3',
+            name: null,
+            entity_type: 'vehicle',
+            vehicle_color: 'black',
+            vehicle_make: 'BMW',
+            vehicle_model: 'X3',
+          },
+        ],
+      })
+
+      renderWithProvider(<EventCard event={event} onClick={vi.fn()} />)
+
+      const chips = screen.getAllByTestId('event-entity-chip')
+      expect(chips.map((chip) => chip.getAttribute('data-entity-id'))).toEqual([
+        'isaac',
+        'bmw-x3',
+      ])
+      expect(screen.getByText('Black Bmw X3')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Add to Entity/ })).toBeInTheDocument()
+      expect(screen.queryByText('Move to Entity')).not.toBeInTheDocument()
+    })
+
+    it('shows no chips when the event has no entity', () => {
+      renderWithProvider(<EventCard event={createMockEvent()} onClick={vi.fn()} />)
+
+      expect(screen.queryAllByTestId('event-entity-chip')).toHaveLength(0)
+    })
+  })
 })
+

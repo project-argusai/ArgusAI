@@ -27,11 +27,13 @@ import {
   Box,
   Eye,
   EyeOff,
+  Users,
 } from 'lucide-react';
 import type { IEvent } from '@/types/event';
 import { getConfidenceColor, getConfidenceLevel } from '@/types/event';
 import { useDeleteEvent } from '@/lib/hooks/useEvents';
 import { KeyFramesGallery } from './KeyFramesGallery';
+import { EventEntities } from './EventEntities';
 import { getAnomalySeverity } from './AnomalyBadge';
 import {
   Dialog,
@@ -329,6 +331,15 @@ export function EventDetailModal({
                     </span>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            {/* Issue #652: every entity on the event, each removable */}
+            <div className="flex items-start space-x-3">
+              <Users className="w-5 h-5 text-gray-500 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-gray-700 mb-1">Entities</p>
+                <EventEntities event={event} />
               </div>
             </div>
 

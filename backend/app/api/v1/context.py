@@ -28,7 +28,12 @@ from app.services.service_container import container
 from app.models.event_embedding import EventEmbedding
 from app.services.embedding_service import get_embedding_service, EmbeddingService
 from app.services.similarity_service import get_similarity_service, SimilarityService
-from app.services.entity_service import get_entity_service, EntityService
+from app.services.entity_service import (
+    get_entity_service,
+    EntityService,
+    EventEntityLimitError,
+)
+from app.schemas.event import EventEntitySummary
 from app.services.pattern_service import get_pattern_service, PatternService
 from app.services.anomaly_scoring_service import get_anomaly_scoring_service, AnomalyScoringService, AnomalyScoreResult
 from app.services.person_matching_service import get_person_matching_service, PersonMatchingService
@@ -1012,20 +1017,41 @@ class UnlinkEventResponse(BaseModel):
     """Response for event unlink operation (Story P9-4.3)."""
     success: bool
     message: str
+    entities: list[EventEntitySummary] = Field(
+        default_factory=list,
+        description="Entities still on the event after the removal (issue #652)",
+    )
 
 
 class AssignEventRequest(BaseModel):
-    """Request for event assignment operation (Story P9-4.4)."""
-    entity_id: str = Field(description="UUID of the entity to assign the event to")
+    """Request for event assignment operation (Story P9-4.4, issue #652)."""
+    entity_id: str = Field(
+        min_length=1,
+        max_length=128,
+        description="ID of the entity to add to the event (kept as a string)",
+    )
+    replace: bool = Field(
+        default=False,
+        description=(
+            "False (default): add this entity and keep the others. "
+            "True: remove every other entity from the event first (corrections)."
+        ),
+    )
 
 
 class AssignEventResponse(BaseModel):
-    """Response for event assignment operation (Story P9-4.4)."""
+    """Response for event assignment operation (Story P9-4.4, issue #652)."""
     success: bool = Field(description="Whether the operation succeeded")
     message: str = Field(description="Human-readable result message")
-    action: str = Field(description="Action taken: 'assign', 'move', or 'none'")
-    entity_id: str = Field(description="UUID of the target entity")
+    action: Literal["add", "replace", "none"] = Field(
+        description="Action taken: 'add' (new link), 'replace' (other entities removed), or 'none' (already linked)"
+    )
+    entity_id: str = Field(description="ID of the target entity")
     entity_name: Optional[str] = Field(default=None, description="Name of the target entity")
+    entities: list[EventEntitySummary] = Field(
+        default_factory=list,
+        description="All entities on the event after the change, primary first",
+    )
 
 
 @router.post("/events/{event_id}/entity", response_model=AssignEventResponse, dependencies=_REQUIRE_OPERATOR)
@@ -1036,33 +1062,33 @@ async def assign_event_to_entity(
     entity_service: EntityService = Depends(get_entity_service),
 ):
     """
-    Assign or move an event to an entity.
+    Add an entity to an event, or replace the event's entities.
 
-    Story P9-4.4: Implement Event-Entity Assignment
+    Story P9-4.4 / issue #652.
 
-    If the event has no entity, assigns it to the specified entity.
-    If the event already has an entity, moves it to the new entity.
-    Creates EntityAdjustment record(s) for ML training.
+    By default this *adds* the entity. Entities already on the event stay
+    linked, so one event can hold a person and their car. An event holds at
+    most ``MAX_ENTITIES_PER_EVENT`` entities (409 beyond that).
 
-    Args:
-        event_id: UUID of the event to assign
-        request: Request body with target entity_id
-        db: Database session
-        entity_service: Entity service instance
+    With ``replace: true`` every other entity is removed from the event and
+    the target becomes its only (primary) entity. Use it for corrections.
 
-    Returns:
-        AssignEventResponse with success status, message, and entity info
+    Removing a single entity is ``DELETE /entities/{entity_id}/events/{event_id}``.
 
     Raises:
         404: If event or entity not found
+        409: If the event already has the maximum number of entities
     """
     try:
         result = await entity_service.assign_event(
             db=db,
             event_id=event_id,
-            entity_id=request.entity_id,
+            entity_id=request.entity_id.strip(),
+            replace=request.replace,
         )
         return AssignEventResponse(**result)
+    except EventEntityLimitError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1075,27 +1101,18 @@ async def unlink_event_from_entity(
     entity_service: EntityService = Depends(get_entity_service),
 ):
     """
-    Unlink an event from an entity.
+    Remove one entity from an event.
 
-    Story P9-4.3: Implement Event-Entity Unlinking
+    Story P9-4.3 / issue #652.
 
-    Removes the association between an event and an entity. This does NOT
-    delete the event itself, only the EntityEvent junction record. Also
-    creates an EntityAdjustment record for ML training.
-
-    Args:
-        entity_id: UUID of the entity
-        event_id: UUID of the event to unlink
-        db: Database session
-        entity_service: Entity service instance
-
-    Returns:
-        UnlinkEventResponse with success status and message
+    Removes only this entity. Other entities on the event stay. This does
+    NOT delete the event. The link row (if any) is deleted, the id leaves
+    ``matched_entity_ids``, the primary moves to the next remaining entity
+    when needed, and an EntityAdjustment (action "remove") is recorded.
 
     Raises:
-        404: If entity or event link not found
+        404: If entity not found or the entity is not on this event
     """
-    # Verify entity exists
     entity = await entity_service.get_entity(
         db=db,
         entity_id=entity_id,
@@ -1105,7 +1122,6 @@ async def unlink_event_from_entity(
     if not entity:
         raise HTTPException(status_code=404, detail="Entity not found")
 
-    # Attempt to unlink the event
     success = await entity_service.unlink_event(
         db=db,
         entity_id=entity_id,
@@ -1118,9 +1134,12 @@ async def unlink_event_from_entity(
             detail="Event not linked to this entity"
         )
 
+    remaining = await entity_service.get_event_entities(db, event_id)
+
     return UnlinkEventResponse(
         success=True,
-        message="Event removed from entity"
+        message="Event removed from entity",
+        entities=remaining if isinstance(remaining, list) else [],
     )
 
 
@@ -1300,7 +1319,9 @@ class AdjustmentResponse(BaseModel):
     new_entity_id: Optional[str] = Field(
         default=None, description="UUID of the entity after adjustment (null for unlinks)"
     )
-    action: str = Field(description="Type of adjustment: unlink, assign, move_from, move_to, merge")
+    action: str = Field(
+        description="Type of adjustment: add, remove, move_from, move_to, merge (older rows: assign, unlink)"
+    )
     event_description: Optional[str] = Field(
         default=None, description="Snapshot of event description at time of adjustment"
     )
@@ -2660,7 +2681,7 @@ async def get_adjustments(
     limit: int = Query(default=50, ge=1, le=100, description="Items per page"),
     action: Optional[str] = Query(
         default=None,
-        description="Filter by action type: unlink, assign, move, merge"
+        description="Filter by action type: add, remove, move, merge (assign/unlink are aliases of add/remove)"
     ),
     entity_id: Optional[str] = Query(
         default=None,

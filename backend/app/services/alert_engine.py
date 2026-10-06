@@ -505,13 +505,11 @@ class AlertEngine:
         if mode == 'any':
             return True
 
-        # Get event's matched entity IDs
-        event_entity_ids = []
-        if event.matched_entity_ids:
-            try:
-                event_entity_ids = json.loads(event.matched_entity_ids)
-            except json.JSONDecodeError:
-                pass
+        # Get event's matched entity IDs. An event can carry several
+        # (issue #652: a person and their car), kept as strings.
+        from app.services.entity_service import parse_entity_id_list
+
+        event_entity_ids = parse_entity_id_list(event.matched_entity_ids)
 
         # 'specific' mode: must match rule.entity_id
         if mode == 'specific':
@@ -575,12 +573,10 @@ class AlertEngine:
         entity_ids = []
         entity_names = []
 
-        # Parse matched_entity_ids from event
-        if event.matched_entity_ids:
-            try:
-                entity_ids = json.loads(event.matched_entity_ids)
-            except json.JSONDecodeError:
-                pass
+        # Parse matched_entity_ids from event (string ids only; issue #652)
+        from app.services.entity_service import parse_entity_id_list
+
+        entity_ids = parse_entity_id_list(event.matched_entity_ids)
 
         # Get entity names from database if we have IDs
         if entity_ids:

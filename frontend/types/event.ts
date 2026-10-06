@@ -114,6 +114,29 @@ export interface IFeedbackStats {
   summary_feedback?: ISummaryFeedbackStats | null;  // Story P9-3.6
 }
 
+/**
+ * One entity on an event (issue #652). Ids are always strings.
+ */
+export interface IEventEntity {
+  id: string;
+  name: string | null;
+  entity_type: string;
+  display_name?: string | null;
+  vehicle_color?: string | null;
+  vehicle_make?: string | null;
+  vehicle_model?: string | null;
+  vehicle_signature?: string | null;
+  /** Link similarity (1.0 = manual). Null for match-only entries. */
+  similarity_score?: number | null;
+  /** False when the entity is only in matched_entity_ids (no link row). */
+  linked?: boolean;
+  /** True for the event's primary entity. */
+  is_primary?: boolean;
+}
+
+/** Most entities one event can hold (mirrors backend MAX_ENTITIES_PER_EVENT). */
+export const MAX_ENTITIES_PER_EVENT = 4;
+
 export interface IEvent {
   id: string;                     // UUID
   camera_id: string;              // UUID foreign key
@@ -163,6 +186,9 @@ export interface IEvent {
   entity_vehicle_make?: string | null;
   entity_vehicle_model?: string | null;
   entity_vehicle_signature?: string | null;
+  // Issue #652: every entity on the event (e.g. a person and their car),
+  // primary first. The single entity_* fields mirror the first entry.
+  entities?: IEventEntity[];
   // Story P4-7.2: Anomaly scoring
   anomaly_score?: number | null;        // Anomaly score 0.0-1.0 (null = not scored)
   // Story P8-3.2: Full motion video storage

@@ -180,6 +180,196 @@ def apply_event_thumbnail_to_entity(entity, event) -> None:
     entity.thumbnail_path = thumbnail
 
 
+# Issue #652: one event can belong to several entities (a person and their car).
+# The cap keeps a misclick loop or a scripted client from piling links onto
+# one event. Automatic matching rarely produces more than two.
+MAX_ENTITIES_PER_EVENT = 4
+
+
+# Adjustment action names before and after issue #652.
+_ADJUSTMENT_ACTION_ALIASES = {
+    "add": ("add", "assign"),
+    "assign": ("add", "assign"),
+    "remove": ("remove", "unlink"),
+    "unlink": ("remove", "unlink"),
+}
+
+
+class EventEntityLimitError(Exception):
+    """Adding another entity would exceed MAX_ENTITIES_PER_EVENT."""
+
+
+def parse_entity_id_list(raw) -> list[str]:
+    """Parse a stored JSON entity-id list. Malformed values yield no ids.
+
+    Ids are kept as strings (UUIDs or other text ids) and de-duplicated in
+    order. Non-string values are dropped so a numeric id can never turn into
+    a different entity.
+    """
+    if isinstance(raw, list):
+        values = raw
+    elif isinstance(raw, str) and raw.strip():
+        try:
+            values = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return []
+    else:
+        return []
+    if not isinstance(values, list):
+        return []
+    ids: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            ids.append(value.strip())
+    return list(dict.fromkeys(ids))
+
+
+def _store_entity_id_list(event, ids: list[str]) -> None:
+    """Write ``matched_entity_ids`` (NULL when empty, same as ingest)."""
+    cleaned = list(dict.fromkeys(i for i in ids if isinstance(i, str) and i))
+    event.matched_entity_ids = json.dumps(cleaned) if cleaned else None
+
+
+def _set_primary_entity(event, entity, *, similarity_score: Optional[float]) -> None:
+    """Point the legacy single-entity ``final_entity_*`` columns at ``entity``."""
+    event.final_entity_id = entity.id
+    event.final_entity_type = entity.entity_type
+    event.final_entity_name = entity.name
+    event.final_entity_similarity_score = similarity_score
+    event.final_entity_occurrence_count = entity.occurrence_count
+    event.final_entity_is_new = False
+
+
+def _clear_primary_entity(event) -> None:
+    event.final_entity_id = None
+    event.final_entity_type = None
+    event.final_entity_name = None
+    event.final_entity_similarity_score = None
+    event.final_entity_occurrence_count = None
+    event.final_entity_is_new = None
+
+
+def event_entity_summary(
+    entity,
+    *,
+    similarity_score: Optional[float] = None,
+    linked: bool = True,
+    is_primary: bool = False,
+) -> dict:
+    """API shape for one entity on an event (``EventResponse.entities``)."""
+    return {
+        "id": str(entity.id),
+        "name": entity.name,
+        "entity_type": entity.entity_type,
+        "display_name": entity.display_name,
+        **_vehicle_api_fields(entity),
+        "similarity_score": similarity_score,
+        "linked": linked,
+        "is_primary": is_primary,
+    }
+
+
+def build_event_entities(db: Session, events) -> dict[str, list[dict]]:
+    """Entities on each event, keyed by event id (issue #652).
+
+    Sources, in display order:
+    1. The primary entity (``final_entity_id``) when it is linked or matched.
+    2. ``entity_events`` links, oldest first.
+    3. Ids in ``matched_entity_ids`` that have no link row. Live Protect
+       ingest records named face and vehicle matches only there.
+
+    Ids that no longer resolve to an entity (deleted entities) are skipped.
+    Two queries total, regardless of how many events are passed.
+    """
+    from app.models.recognized_entity import RecognizedEntity, EntityEvent
+
+    events = [e for e in (events or []) if getattr(e, "id", None)]
+    if not events:
+        return {}
+    event_ids = [e.id for e in events]
+
+    link_rows = (
+        db.query(
+            EntityEvent.event_id,
+            EntityEvent.similarity_score,
+            RecognizedEntity,
+        )
+        .join(RecognizedEntity, EntityEvent.entity_id == RecognizedEntity.id)
+        .filter(EntityEvent.event_id.in_(event_ids))
+        .order_by(EntityEvent.created_at, EntityEvent.entity_id)
+        .all()
+    )
+    links: dict[str, list[tuple]] = {}
+    for event_id, similarity, entity in link_rows:
+        links.setdefault(event_id, []).append((entity, similarity))
+
+    matched_by_event = {e.id: parse_entity_id_list(getattr(e, "matched_entity_ids", None)) for e in events}
+    linked_ids = {eid: {ent.id for ent, _ in rows} for eid, rows in links.items()}
+    missing = {
+        mid
+        for eid, mids in matched_by_event.items()
+        for mid in mids
+        if mid not in linked_ids.get(eid, set())
+    }
+    matched_entities: dict[str, object] = {}
+    if missing:
+        for entity in (
+            db.query(RecognizedEntity)
+            .filter(RecognizedEntity.id.in_(list(missing)))
+            .all()
+        ):
+            matched_entities[entity.id] = entity
+
+    result: dict[str, list[dict]] = {}
+    for event in events:
+        primary_id = getattr(event, "final_entity_id", None)
+        entries: list[dict] = []
+        seen: set[str] = set()
+        for entity, similarity in links.get(event.id, []):
+            if entity.id in seen:
+                continue
+            seen.add(entity.id)
+            entries.append(
+                event_entity_summary(
+                    entity,
+                    similarity_score=similarity,
+                    linked=True,
+                    is_primary=entity.id == primary_id,
+                )
+            )
+        for mid in matched_by_event.get(event.id, []):
+            entity = matched_entities.get(mid)
+            if entity is None or mid in seen:
+                continue
+            seen.add(mid)
+            entries.append(
+                event_entity_summary(
+                    entity,
+                    similarity_score=None,
+                    linked=False,
+                    is_primary=mid == primary_id,
+                )
+            )
+        # Primary first; the rest keep link/match order.
+        entries.sort(key=lambda item: 0 if item["is_primary"] else 1)
+        result[event.id] = entries
+    return result
+
+
+def legacy_entity_fields(entities: list[dict]) -> dict:
+    """Single-entity ``entity_*`` response fields, taken from the first entity."""
+    first = entities[0] if entities else {}
+    return {
+        "entity_id": first.get("id"),
+        "entity_name": first.get("name"),
+        "entity_type": first.get("entity_type"),
+        "entity_vehicle_color": first.get("vehicle_color"),
+        "entity_vehicle_make": first.get("vehicle_make"),
+        "entity_vehicle_model": first.get("vehicle_model"),
+        "entity_vehicle_signature": first.get("vehicle_signature"),
+    }
+
+
 @singleton
 class EntityService:
     """
@@ -1281,10 +1471,13 @@ class EntityService:
         event_id: str,
     ) -> bool:
         """
-        Unlink an event from an entity (Story P9-4.3).
+        Remove one entity from an event (Story P9-4.3, issue #652).
 
-        Removes the EntityEvent junction record and creates an EntityAdjustment
-        record for ML training. Also decrements the entity's occurrence_count.
+        Other entities on the event stay. Removes the ``entity_events`` row
+        when there is one, drops the id from ``matched_entity_ids``, and
+        moves the primary (``final_entity_*``) to the next remaining entity
+        when the removed one was primary. Writes an EntityAdjustment with
+        action="remove" for ML training.
 
         Args:
             db: SQLAlchemy database session
@@ -1292,26 +1485,29 @@ class EntityService:
             event_id: UUID of the event to unlink
 
         Returns:
-            True if successfully unlinked, False if link not found
+            True if removed, False if the entity was not on this event
 
         Note:
-            - Does NOT delete the event itself, only removes the association
-            - Creates EntityAdjustment record with action="unlink"
-            - Decrements entity occurrence_count
+            - Does NOT delete the event itself, only the association
+            - Decrements occurrence_count only when a link row is deleted
+              (a match-only entry never incremented it)
         """
         from app.models.recognized_entity import RecognizedEntity, EntityEvent
         from app.models.entity_adjustment import EntityAdjustment
         from app.models.event import Event
 
-        # Find the EntityEvent link
         entity_event = db.query(EntityEvent).filter(
             EntityEvent.entity_id == entity_id,
             EntityEvent.event_id == event_id,
         ).first()
 
-        if not entity_event:
+        event = db.query(Event).filter(Event.id == event_id).first()
+        matched_ids = parse_entity_id_list(event.matched_entity_ids) if event else []
+        is_primary = bool(event is not None and event.final_entity_id == entity_id)
+
+        if not entity_event and entity_id not in matched_ids and not is_primary:
             logger.warning(
-                f"EntityEvent link not found for entity={entity_id}, event={event_id}",
+                "Entity is not on this event; nothing to remove",
                 extra={
                     "event_type": "unlink_event_not_found",
                     "entity_id": entity_id,
@@ -1320,18 +1516,13 @@ class EntityService:
             )
             return False
 
-        # Get event description for ML training snapshot
-        event = db.query(Event.description).filter(Event.id == event_id).first()
-        event_description = event.description if event else None
-
-        # Get entity for occurrence count update
         entity = db.query(RecognizedEntity).filter(
             RecognizedEntity.id == entity_id
         ).first()
 
         if not entity:
             logger.warning(
-                f"Entity not found for unlink: {entity_id}",
+                "Entity not found for unlink",
                 extra={
                     "event_type": "unlink_entity_not_found",
                     "entity_id": entity_id,
@@ -1339,37 +1530,78 @@ class EntityService:
             )
             return False
 
-        # Create EntityAdjustment record for ML training
-        adjustment = EntityAdjustment(
+        db.add(EntityAdjustment(
             event_id=event_id,
             old_entity_id=entity_id,
             new_entity_id=None,
-            action="unlink",
-            event_description=event_description,
-        )
-        db.add(adjustment)
+            action="remove",
+            event_description=event.description if event else None,
+        ))
 
-        # Delete the EntityEvent link
-        db.delete(entity_event)
+        if entity_event:
+            db.delete(entity_event)
+            if entity.occurrence_count > 0:
+                entity.occurrence_count -= 1
+                entity.updated_at = datetime.now(timezone.utc)
 
-        # Decrement occurrence count (but not below 0)
-        if entity.occurrence_count > 0:
-            entity.occurrence_count -= 1
-            entity.updated_at = datetime.now(timezone.utc)
+        if event is not None:
+            _store_entity_id_list(event, [i for i in matched_ids if i != entity_id])
+            if is_primary:
+                self._promote_next_primary(db, event, exclude_entity_id=entity_id)
 
         db.commit()
 
         logger.info(
-            f"Event unlinked from entity: event={event_id}, entity={entity_id}",
+            "Entity removed from event",
             extra={
                 "event_type": "event_unlinked",
                 "entity_id": entity_id,
                 "event_id": event_id,
+                "had_link": bool(entity_event),
                 "new_occurrence_count": entity.occurrence_count,
             }
         )
 
         return True
+
+    def _promote_next_primary(self, db: Session, event, *, exclude_entity_id: str) -> None:
+        """Make the oldest remaining entity primary, or clear the primary."""
+        from app.models.recognized_entity import RecognizedEntity, EntityEvent
+
+        row = (
+            db.query(RecognizedEntity, EntityEvent.similarity_score)
+            .join(EntityEvent, EntityEvent.entity_id == RecognizedEntity.id)
+            .filter(
+                EntityEvent.event_id == event.id,
+                EntityEvent.entity_id != exclude_entity_id,
+            )
+            .order_by(EntityEvent.created_at, EntityEvent.entity_id)
+            .first()
+        )
+        if row is not None:
+            _set_primary_entity(event, row[0], similarity_score=row[1])
+            return
+
+        for candidate_id in parse_entity_id_list(event.matched_entity_ids):
+            if candidate_id == exclude_entity_id:
+                continue
+            candidate = db.query(RecognizedEntity).filter(
+                RecognizedEntity.id == candidate_id
+            ).first()
+            if candidate is not None:
+                _set_primary_entity(event, candidate, similarity_score=None)
+                return
+
+        _clear_primary_entity(event)
+
+    async def get_event_entities(self, db: Session, event_id: str) -> list[dict]:
+        """All entities on one event, primary first (issue #652)."""
+        from app.models.event import Event
+
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if event is None:
+            return []
+        return build_event_entities(db, [event]).get(event.id, [])
 
     async def get_entity_for_event(
         self,
@@ -1418,147 +1650,169 @@ class EntityService:
         db: Session,
         event_id: str,
         entity_id: str,
+        replace: bool = False,
     ) -> dict:
         """
-        Assign or move an event to an entity (Story P9-4.4).
+        Add an entity to an event, or replace the event's entities
+        (Story P9-4.4, issue #652).
 
-        If the event is already linked to another entity, this becomes a "move"
-        operation that unlinks from the old entity and links to the new one.
-        Creates EntityAdjustment record(s) for ML training.
+        Default (``replace=False``): *adds* a link. Entities already on the
+        event stay. At most ``MAX_ENTITIES_PER_EVENT`` entities per event.
+
+        ``replace=True``: the correction path. Every other entity is removed
+        from the event (``move_from`` adjustments, occurrence counts
+        decremented) and the target becomes the only, primary entity.
+
+        Both paths keep ``matched_entity_ids`` in sync with the links so
+        alert rules see the same set, and set the primary
+        (``final_entity_*``) when the event had none.
 
         Args:
             db: SQLAlchemy database session
             event_id: UUID of the event to assign
             entity_id: UUID of the target entity
+            replace: Remove other entities from the event first
 
         Returns:
-            Dict with success status, message, action type, and entity info
+            Dict with success, message, action ("add", "replace" or "none"),
+            entity_id, entity_name, and the event's ``entities`` afterwards
 
         Raises:
             ValueError: If event or entity not found
+            EventEntityLimitError: If adding would exceed the per-event cap
         """
+        from sqlalchemy.exc import IntegrityError
+
         from app.models.recognized_entity import RecognizedEntity, EntityEvent
         from app.models.entity_adjustment import EntityAdjustment
         from app.models.event import Event
 
-        # Verify event exists
         event = db.query(Event).filter(Event.id == event_id).first()
         if not event:
             raise ValueError(f"Event not found: {event_id}")
 
-        # Verify target entity exists
         target_entity = db.query(RecognizedEntity).filter(
             RecognizedEntity.id == entity_id
         ).first()
         if not target_entity:
             raise ValueError(f"Entity not found: {entity_id}")
 
-        # Check if event is already linked to an entity
-        existing_link = db.query(EntityEvent).filter(
+        existing_links = db.query(EntityEvent).filter(
             EntityEvent.event_id == event_id
-        ).first()
+        ).all()
+        links_by_entity = {link.entity_id: link for link in existing_links}
+        matched_ids = parse_entity_id_list(event.matched_entity_ids)
+        current_ids = list(dict.fromkeys(list(links_by_entity) + matched_ids))
 
-        old_entity_id = None
-        action = "assign"
+        target_link = links_by_entity.get(entity_id)
+        others = [i for i in current_ids if i != entity_id]
+        now = datetime.now(timezone.utc)
+        label = target_entity.display_name
 
-        if existing_link:
-            # This is a move operation
-            old_entity_id = existing_link.entity_id
-
-            if old_entity_id == entity_id:
-                # Already linked to this entity
+        if not replace or not others:
+            if target_link is not None:
+                # Already linked. Heal matched_entity_ids if it drifted.
+                if entity_id not in matched_ids:
+                    _store_entity_id_list(event, matched_ids + [entity_id])
+                    db.commit()
                 return {
                     "success": True,
-                    "message": f"Event already linked to {target_entity.name or 'this entity'}",
+                    "message": f"Event already linked to {label}",
                     "action": "none",
                     "entity_id": entity_id,
                     "entity_name": target_entity.name,
+                    "entities": build_event_entities(db, [event]).get(event.id, []),
                 }
+            if entity_id not in current_ids and len(current_ids) >= MAX_ENTITIES_PER_EVENT:
+                raise EventEntityLimitError(
+                    f"An event can have at most {MAX_ENTITIES_PER_EVENT} entities. "
+                    "Remove one before adding another."
+                )
+            action = "add"
+            removed_ids: list[str] = []
+        else:
+            action = "replace"
+            removed_ids = others
 
-            action = "move"
-
-            # Get old entity to update occurrence count
-            old_entity = db.query(RecognizedEntity).filter(
-                RecognizedEntity.id == old_entity_id
-            ).first()
-
-            # Create adjustment record for move_from
-            adjustment_from = EntityAdjustment(
+        # Replace: take every other entity off the event first.
+        for old_id in removed_ids:
+            db.add(EntityAdjustment(
                 event_id=event_id,
-                old_entity_id=old_entity_id,
+                old_entity_id=old_id,
                 new_entity_id=entity_id,
                 action="move_from",
                 event_description=event.description,
-            )
-            db.add(adjustment_from)
+            ))
+            old_link = links_by_entity.get(old_id)
+            if old_link is not None:
+                old_entity = db.query(RecognizedEntity).filter(
+                    RecognizedEntity.id == old_id
+                ).first()
+                if old_entity and old_entity.occurrence_count > 0:
+                    old_entity.occurrence_count -= 1
+                    old_entity.updated_at = now
+                db.delete(old_link)
 
-            # Decrement old entity occurrence count
-            if old_entity and old_entity.occurrence_count > 0:
-                old_entity.occurrence_count -= 1
-                old_entity.updated_at = datetime.now(timezone.utc)
-
-            # Update the existing link to point to new entity
-            existing_link.entity_id = entity_id
-            existing_link.similarity_score = 1.0  # Manual assignment = 100% match
-            existing_link.created_at = datetime.now(timezone.utc)
-
-            # Create adjustment record for move_to
-            adjustment_to = EntityAdjustment(
-                event_id=event_id,
-                old_entity_id=old_entity_id,
-                new_entity_id=entity_id,
-                action="move_to",
-                event_description=event.description,
-            )
-            db.add(adjustment_to)
-
-            logger.info(
-                f"Event moved from entity {old_entity_id} to {entity_id}",
-                extra={
-                    "event_type": "event_moved",
-                    "event_id": event_id,
-                    "old_entity_id": old_entity_id,
-                    "new_entity_id": entity_id,
-                }
-            )
-        else:
-            # New assignment
-            entity_event = EntityEvent(
+        if target_link is None:
+            db.add(EntityEvent(
                 entity_id=entity_id,
                 event_id=event_id,
                 similarity_score=1.0,  # Manual assignment = 100% match
-            )
-            db.add(entity_event)
-
-            # Create adjustment record for assign
-            adjustment = EntityAdjustment(
+                created_at=now,
+            ))
+            db.add(EntityAdjustment(
                 event_id=event_id,
-                old_entity_id=None,
+                old_entity_id=removed_ids[0] if removed_ids else None,
                 new_entity_id=entity_id,
-                action="assign",
+                action="move_to" if removed_ids else "add",
                 event_description=event.description,
-            )
-            db.add(adjustment)
+            ))
+            apply_event_thumbnail_to_entity(target_entity, event)
+            target_entity.occurrence_count = (target_entity.occurrence_count or 0) + 1
+            last_seen = target_entity.last_seen_at
+            try:
+                if last_seen is None or (event.timestamp and event.timestamp > last_seen):
+                    target_entity.last_seen_at = event.timestamp
+            except TypeError:
+                # Mixed aware/naive datetimes: keep the old behavior.
+                target_entity.last_seen_at = event.timestamp
+            target_entity.updated_at = now
 
-            logger.info(
-                f"Event assigned to entity: event={event_id}, entity={entity_id}",
-                extra={
-                    "event_type": "event_assigned",
-                    "event_id": event_id,
-                    "entity_id": entity_id,
-                }
-            )
+        if action == "replace":
+            _store_entity_id_list(event, [entity_id])
+            _set_primary_entity(event, target_entity, similarity_score=1.0)
+        else:
+            _store_entity_id_list(event, matched_ids + [entity_id])
+            if not event.final_entity_id:
+                _set_primary_entity(event, target_entity, similarity_score=1.0)
 
-        # Increment target entity occurrence count
-        apply_event_thumbnail_to_entity(target_entity, event)
-        target_entity.occurrence_count += 1
-        target_entity.last_seen_at = event.timestamp
-        target_entity.updated_at = datetime.now(timezone.utc)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another request linked the same pair first. Treat as no-op.
+            db.rollback()
+            event = db.query(Event).filter(Event.id == event_id).first()
+            return {
+                "success": True,
+                "message": f"Event already linked to {label}",
+                "action": "none",
+                "entity_id": entity_id,
+                "entity_name": target_entity.name,
+                "entities": build_event_entities(db, [event]).get(event_id, []) if event else [],
+            }
 
-        db.commit()
+        logger.info(
+            "Entity assigned to event",
+            extra={
+                "event_type": "event_moved" if action == "replace" else "event_assigned",
+                "event_id": event_id,
+                "entity_id": entity_id,
+                "action": action,
+                "removed_entity_count": len(removed_ids),
+            }
+        )
 
-        entity_label = target_entity.display_name
-        message = f"Event {'moved to' if action == 'move' else 'added to'} {entity_label}"
+        message = f"Event {'moved to' if action == 'replace' else 'added to'} {label}"
 
         return {
             "success": True,
@@ -1566,6 +1820,7 @@ class EntityService:
             "action": action,
             "entity_id": entity_id,
             "entity_name": target_entity.name,
+            "entities": build_event_entities(db, [event]).get(event.id, []),
         }
 
     async def merge_entities(
@@ -1621,6 +1876,20 @@ class EntityService:
         events_moved = 0
         now = datetime.now(timezone.utc)
 
+        # Issue #652: an event can already be linked to both entities. Those
+        # links collapse into the primary's existing row instead of moving
+        # (the (entity_id, event_id) primary key allows only one).
+        overlap_event_ids: set[str] = set()
+        secondary_event_ids = [link.event_id for link in secondary_event_links]
+        if secondary_event_ids:
+            overlap_event_ids = {
+                row[0]
+                for row in db.query(EntityEvent.event_id).filter(
+                    EntityEvent.entity_id == primary_entity_id,
+                    EntityEvent.event_id.in_(secondary_event_ids),
+                ).all()
+            }
+
         # Move each event and create adjustment records
         for link in secondary_event_links:
             # Get event description for ML training
@@ -1639,15 +1908,25 @@ class EntityService:
             )
             db.add(adjustment)
 
-            # Update the link to point to primary entity
-            link.entity_id = primary_entity_id
-            link.created_at = now  # Update timestamp
+            if link.event_id in overlap_event_ids:
+                # Primary already on this event: drop the duplicate link.
+                db.delete(link)
+            else:
+                # Update the link to point to primary entity
+                link.entity_id = primary_entity_id
+                link.created_at = now  # Update timestamp
 
             events_moved += 1
 
-        # Update primary entity occurrence count
-        primary.occurrence_count += secondary.occurrence_count
+        # Update primary entity occurrence count. An event both entities were
+        # on is one sighting of the merged entity, not two.
+        primary.occurrence_count += max(
+            (secondary.occurrence_count or 0) - len(overlap_event_ids), 0
+        )
         primary.updated_at = now
+
+        # Keep alert-rule ids and the primary column pointing at a live entity.
+        self._repoint_event_entity_refs(db, secondary_entity_id, primary)
 
         # Update last_seen_at if secondary was seen more recently
         if secondary.last_seen_at > primary.last_seen_at:
@@ -1664,6 +1943,12 @@ class EntityService:
         # Store secondary info before deletion
         secondary_id = secondary.id
         secondary_name = secondary.name
+
+        # Write the moved links before deleting the secondary. Sessions run
+        # with autoflush=False, and the entity_events relationship cascades
+        # deletes: without this flush the cascade still sees the old rows and
+        # deletes every link that was just moved to the primary.
+        db.flush()
 
         # Delete secondary entity (EntityEvent links already moved)
         db.delete(secondary)
@@ -1695,6 +1980,32 @@ class EntityService:
             "message": f"Merged {events_moved} event(s) into {primary.name or 'entity'}",
         }
 
+    def _repoint_event_entity_refs(self, db: Session, old_entity_id: str, new_entity) -> None:
+        """Rewrite ``matched_entity_ids`` / ``final_entity_*`` after a merge."""
+        from sqlalchemy import or_
+
+        from app.models.event import Event
+
+        events = db.query(Event).filter(
+            or_(
+                Event.final_entity_id == old_entity_id,
+                Event.matched_entity_ids.contains(json.dumps(old_entity_id), autoescape=True),
+            )
+        ).all()
+        for event in events:
+            ids = parse_entity_id_list(event.matched_entity_ids)
+            if old_entity_id in ids:
+                _store_entity_id_list(
+                    event,
+                    [new_entity.id if i == old_entity_id else i for i in ids],
+                )
+            if event.final_entity_id == old_entity_id:
+                _set_primary_entity(
+                    event,
+                    new_entity,
+                    similarity_score=event.final_entity_similarity_score,
+                )
+
     async def get_adjustments(
         self,
         db: Session,
@@ -1712,7 +2023,8 @@ class EntityService:
             db: SQLAlchemy database session
             limit: Maximum number of adjustments to return (default 50)
             offset: Pagination offset
-            action: Filter by action type (unlink, assign, move_from, move_to, merge)
+            action: Filter by action type (add, remove, move_from, move_to, merge;
+                "assign"/"unlink" are aliases for add/remove, "move" for move_*)
             entity_id: Filter by entity ID (matches old or new entity)
             start_date: Filter adjustments from this date
             end_date: Filter adjustments until this date
@@ -1734,6 +2046,12 @@ class EntityService:
                         EntityAdjustment.action == "move_from",
                         EntityAdjustment.action == "move_to"
                     )
+                )
+            elif action in _ADJUSTMENT_ACTION_ALIASES:
+                # Issue #652 renamed assign/unlink to add/remove. Filtering by
+                # either name returns old and new rows.
+                query = query.filter(
+                    EntityAdjustment.action.in_(_ADJUSTMENT_ACTION_ALIASES[action])
                 )
             else:
                 query = query.filter(EntityAdjustment.action == action)

@@ -16,6 +16,21 @@ CARRIER_DISPLAY_NAMES = {
 }
 
 
+class EventEntitySummary(BaseModel):
+    """One entity on an event (issue #652: an event can have several)."""
+    id: str = Field(..., description="Entity ID (string; UUID or other text id)")
+    name: Optional[str] = Field(None, description="User-assigned name, if any")
+    entity_type: str = Field(..., description="Entity type: person, vehicle, or unknown")
+    display_name: Optional[str] = Field(None, description="Human-readable label (name, vehicle descriptor, or type + id)")
+    vehicle_color: Optional[str] = Field(None, description="Vehicle color, when known")
+    vehicle_make: Optional[str] = Field(None, description="Vehicle make, when known")
+    vehicle_model: Optional[str] = Field(None, description="Vehicle model, when known")
+    vehicle_signature: Optional[str] = Field(None, description="Vehicle signature, when known")
+    similarity_score: Optional[float] = Field(None, description="Link similarity (1.0 = manual); null for match-only entries")
+    linked: bool = Field(True, description="True when an entity_events link exists; False when only in matched_entity_ids")
+    is_primary: bool = Field(False, description="True for the event's primary entity (final_entity_id)")
+
+
 class MatchedEntitySummary(BaseModel):
     """Summary of a matched entity for event responses (Story P4-3.3)"""
     id: str = Field(..., description="Entity UUID")
@@ -311,6 +326,9 @@ class EventResponse(BaseModel):
     entity_vehicle_make: Optional[str] = Field(None, description="Linked vehicle make, when known")
     entity_vehicle_model: Optional[str] = Field(None, description="Linked vehicle model, when known")
     entity_vehicle_signature: Optional[str] = Field(None, description="Linked vehicle signature, when known")
+    # Issue #652: every entity on the event (person + vehicle, ...), primary first.
+    # The single entity_* fields above mirror the first entry for older clients.
+    entities: List[EventEntitySummary] = Field(default_factory=list, description="All entities on this event, primary first")
     # Story P4-5.1: User Feedback
     feedback: Optional[FeedbackResponse] = Field(None, description="User feedback on this event's description")
     # Story P6-3.2: Audio event detection

@@ -110,6 +110,32 @@ describe('EventDetailModal', () => {
     vi.clearAllMocks()
   })
 
+  describe('entities (issue #652)', () => {
+    it('lists every entity on the event with its own remove button', () => {
+      renderModal(
+        createMockEvent({
+          entities: [
+            { id: 'isaac', name: 'Isaac', entity_type: 'person', is_primary: true },
+            {
+              id: 'bmw-x3',
+              name: null,
+              entity_type: 'vehicle',
+              vehicle_make: 'BMW',
+              vehicle_model: 'X3',
+            },
+          ],
+        })
+      )
+
+      expect(screen.getByText('Entities')).toBeInTheDocument()
+      expect(
+        screen.getAllByTestId('event-entity-chip').map((chip) => chip.getAttribute('data-entity-id'))
+      ).toEqual(['isaac', 'bmw-x3'])
+      expect(screen.getByRole('button', { name: 'Remove Isaac from this event' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Remove Bmw X3 from this event' })).toBeInTheDocument()
+    })
+  })
+
   describe('rendering', () => {
     it('renders nothing when event is null', () => {
       renderModal(null)

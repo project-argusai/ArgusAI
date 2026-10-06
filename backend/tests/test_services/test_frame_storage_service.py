@@ -369,16 +369,16 @@ class TestRetentionCleanupFrames:
 
     @pytest.mark.asyncio
     async def test_cleanup_service_removes_frames(self, temp_dir, db_session, sample_camera):
-        """AC1.5: Test retention cleanup deletes frame directories."""
+        """AC1.5: Test retention cleanup deletes frame directories via EventMediaDeletionService."""
         from app.services.cleanup_service import CleanupService
         from datetime import timedelta
 
-        # Create cleanup service with test session
+        # Create cleanup service with test session; point frames root at temp dir
+        # (CR-010 / #600 no longer uses get_frame_storage_service for retention).
         cleanup_service = CleanupService(session_factory=lambda: db_session)
-
-        # Mock frame storage service to use temp directory
-        mock_frame_service = FrameStorageService(session_factory=lambda: db_session)
-        mock_frame_service.base_dir = Path(temp_dir) / "frames"
+        frames_root = Path(temp_dir) / "frames"
+        frames_root.mkdir(parents=True, exist_ok=True)
+        cleanup_service.frames_base_dir = str(frames_root)
 
         # Create old event (31 days ago) using factory function
         old_event = make_event(
@@ -388,8 +388,8 @@ class TestRetentionCleanupFrames:
             description="Old event for cleanup test"
         )
 
-        # Create frame directory and files manually
-        frame_dir = mock_frame_service._get_event_frame_dir(old_event.id)
+        # Create frame directory and files under CleanupService frames root
+        frame_dir = frames_root / old_event.id
         frame_dir.mkdir(parents=True, exist_ok=True)
         (frame_dir / "frame_001.jpg").write_bytes(b"test")
         (frame_dir / "frame_002.jpg").write_bytes(b"test")
@@ -398,9 +398,7 @@ class TestRetentionCleanupFrames:
         assert frame_dir.exists()
         assert len(list(frame_dir.glob("*.jpg"))) == 2
 
-        # Patch get_frame_storage_service to return our mock
-        with patch('app.services.cleanup_service.get_frame_storage_service', return_value=mock_frame_service):
-            stats = await cleanup_service.cleanup_old_events(retention_days=30)
+        stats = await cleanup_service.cleanup_old_events(retention_days=30)
 
         # Verify event was deleted
         assert stats["events_deleted"] == 1

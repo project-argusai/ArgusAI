@@ -11,7 +11,8 @@ from typing import Optional
 
 
 # Valid scopes for API keys
-VALID_SCOPES = {"read:events", "read:cameras", "write:cameras", "admin"}
+# read:mcp (issue #648) admits a key to the read-only MCP connector only.
+VALID_SCOPES = {"read:events", "read:cameras", "read:mcp", "write:cameras", "admin"}
 
 
 class APIKeyCreateRequest(BaseModel):
@@ -19,7 +20,7 @@ class APIKeyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, description="Descriptive name for the key")
     scopes: list[str] = Field(
         default=["read:events"],
-        description="Permission scopes: read:events, read:cameras, write:cameras, admin"
+        description="Permission scopes: read:events, read:cameras, read:mcp, write:cameras, admin"
     )
     expires_at: Optional[UTCDateTime] = Field(
         None,

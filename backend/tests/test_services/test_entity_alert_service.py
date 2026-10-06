@@ -599,6 +599,139 @@ class TestSingleton:
 # =============================================================================
 
 
+class TestReanalysisDescriptionRewrite:
+    """Re-analyze must reuse enrich_description for linked entities."""
+
+    @pytest.mark.asyncio
+    async def test_no_linked_entity_returns_the_new_description(self, db_session):
+        from tests.conftest import make_camera, make_event
+
+        reset_entity_alert_service()
+        camera = make_camera(db_session=db_session)
+        event = make_event(
+            db_session=db_session,
+            camera_id=camera.id,
+            description="Old multi-frame text",
+            enriched_description="At 10:15 AM a red SUV entering the driveway in the first frame.",
+        )
+        service = get_entity_alert_service()
+        rewritten = await service.rewrite_reanalysis_description(
+            db_session,
+            event,
+            "At 3:15 PM a red sedan is parked in the driveway.",
+        )
+        assert rewritten == "At 3:15 PM a red sedan is parked in the driveway."
+
+    @pytest.mark.asyncio
+    async def test_linked_person_replaces_generic_phrase(self, db_session):
+        from app.models.recognized_entity import EntityEvent
+        from tests.conftest import make_camera, make_entity, make_event
+
+        reset_entity_alert_service()
+        camera = make_camera(db_session=db_session)
+        event = make_event(db_session=db_session, camera_id=camera.id)
+        person = make_entity(
+            db_session=db_session,
+            entity_type="person",
+            name="John Smith",
+        )
+        db_session.add(EntityEvent(
+            entity_id=person.id,
+            event_id=event.id,
+            similarity_score=1.0,
+        ))
+        db_session.commit()
+
+        rewritten = await get_entity_alert_service().rewrite_reanalysis_description(
+            db_session,
+            event,
+            "A person in a blue jacket walked to the front door.",
+        )
+        assert rewritten == "John Smith in a blue jacket walked to the front door."
+
+    @pytest.mark.asyncio
+    async def test_agreeing_vehicle_uses_the_live_ingest_phrase(self, db_session):
+        from tests.conftest import make_camera, make_entity, make_event
+
+        reset_entity_alert_service()
+        camera = make_camera(db_session=db_session)
+        event = make_event(
+            db_session=db_session,
+            camera_id=camera.id,
+            matched_entity_ids=None,
+        )
+        person = make_entity(db_session=db_session, entity_type="person", name="Isaac")
+        vehicle = make_entity(
+            db_session=db_session,
+            entity_type="vehicle",
+            name="Isaac's BMW",
+            vehicle_color="red",
+            vehicle_make="BMW",
+            vehicle_model="X3",
+        )
+        event.matched_entity_ids = json.dumps([person.id, vehicle.id])
+        db_session.commit()
+
+        rewritten = await get_entity_alert_service().rewrite_reanalysis_description(
+            db_session,
+            event,
+            "A person arrives in a vehicle at the driveway. It is a red BMW.",
+        )
+        assert "Isaac" in rewritten
+        assert "BMW" in rewritten
+        assert "a person" not in rewritten.lower()
+        assert "a vehicle" not in rewritten.lower()
+
+    @pytest.mark.asyncio
+    async def test_disagreeing_vehicle_is_not_forced_onto_the_sentence(self, db_session):
+        """A make the new sentence does not show stays out, same as live ingest."""
+        from tests.conftest import make_camera, make_entity, make_event
+
+        reset_entity_alert_service()
+        camera = make_camera(db_session=db_session)
+        vehicle = make_entity(
+            db_session=db_session,
+            entity_type="vehicle",
+            name="Isaac's BMW",
+            vehicle_make="BMW",
+            vehicle_model="X3",
+        )
+        event = make_event(
+            db_session=db_session,
+            camera_id=camera.id,
+            final_entity_id=vehicle.id,
+        )
+        original = "A red SUV moves leftward along the road."
+        identification = {"object_type": "vehicle", "identity": "Isaac's BMW"}
+        rewritten = await get_entity_alert_service().rewrite_reanalysis_description(
+            db_session,
+            event,
+            original,
+            identification,
+        )
+        assert rewritten == original
+        assert "BMW" not in rewritten
+        assert identification["identity"] == "cannot_tell"
+
+    @pytest.mark.asyncio
+    async def test_malformed_matched_ids_do_not_raise(self, db_session):
+        from tests.conftest import make_camera, make_event
+
+        reset_entity_alert_service()
+        camera = make_camera(db_session=db_session)
+        event = make_event(
+            db_session=db_session,
+            camera_id=camera.id,
+            matched_entity_ids="not-json",
+        )
+        rewritten = await get_entity_alert_service().rewrite_reanalysis_description(
+            db_session,
+            event,
+            "A person is at the door.",
+        )
+        assert rewritten == "A person is at the door."
+
+
 class TestCache:
     """Tests for entity cache behavior."""
 

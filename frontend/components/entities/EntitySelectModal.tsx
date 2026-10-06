@@ -45,6 +45,8 @@ interface EntitySelectModalProps {
   isLoading?: boolean;
   /** Story P16-4.1: Whether to show confirmation dialog before assignment (default: true) */
   showConfirmDialog?: boolean;
+  /** Issue #652: entity ids already on the event; hidden from the list */
+  excludeEntityIds?: readonly string[];
 }
 
 interface EntityListItem {
@@ -78,6 +80,7 @@ export function EntitySelectModal({
   description = 'Choose an entity to assign this event to',
   isLoading = false,
   showConfirmDialog = true,
+  excludeEntityIds,
 }: EntitySelectModalProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
@@ -102,10 +105,17 @@ export function EntitySelectModal({
     search: searchQuery || undefined,
   });
 
+  const excluded = useMemo(
+    () => new Set((excludeEntityIds ?? []).map((id) => String(id))),
+    [excludeEntityIds]
+  );
+
   const entities = useMemo(() => {
     const listed = (entitiesData?.entities ?? []) as EntityListItem[];
-    return listed.filter((entity) => entityMatchesSearch(entity, searchQuery));
-  }, [entitiesData, searchQuery]);
+    return listed.filter(
+      (entity) => !excluded.has(String(entity.id)) && entityMatchesSearch(entity, searchQuery)
+    );
+  }, [entitiesData, searchQuery, excluded]);
 
   // Get selected entity details
   const selectedEntity = useMemo(() => {

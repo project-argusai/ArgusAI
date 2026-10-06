@@ -13,6 +13,7 @@ from main import app
 from app.core.database import Base, get_db
 from app.models.event import Event
 from app.models.camera import Camera
+from app.models.recognized_entity import EntityEvent, RecognizedEntity
 
 
 # Create module-level temp database
@@ -1628,6 +1629,423 @@ def test_reanalyze_event_response_includes_reanalyzed_fields(test_camera):
     assert "reanalyzed_at" in data
     assert "reanalysis_count" in data
     assert data["reanalysis_count"] == 1
+
+
+def _tiny_jpeg_b64() -> str:
+    """A real JPEG so re-analyze can decode the stored thumbnail."""
+    import io
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), (12, 24, 48)).save(buf, format="JPEG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def _without_fts_update_trigger():
+    """Drop the module's FTS5 update trigger for one request.
+
+    That trigger issues a plain UPDATE against an external-content FTS5
+    table, which SQLite reports as a malformed database. Re-analyze is the
+    first path in this module that updates an event row.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _paused():
+        with engine.begin() as conn:
+            conn.execute(text("DROP TRIGGER IF EXISTS events_au"))
+        try:
+            yield
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("""
+                    CREATE TRIGGER IF NOT EXISTS events_au AFTER UPDATE ON events BEGIN
+                        UPDATE events_fts
+                        SET description = new.description
+                        WHERE rowid = old.rowid;
+                    END
+                """))
+
+    return _paused()
+
+
+def _reanalyze_event(event_id: str, thumbnail_b64: str, camera_id: str) -> None:
+    db = TestingSessionLocal()
+    try:
+        db.add(Event(
+            id=event_id,
+            camera_id=camera_id,
+            timestamp=datetime.now(timezone.utc),
+            description="Original description",
+            confidence=40,
+            objects_detected=json.dumps(["person"]),
+            alert_triggered=False,
+            source_type="rtsp",
+            low_confidence=True,
+            thumbnail_base64=thumbnail_b64,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _mock_reanalyze_provider(monkeypatch, description: str):
+    from unittest.mock import AsyncMock
+
+    from app.services.ai_service import AIService
+    from app.services.ai_types import AIProvider, AIResult
+    from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
+
+    async def grok_call(*args, **kwargs):
+        return AIResult(
+            description=description,
+            confidence=88,
+            objects_detected=["person"],
+            provider="grok",
+            tokens_used=20,
+            response_time_ms=100,
+            cost_estimate=0.001,
+            success=True,
+            ai_confidence=90,
+        )
+
+    grok = AsyncMock()
+    grok.generate_description = grok_call
+
+    async def _load(self, db):
+        self.use_litellm = False
+        self.vision_orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok}
+        )
+
+    monkeypatch.setattr(AIService, "load_api_keys_from_db", _load)
+    monkeypatch.setattr(
+        "app.services.vision_analysis_orchestrator.load_ai_provider_order",
+        lambda: [AIProvider.GROK],
+    )
+
+
+def test_reanalyze_replaces_stale_enriched_description(test_camera, monkeypatch):
+    """A new description replaces the previous enriched sentence when nothing matches."""
+    from app.services.entity_alert_service import reset_entity_alert_service
+
+    reset_entity_alert_service()
+    stale = "At 10:15 AM a red SUV entering the driveway in the first frame."
+    fresh = "At 3:15 PM a red sedan is parked in the driveway."
+    _mock_reanalyze_provider(monkeypatch, fresh)
+
+    db = TestingSessionLocal()
+    try:
+        db.add(Event(
+            id="event-stale-enriched",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Old multi-frame description",
+            enriched_description=stale,
+            confidence=40,
+            objects_detected=json.dumps(["vehicle"]),
+            alert_triggered=False,
+            source_type="rtsp",
+            low_confidence=True,
+            thumbnail_base64=_tiny_jpeg_b64(),
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-stale-enriched/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["description"] == fresh
+
+    db = TestingSessionLocal()
+    try:
+        stored = db.query(Event).filter(Event.id == "event-stale-enriched").one()
+        assert stored.description == fresh
+        assert stored.enriched_description == fresh
+        assert stale not in (stored.enriched_description or "")
+    finally:
+        db.close()
+
+
+def test_reanalyze_rewrites_description_with_linked_entity(test_camera, monkeypatch):
+    """A linked person name replaces the generic phrase in both description columns."""
+    from app.services.entity_alert_service import reset_entity_alert_service
+
+    reset_entity_alert_service()
+    _mock_reanalyze_provider(
+        monkeypatch,
+        "A person in a blue jacket walked to the front door.",
+    )
+
+    db = TestingSessionLocal()
+    try:
+        event = Event(
+            id="event-named-reanalyze",
+            camera_id=test_camera.id,
+            timestamp=datetime.now(timezone.utc),
+            description="Old description",
+            enriched_description="At 10:15 AM a red SUV entering the driveway in the first frame.",
+            confidence=40,
+            objects_detected=json.dumps(["person"]),
+            alert_triggered=False,
+            source_type="rtsp",
+            low_confidence=True,
+            thumbnail_base64=_tiny_jpeg_b64(),
+        )
+        entity = RecognizedEntity(
+            id="entity-john-reanalyze",
+            entity_type="person",
+            name="John Smith",
+            reference_embedding=json.dumps([0.1] * 512),
+            first_seen_at=datetime.now(timezone.utc),
+            last_seen_at=datetime.now(timezone.utc),
+            occurrence_count=2,
+            is_vip=False,
+            is_blocked=False,
+        )
+        db.add(event)
+        db.add(entity)
+        db.flush()
+        db.add(EntityEvent(
+            entity_id=entity.id,
+            event_id=event.id,
+            similarity_score=1.0,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-named-reanalyze/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["description"] == "John Smith in a blue jacket walked to the front door."
+    assert "A person" not in body["description"]
+
+    db = TestingSessionLocal()
+    try:
+        stored = db.query(Event).filter(Event.id == "event-named-reanalyze").one()
+        assert stored.description == body["description"]
+        assert stored.enriched_description == body["description"]
+    finally:
+        db.close()
+
+
+def test_reanalyze_slow_provider_budget_succeeds(test_camera, monkeypatch):
+    """Manual re-analyze gives the first provider the live 15s budget, not 3s."""
+    from unittest.mock import AsyncMock
+
+    from app.services.ai_service import AIService
+    from app.services.ai_types import AIProvider, AIResult
+    from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
+
+    seen = {}
+
+    async def grok_call(*args, **kwargs):
+        seen["timeout_s"] = kwargs.get("request_timeout_s")
+        return AIResult(
+            description="A person in a blue jacket walked to the front door",
+            confidence=88,
+            objects_detected=["person"],
+            provider="grok",
+            tokens_used=20,
+            response_time_ms=10000,
+            cost_estimate=0.001,
+            success=True,
+            ai_confidence=90,
+        )
+
+    grok = AsyncMock()
+    grok.generate_description = grok_call
+
+    async def _load(self, db):
+        self.use_litellm = False
+        self.vision_orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok}
+        )
+
+    monkeypatch.setattr(AIService, "load_api_keys_from_db", _load)
+    monkeypatch.setattr(
+        "app.services.vision_analysis_orchestrator.load_ai_provider_order",
+        lambda: [AIProvider.GROK],
+    )
+
+    _reanalyze_event("event-slow-reanalyze", _tiny_jpeg_b64(), test_camera.id)
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-slow-reanalyze/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["provider_used"] == "grok"
+    assert "blue jacket" in data["description"]
+    assert data["reanalysis_count"] == 1
+    assert seen["timeout_s"] >= 10
+
+
+def test_reanalyze_quota_exhausted_tries_next_provider(test_camera, monkeypatch):
+    """A quota failure is not retried; the next provider still runs."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services.ai_service import AIService
+    from app.services.ai_types import AIProvider, AIResult
+    from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
+
+    calls = []
+
+    async def grok_call(*args, **kwargs):
+        calls.append("grok")
+        return AIResult(
+            description="",
+            confidence=0,
+            objects_detected=[],
+            provider="grok",
+            tokens_used=0,
+            response_time_ms=20,
+            cost_estimate=0.0,
+            success=False,
+            error="You have no credits. sk-live-secret-DO-NOT-LEAK",
+        )
+
+    async def gemini_call(*args, **kwargs):
+        calls.append("gemini")
+        return AIResult(
+            description="A white car is parked in the driveway",
+            confidence=80,
+            objects_detected=["vehicle"],
+            provider="gemini",
+            tokens_used=15,
+            response_time_ms=40,
+            cost_estimate=0.001,
+            success=True,
+            ai_confidence=80,
+        )
+
+    grok = AsyncMock()
+    grok.generate_description = grok_call
+    gemini = AsyncMock()
+    gemini.generate_description = gemini_call
+    resilience = MagicMock()
+    resilience.can_use_provider.return_value = True
+
+    async def _load(self, db):
+        self.use_litellm = False
+        self.vision_orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok, AIProvider.GEMINI: gemini},
+            resilience_service=resilience,
+        )
+
+    monkeypatch.setattr(AIService, "load_api_keys_from_db", _load)
+    monkeypatch.setattr(
+        "app.services.vision_analysis_orchestrator.load_ai_provider_order",
+        lambda: [AIProvider.GROK, AIProvider.GEMINI],
+    )
+
+    _reanalyze_event("event-quota-reanalyze", _tiny_jpeg_b64(), test_camera.id)
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-quota-reanalyze/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["provider_used"] == "gemini"
+    assert calls == ["grok", "gemini"]
+    assert "sk-live-secret" not in response.text
+    resilience.trip_quota.assert_called_once_with("grok")
+
+
+def test_reanalyze_provider_failure_shape(test_camera, monkeypatch):
+    """Provider failure is 503 with the attempted providers, not a bare 500."""
+    from unittest.mock import AsyncMock
+
+    from app.services.ai_service import AIService
+    from app.services.ai_types import AIProvider, AIResult
+    from app.services.vision_analysis_orchestrator import VisionAnalysisOrchestrator
+
+    def fail(provider, error):
+        return AIResult(
+            description="",
+            confidence=0,
+            objects_detected=[],
+            provider=provider,
+            tokens_used=0,
+            response_time_ms=10,
+            cost_estimate=0.0,
+            success=False,
+            error=error,
+        )
+
+    grok = AsyncMock()
+    grok.generate_description = AsyncMock(
+        side_effect=lambda *a, **k: fail(
+            "grok", "You have no credits. sk-live-secret-DO-NOT-LEAK"
+        )
+    )
+    gemini = AsyncMock()
+    gemini.generate_description = AsyncMock(
+        side_effect=lambda *a, **k: fail("gemini", "connection refused")
+    )
+
+    async def _load(self, db):
+        self.use_litellm = False
+        self.vision_orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok, AIProvider.GEMINI: gemini}
+        )
+
+    monkeypatch.setattr(AIService, "load_api_keys_from_db", _load)
+    monkeypatch.setattr(
+        "app.services.vision_analysis_orchestrator.load_ai_provider_order",
+        lambda: [AIProvider.GROK, AIProvider.GEMINI],
+    )
+
+    _reanalyze_event("event-fail-reanalyze", _tiny_jpeg_b64(), test_camera.id)
+    response = client.post(
+        "/api/v1/events/event-fail-reanalyze/reanalyze",
+        json={"analysis_mode": "single_frame"},
+    )
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert isinstance(detail, str)
+    assert "grok" in detail
+    assert "gemini" in detail
+    assert "quota" in detail.lower()
+    assert "sk-live-secret" not in detail
+    assert response.status_code != 500
+
+
+def test_reanalysis_budget_failure_is_502():
+    from app.api.v1.events import _reanalysis_provider_failure
+    from app.services.ai_types import AIResult
+
+    result = AIResult(
+        description="",
+        confidence=0,
+        objects_detected=[],
+        provider="timeout",
+        tokens_used=0,
+        response_time_ms=3428,
+        cost_estimate=0.0,
+        success=False,
+        error=(
+            "insufficient remaining budget: 1572 ms left. "
+            "attempted=[grok:timeout, claude:quota_exhausted]"
+        ),
+    )
+    exc = _reanalysis_provider_failure(result)
+    assert exc.status_code == 502
+    assert "1572 ms left" in exc.detail
+    assert "grok" in exc.detail
+    assert "claude" in exc.detail
+    assert "timed out" in exc.detail
+    assert "quota exhausted" in exc.detail
 
 
 # ==================== Analysis Mode Filter Tests (Story P3-7.6) ====================

@@ -21,8 +21,9 @@ export interface ILoginRequest {
 }
 
 export interface ILoginResponse {
-  access_token: string;
-  refresh_token?: string; // Phase A - Web Refresh Tokens
+  /** Omitted for web cookie sessions (CR-011); mobile uses /mobile/auth. */
+  access_token?: string | null;
+  refresh_token?: string | null;
   token_type: string;
   user: IUser;
   must_change_password: boolean;

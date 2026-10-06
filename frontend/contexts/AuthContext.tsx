@@ -3,7 +3,7 @@
  *
  * Features:
  * - Real API authentication with backend
- * - User session management via localStorage token + HTTP-only cookies
+ * - User session management via HttpOnly cookies only (CR-011 / #601)
  * - Auto-check authentication on mount
  * - Login/logout functionality
  * - Role-based access control (Story P15-2.9)
@@ -13,7 +13,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiClient, ApiError, setAuthToken, clearAuthToken } from '@/lib/api-client';
+import { apiClient, ApiError, clearAuthToken, clearLegacyBrowserTokens } from '@/lib/api-client';
 import type { UserRole } from '@/types/auth';
 import { toast } from 'sonner';
 
@@ -104,8 +104,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [router]);
 
-  // Check auth on mount
+  // Clear any pre-CR-011 browser-readable tokens, then check cookie session
   useEffect(() => {
+    clearLegacyBrowserTokens();
     checkAuth();
   }, [checkAuth]);
 
@@ -113,10 +114,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     try {
       const response = await apiClient.auth.login({ username, password });
-      // Store token for Authorization header (backup for cookie issues)
-      if (response.access_token) {
-        setAuthToken(response.access_token);
-      }
+      // Web login sets HttpOnly cookies only; never persist tokens in JS storage.
+      clearLegacyBrowserTokens();
       setUser(response.user);
       return {
         mustChangePassword: response.must_change_password || response.user.must_change_password,

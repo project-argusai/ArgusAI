@@ -190,12 +190,14 @@ class TestAuthLogin:
 
         assert response.status_code == 200
         data = response.json()
-        assert "access_token" in data
+        # CR-011: web login omits tokens from JSON; cookies carry the session
+        assert data.get("access_token") in (None, "")
+        assert "refresh_token" not in data or data.get("refresh_token") in (None, "")
         assert data["token_type"] == "bearer"
         assert "user" in data
         assert data["user"]["username"] == "testuser"
-        # Check cookie is set
         assert "access_token" in response.cookies
+        assert "refresh_token" in response.cookies
 
     def test_login_invalid_username(self, test_user):
         """Returns 401 for non-existent username"""
@@ -236,7 +238,8 @@ class TestAuthLogin:
 
         assert response.status_code == 200
         data = response.json()
-        assert "access_token" in data
+        assert data.get("access_token") in (None, "")
+        assert "access_token" in response.cookies
 
 
 class TestAuthLogout:
@@ -458,7 +461,7 @@ class TestWebRefreshTokens:
     """Tests for the new web refresh token flow (Phase A)."""
 
     def test_login_returns_refresh_token(self, test_user):
-        """Login should now return a refresh_token in the response."""
+        """Login sets refresh_token as HttpOnly cookie, not in JSON (CR-011)."""
         response = client.post(
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
@@ -466,9 +469,11 @@ class TestWebRefreshTokens:
 
         assert response.status_code == 200
         data = response.json()
-        assert "refresh_token" in data
-        assert data["refresh_token"] is not None
-        assert len(data["refresh_token"]) > 50  # Should be a long opaque token
+        assert data.get("refresh_token") in (None, "")
+        assert data.get("access_token") in (None, "")
+        assert response.cookies.get("refresh_token")
+        assert len(response.cookies.get("refresh_token")) > 50
+        assert response.cookies.get("access_token")
 
     def test_successful_refresh(self, test_user):
         """Successfully exchange a valid refresh token for new tokens."""
@@ -477,7 +482,7 @@ class TestWebRefreshTokens:
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
         )
-        refresh_token = login_resp.json()["refresh_token"]
+        refresh_token = login_resp.cookies.get("refresh_token")
 
         # Refresh
         refresh_resp = client.post(
@@ -487,14 +492,18 @@ class TestWebRefreshTokens:
 
         assert refresh_resp.status_code == 200
         data = refresh_resp.json()
-        assert "access_token" in data
-        assert "refresh_token" in data
-        assert data["refresh_token"] != refresh_token  # Should be rotated
+        assert data.get("access_token") in (None, "")
+        assert data.get("refresh_token") in (None, "")
+        new_refresh = refresh_resp.cookies.get("refresh_token")
+        new_access = refresh_resp.cookies.get("access_token")
+        assert new_refresh
+        assert new_access
+        assert new_refresh != refresh_token  # Should be rotated
 
-        # New access token should work
+        # New access token cookie should work
         me_resp = client.get(
             "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {data['access_token']}"}
+            cookies={"access_token": new_access},
         )
         assert me_resp.status_code == 200
 
@@ -510,7 +519,7 @@ class TestWebRefreshTokens:
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
         )
-        old_refresh = login_resp.json()["refresh_token"]
+        old_refresh = login_resp.cookies.get("refresh_token")
 
         # First refresh
         first_refresh = client.post(
@@ -518,7 +527,7 @@ class TestWebRefreshTokens:
             json={"refresh_token": old_refresh}
         )
         assert first_refresh.status_code == 200
-        new_refresh = first_refresh.json()["refresh_token"]
+        new_refresh = first_refresh.cookies.get("refresh_token")
         assert new_refresh != old_refresh
 
         # Rotated token is valid (do not present the old token first)
@@ -539,11 +548,11 @@ class TestWebRefreshTokens:
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
         )
-        original_refresh = login_resp.json()["refresh_token"]
+        original_refresh = login_resp.cookies.get("refresh_token")
 
         first = client.post("/api/v1/auth/refresh", json={"refresh_token": original_refresh})
         assert first.status_code == 200
-        new_refresh = first.json()["refresh_token"]
+        new_refresh = first.cookies.get("refresh_token")
         assert new_refresh != original_refresh
 
         attack_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": original_refresh})
@@ -562,12 +571,12 @@ class TestWebRefreshTokens:
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
         )
-        t0 = login_resp.json()["refresh_token"]
+        t0 = login_resp.cookies.get("refresh_token")
 
-        t1 = client.post("/api/v1/auth/refresh", json={"refresh_token": t0}).json()["refresh_token"]
+        t1 = client.post("/api/v1/auth/refresh", json={"refresh_token": t0}).cookies.get("refresh_token")
         t2_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": t1})
         assert t2_resp.status_code == 200
-        t2 = t2_resp.json()["refresh_token"]
+        t2 = t2_resp.cookies.get("refresh_token")
 
         attack_resp = client.post("/api/v1/auth/refresh", json={"refresh_token": t0})
         assert attack_resp.status_code == 401
@@ -589,8 +598,8 @@ class TestWebRefreshTokens:
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
         )
-        access_token = login_resp.json()["access_token"]
-        refresh_token = login_resp.json()["refresh_token"]
+        access_token = login_resp.cookies.get("access_token")
+        refresh_token = login_resp.cookies.get("refresh_token")
 
         # Logout. The access-token cookie is set Secure=True, so the HTTP
         # TestClient won't resend it; pass the access token explicitly via the
@@ -615,7 +624,7 @@ class TestWebRefreshTokens:
             "/api/v1/auth/login",
             json={"username": "testuser", "password": "TestPass123!"}
         )
-        refresh_token = login_resp.json()["refresh_token"]
+        refresh_token = login_resp.cookies.get("refresh_token")
 
         # Make many rapid refresh calls (more than the 20/minute limit)
         responses = []

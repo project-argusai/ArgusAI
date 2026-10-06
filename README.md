@@ -97,6 +97,7 @@ AI-powered event detection and monitoring for home security. Analyzes video feed
 
 ### Smart Home Integration
 - **Home Assistant via MQTT** (Phase 4): Auto-discovery, event publishing, camera status sensors
+- **Assistant connector (MCP)**: Read-only MCP server at `/api/v1/mcp` so an assistant bot can answer "what happened at home?" with a dedicated `read:mcp` API key ([docs](docs-site/docs/integrations/mcp-connector.md))
 - **HomeKit Integration** (Phase 5) - Native HAP-Python bridge with:
   - Motion sensor accessories for all cameras
   - Occupancy sensors for person detection

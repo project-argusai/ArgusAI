@@ -20,6 +20,7 @@ API keys are ideal for:
 |-------|-------------|
 | `read:events` | Read events, exports, and event media (including thumbnails) |
 | `read:cameras` | Read cameras, status, and previews |
+| `read:mcp` | Read-only [assistant connector (MCP)](../integrations/mcp-connector.md) at `/api/v1/mcp` only. A key that also holds `admin` or a `write:` scope is refused there |
 | `write:cameras` | Create, update, and delete cameras and their capture settings |
 | `admin` | Allowlisted event writes and camera routes. Does not grant user, API-key, or system management |
 

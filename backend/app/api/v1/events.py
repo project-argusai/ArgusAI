@@ -694,35 +694,10 @@ def list_events(
             cameras = db.query(Camera.id, Camera.name).filter(Camera.id.in_(camera_ids)).all()
             camera_map = {c.id: c.name for c in cameras}
 
-        # Story P9-4.4: Fetch entity associations for all events
-        from app.models.recognized_entity import RecognizedEntity, EntityEvent
-        event_ids = [e.id for e in events]
-        entity_map = {}
-        if event_ids:
-            entity_links = db.query(
-                EntityEvent.event_id,
-                RecognizedEntity.id,
-                RecognizedEntity.name,
-                RecognizedEntity.entity_type,
-                RecognizedEntity.vehicle_color,
-                RecognizedEntity.vehicle_make,
-                RecognizedEntity.vehicle_model,
-                RecognizedEntity.vehicle_signature,
-            ).join(
-                RecognizedEntity, EntityEvent.entity_id == RecognizedEntity.id
-            ).filter(
-                EntityEvent.event_id.in_(event_ids)
-            ).all()
-            for link in entity_links:
-                entity_map[link.event_id] = {
-                    "entity_id": link.id,
-                    "entity_name": link.name,
-                    "entity_type": link.entity_type,
-                    "entity_vehicle_color": link.vehicle_color,
-                    "entity_vehicle_make": link.vehicle_make,
-                    "entity_vehicle_model": link.vehicle_model,
-                    "entity_vehicle_signature": link.vehicle_signature,
-                }
+        # Story P9-4.4 / issue #652: every entity on each event (links plus
+        # matched_entity_ids), primary first. Two queries for the whole page.
+        from app.services.entity_service import build_event_entities, legacy_entity_fields
+        entities_by_event = build_event_entities(db, events)
 
         # Enrich events with camera_name and feedback
         correlated_by_event = _correlated_responses_by_event_id(db, events)
@@ -759,14 +734,10 @@ def list_events(
                 "reanalysis_count": event.reanalysis_count or 0,
                 # Story P7-2.1: Delivery carrier detection
                 "delivery_carrier": getattr(event, 'delivery_carrier', None),
-                # Story P9-4.4: Entity association for assignment UI
-                "entity_id": entity_map.get(event.id, {}).get("entity_id"),
-                "entity_name": entity_map.get(event.id, {}).get("entity_name"),
-                "entity_type": entity_map.get(event.id, {}).get("entity_type"),
-                "entity_vehicle_color": entity_map.get(event.id, {}).get("entity_vehicle_color"),
-                "entity_vehicle_make": entity_map.get(event.id, {}).get("entity_vehicle_make"),
-                "entity_vehicle_model": entity_map.get(event.id, {}).get("entity_vehicle_model"),
-                "entity_vehicle_signature": entity_map.get(event.id, {}).get("entity_vehicle_signature"),
+                # Story P9-4.4 / issue #652: entities on the event, plus the
+                # legacy single-entity fields mirroring the first one.
+                "entities": entities_by_event.get(event.id, []),
+                **legacy_entity_fields(entities_by_event.get(event.id, [])),
                 # Story P15-5.1: AI Visual Annotations
                 "has_annotations": getattr(event, 'has_annotations', False),
                 "bounding_boxes": getattr(event, 'bounding_boxes', None),
@@ -1810,6 +1781,16 @@ async def get_event(
         except Exception as entity_error:
             logger.debug(f"Could not get entity for event {event_id}: {entity_error}")
 
+        # Issue #652: all entities on the event (detail view chips).
+        try:
+            from app.services.entity_service import build_event_entities, legacy_entity_fields
+
+            event_entities = build_event_entities(db, [event]).get(event.id, [])
+            event_dict["entities"] = event_entities
+            event_dict.update(legacy_entity_fields(event_entities))
+        except Exception as entities_error:
+            logger.debug(f"Could not get entities for event {event_id}: {entities_error}")
+
         # Story P4-5.1: Add feedback if exists
         if event.feedback:
             event_dict["feedback"] = FeedbackResponse.model_validate(event.feedback)
@@ -2241,7 +2222,12 @@ async def reanalyze_event(
                 logger.warning(f"Failed to clean up temp clip: {e}")
 
         # 11. Build response
+        from app.services.entity_service import build_event_entities, legacy_entity_fields
+
+        reanalyzed_entities = build_event_entities(db, [event]).get(event.id, [])
         return EventResponse(
+            entities=reanalyzed_entities,
+            **legacy_entity_fields(reanalyzed_entities),
             id=event.id,
             camera_id=event.camera_id,
             timestamp=event.timestamp,

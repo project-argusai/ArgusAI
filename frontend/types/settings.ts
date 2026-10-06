@@ -121,6 +121,9 @@ export interface DeleteDataRequest {
 export interface DeleteDataResponse {
   deleted_count: number;
   success: boolean;
+  status?: 'success' | 'partial' | 'failed' | string;
+  files_failed?: number;
+  message?: string;
 }
 
 /**

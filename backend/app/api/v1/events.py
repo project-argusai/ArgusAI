@@ -1201,17 +1201,29 @@ async def manual_cleanup(
                     "deleted_count": stats["events_deleted"],
                     "thumbnails_deleted": stats["thumbnails_deleted"],
                     "space_freed_mb": stats["space_freed_mb"],
-                    "batches_processed": stats.get("batches_processed", 0)
+                    "batches_processed": stats.get("batches_processed", 0),
+                    "events_pending": stats.get("events_pending", 0),
                 },
                 "source": "api_endpoint",
-                "status": "success"
+                "status": stats.get("status", "success"),
             }
         )
 
+        pending = int(stats.get("events_pending", 0) or 0)
+        status_name = stats.get("status", "success")
+        message = ""
+        if status_name != "success":
+            message = (
+                f"{pending} event(s) remain after cleanup because media removal "
+                "or a database commit failed. Re-run cleanup to retry."
+            )
         return CleanupResponse(
             deleted_count=stats["events_deleted"],
             thumbnails_deleted=stats["thumbnails_deleted"],
-            space_freed_mb=stats["space_freed_mb"]
+            space_freed_mb=stats["space_freed_mb"],
+            status=status_name,
+            events_pending=pending,
+            message=message,
         )
 
     except HTTPException as e:

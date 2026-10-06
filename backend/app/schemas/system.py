@@ -108,31 +108,28 @@ class StorageResponse(BaseModel):
 
 
 class CleanupResponse(BaseModel):
-    """
-    Schema for manual cleanup response
-
-    Attributes:
-        deleted_count: Number of events deleted
-        thumbnails_deleted: Number of thumbnail files deleted
-        space_freed_mb: Amount of disk space freed in megabytes
-
-    Example:
-        {
-            "deleted_count": 450,
-            "thumbnails_deleted": 380,
-            "space_freed_mb": 12.3
-        }
-    """
+    """Schema for manual cleanup response (CR-010 / #600)."""
     deleted_count: int = Field(..., description="Number of events deleted")
     thumbnails_deleted: int = Field(..., description="Number of thumbnails deleted")
     space_freed_mb: float = Field(..., description="Disk space freed in MB")
+    status: str = Field(
+        default="success",
+        description="success | partial | failed",
+    )
+    events_pending: int = Field(
+        default=0,
+        description="Events still present because media unlink or commit failed; retryable",
+    )
+    message: str = Field(default="", description="Operator-facing next step when not fully successful")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "deleted_count": 450,
                 "thumbnails_deleted": 380,
-                "space_freed_mb": 12.3
+                "space_freed_mb": 12.3,
+                "status": "success",
+                "events_pending": 0,
             }
         }
 

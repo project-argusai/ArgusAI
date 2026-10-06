@@ -194,35 +194,28 @@ class CleanupService:
         batch_size: int = 1000
     ) -> Dict[str, Any]:
         """
-        Clean up events older than retention period
+        Clean up events older than retention period (CR-010 / #600).
 
-        Deletes events in batches with transaction safety. Also removes associated
-        thumbnail files from filesystem. Continues until all eligible events are deleted.
+        Uses EventMediaDeletionService so media unlink and row removal share the
+        same per-event outcome: files are only treated as gone when unlink
+        succeeds (or the path was already absent), the event row is removed only
+        when every associated file succeeded, and a failed commit is reported so
+        callers can retry. Missing files are idempotent success.
 
         Args:
             retention_days: Number of days to retain events (events older will be deleted)
             batch_size: Maximum number of events to delete per batch (default 1000)
 
         Returns:
-            Dict with deletion statistics:
-            {
-                "events_deleted": int,
-                "thumbnails_deleted": int,
-                "thumbnails_failed": int,
-                "space_freed_mb": float,
-                "batches_processed": int
-            }
-
-        Raises:
-            None - All errors are caught and logged, operation continues
+            Dict with deletion statistics including status and pending counts.
         """
-        logger.info(f"Starting cleanup: retention_days={retention_days}, batch_size={batch_size}")
+        from app.services.event_media_deletion import EventMediaDeletionService
 
-        # Calculate cutoff date
+        logger.info(f"Starting cleanup: retention_days={retention_days}, batch_size={batch_size}")
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=retention_days)
 
-        # Statistics tracking
         total_events_deleted = 0
+        total_events_pending = 0
         total_thumbnails_deleted = 0
         total_thumbnails_failed = 0
         total_frames_deleted = 0
@@ -230,116 +223,137 @@ class CleanupService:
         total_dependents_deleted = 0
         total_orphan_dependents = 0
         total_space_freed = 0.0
+        total_commit_failures = 0
         batches_processed = 0
 
-        # Get frame storage service for cleanup
-        frame_storage_service = get_frame_storage_service()
+        clips_root = os.path.join(
+            os.path.dirname(self.video_base_dir),
+            "clips",
+        )
+        media_service = EventMediaDeletionService(
+            thumbnail_root=str(self.thumbnail_base_dir),
+            frames_root=str(self.frames_base_dir),
+            video_root=str(self.video_base_dir),
+            clips_root=str(clips_root),
+        )
 
-        # Batch deletion loop
         while True:
             db = self.session_factory()
             try:
-                # Query batch of events to delete (based on event timestamp, not record creation)
-                events_batch = db.query(Event.id, Event.thumbnail_path, Event.video_path).filter(
-                    Event.timestamp < cutoff_date
-                ).limit(batch_size).all()
+                events_batch = (
+                    db.query(Event)
+                    .filter(Event.timestamp < cutoff_date)
+                    .limit(batch_size)
+                    .all()
+                )
 
                 if not events_batch:
                     logger.info("No more events to delete")
-                    # Child rows whose events were deleted before foreign keys
-                    # were enforced (or by an earlier partial run) are removed
-                    # here, on the same open session.
                     orphan_counts = self._delete_orphan_dependent_rows(db)
                     total_orphan_dependents += sum(orphan_counts.values())
                     db.commit()
                     break
 
-                batch_event_ids = [event.id for event in events_batch]
-                batch_size_actual = len(batch_event_ids)
+                batch_deleted = 0
+                batch_pending = 0
+                batch_results = []
+                logger.info(
+                    f"Processing batch {batches_processed + 1}: {len(events_batch)} events"
+                )
 
-                logger.info(f"Processing batch {batches_processed + 1}: {batch_size_actual} events")
-
-                # Delete thumbnail files first (before database records)
-                thumbnail_stats = self._delete_thumbnails(events_batch)
-                total_thumbnails_deleted += thumbnail_stats["deleted"]
-                total_thumbnails_failed += thumbnail_stats["failed"]
-                total_space_freed += thumbnail_stats["space_freed_mb"]
-
+                # Convention videos ({event_id}.mp4) may exist without video_path.
                 video_stats = self._delete_event_videos(events_batch)
                 total_videos_deleted += video_stats["deleted"]
                 total_space_freed += video_stats["space_freed_mb"]
 
-                # Story P8-2.1 AC1.5: Delete frame files for each event in batch
-                for event in events_batch:
-                    try:
-                        frames_deleted = frame_storage_service.delete_frames_sync(event.id)
-                        total_frames_deleted += frames_deleted
-                    except Exception as frame_e:
-                        logger.warning(
-                            f"Failed to delete frames for event {event.id}: {frame_e}",
-                            extra={
-                                "event_type": "frame_cleanup_error",
-                                "event_id": event.id,
-                                "error": str(frame_e)
-                            }
+                for event in list(events_batch):
+                    result = media_service.delete_event_media(db, event)
+                    batch_results.append(result)
+                    total_thumbnails_deleted += result.thumbnails_deleted
+                    total_frames_deleted += result.frames_deleted
+                    total_videos_deleted += result.videos_deleted + result.clips_deleted
+                    total_space_freed += result.bytes_freed / (1024 * 1024)
+                    if result.failures:
+                        total_thumbnails_failed += sum(
+                            1 for f in result.failures if "thumbnail" in f.kind
                         )
 
-                # Remove child rows explicitly. Bulk Query.delete() does not
-                # run ORM cascades, and SQLite ignores ON DELETE CASCADE unless
-                # PRAGMA foreign_keys=ON was set on the connection. ai_usage has
-                # no event_id in the current schema, so it is left as cost history
-                # unless a deployment added that column.
-                dependent_counts = self._delete_dependents_for_event_ids(db, batch_event_ids)
-                total_dependents_deleted += sum(dependent_counts.values())
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    total_commit_failures += 1
+                    batch_pending = len(batch_results)
+                    for result in batch_results:
+                        result.commit_failed = True
+                        result.event_deleted = False
+                    logger.exception(
+                        "Retention cleanup batch commit failed",
+                        extra={"batch_size": len(batch_results)},
+                    )
+                else:
+                    for result in batch_results:
+                        if result.fully_deleted:
+                            batch_deleted += 1
+                        else:
+                            batch_pending += 1
 
-                db.query(Event).filter(Event.id.in_(batch_event_ids)).delete(
-                    synchronize_session=False
-                )
-                db.commit()
-
-                total_events_deleted += batch_size_actual
+                total_events_deleted += batch_deleted
+                total_events_pending += batch_pending
                 batches_processed += 1
 
+                if batch_deleted == 0 and batch_pending > 0:
+                    logger.error(
+                        "Retention cleanup made no progress; leaving pending events for retry",
+                        extra={"pending": batch_pending},
+                    )
+                    break
+
                 logger.info(
-                    f"Batch {batches_processed} complete: {batch_size_actual} events deleted",
+                    f"Batch {batches_processed} complete: "
+                    f"{batch_deleted} deleted, {batch_pending} pending",
                     extra={
                         "batch_number": batches_processed,
-                        "events_in_batch": batch_size_actual,
-                        "thumbnails_deleted": thumbnail_stats["deleted"],
-                        "thumbnails_failed": thumbnail_stats["failed"],
-                        "frames_deleted": total_frames_deleted
-                    }
+                        "events_deleted": batch_deleted,
+                        "events_pending": batch_pending,
+                    },
                 )
 
             except Exception as e:
                 logger.error(
                     f"Error during batch deletion (batch {batches_processed + 1}): {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
                 db.rollback()
-                # Stop processing on database errors to prevent data inconsistency
                 break
             finally:
                 db.close()
 
-        # Final statistics
+        if total_events_pending or total_commit_failures:
+            status = "partial" if total_events_deleted else "failed"
+        else:
+            status = "success"
+
         stats = {
             "events_deleted": total_events_deleted,
+            "events_pending": total_events_pending,
             "thumbnails_deleted": total_thumbnails_deleted,
             "thumbnails_failed": total_thumbnails_failed,
-            "frames_deleted": total_frames_deleted,  # Story P8-2.1 AC1.5
+            "frames_deleted": total_frames_deleted,
             "videos_deleted": total_videos_deleted,
             "dependents_deleted": total_dependents_deleted,
             "orphan_dependents_deleted": total_orphan_dependents,
             "space_freed_mb": round(total_space_freed, 2),
-            "batches_processed": batches_processed
+            "batches_processed": batches_processed,
+            "commit_failures": total_commit_failures,
+            "status": status,
         }
 
         logger.info(
-            f"Cleanup complete: {total_events_deleted} events deleted, {total_frames_deleted} frames deleted across {batches_processed} batches",
-            extra=stats
+            f"Cleanup complete: status={status}, deleted={total_events_deleted}, "
+            f"pending={total_events_pending}, frames={total_frames_deleted}",
+            extra=stats,
         )
-
         return stats
 
     def _delete_thumbnails(self, events_batch) -> Dict[str, Any]:

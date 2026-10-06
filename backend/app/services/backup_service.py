@@ -23,6 +23,7 @@ Usage:
 # Migrated to @singleton as part of #450 (Lightweight DI Container).
 """
 import os
+import sqlite3
 import json
 import shutil
 import zipfile
@@ -47,6 +48,21 @@ logger = logging.getLogger(__name__)
 
 # Application version for backup compatibility
 APP_VERSION = "1.0.0"
+
+def configured_database_engine(database_url: Optional[str] = None) -> str:
+    """Return ``sqlite``, ``postgresql``, or ``unsupported`` for backup policy."""
+    url = (database_url if database_url is not None else settings.DATABASE_URL) or ""
+    lowered = url.lower()
+    if lowered.startswith("sqlite"):
+        return "sqlite"
+    if lowered.startswith("postgres") or lowered.startswith("postgresql"):
+        return "postgresql"
+    return "unsupported"
+
+
+class UnsupportedDatabaseBackupError(RuntimeError):
+    """Raised when backup/restore is not implemented for the configured engine."""
+
 ZIP_CHUNK_BYTES = 1024 * 1024
 
 
@@ -394,6 +410,7 @@ class BackupService:
             metadata = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "app_version": APP_VERSION,
+                "database_engine": configured_database_engine(),
                 "database_size_bytes": db_size,
                 "thumbnails_count": thumb_count,
                 "thumbnails_size_bytes": thumb_size,
@@ -402,7 +419,11 @@ class BackupService:
                     "database": include_database,
                     "thumbnails": include_thumbnails,
                     "settings": include_settings
-                }
+                },
+                "excludes": {
+                    "encrypted_settings_values": True,
+                    "postgresql_dump": configured_database_engine() != "postgresql",
+                },
             }
 
             with open(temp_dir / "metadata.json", "w") as f:
@@ -439,6 +460,19 @@ class BackupService:
                 settings_count=settings_count
             )
 
+        except UnsupportedDatabaseBackupError as e:
+            logger.error(f"Backup refused for database engine: {e}")
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            if zip_path.exists():
+                zip_path.unlink()
+            return BackupResult(
+                success=False,
+                timestamp=timestamp,
+                size_bytes=0,
+                download_url="",
+                message=str(e),
+            )
         except Exception as e:
             logger.error(f"Backup creation failed: {e}", exc_info=True)
 
@@ -474,26 +508,81 @@ class BackupService:
 
         return size
 
+    def _copy_database_file(self, source: Path, dest: Path) -> None:
+        """Copy one SQLite DB file using the backup API when possible.
+
+        Falls back to ``shutil.copy2`` when the source is empty or not a valid
+        SQLite database (e.g. a stub file in tests) so pre-restore safety copies
+        still succeed.
+        """
+        if not source.exists():
+            return
+        try:
+            src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+            try:
+                dst = sqlite3.connect(str(dest))
+                try:
+                    src.backup(dst)
+                    dst.commit()
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+        except sqlite3.Error:
+            shutil.copy2(source, dest)
+
     def _copy_database(self, temp_dir: Path) -> int:
         """
-        Copy database file to temp directory
+        Snapshot the configured database into ``database.db`` (CR-007 / #597).
 
-        Uses shutil.copy2 to preserve metadata.
-        For a production system, could use VACUUM INTO for consistency.
-
-        Returns:
-            Size of copied database in bytes
+        SQLite uses the online backup API so WAL pages committed before the
+        snapshot boundary are included without copying a live file under writers.
+        PostgreSQL and other engines fail closed — they need a native dump tool
+        run as a one-off admin process, not a live file copy.
         """
+        engine_name = configured_database_engine()
+        if engine_name == "postgresql":
+            raise UnsupportedDatabaseBackupError(
+                "PostgreSQL backup is not implemented in-process. "
+                "Use pg_dump as a one-off admin process, then attach the dump "
+                "to an offline restore drill. Refusing to copy live files."
+            )
+        if engine_name != "sqlite":
+            raise UnsupportedDatabaseBackupError(
+                f"Backup is not supported for database engine '{engine_name}'."
+            )
+
         if not self.database_path.exists():
             logger.warning("Database file not found, creating empty backup")
             return 0
 
         dest_path = temp_dir / "database.db"
-        shutil.copy2(self.database_path, dest_path)
+        # Consistent snapshot via sqlite3 backup API (handles WAL).
+        source = sqlite3.connect(f"file:{self.database_path}?mode=ro", uri=True)
+        try:
+            dest = sqlite3.connect(str(dest_path))
+            try:
+                source.backup(dest)
+                dest.commit()
+            finally:
+                dest.close()
+        finally:
+            source.close()
+
+        # Quick integrity check on the snapshot
+        check = sqlite3.connect(str(dest_path))
+        try:
+            row = check.execute("PRAGMA integrity_check").fetchone()
+            if not row or row[0] != "ok":
+                raise RuntimeError(f"SQLite backup failed integrity_check: {row}")
+        finally:
+            check.close()
 
         size = dest_path.stat().st_size
-        logger.debug(f"Database copied: {size} bytes")
-
+        logger.info(
+            "SQLite database snapshotted via backup API",
+            extra={"size_bytes": size, "engine": "sqlite"},
+        )
         return size
 
     def _copy_thumbnails(self, temp_dir: Path) -> tuple[int, int]:
@@ -800,10 +889,19 @@ class BackupService:
                 await stop_tasks_callback()
 
             try:
-                # 3. Backup current database (if restoring database)
+                # 3. Engine gate + dispose writers before replacing the live file
+                engine_name = configured_database_engine()
+                if restore_database and engine_name != "sqlite":
+                    raise UnsupportedDatabaseBackupError(
+                        f"In-process restore is only supported for SQLite "
+                        f"(configured engine: {engine_name}). Restore PostgreSQL "
+                        f"offline with pg_restore as a one-off admin process."
+                    )
+
                 if restore_database and self.database_path.exists():
                     backup_db_path = self.data_dir / f"app.db.backup-{timestamp}"
-                    shutil.copy2(self.database_path, backup_db_path)
+                    # Snapshot the live DB for rollback using the same API
+                    self._copy_database_file(self.database_path, backup_db_path)
                     logger.info(f"Current database backed up to {backup_db_path}")
 
                 # 4. Replace database (if selected)
@@ -812,6 +910,9 @@ class BackupService:
                 if restore_database and database_source.exists():
                     if database_source.is_symlink():
                         raise BackupArchiveError("Backup contains a special file")
+                    # Drop pooled connections so we do not replace a live FD/WAL.
+                    from app.core.database import dispose_engine
+                    dispose_engine()
                     live_changed = True
                     shutil.copy2(database_source, self.database_path)
                     logger.info("Database restored from backup")
@@ -883,6 +984,15 @@ class BackupService:
                     logger.info("Restarting background tasks after restore")
                     await start_tasks_callback()
 
+        except UnsupportedDatabaseBackupError as exc:
+            logger.error("Restore refused for database engine: %s", exc)
+            _remove_restore_dir(temp_dir)
+            return RestoreResult(
+                success=False,
+                message=str(exc),
+                http_status=400,
+                warnings=warnings,
+            )
         except BackupArchiveError as exc:
             logger.warning(
                 "Restore rejected unsafe archive",

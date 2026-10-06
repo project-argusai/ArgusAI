@@ -130,3 +130,14 @@ def get_db_session() -> Generator[Session, None, None]:
         raise
     finally:
         db.close()
+
+
+def dispose_engine() -> None:
+    """Drop all pooled connections so a restore can replace the live DB file.
+
+    SQLite keeps the file open while connections exist. Restoring by copying
+    over ``app.db`` without disposing can leave writers on the old FD / WAL.
+    PostgreSQL restores should not use file replacement; callers must fail
+    closed for that engine instead.
+    """
+    engine.dispose()

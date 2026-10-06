@@ -289,9 +289,10 @@ class ProtectAIPipeline:
             has_timing = timing_source == "smart_detect" or (
                 detection is not None and getattr(detection, "has_timing", lambda: False)()
             )
-            box = None
-            if detection is not None:
-                box = choose_subject_box(getattr(detection, "boxes", None) or [], [])
+            # Prefer Protect smart-detect boxes. When none exist,
+            # assemble_event_frames runs local vehicle/face detectors once.
+            protect_boxes = list(getattr(detection, "boxes", None) or []) if detection is not None else []
+            box = choose_subject_box(protect_boxes, [])
 
             assembly = await assemble_event_frames(
                 clip_path,

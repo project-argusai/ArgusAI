@@ -17,14 +17,18 @@ from app.services.event_sampling import (
     SubjectBox,
     _enforce_min_spacing,
     allocate_subject_crops,
+    choose_subject_box,
     coerce_protect_coord,
     crop_jpeg,
     legacy_uniform_offsets,
     plan_clip_window,
     plan_frame_offsets,
+    rank_fallback_boxes,
+    subject_box_from_pixel_bbox,
 )
 from app.services.identification import (
     IDENTIFICATION_MARKER,
+    confidence_from_identification,
     empty_identification,
     ensure_identification_prompt,
     parse_identification,
@@ -1249,3 +1253,261 @@ def _write_fixture(tmp_path, events):
     path.write_text(json.dumps({"events": events}), encoding="utf-8")
     return path
 
+
+def test_choose_subject_box_prefers_protect_over_fallback():
+    protect = SubjectBox(0.1, 0.1, 0.2, 0.3, source="protect", normalized=True)
+    fallback = SubjectBox(40, 50, 200, 180, source="vehicle", normalized=False)
+    assert choose_subject_box([protect], [fallback]) is protect
+    assert choose_subject_box([], [fallback]) is fallback
+    assert choose_subject_box([], []) is None
+    assert choose_subject_box([None], [None, fallback]) is fallback
+
+
+def test_subject_box_from_pixel_bbox_and_rank():
+    class _BBox:
+        def __init__(self):
+            self.x, self.y, self.width, self.height = 10, 20, 100, 80
+
+    box = subject_box_from_pixel_bbox(
+        _BBox(), source="vehicle", label="car", space_width=800, space_height=600
+    )
+    assert box is not None
+    assert box.source == "vehicle"
+    assert box.normalized is False
+    assert box.width == 100
+    assert box.space_width == 800
+
+    face = SubjectBox(5, 5, 40, 40, source="face", normalized=False)
+    ranked = rank_fallback_boxes([(0.4, face), (0.9, box), (0.1, None)])
+    assert ranked[0] is box
+    assert ranked[1] is face
+
+
+def test_confidence_from_identification_prefers_explicit_score():
+    ident = {
+        "object_type": "person",
+        "count": 1,
+        "identity": "unknown",
+        "action": "cannot_tell",
+        "direction": "cannot_tell",
+        "package_or_carrier": "none",
+    }
+    assert confidence_from_identification(ident, ai_confidence=91) == 91
+    assert confidence_from_identification(ident, ai_confidence=150) != 150  # out of range ignored
+
+
+def test_confidence_from_identification_scores_structured_fields():
+    empty = confidence_from_identification(empty_identification())
+    assert 0 <= empty <= 45
+
+    none_scene = confidence_from_identification({
+        "object_type": "none",
+        "count": 0,
+        "identity": "unknown",
+        "action": "cannot_tell",
+        "direction": "cannot_tell",
+        "package_or_carrier": "none",
+    })
+    assert none_scene >= 60
+
+    rich = confidence_from_identification({
+        "object_type": "vehicle",
+        "count": 1,
+        "identity": "Red Truck",
+        "action": "turning",
+        "direction": "left",
+        "package_or_carrier": "none",
+    })
+    vague = confidence_from_identification({
+        "object_type": "unknown",
+        "count": None,
+        "identity": "unknown",
+        "action": "cannot_tell",
+        "direction": "cannot_tell",
+        "package_or_carrier": "cannot_tell",
+    })
+    assert rich > vague
+    assert rich >= 85
+    assert vague <= 40
+
+
+@pytest.mark.asyncio
+async def test_detect_fallback_subject_boxes_uses_local_detectors(monkeypatch):
+    from app.services import event_frame_assembly as assembly
+    from app.services.vehicle_detection_service import BoundingBox, VehicleDetection
+    from app.services.face_detection_service import BoundingBox as FaceBBox, FaceDetection
+
+    class _VehicleSvc:
+        async def detect_vehicles(self, image_bytes, confidence_threshold=None):
+            return [
+                VehicleDetection(
+                    bbox=BoundingBox(x=10, y=20, width=300, height=200),
+                    confidence=0.95,
+                    vehicle_type="car",
+                )
+            ]
+
+    class _FaceSvc:
+        async def detect_faces(self, image_bytes, confidence_threshold=None):
+            return [
+                FaceDetection(
+                    bbox=FaceBBox(x=50, y=60, width=80, height=80),
+                    confidence=0.6,
+                )
+            ]
+
+    monkeypatch.setattr(
+        "app.services.vehicle_detection_service.VehicleDetectionService",
+        lambda: _VehicleSvc(),
+    )
+    monkeypatch.setattr(
+        "app.services.face_detection_service.FaceDetectionService",
+        lambda: _FaceSvc(),
+    )
+
+    boxes = await assembly.detect_fallback_subject_boxes(_jpeg(640, 480))
+    assert boxes
+    assert boxes[0].source == "vehicle"
+    assert boxes[0].label == "car"
+    # Highest confidence first
+    assert all(isinstance(b, SubjectBox) for b in boxes)
+
+
+@pytest.mark.asyncio
+async def test_detect_fallback_subject_boxes_empty_when_detectors_find_nothing(monkeypatch):
+    from app.services import event_frame_assembly as assembly
+
+    class _Empty:
+        async def detect_vehicles(self, *a, **k):
+            return []
+
+        async def detect_faces(self, *a, **k):
+            return []
+
+    monkeypatch.setattr(
+        "app.services.vehicle_detection_service.VehicleDetectionService",
+        lambda: _Empty(),
+    )
+    monkeypatch.setattr(
+        "app.services.face_detection_service.FaceDetectionService",
+        lambda: _Empty(),
+    )
+    assert await assembly.detect_fallback_subject_boxes(_jpeg(320, 240)) == []
+
+
+@pytest.mark.asyncio
+async def test_assemble_event_frames_protect_box_skips_fallback(monkeypatch):
+    """Protect box wins: local detectors must not run."""
+    from app.services import event_frame_assembly as assembly
+
+    called = {"fallback": 0}
+
+    async def _boom(image_bytes):
+        called["fallback"] += 1
+        raise AssertionError("fallback should not run when Protect box exists")
+
+    monkeypatch.setattr(assembly, "detect_fallback_subject_boxes", _boom)
+
+    class _Extractor:
+        async def extract_frames_with_timestamps(self, **kwargs):
+            return [_jpeg(800, 600), _jpeg(800, 600), _jpeg(800, 600)], [1.0, 2.0, 3.0]
+
+        async def extract_native_jpeg_at(self, clip_path, offset):
+            return _jpeg(800, 600)
+
+    monkeypatch.setattr(assembly, "get_frame_extractor", lambda: _Extractor(), raising=False)
+    monkeypatch.setattr(
+        "app.services.frame_extractor.get_frame_extractor",
+        lambda: _Extractor(),
+    )
+
+    protect = SubjectBox(0.2, 0.2, 0.4, 0.5, source="protect", normalized=True)
+    result = await assembly.assemble_event_frames(
+        Path("/tmp/unused.mp4"),
+        frame_cfg={
+            "frame_count": 3,
+            "sampling_strategy": "uniform",
+            "offset_ms": 0,
+            "subject_crop_count": 1,
+        },
+        timing_source="fallback",
+        box=protect,
+    )
+    assert called["fallback"] == 0
+    assert result.subject_crop_used is True
+    assert result.crop_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_assemble_event_frames_uses_fallback_when_no_protect_box(monkeypatch):
+    from app.services import event_frame_assembly as assembly
+
+    fallback_box = SubjectBox(0.15, 0.15, 0.4, 0.5, source="vehicle", label="car", normalized=True)
+
+    async def _fallback(image_bytes):
+        return [fallback_box]
+
+    monkeypatch.setattr(assembly, "detect_fallback_subject_boxes", _fallback)
+
+    class _Extractor:
+        async def extract_frames_with_timestamps(self, **kwargs):
+            return [_jpeg(800, 600), _jpeg(800, 600), _jpeg(800, 600)], [1.0, 2.0, 3.0]
+
+        async def extract_native_jpeg_at(self, clip_path, offset):
+            return _jpeg(800, 600)
+
+    monkeypatch.setattr(
+        "app.services.frame_extractor.get_frame_extractor",
+        lambda: _Extractor(),
+    )
+
+    result = await assembly.assemble_event_frames(
+        Path("/tmp/unused.mp4"),
+        frame_cfg={
+            "frame_count": 3,
+            "sampling_strategy": "uniform",
+            "offset_ms": 0,
+            "subject_crop_count": 1,
+        },
+        timing_source="fallback",
+        box=None,
+    )
+    assert result.subject_crop_used is True
+    assert result.crop_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_assemble_event_frames_no_crop_when_fallback_empty(monkeypatch):
+    from app.services import event_frame_assembly as assembly
+
+    async def _empty(image_bytes):
+        return []
+
+    monkeypatch.setattr(assembly, "detect_fallback_subject_boxes", _empty)
+
+    class _Extractor:
+        async def extract_frames_with_timestamps(self, **kwargs):
+            return [_jpeg(640, 480), _jpeg(640, 480)], [0.5, 1.5]
+
+        async def extract_native_jpeg_at(self, clip_path, offset):
+            return _jpeg(640, 480)
+
+    monkeypatch.setattr(
+        "app.services.frame_extractor.get_frame_extractor",
+        lambda: _Extractor(),
+    )
+
+    result = await assembly.assemble_event_frames(
+        Path("/tmp/unused.mp4"),
+        frame_cfg={
+            "frame_count": 2,
+            "sampling_strategy": "uniform",
+            "offset_ms": 0,
+            "subject_crop_count": 1,
+        },
+        timing_source="fallback",
+        box=None,
+    )
+    assert result.subject_crop_used is False
+    assert result.crop_count == 0
+    assert len(result.images) == 2

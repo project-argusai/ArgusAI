@@ -526,6 +526,70 @@ def choose_subject_box(
     return None
 
 
+
+
+def subject_box_from_pixel_bbox(
+    bbox,
+    *,
+    source: str,
+    label: Optional[str] = None,
+    space_width: Optional[int] = None,
+    space_height: Optional[int] = None,
+    confidence: Optional[float] = None,
+) -> Optional[SubjectBox]:
+    """Convert a pixel ``BoundingBox`` (x/y/width/height) into a ``SubjectBox``.
+
+    Vehicle and face detectors return integer pixel boxes. ``confidence`` is
+    accepted for call-site convenience and ignored here; callers that rank by
+    confidence should sort before choosing.
+    """
+    if bbox is None:
+        return None
+    try:
+        if isinstance(bbox, dict):
+            x = float(bbox["x"])
+            y = float(bbox["y"])
+            width = float(bbox["width"])
+            height = float(bbox["height"])
+        else:
+            x = float(bbox.x)
+            y = float(bbox.y)
+            width = float(bbox.width)
+            height = float(bbox.height)
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return SubjectBox(
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        source=source,
+        label=label,
+        normalized=False,
+        space_width=space_width,
+        space_height=space_height,
+    )
+
+
+def rank_fallback_boxes(boxes: Sequence[tuple]) -> List[SubjectBox]:
+    """Order ``(confidence, SubjectBox)`` pairs best-first; drop nulls."""
+    ranked = []
+    for item in boxes or []:
+        if not item or len(item) != 2:
+            continue
+        conf, box = item
+        if box is None:
+            continue
+        try:
+            score = float(conf) if conf is not None else 0.0
+        except (TypeError, ValueError):
+            score = 0.0
+        ranked.append((score, box))
+    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    return [box for _, box in ranked]
+
 def _to_normalized(box: SubjectBox, frame_w: int, frame_h: int) -> Optional[Tuple[float, float, float, float]]:
     if frame_w <= 0 or frame_h <= 0:
         return None

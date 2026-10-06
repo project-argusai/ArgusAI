@@ -41,7 +41,7 @@ DEFAULT_PROVIDER_ORDER = ["openai", "grok", "claude", "gemini"]
 class LiteLLMResult:
     """Result from LiteLLM API call"""
     description: str
-    confidence: int  # 0-100 (computed from heuristics)
+    confidence: int  # 0-100 from identification / ai_confidence
     objects_detected: List[str]
     provider: str  # Which provider was used
     model: str  # Full model name used
@@ -52,6 +52,7 @@ class LiteLLMResult:
     error: Optional[str] = None
     ai_confidence: Optional[int] = None  # 0-100 (from AI response)
     bounding_boxes: Optional[List[Dict[str, Any]]] = None
+    identification: Optional[Dict[str, Any]] = None
 
 
 class LiteLLMProvider:
@@ -277,8 +278,20 @@ class LiteLLMProvider:
             elif "gemini" in model.lower() or "google" in model.lower():
                 provider = "gemini"
 
-            # Extract detected objects from description
-            objects = self._extract_objects(description)
+            from app.services.identification import (
+                confidence_from_identification,
+                parse_identification,
+                resolve_objects_detected,
+            )
+            ident = parse_identification(response_text)
+            objects = resolve_objects_detected(
+                identification=ident,
+                description=description,
+            )
+            confidence = confidence_from_identification(
+                ident,
+                ai_confidence=ai_confidence,
+            )
 
             logger.info(
                 f"LiteLLM success: {provider}/{model} in {elapsed_ms}ms, "
@@ -287,7 +300,7 @@ class LiteLLMProvider:
 
             return LiteLLMResult(
                 description=description,
-                confidence=70,  # Default heuristic confidence
+                confidence=confidence,
                 objects_detected=objects,
                 provider=provider,
                 model=model,
@@ -297,6 +310,7 @@ class LiteLLMProvider:
                 success=True,
                 ai_confidence=ai_confidence,
                 bounding_boxes=bounding_boxes,
+                identification=ident,
             )
 
         except Exception as e:

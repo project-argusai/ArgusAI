@@ -75,7 +75,7 @@ class GrokProvider(AIProviderBase):
                 (output_tokens / 1000 * self.cost_per_1k_output_tokens)
             )
 
-            confidence = self._calculate_confidence(description, tokens_used)
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -157,7 +157,7 @@ class GrokProvider(AIProviderBase):
                 (output_tokens / 1000 * self.cost_per_1k_output_tokens)
             )
 
-            confidence = self._calculate_confidence(description, tokens_used)
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -188,9 +188,7 @@ class GrokProvider(AIProviderBase):
             )
 
     def _calculate_confidence(self, description: str, tokens_used: int) -> int:
-        confidence = 72
-        if len(description) > 140:
-            confidence += 8
-        if tokens_used > 90:
-            confidence += 5
-        return min(confidence, 93)
+        """Deprecated length heuristic; prefer confidence_from_identification."""
+        from app.services.identification import confidence_from_identification
+        return confidence_from_identification(ai_confidence=None)
+

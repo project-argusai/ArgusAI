@@ -77,7 +77,7 @@ class OpenAIProvider(AIProviderBase):
                 (output_tokens / 1000 * self.cost_per_1k_output_tokens)
             )
 
-            confidence = ai_confidence if ai_confidence else self._calculate_confidence(description, tokens_used)
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -149,7 +149,7 @@ class OpenAIProvider(AIProviderBase):
             tokens_used = response.usage.total_tokens if response.usage else 0
             cost = (tokens_used / 1000) * 0.0003  # rough multi-image cost
 
-            confidence = ai_confidence if ai_confidence else 70
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -180,10 +180,7 @@ class OpenAIProvider(AIProviderBase):
             )
 
     def _calculate_confidence(self, description: str, tokens_used: int) -> int:
-        """Simple confidence heuristic for OpenAI"""
-        confidence = 70
-        if len(description) > 150:
-            confidence += 10
-        if tokens_used > 100:
-            confidence += 5
-        return min(confidence, 95)
+        """Deprecated length heuristic; prefer confidence_from_identification."""
+        from app.services.identification import confidence_from_identification
+        return confidence_from_identification(ai_confidence=None)
+

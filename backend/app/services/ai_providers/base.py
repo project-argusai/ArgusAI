@@ -170,7 +170,12 @@ class AIProviderBase(ABC):
         return response_text, None, None
 
     def _with_identification(self, result: AIResult, raw_response: Optional[str]) -> AIResult:
-        """Attach structured identification without changing the description."""
+        """Attach structured identification and set confidence from it.
+
+        ``apply_identification`` parses fields, resolves objects_detected, and
+        replaces length-heuristic ``confidence`` with
+        ``confidence_from_identification`` (honoring ``ai_confidence``).
+        """
         from app.services.identification import apply_identification
         return apply_identification(result, raw_response)
 

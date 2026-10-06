@@ -684,8 +684,141 @@ class EntityAlertService:
 
         return self._entity_to_dict(entity)
 
+    async def rewrite_reanalysis_description(
+        self,
+        db: Session,
+        event: Event,
+        description: str,
+        identification: Optional[dict] = None,
+    ) -> str:
+        """Apply the live Protect named rewrite to a fresh reanalysis sentence.
+
+        Uses ``enrich_description`` on entities already linked to the event.
+        The returned text is what both ``description`` and
+        ``enriched_description`` should store. When no linked name changes
+        the sentence, that text is the new description, so a previous
+        enriched description cannot stay behind.
+
+        ``identification`` is updated in place when a vehicle label is not
+        supported by the new sentence, the same as live ingest.
+        """
+        if not description:
+            return description
+        try:
+            entity_ids = collect_linked_entity_ids(db, event)
+            entities = (
+                await self.get_entities_by_ids(db, entity_ids) if entity_ids else []
+            )
+            if entities:
+                suppress_inconsistent_vehicle_identity(
+                    description, identification, entities
+                )
+                rewritten = self.enrich_description(description, entities)
+                if rewritten:
+                    if rewritten != description:
+                        logger.info(
+                            "Reanalysis description rewritten with linked entities",
+                            extra={
+                                "event_type": "reanalyze_description_enriched",
+                                "event_id": getattr(event, "id", None),
+                                "entity_count": len(entities),
+                            },
+                        )
+                    return rewritten
+            return description
+        except Exception as exc:
+            logger.warning(
+                "Reanalysis description enrichment failed; keeping the new description",
+                extra={
+                    "event_type": "reanalyze_enrichment_failed",
+                    "event_id": getattr(event, "id", None),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            return description
+
 
 # Backward compatible thin getter (delegates to @singleton decorator)
+def _entity_ids_from_json(raw) -> List[str]:
+    """Parse a stored entity-id list. Malformed values yield no ids."""
+    if isinstance(raw, list):
+        values = raw
+    elif isinstance(raw, str) and raw.strip():
+        try:
+            values = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return []
+    else:
+        return []
+    if not isinstance(values, list):
+        return []
+    ids = []
+    for value in values:
+        if isinstance(value, str) and value.strip():
+            ids.append(value.strip())
+    return ids
+
+
+def collect_linked_entity_ids(db: Session, event: Event) -> List[str]:
+    """Entity ids already linked to this event.
+
+    Live Protect ingest stores ``matched_entity_ids`` and a final link.
+    The entity-alert path reads face and vehicle embeddings. A manual
+    assignment is an ``entity_events`` row. Reanalysis uses all of those
+    so a known name is still applied to the new sentence. An event can have
+    several entities (issue #652), so every one of them is returned.
+
+    An entity the user removed from this event (a "remove", "unlink" or
+    "move_from" adjustment) is left out unless it is linked again, so a
+    stale face or vehicle embedding cannot bring a removed name back.
+    """
+    from app.models.entity_adjustment import EntityAdjustment
+    from app.models.face_embedding import FaceEmbedding
+    from app.models.recognized_entity import EntityEvent
+    from app.models.vehicle_embedding import VehicleEmbedding
+
+    ids: List[str] = []
+    matched = _entity_ids_from_json(getattr(event, "matched_entity_ids", None))
+    ids.extend(matched)
+    final_id = getattr(event, "final_entity_id", None)
+    if isinstance(final_id, str) and final_id.strip():
+        ids.append(final_id.strip())
+
+    event_id = getattr(event, "id", None)
+    if isinstance(event_id, str) and event_id:
+        linked: List[str] = []
+        for model in (FaceEmbedding, VehicleEmbedding, EntityEvent):
+            rows = (
+                db.query(model.entity_id)
+                .filter(model.event_id == event_id, model.entity_id.isnot(None))
+                .all()
+            )
+            for (entity_id,) in rows:
+                if isinstance(entity_id, str) and entity_id.strip():
+                    ids.append(entity_id.strip())
+                    if model is EntityEvent:
+                        linked.append(entity_id.strip())
+
+        removed_rows = (
+            db.query(EntityAdjustment.old_entity_id)
+            .filter(
+                EntityAdjustment.event_id == event_id,
+                EntityAdjustment.action.in_(("remove", "unlink", "move_from")),
+                EntityAdjustment.old_entity_id.isnot(None),
+            )
+            .all()
+        )
+        keep = set(linked) | set(matched)
+        removed = {
+            row[0] for row in removed_rows
+            if isinstance(row[0], str) and row[0] not in keep
+        }
+        if removed:
+            ids = [i for i in ids if i not in removed]
+
+    return list(dict.fromkeys(ids))
+
+
 def get_entity_alert_service() -> EntityAlertService:
     """
     Get the global EntityAlertService instance.

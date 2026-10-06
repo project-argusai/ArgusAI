@@ -694,35 +694,10 @@ def list_events(
             cameras = db.query(Camera.id, Camera.name).filter(Camera.id.in_(camera_ids)).all()
             camera_map = {c.id: c.name for c in cameras}
 
-        # Story P9-4.4: Fetch entity associations for all events
-        from app.models.recognized_entity import RecognizedEntity, EntityEvent
-        event_ids = [e.id for e in events]
-        entity_map = {}
-        if event_ids:
-            entity_links = db.query(
-                EntityEvent.event_id,
-                RecognizedEntity.id,
-                RecognizedEntity.name,
-                RecognizedEntity.entity_type,
-                RecognizedEntity.vehicle_color,
-                RecognizedEntity.vehicle_make,
-                RecognizedEntity.vehicle_model,
-                RecognizedEntity.vehicle_signature,
-            ).join(
-                RecognizedEntity, EntityEvent.entity_id == RecognizedEntity.id
-            ).filter(
-                EntityEvent.event_id.in_(event_ids)
-            ).all()
-            for link in entity_links:
-                entity_map[link.event_id] = {
-                    "entity_id": link.id,
-                    "entity_name": link.name,
-                    "entity_type": link.entity_type,
-                    "entity_vehicle_color": link.vehicle_color,
-                    "entity_vehicle_make": link.vehicle_make,
-                    "entity_vehicle_model": link.vehicle_model,
-                    "entity_vehicle_signature": link.vehicle_signature,
-                }
+        # Story P9-4.4 / issue #652: every entity on each event (links plus
+        # matched_entity_ids), primary first. Two queries for the whole page.
+        from app.services.entity_service import build_event_entities, legacy_entity_fields
+        entities_by_event = build_event_entities(db, events)
 
         # Enrich events with camera_name and feedback
         correlated_by_event = _correlated_responses_by_event_id(db, events)
@@ -759,14 +734,10 @@ def list_events(
                 "reanalysis_count": event.reanalysis_count or 0,
                 # Story P7-2.1: Delivery carrier detection
                 "delivery_carrier": getattr(event, 'delivery_carrier', None),
-                # Story P9-4.4: Entity association for assignment UI
-                "entity_id": entity_map.get(event.id, {}).get("entity_id"),
-                "entity_name": entity_map.get(event.id, {}).get("entity_name"),
-                "entity_type": entity_map.get(event.id, {}).get("entity_type"),
-                "entity_vehicle_color": entity_map.get(event.id, {}).get("entity_vehicle_color"),
-                "entity_vehicle_make": entity_map.get(event.id, {}).get("entity_vehicle_make"),
-                "entity_vehicle_model": entity_map.get(event.id, {}).get("entity_vehicle_model"),
-                "entity_vehicle_signature": entity_map.get(event.id, {}).get("entity_vehicle_signature"),
+                # Story P9-4.4 / issue #652: entities on the event, plus the
+                # legacy single-entity fields mirroring the first one.
+                "entities": entities_by_event.get(event.id, []),
+                **legacy_entity_fields(entities_by_event.get(event.id, [])),
                 # Story P15-5.1: AI Visual Annotations
                 "has_annotations": getattr(event, 'has_annotations', False),
                 "bounding_boxes": getattr(event, 'bounding_boxes', None),
@@ -1810,6 +1781,16 @@ async def get_event(
         except Exception as entity_error:
             logger.debug(f"Could not get entity for event {event_id}: {entity_error}")
 
+        # Issue #652: all entities on the event (detail view chips).
+        try:
+            from app.services.entity_service import build_event_entities, legacy_entity_fields
+
+            event_entities = build_event_entities(db, [event]).get(event.id, [])
+            event_dict["entities"] = event_entities
+            event_dict.update(legacy_entity_fields(event_entities))
+        except Exception as entities_error:
+            logger.debug(f"Could not get entities for event {event_id}: {entities_error}")
+
         # Story P4-5.1: Add feedback if exists
         if event.feedback:
             event_dict["feedback"] = FeedbackResponse.model_validate(event.feedback)
@@ -1824,6 +1805,30 @@ async def get_event(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get event"
         )
+
+
+def _reanalysis_provider_failure(result) -> HTTPException:
+    """Map a failed vision chain to 502 or 503 with a human detail.
+
+    The detail is built from provider names and error classes. Provider
+    response bodies are not copied into it.
+    """
+    from app.services.ai_provider_order import (
+        analysis_failure_log_detail,
+        client_reanalysis_error,
+    )
+
+    raw = getattr(result, "error", None) if result is not None else None
+    summary = analysis_failure_log_detail(raw)
+    timed_out = (
+        "SLA timeout" in summary or "insufficient remaining budget" in summary
+    )
+    code = (
+        status.HTTP_502_BAD_GATEWAY
+        if timed_out
+        else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
+    return HTTPException(status_code=code, detail=client_reanalysis_error(raw))
 
 
 @router.post("/{event_id}/reanalyze", response_model=EventResponse, dependencies=_REQUIRE_OPERATOR)
@@ -1854,7 +1859,8 @@ async def reanalyze_event(
         404: Event not found
         400: Invalid analysis mode for camera type
         429: Rate limit exceeded (max 3 per hour)
-        500: Re-analysis failed
+        502: The provider chain stopped because the deadline ran out
+        503: Configured providers failed (quota, auth, or other provider errors)
 
     Example:
         POST /events/123e4567-e89b-12d3-a456-426614174000/reanalyze
@@ -1862,6 +1868,9 @@ async def reanalyze_event(
     """
     from app.models.camera import Camera
     from app.services.ai_service import AIService  # Thin facade; consider VisionAnalysisOrchestrator for multi-mode reanalysis in future
+    from app.services.vision_analysis_orchestrator import (
+        MANUAL_ANALYSIS_SLA_MS as _MANUAL_ANALYSIS_SLA_MS,
+    )
     from app.services.clip_service import ClipService, get_clip_service
     from app.services.protect_service import ProtectService
     from app.services.frame_extractor import FrameExtractor
@@ -2036,7 +2045,9 @@ async def reanalyze_event(
                 frame=frame,
                 camera_name=camera.name,
                 timestamp=event.timestamp.isoformat(),
-                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected
+                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
+                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
+                user_initiated=True,
             )
 
         elif analysis_mode == 'multi_frame' and video_path:
@@ -2103,6 +2114,8 @@ async def reanalyze_event(
                 timestamp=event.timestamp.isoformat(),
                 detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
                 subject_crop_count=subject_crop_count,
+                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
+                user_initiated=True,
             )
 
         elif analysis_mode == 'video_native' and video_path:
@@ -2114,24 +2127,35 @@ async def reanalyze_event(
                 timestamp=event.timestamp.isoformat(),
                 detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
                 fps=frame_cfg["gemini_native_video_fps"],
+                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
             )
 
         if not result or not result.success:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI re-analysis failed"
-            )
+            raise _reanalysis_provider_failure(result)
 
-        # 8. Check for vagueness in new description
+        # 8–9. Named entities already linked to this event rewrite generic
+        # phrases the same way live Protect ingest does. Both description
+        # columns store that text so a previous multi-frame sentence cannot
+        # linger. Vagueness is scored on the sentence that is stored.
+        from app.services.entity_alert_service import get_entity_alert_service
+        from app.services.identification import dumps_identification
+
+        identification = getattr(result, "identification", None)
+        if not isinstance(identification, dict):
+            identification = None
+        description = await get_entity_alert_service().rewrite_reanalysis_description(
+            db,
+            event,
+            result.description or "",
+            identification,
+        )
         vagueness_detector = VaguenessDetector()
-        vague_result = vagueness_detector.is_vague(result.description)
-
-        # Determine low_confidence flag
+        vague_result = vagueness_detector.is_vague(description)
         ai_confidence = result.ai_confidence
         low_confidence = (ai_confidence is not None and ai_confidence < 50) or vague_result.is_vague
 
-        # 9. Update event with new description
-        event.description = result.description
+        event.description = description
+        event.enriched_description = description
         event.confidence = result.confidence
         event.ai_confidence = ai_confidence
         event.low_confidence = low_confidence
@@ -2144,8 +2168,7 @@ async def reanalyze_event(
         if frame_count_used:
             event.frame_count_used = frame_count_used
 
-        from app.services.identification import dumps_identification
-        stored_identification = dumps_identification(getattr(result, "identification", None))
+        stored_identification = dumps_identification(identification)
         if stored_identification is not None:
             event.identification = stored_identification
 
@@ -2199,7 +2222,12 @@ async def reanalyze_event(
                 logger.warning(f"Failed to clean up temp clip: {e}")
 
         # 11. Build response
+        from app.services.entity_service import build_event_entities, legacy_entity_fields
+
+        reanalyzed_entities = build_event_entities(db, [event]).get(event.id, [])
         return EventResponse(
+            entities=reanalyzed_entities,
+            **legacy_entity_fields(reanalyzed_entities),
             id=event.id,
             camera_id=event.camera_id,
             timestamp=event.timestamp,
@@ -2403,12 +2431,30 @@ async def smart_reanalyze_event(
                 detail="AI analysis failed"
             )
 
-        # 10. Update event with new description
-        event.description = result.description
+        # 10. Update event with new description, then the same named rewrite
+        # used by standard reanalyze so description and enriched_description agree.
+        from app.services.entity_alert_service import get_entity_alert_service
+
+        identification = getattr(result, "identification", None)
+        if not isinstance(identification, dict):
+            identification = _event_identification(event)
+        description = await get_entity_alert_service().rewrite_reanalysis_description(
+            db,
+            event,
+            result.description or "",
+            identification,
+        )
+        event.description = description
+        event.enriched_description = description
         event.ai_confidence = result.ai_confidence
         event.provider_used = result.provider
         event.reanalyzed_at = datetime.now(timezone.utc)
         event.reanalysis_count = (event.reanalysis_count or 0) + 1
+
+        from app.services.identification import dumps_identification
+        stored_identification = dumps_identification(identification)
+        if stored_identification is not None:
+            event.identification = stored_identification
 
         db.commit()
 
@@ -2427,7 +2473,7 @@ async def smart_reanalyze_event(
         # 11. Build response
         return SmartReanalyzeResponse(
             event_id=event_id,
-            description=result.description,
+            description=event.description,
             query=request.query,
             frames_selected=len(selected_frame_indices),
             frames_available=total_frame_embeddings,

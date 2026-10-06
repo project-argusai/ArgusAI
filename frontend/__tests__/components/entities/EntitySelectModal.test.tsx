@@ -106,4 +106,19 @@ describe('EntitySelectModal vehicle labels', () => {
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Red Tesla Model Y');
     expect(screen.getByText(/will trigger AI re-classification/)).toBeInTheDocument();
   });
+
+  it('hides entities already on the event (issue #652)', () => {
+    render(
+      <EntitySelectModal
+        open
+        onOpenChange={vi.fn()}
+        onSelect={onSelect}
+        excludeEntityIds={[alice.id, tesla.id]}
+      />
+    );
+
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument();
+    expect(screen.queryByText('Red Tesla Model Y')).not.toBeInTheDocument();
+    expect(screen.getByText('Black Kia Seltos')).toBeInTheDocument();
+  });
 });

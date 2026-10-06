@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { applyReanalyzedEvent, mergeReanalyzedEvent } from '@/lib/reanalyzed-event';
 import type { IEvent, AnalysisMode, SourceType } from '@/types/event';
 
 interface ReAnalyzeModalProps {
@@ -146,22 +147,23 @@ export function ReAnalyzeModal({
         description: `New confidence: ${updatedEvent.ai_confidence ?? 'N/A'}%`,
       });
 
-      // Invalidate event queries to refresh the list
+      applyReanalyzedEvent(queryClient, updatedEvent);
       queryClient.invalidateQueries({ queryKey: ['events'] });
       queryClient.invalidateQueries({ queryKey: ['event', event.id] });
 
-      // Call success callback
       onSuccess?.(updatedEvent);
     },
     onError: (error: Error) => {
-      // AC5: Show error toast
+      // AC5: Show error toast. The API detail (provider attempts, budget)
+      // is the message on ApiError; show it instead of a generic failure.
+      const message = error.message?.trim() ?? '';
+      const lower = message.toLowerCase();
       let errorMessage = 'Failed to re-analyze event';
 
-      // Check for rate limit error
-      if (error.message.includes('429') || error.message.includes('rate limit')) {
+      if (lower.includes('429') || lower.includes('rate limit')) {
         errorMessage = 'Rate limit exceeded. Please try again later (max 3 per hour).';
-      } else if (error.message.includes('400')) {
-        errorMessage = error.message || 'Invalid analysis mode for this camera type';
+      } else if (message) {
+        errorMessage = message;
       }
 
       toast.error('Re-analysis failed', {
@@ -190,11 +192,14 @@ export function ReAnalyzeModal({
         description: `Selected ${result.frames_selected} of ${result.frames_available} frames (${Math.round(result.top_frame_score * 100)}% relevance)`,
       });
 
-      // Invalidate event queries to refresh the list
+      const updatedEvent = mergeReanalyzedEvent(event, {
+        id: event.id,
+        description: result.description,
+      });
+      applyReanalyzedEvent(queryClient, updatedEvent);
       queryClient.invalidateQueries({ queryKey: ['events'] });
       queryClient.invalidateQueries({ queryKey: ['event', event.id] });
-
-      // Don't close immediately - let user see the results
+      onSuccess?.(updatedEvent);
     },
     onError: (error: Error) => {
       let errorMessage = 'Smart analysis failed';

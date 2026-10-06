@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { errorForFailedResponse } from '@/lib/csrf-error';
 import { apiClient, ApiError } from '@/lib/api-client';
 import type { EntityType } from '@/types/entity';
+import type { IEventEntity } from '@/types/event';
 
 /**
  * Query parameters for fetching entities
@@ -167,6 +168,8 @@ export function useEntityEvents(
 export interface UnlinkEventResponse {
   success: boolean;
   message: string;
+  /** Entities still on the event after the removal (issue #652). */
+  entities?: IEventEntity[];
 }
 
 /**
@@ -185,7 +188,7 @@ export function useUnlinkEvent() {
       eventId: string;
     }): Promise<UnlinkEventResponse> => {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/v1/context/entities/${entityId}/events/${eventId}`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/v1/context/entities/${encodeURIComponent(entityId)}/events/${encodeURIComponent(eventId)}`,
         {
           method: 'DELETE',
           credentials: 'include',
@@ -197,13 +200,16 @@ export function useUnlinkEvent() {
       }
       return response.json();
     },
-    onSuccess: (_data, { entityId }) => {
+    onSuccess: (_data, { entityId, eventId }) => {
       // Invalidate entity events queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ['entities', entityId, 'events'] });
       // Invalidate entity detail to update occurrence count
       queryClient.invalidateQueries({ queryKey: ['entities', entityId] });
       // Invalidate entity list for occurrence count updates
       queryClient.invalidateQueries({ queryKey: ['entities'] });
+      // Event cards and detail show the event's entities (issue #652)
+      queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['event', eventId] });
     },
   });
 }
@@ -214,14 +220,18 @@ export function useUnlinkEvent() {
 export interface AssignEventResponse {
   success: boolean;
   message: string;
-  action: 'assign' | 'move' | 'none';
+  /** add: new link; replace: other entities removed; none: already linked */
+  action: 'add' | 'replace' | 'none';
   entity_id: string;
   entity_name: string | null;
+  /** All entities on the event after the change, primary first (issue #652). */
+  entities?: IEventEntity[];
 }
 
 /**
- * Hook to assign an event to an entity (Story P9-4.4)
- * Handles both new assignments and moving events between entities.
+ * Hook to add an entity to an event (Story P9-4.4, issue #652).
+ * Adds by default and keeps entities already on the event. Pass
+ * `replace: true` to remove the others first (corrections).
  * @returns Mutation for assigning event
  */
 export function useAssignEventToEntity() {
@@ -231,19 +241,21 @@ export function useAssignEventToEntity() {
     mutationFn: async ({
       eventId,
       entityId,
+      replace = false,
     }: {
       eventId: string;
       entityId: string;
+      replace?: boolean;
     }): Promise<AssignEventResponse> => {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/v1/context/events/${eventId}/entity`,
+        `${process.env.NEXT_PUBLIC_API_URL ?? ''}/api/v1/context/events/${encodeURIComponent(eventId)}/entity`,
         {
           method: 'POST',
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ entity_id: entityId }),
+          body: JSON.stringify({ entity_id: String(entityId), replace }),
         }
       );
       if (!response.ok) {
@@ -252,7 +264,7 @@ export function useAssignEventToEntity() {
       }
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       // Invalidate entity events queries for the target entity
       queryClient.invalidateQueries({ queryKey: ['entities', data.entity_id, 'events'] });
       // Invalidate entity detail to update occurrence count
@@ -261,6 +273,7 @@ export function useAssignEventToEntity() {
       queryClient.invalidateQueries({ queryKey: ['entities'] });
       // Invalidate events queries to refresh any entity associations displayed on event cards
       queryClient.invalidateQueries({ queryKey: ['events'] });
+      queryClient.invalidateQueries({ queryKey: ['event', variables.eventId] });
     },
   });
 }

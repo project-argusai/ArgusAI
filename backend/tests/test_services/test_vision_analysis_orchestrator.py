@@ -607,3 +607,260 @@ class TestFallbackChainDeadlines:
         assert "Success with" not in caplog.text
         assert grok.generate_multi_image_description.await_count == 1
         assert openai.generate_multi_image_description.await_count == 1
+
+
+class TestManualReanalysisBudget:
+    """Re-analyze uses the live 15s provider cap inside a 45s manual deadline."""
+
+    @pytest.fixture
+    def order_db(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.core.database import Base
+        from app.models.system_setting import SystemSetting  # noqa: F401
+
+        engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(bind=engine)
+        session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+        try:
+            yield session
+        finally:
+            session.close()
+            engine.dispose()
+
+    def _patch_db(self, order_db):
+        return patch("app.core.database.SessionLocal", return_value=order_db)
+
+    def _order(self, order_db, names):
+        import json
+
+        from app.models.system_setting import SystemSetting
+
+        order_db.add(SystemSetting(key="ai_provider_order", value=json.dumps(names)))
+        order_db.commit()
+
+    def test_live_pipeline_limits_are_unchanged(self, monkeypatch):
+        from app.services.vision_analysis_orchestrator import (
+            DEFAULT_MULTI_IMAGE_SLA_MS,
+            DEFAULT_SINGLE_IMAGE_SLA_MS,
+            MANUAL_ANALYSIS_SLA_MS,
+            MAX_FIRST_PROVIDER_MS,
+            MAX_FIRST_SINGLE_MS,
+        )
+
+        monkeypatch.delenv("AI_MULTI_IMAGE_SLA_MS", raising=False)
+        orchestrator = VisionAnalysisOrchestrator()
+        assert orchestrator.default_single_image_sla_ms == DEFAULT_SINGLE_IMAGE_SLA_MS == 5_000
+        assert orchestrator.default_multi_image_sla_ms == DEFAULT_MULTI_IMAGE_SLA_MS == 25_000
+        assert orchestrator.max_first_provider_ms == MAX_FIRST_PROVIDER_MS == 15_000
+        assert orchestrator.max_first_single_ms == MAX_FIRST_SINGLE_MS == 3_000
+        live_single = orchestrator.provider_call_timeout_ms(
+            elapsed_ms=0,
+            sla_timeout_ms=orchestrator.default_single_image_sla_ms,
+            calls_started=0,
+            multi=False,
+        )
+        live_multi = orchestrator.provider_call_timeout_ms(
+            elapsed_ms=0,
+            sla_timeout_ms=orchestrator.default_multi_image_sla_ms,
+            calls_started=0,
+            multi=True,
+        )
+        assert live_single == 3_000
+        assert live_multi == 15_000
+        assert MANUAL_ANALYSIS_SLA_MS == 45_000
+
+    @pytest.mark.asyncio
+    async def test_user_initiated_single_image_gives_full_provider_budget(self, order_db):
+        self._order(order_db, ["grok"])
+        seen = {}
+
+        async def grok_call(*args, **kwargs):
+            seen["timeout_s"] = kwargs.get("request_timeout_s")
+            return _ok_result("grok")
+
+        grok = AsyncMock()
+        grok.generate_description = grok_call
+        orchestrator = VisionAnalysisOrchestrator(providers={AIProvider.GROK: grok})
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(
+                frame, "Front Door", user_initiated=True
+            )
+
+        assert result.success is True
+        assert result.provider == "grok"
+        assert seen["timeout_s"] >= 14
+
+    @pytest.mark.asyncio
+    @pytest.mark.slow
+    async def test_user_initiated_provider_taking_about_ten_seconds_succeeds(self, order_db):
+        """A ~10s Grok call fits the manual budget and is not cancelled at 3s."""
+        import time
+
+        self._order(order_db, ["grok"])
+
+        async def grok_call(*args, **kwargs):
+            assert kwargs.get("request_timeout_s", 0) >= 10
+            await asyncio.sleep(10)
+            return _ok_result("grok")
+
+        grok = AsyncMock()
+        grok.generate_description = grok_call
+        orchestrator = VisionAnalysisOrchestrator(providers={AIProvider.GROK: grok})
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        started = time.monotonic()
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(
+                frame, "Front Door", user_initiated=True
+            )
+        elapsed = time.monotonic() - started
+
+        assert result.success is True
+        assert result.provider == "grok"
+        assert elapsed >= 9
+        assert elapsed < 14
+
+    @pytest.mark.asyncio
+    async def test_quota_exhausted_is_skipped_and_next_provider_is_tried(
+        self, order_db, caplog
+    ):
+        """Quota does not spend the fallback slot, so a later provider still runs."""
+        import logging
+        import time
+
+        caplog.set_level(logging.INFO)
+        self._order(order_db, ["grok", "anthropic", "google"])
+        calls = []
+
+        async def grok_call(*args, **kwargs):
+            calls.append("grok")
+            await asyncio.sleep(5)
+            return _ok_result("grok")
+
+        async def claude_call(*args, **kwargs):
+            calls.append("claude")
+            return _failed_result(
+                "claude",
+                "You have no credits. sk-live-secret-DO-NOT-LEAK",
+            )
+
+        async def gemini_call(*args, **kwargs):
+            calls.append("gemini")
+            return _ok_result("gemini")
+
+        grok = AsyncMock()
+        grok.generate_description = grok_call
+        claude = AsyncMock()
+        claude.generate_description = claude_call
+        gemini = AsyncMock()
+        gemini.generate_description = gemini_call
+        resilience = MagicMock()
+        resilience.can_use_provider.return_value = True
+        orchestrator = VisionAnalysisOrchestrator(
+            providers={
+                AIProvider.GROK: grok,
+                AIProvider.CLAUDE: claude,
+                AIProvider.GEMINI: gemini,
+            },
+            resilience_service=resilience,
+        )
+        # Tight live single-image budget: after one real timeout, a second
+        # consuming failure would leave too little time for a third call.
+        orchestrator.min_provider_call_ms = 100
+        orchestrator.max_first_single_ms = 50
+        orchestrator.max_fallback_single_ms = 50
+        orchestrator.single_fallback_reserve_ms = 0
+        orchestrator.single_fallback_grace_ms = 50
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        started = time.monotonic()
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(
+                frame, "Front Door", sla_timeout_ms=120
+            )
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.5
+        assert calls == ["grok", "claude", "gemini"]
+        assert result.success is True
+        assert result.provider == "gemini"
+        resilience.trip_quota.assert_called_once_with("claude")
+        assert "sk-live-secret" not in (result.error or "")
+        assert "sk-live-secret" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_auth_error_does_not_consume_budget(self, order_db):
+        self._order(order_db, ["grok", "openai"])
+        calls = []
+
+        async def grok_call(*args, **kwargs):
+            calls.append("grok")
+            return _failed_result("grok", "invalid api key")
+
+        async def openai_call(*args, **kwargs):
+            calls.append("openai")
+            return _ok_result("openai")
+
+        grok = AsyncMock()
+        grok.generate_description = grok_call
+        openai = AsyncMock()
+        openai.generate_description = openai_call
+        resilience = MagicMock()
+        resilience.can_use_provider.return_value = True
+        orchestrator = VisionAnalysisOrchestrator(
+            providers={AIProvider.GROK: grok, AIProvider.OPENAI: openai},
+            resilience_service=resilience,
+        )
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(frame, "Front Door")
+
+        assert calls == ["grok", "openai"]
+        assert result.success is True
+        assert result.provider == "openai"
+        resilience.trip_quota.assert_called_once_with("grok", reason="auth_error")
+
+    @pytest.mark.asyncio
+    async def test_insufficient_budget_message_when_time_remains(self, order_db):
+        self._order(order_db, ["grok", "anthropic", "google"])
+
+        async def slow(*args, **kwargs):
+            await asyncio.sleep(5)
+            return _ok_result("unused")
+
+        grok = AsyncMock()
+        grok.generate_description = AsyncMock(side_effect=slow)
+        claude = AsyncMock()
+        claude.generate_description = AsyncMock(side_effect=slow)
+        gemini = AsyncMock()
+        gemini.generate_description = AsyncMock(side_effect=slow)
+        orchestrator = VisionAnalysisOrchestrator(providers={
+            AIProvider.GROK: grok,
+            AIProvider.CLAUDE: claude,
+            AIProvider.GEMINI: gemini,
+        })
+        orchestrator.min_provider_call_ms = 470
+        orchestrator.max_first_single_ms = 40
+        orchestrator.max_fallback_single_ms = 40
+        orchestrator.single_fallback_reserve_ms = 0
+        orchestrator.single_fallback_grace_ms = 40
+        frame = np.zeros((16, 16, 3), dtype=np.uint8)
+
+        with self._patch_db(order_db):
+            result = await orchestrator.analyze_image(
+                frame, "Front Door", sla_timeout_ms=500
+            )
+
+        assert result.success is False
+        assert "insufficient remaining budget" in (result.error or "")
+        assert "ms left" in (result.error or "")
+        assert "SLA timeout" not in (result.error or "")
+        assert ">" not in (result.error or "")
+        assert gemini.generate_description.await_count == 0
+        assert grok.generate_description.await_count == 1
+        assert claude.generate_description.await_count == 1

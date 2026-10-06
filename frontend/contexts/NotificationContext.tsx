@@ -5,9 +5,10 @@
 
 'use client';
 
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient, hasAuthToken } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
+import { useAuth } from '@/contexts/AuthContext';
 import { useWebSocket, ConnectionStatus } from '@/lib/hooks/useWebSocket';
 import type { INotification } from '@/types/notification';
 
@@ -40,25 +41,9 @@ const NOTIFICATIONS_QUERY_KEY = ['notifications'];
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  const { isAuthenticated } = useAuth();
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
   const [authFailureMessage, setAuthFailureMessage] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  // Check auth status on mount and when storage changes
-  useEffect(() => {
-    const checkAuth = () => setIsAuthenticated(hasAuthToken());
-    checkAuth();
-
-    // Listen for storage changes (login/logout in other tabs)
-    window.addEventListener('storage', checkAuth);
-    // Also check periodically in case of same-tab login
-    const interval = setInterval(checkAuth, 1000);
-
-    return () => {
-      window.removeEventListener('storage', checkAuth);
-      clearInterval(interval);
-    };
-  }, []);
 
   // Fetch notifications from API (only when authenticated)
   const {

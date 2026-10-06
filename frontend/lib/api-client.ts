@@ -138,71 +138,52 @@ export interface ProtectDiscoveredCamera {
   is_new?: boolean;
 }
 
-// Token storage key
+// Legacy keys cleared on load (CR-011 / #601). Web auth is cookie-only.
 const AUTH_TOKEN_KEY = 'auth_token';
+const LEGACY_AUTH_KEYS = [AUTH_TOKEN_KEY, 'refresh_token', 'access_token'] as const;
 
 /**
- * Get stored auth token
+ * Remove any browser-readable auth tokens left from older builds.
+ * Safe to call repeatedly; no-ops on the server.
  */
-function getAuthToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(AUTH_TOKEN_KEY);
-}
-
-/**
- * Set auth token in localStorage
- */
-export function setAuthToken(token: string): void {
+export function clearLegacyBrowserTokens(): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(AUTH_TOKEN_KEY, token);
+  for (const key of LEGACY_AUTH_KEYS) {
+    try {
+      localStorage.removeItem(key);
+      sessionStorage.removeItem(key);
+    } catch {
+      // ignore quota / private-mode failures
+    }
+  }
 }
 
-/**
- * Clear auth token from localStorage
- */
+/** @deprecated Web sessions use HttpOnly cookies only (CR-011). No-op. */
+export function setAuthToken(_token: string): void {
+  clearLegacyBrowserTokens();
+}
+
+/** Clear legacy browser token storage (cookies are cleared by /auth/logout). */
 export function clearAuthToken(): void {
-  if (typeof window === 'undefined') return;
-  localStorage.removeItem(AUTH_TOKEN_KEY);
-  clearRefreshToken(); // Also clear refresh token on full logout
+  clearLegacyBrowserTokens();
 }
 
 /**
- * Check if auth token exists in localStorage
+ * @deprecated Always false for cookie-only web auth. Prefer AuthContext.isAuthenticated.
  */
 export function hasAuthToken(): boolean {
-  if (typeof window === 'undefined') return false;
-  return !!localStorage.getItem(AUTH_TOKEN_KEY);
+  return false;
 }
 
-// =============================================================================
-// Phase A - Web Refresh Token Support
-// =============================================================================
-
-// In-memory storage for refresh token (more secure than localStorage against XSS)
-let currentRefreshToken: string | null = null;
-
-export function setRefreshToken(token: string | null): void {
-  currentRefreshToken = token;
-}
-
-export function getRefreshToken(): string | null {
-  return currentRefreshToken;
-}
-
-export function clearRefreshToken(): void {
-  currentRefreshToken = null;
-}
+// Clear leftovers as soon as this module evaluates in the browser.
+clearLegacyBrowserTokens();
 
 /**
- * Get headers including auth token for direct fetch calls
+ * Headers for direct fetch calls. Web auth relies on credentials: 'include'
+ * (HttpOnly cookies); do not attach a Bearer token from browser storage.
  */
 function getAuthHeaders(): HeadersInit {
-  const headers: HeadersInit = {};
-  const token = getAuthToken();
-  if (token) {
-    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
+  return {};
 }
 
 /**
@@ -241,34 +222,27 @@ async function apiFetch<T>(
   const url = `${API_BASE_URL}${API_V1_PREFIX}${endpoint}`;
 
   try {
-    // Build headers with auth token if available
+    // Cookie session only (CR-011): credentials include HttpOnly access_token.
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       ...options?.headers,
     };
 
-    const token = getAuthToken();
-    if (token) {
-      (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
-    }
-
     const response = await fetch(url, {
       ...options,
-      credentials: 'include',  // Also send cookies for JWT auth
+      credentials: 'include',
       headers,
     });
 
     // Parse response body
     const data = await response.json().catch(() => null);
 
-    // === Phase A: Automatic Token Refresh on 401 ===
-    if (response.status === 401 && getRefreshToken() && _retryAttempt === 0) {
-      // Only attempt refresh once per request
+    // Automatic cookie refresh on 401 (refresh_token HttpOnly cookie).
+    if (response.status === 401 && _retryAttempt === 0) {
       if (!isRefreshing) {
         isRefreshing = true;
         refreshPromise = (async () => {
           try {
-            // The refresh token is sent automatically via httpOnly cookie
             const refreshResponse = await fetch(`${API_BASE_URL}${API_V1_PREFIX}/auth/refresh`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -276,40 +250,26 @@ async function apiFetch<T>(
             });
 
             if (refreshResponse.ok) {
-              const refreshData = await refreshResponse.json();
-
-              // Update in-memory refresh token (rotated)
-              if (refreshData.refresh_token) {
-                setRefreshToken(refreshData.refresh_token);
-              }
-
-              // The new access token is set as httpOnly cookie by the server
+              clearLegacyBrowserTokens();
               return true;
-            } else {
-              // Refresh failed — clear tokens and force re-login
-              clearRefreshToken();
-              clearAuthToken();
-
-              let eventType = 'session-expired';
-
-              try {
-                const errorData = await refreshResponse.clone().json();
-                const detail = errorData?.detail || '';
-                if (detail.includes('suspicious activity') || detail.includes('reuse')) {
-                  eventType = 'session-revoked-security';
-                }
-              } catch (_) {
-                // ignore JSON parse errors
-              }
-
-              if (typeof window !== 'undefined') {
-                window.dispatchEvent(new CustomEvent(eventType));
-              }
-
-              return false;
             }
-          } catch (err) {
-            clearRefreshToken();
+
+            clearAuthToken();
+            let eventType = 'session-expired';
+            try {
+              const errorData = await refreshResponse.clone().json();
+              const detail = errorData?.detail || '';
+              if (detail.includes('suspicious activity') || detail.includes('reuse')) {
+                eventType = 'session-revoked-security';
+              }
+            } catch (_) {
+              // ignore JSON parse errors
+            }
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent(eventType));
+            }
+            return false;
+          } catch (_err) {
             clearAuthToken();
             return false;
           } finally {
@@ -319,15 +279,11 @@ async function apiFetch<T>(
         })();
       }
 
-      // Wait for the current refresh attempt to finish
       const refreshSuccess = await (refreshPromise ?? Promise.resolve(false));
-
       if (refreshSuccess) {
-        // Retry the original request once
         return apiFetch<T>(endpoint, options, 1);
-      } else {
-        throw new ApiError('Session expired. Please log in again.', 401, data);
       }
+      throw new ApiError('Session expired. Please log in again.', 401, data);
     }
 
     if (!response.ok) {
@@ -1273,11 +1229,10 @@ export const apiClient = {
     /**
      * Login with username and password
      * @param request Login credentials
-     * @returns Login response with token
+     * @returns Login response with user (tokens are HttpOnly cookies only)
      */
     login: async (request: ILoginRequest): Promise<ILoginResponse> => {
-      // The refresh token is now set as httpOnly cookie by the backend (more secure)
-      // We no longer store it from the response body
+      clearLegacyBrowserTokens();
       return apiFetch<ILoginResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify(request),
@@ -1289,9 +1244,7 @@ export const apiClient = {
      * @returns Success message
      */
     logout: async (): Promise<IMessageResponse> => {
-      // Clear refresh token from memory on logout
-      clearRefreshToken();
-
+      clearLegacyBrowserTokens();
       return apiFetch('/auth/logout', {
         method: 'POST',
       });

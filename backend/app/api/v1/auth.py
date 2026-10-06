@@ -270,6 +270,7 @@ def get_current_token(request: Request) -> str | None:
 @router.post(
     "/login",
     response_model=LoginResponse,
+    response_model_exclude_none=True,
     summary="Authenticate user",
     description="Login with username and password. Returns JWT token in response body and sets HTTP-only cookie. Rate limited to 5 attempts per 15 minutes per IP.",
     response_description="JWT access token and user information",
@@ -279,7 +280,7 @@ def get_current_token(request: Request) -> str | None:
     },
 )
 @limiter.limit("5/15minutes")
-async def login(
+async def login(  # tokens omitted from JSON; cookies only (CR-011)
     request: Request,
     response: Response,
     credentials: LoginRequest,
@@ -405,9 +406,12 @@ async def login(
         }
     )
 
+    # CR-011 / #601: do not return bearer/refresh tokens in JSON for the web
+    # login path. Tokens live only in HttpOnly cookies. Mobile clients use
+    # /api/v1/mobile/auth/* which still returns tokens in the body.
     return LoginResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,  # New in Phase A - Web Refresh flow
+        access_token=None,
+        refresh_token=None,
         token_type="bearer",
         user=UserResponse(
             id=user.id,
@@ -426,6 +430,7 @@ async def login(
 @router.post(
     "/refresh",
     response_model=RefreshResponse,
+    response_model_exclude_none=True,
     summary="Refresh access token",
     description="Exchange a valid refresh token for a new access token and rotated refresh token. Rate limited via REFRESH_RATE_LIMIT setting.",
 )
@@ -520,9 +525,11 @@ async def refresh_token(
         }
     )
 
+    # CR-011 / #601: cookies carry the rotated tokens; omit them from JSON.
     return RefreshResponse(
-        access_token=new_access_token,
-        refresh_token=new_refresh_token,
+        access_token=None,
+        refresh_token=None,
+        success=True,
     )
 
 

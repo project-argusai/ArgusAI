@@ -12,9 +12,21 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Login response with user info"""
-    access_token: str = Field(..., description="JWT access token (short-lived)")
-    refresh_token: Optional[str] = Field(None, description="Opaque refresh token (long-lived, use for /auth/refresh)")
+    """Login response with user info.
+
+    Web clients receive HttpOnly cookies only (CR-011 / #601). Access and refresh
+    tokens are omitted from the JSON body so browser JS cannot read them.
+    Mobile/programmatic clients use ``/api/v1/mobile/auth/*`` which still returns
+    bearer tokens in JSON.
+    """
+    access_token: Optional[str] = Field(
+        default=None,
+        description="Omitted for web cookie sessions; mobile uses /mobile/auth",
+    )
+    refresh_token: Optional[str] = Field(
+        default=None,
+        description="Omitted for web cookie sessions; mobile uses /mobile/auth",
+    )
     token_type: str = Field(default="bearer", description="Token type")
     user: "UserResponse" = Field(..., description="User information")
     must_change_password: bool = Field(default=False, description="Requires password change")
@@ -26,10 +38,21 @@ class RefreshRequest(BaseModel):
 
 
 class RefreshResponse(BaseModel):
-    """Response after successful token refresh"""
-    access_token: str = Field(..., description="New short-lived JWT access token")
-    refresh_token: str = Field(..., description="New rotated refresh token")
+    """Response after successful token refresh.
+
+    Web cookie sessions omit tokens from JSON (CR-011 / #601); new values are
+    set only as HttpOnly cookies.
+    """
+    access_token: Optional[str] = Field(
+        default=None,
+        description="Omitted for web cookie sessions",
+    )
+    refresh_token: Optional[str] = Field(
+        default=None,
+        description="Omitted for web cookie sessions",
+    )
     token_type: str = Field(default="bearer", description="Token type")
+    success: bool = Field(default=True, description="Whether the session was refreshed")
 
 
 class UserResponse(BaseModel):

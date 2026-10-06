@@ -104,6 +104,7 @@ class LiteLLMService:
                 error=litellm_result.error,
                 ai_confidence=litellm_result.ai_confidence,
                 bounding_boxes=litellm_result.bounding_boxes,
+                identification=getattr(litellm_result, "identification", None),
             )
 
         except Exception as e:

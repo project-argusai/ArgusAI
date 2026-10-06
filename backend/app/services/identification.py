@@ -493,6 +493,69 @@ def resolve_objects_detected(
     return extract_objects_from_description(description, keywords=keywords)
 
 
+
+def confidence_from_identification(
+    identification: Optional[Mapping[str, Any]] = None,
+    *,
+    ai_confidence: Optional[int] = None,
+) -> int:
+    """Derive a 0–100 confidence from structured identification.
+
+    Preference order:
+    1. Explicit model-reported ``ai_confidence`` when it is an int/float in 0–100.
+       (Stored separately on ``AIResult.ai_confidence`` for MQTT/UI.)
+    2. Otherwise score parsed fields:
+       - Concrete subject (person/vehicle/package/animal): base 70
+       - Clear empty scene (``none``): base 68
+       - ``unknown`` / missing: base 35
+       - +10 for a concrete identity (not unknown/cannot_tell)
+       - +5 when action is concrete; +5 when direction is concrete
+       - −5 per vague supporting field when object_type is unknown
+         (action/direction/package_or_carrier as cannot_tell/unknown)
+       - −5 when a concrete subject has no count
+       Result is clamped to 0–100.
+    """
+    if isinstance(ai_confidence, (int, float)):
+        reported = int(ai_confidence)
+        if 0 <= reported <= 100:
+            return reported
+
+    ident = identification if isinstance(identification, Mapping) else empty_identification()
+    object_type = str(ident.get("object_type") or UNKNOWN).lower()
+
+    if object_type in SUBJECT_TYPES:
+        score = 70
+    elif object_type == "none":
+        score = 68
+    else:
+        score = 35
+
+    identity = str(ident.get("identity") or UNKNOWN).strip().lower()
+    if identity not in {UNKNOWN, CANNOT_TELL, ""}:
+        score += 10
+
+    action = str(ident.get("action") or CANNOT_TELL).strip().lower()
+    if action not in {CANNOT_TELL, UNKNOWN, ""}:
+        score += 5
+
+    direction = str(ident.get("direction") or CANNOT_TELL).strip().lower()
+    if direction not in {CANNOT_TELL, UNKNOWN, ""}:
+        score += 5
+
+    if object_type == UNKNOWN:
+        vague = 0
+        for key in ("action", "direction", "package_or_carrier"):
+            val = str(ident.get(key) or CANNOT_TELL).strip().lower()
+            if val in {CANNOT_TELL, UNKNOWN, ""}:
+                vague += 1
+        score -= min(15, vague * 5)
+
+    if object_type in SUBJECT_TYPES and ident.get("count") is None:
+        score -= 5
+
+    return max(0, min(100, int(score)))
+
+
 def apply_identification(
     result: AIResult,
     raw_response: Optional[str],
@@ -503,6 +566,10 @@ def apply_identification(
     A known subject, including an explicit empty frame, replaces whatever
     substring matching found in the description. Missing identification keeps
     the smart-detect or text fallback.
+
+    Also sets ``result.confidence`` from structured fields (or an explicit
+    ``ai_confidence`` when present). ``ai_confidence`` itself is left unchanged
+    for storage/MQTT.
     """
     ident = parse_identification(raw_response)
     result.identification = ident
@@ -510,6 +577,10 @@ def apply_identification(
         identification=ident,
         description=result.description or "",
         smart_detection_types=smart_detection_types,
+    )
+    result.confidence = confidence_from_identification(
+        ident,
+        ai_confidence=getattr(result, "ai_confidence", None),
     )
     return result
 

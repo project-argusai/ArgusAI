@@ -172,7 +172,7 @@ class GeminiProvider(AIProviderBase):
             tokens_used = len(raw_response.split()) * 1.3
             cost = tokens_used / 1000 * 0.0002
 
-            confidence = ai_confidence or self._calculate_confidence(description, int(tokens_used))
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -239,7 +239,7 @@ class GeminiProvider(AIProviderBase):
 
             return self._with_identification(AIResult(
                 description=description,
-                confidence=ai_confidence or 72,
+                confidence=ai_confidence if ai_confidence is not None else 0,
                 objects_detected=self._extract_objects(description),
                 provider="gemini",
                 tokens_used=int(tokens_used),
@@ -264,10 +264,9 @@ class GeminiProvider(AIProviderBase):
             )
 
     def _calculate_confidence(self, description: str, tokens_used: int) -> int:
-        confidence = 65
-        if len(description) > 120:
-            confidence += 12
-        return min(confidence, 90)
+        """Deprecated length heuristic; prefer confidence_from_identification."""
+        from app.services.identification import confidence_from_identification
+        return confidence_from_identification(ai_confidence=None)
 
     async def describe_video(
         self,
@@ -339,7 +338,7 @@ class GeminiProvider(AIProviderBase):
             cost = tokens_used / 1000 * 0.00035
             result = AIResult(
                 description=description,
-                confidence=ai_confidence or self._calculate_confidence(description, tokens_used),
+                confidence=ai_confidence if ai_confidence is not None else 0,
                 objects_detected=self._extract_objects(description),
                 provider="gemini",
                 tokens_used=tokens_used,

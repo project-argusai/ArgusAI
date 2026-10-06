@@ -77,7 +77,7 @@ class ClaudeProvider(AIProviderBase):
                 (output_tokens / 1000 * self.cost_per_1k_output_tokens)
             )
 
-            confidence = ai_confidence or self._calculate_confidence(description, tokens_used)
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -150,7 +150,7 @@ class ClaudeProvider(AIProviderBase):
 
             cost = ((input_tokens + output_tokens) / 1000) * 0.0008
 
-            confidence = ai_confidence or 75
+            confidence = ai_confidence if ai_confidence is not None else 0  # set by apply_identification
             objects = self._extract_objects(description)
 
             return self._with_identification(AIResult(
@@ -180,7 +180,7 @@ class ClaudeProvider(AIProviderBase):
             )
 
     def _calculate_confidence(self, description: str, tokens_used: int) -> int:
-        confidence = 68
-        if len(description) > 130:
-            confidence += 10
-        return min(confidence, 92)
+        """Deprecated length heuristic; prefer confidence_from_identification."""
+        from app.services.identification import confidence_from_identification
+        return confidence_from_identification(ai_confidence=None)
+

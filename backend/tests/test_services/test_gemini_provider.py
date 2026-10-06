@@ -162,7 +162,9 @@ async def test_multi_image_timeout_and_cost():
     assert call["config"].http_options.timeout == 15_000
     assert result.tokens_used == int(4 * 1.5)
     assert result.cost_estimate == pytest.approx((4 * 1.5) / 1000 * 0.00035)
-    assert result.confidence == 72
+    # No structured identification / ai_confidence → scored from empty fields
+    from app.services.identification import confidence_from_identification
+    assert result.confidence == confidence_from_identification()
 
 
 @pytest.mark.asyncio

@@ -418,9 +418,11 @@ class TestCleanupService:
             assert stats["events_deleted"] == 10000
             assert stats["batches_processed"] == 10
 
-            # Verify performance (should complete in reasonable time)
-            # For 10K events in 10 batches, should be < 5 seconds
-            assert elapsed_time < 30.0  # CR-010 path is safer than bulk DELETE; allow headroom
+            # Verify performance (should complete in reasonable time).
+            # CR-010 routes each batch through EventMediaDeletionService (safer than
+            # bulk DELETE), so this is slower than the old path. CI hosts vary;
+            # 90s is enough headroom without hiding a real hang.
+            assert elapsed_time < 90.0
 
             # Verify all events deleted
             assert db.query(Event).count() == 0

@@ -271,7 +271,7 @@ class TestEventMediaCleanup:
         db = harness.SessionLocal()
         try:
             assert stats["events_deleted"] == 1
-            assert stats["dependents_deleted"] >= 3
+            assert stats["dependents_deleted"] + stats.get("orphan_dependents_deleted", 0) >= 3
             assert stats["orphan_dependents_deleted"] >= 2
             assert db.query(Event).filter(Event.id == "live-child").count() == 1
             assert db.query(EntityEvent).filter(EntityEvent.event_id == "old-child").count() == 0

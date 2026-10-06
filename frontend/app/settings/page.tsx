@@ -296,9 +296,16 @@ export default function SettingsPage() {
       description: deleteAllDataDescription(eventCount),
       onConfirm: async () => {
         try {
-          await apiClient.settings.deleteAllData();
+          const result = await apiClient.settings.deleteAllData();
           setConfirmDialog({ ...confirmDialog, open: false });
-          toast.success('All data deleted successfully');
+          if (result.success) {
+            toast.success('All data deleted successfully');
+          } else {
+            toast.error(
+              result.message ||
+                `Database wiped but ${result.files_failed ?? 'some'} media file(s) remain. Retry or run orphan reconcile.`
+            );
+          }
           loadStorageStats(); // Refresh stats
         } catch (error) {
           console.error('Delete failed:', error);

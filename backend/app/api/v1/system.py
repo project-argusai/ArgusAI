@@ -3260,35 +3260,29 @@ async def reset_ai_circuit_breaker(provider: str, db: Session = Depends(get_db))
 
 
 class DeleteDataResponse(BaseModel):
-    """Response from delete all data operation"""
-    deleted_count: int = Field(..., description="Number of events deleted")
-    success: bool = Field(..., description="Whether deletion was successful")
+    """Response from delete all data operation (CR-010 / #600)."""
+    deleted_count: int = Field(..., description="Number of events deleted from the database")
+    success: bool = Field(..., description="True only when DB and media cleanup both fully succeeded")
+    status: str = Field(
+        default="success",
+        description="success | partial | failed — partial means DB wiped but some media remain",
+    )
+    files_failed: int = Field(
+        default=0,
+        description="Media files that could not be removed; retry wipe or run orphan reconcile",
+    )
+    message: str = Field(default="", description="Operator-facing next step when not fully successful")
 
 
 @router.delete("/data", response_model=DeleteDataResponse, dependencies=[Depends(require_admin())])
 async def delete_all_data(db: Session = Depends(get_db)):
     """
-    Delete all event data from the system
+    Delete all event data from the system (CR-010 / #600).
 
-    This permanently deletes:
-    - All events and their thumbnails
-    - All motion events
-    - All event embeddings and feedback
-    - All AI usage records
-
-    **WARNING: This action cannot be undone!**
-
-    **Response:**
-    ```json
-    {
-        "deleted_count": 1234,
-        "success": true
-    }
-    ```
-
-    **Status Codes:**
-    - 200: Data deleted successfully
-    - 500: Internal server error
+    Commits the database wipe first, then removes media directories. File
+    failures do not roll back the DB wipe; the response reports ``partial``
+    with ``files_failed`` so operators can retry or run orphan reconcile.
+    Never returns success=true when media removal failed.
     """
     from app.models.event import Event
     from app.models.motion_event import MotionEvent
@@ -3296,57 +3290,82 @@ async def delete_all_data(db: Session = Depends(get_db)):
     from app.models.event_feedback import EventFeedback
     from app.models.recognized_entity import EntityEvent
     from app.models.event_frame import EventFrame
+    import shutil
 
     try:
-        # Count events before deletion
         event_count = db.query(Event).count()
 
-        # Delete related records first (foreign key constraints)
         db.query(EventFeedback).delete()
         db.query(EventEmbedding).delete()
         db.query(EntityEvent).delete()
         db.query(EventFrame).delete()
         db.query(MotionEvent).delete()
-
-        # Delete all events
         db.query(Event).delete()
-
-        # Delete AI usage records
         db.query(AIUsage).delete()
-
         db.commit()
-
-        # Clean up thumbnail and frame files
-        import shutil
-        thumbnails_dir = Path("data/thumbnails")
-        frames_dir = Path("data/frames")
-        videos_dir = Path("data/videos")
-
-        for dir_path in [thumbnails_dir, frames_dir, videos_dir]:
-            if dir_path.exists():
-                for item in dir_path.iterdir():
-                    try:
-                        if item.is_file():
-                            item.unlink()
-                        elif item.is_dir():
-                            shutil.rmtree(item)
-                    except Exception as e:
-                        logger.warning(f"Failed to delete {item}: {e}")
-
-        logger.info(f"Deleted all data: {event_count} events")
-
-        return DeleteDataResponse(
-            deleted_count=event_count,
-            success=True
-        )
-
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting all data: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete data: {str(e)}"
+            detail=f"Failed to delete data: {str(e)}",
         )
+
+    files_failed = 0
+    for dir_path in (Path("data/thumbnails"), Path("data/frames"), Path("data/videos"), Path("data/clips")):
+        if not dir_path.exists():
+            continue
+        for item in list(dir_path.iterdir()):
+            try:
+                if item.is_symlink():
+                    files_failed += 1
+                    logger.warning("Skipped symlink during wipe", extra={"path": str(item)})
+                    continue
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+            except Exception as e:
+                files_failed += 1
+                logger.warning(f"Failed to delete {item}: {e}")
+
+    if files_failed:
+        message = (
+            f"Database wiped ({event_count} events) but {files_failed} media "
+            "path(s) remain. Retry wipe or run media orphan reconcile."
+        )
+        logger.warning(
+            "Wipe completed with media failures",
+            extra={
+                "audit_event": "wipe_all_data",
+                "deleted_count": event_count,
+                "files_failed": files_failed,
+                "status": "partial",
+            },
+        )
+        return DeleteDataResponse(
+            deleted_count=event_count,
+            success=False,
+            status="partial",
+            files_failed=files_failed,
+            message=message,
+        )
+
+    logger.info(
+        f"Deleted all data: {event_count} events",
+        extra={
+            "audit_event": "wipe_all_data",
+            "deleted_count": event_count,
+            "status": "success",
+        },
+    )
+    return DeleteDataResponse(
+        deleted_count=event_count,
+        success=True,
+        status="success",
+        files_failed=0,
+        message="",
+    )
 
 
 # ============================================================================

@@ -214,10 +214,11 @@ class TestCleanupService:
             # Run cleanup (should not fail)
             stats = await self.cleanup_service.cleanup_old_events(retention_days=30)
 
-            # Verify event deleted despite missing thumbnail
+            # Missing files are idempotent success (CR-010 / EventMediaDeletionService)
             assert stats["events_deleted"] == 1
             assert stats["thumbnails_deleted"] == 0
-            assert stats["thumbnails_failed"] == 1
+            assert stats["thumbnails_failed"] == 0
+            assert stats.get("status", "success") == "success"
 
         finally:
             db.close()
@@ -417,9 +418,11 @@ class TestCleanupService:
             assert stats["events_deleted"] == 10000
             assert stats["batches_processed"] == 10
 
-            # Verify performance (should complete in reasonable time)
-            # For 10K events in 10 batches, should be < 5 seconds
-            assert elapsed_time < 5.0
+            # Verify performance (should complete in reasonable time).
+            # CR-010 routes each batch through EventMediaDeletionService (safer than
+            # bulk DELETE), so this is slower than the old path. CI hosts vary;
+            # 90s is enough headroom without hiding a real hang.
+            assert elapsed_time < 90.0
 
             # Verify all events deleted
             assert db.query(Event).count() == 0

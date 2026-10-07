@@ -1698,6 +1698,124 @@ class EntityService:
             "similarity_score": result.similarity_score,
         }
 
+    async def link_matched_entities(
+        self,
+        db: Session,
+        event_id: str,
+        entity_ids: list[str],
+        similarity_scores: Optional[dict[str, float]] = None,
+    ) -> list[str]:
+        """Record automatic matches that live ingest already verified.
+
+        Live Protect ingest decides which named entities an event shows
+        (face match for people, description-confirmed make/model for
+        vehicles) and stores them in ``matched_entity_ids`` before the first
+        notification. This writes the matching ``entity_events`` rows and
+        sighting stats so entity pages, counts and last-seen times include
+        the event, the same as a CLIP match on the RTSP path.
+
+        Unlike ``assign_event`` this is not user feedback: no adjustment row
+        is written and the reference embedding is never changed, so an
+        automatic match cannot drift what recognition compares against.
+        Existing links are kept, unknown or removed entities are skipped, and
+        at most ``MAX_ENTITIES_PER_EVENT`` entities end up on the event.
+
+        Returns the ids newly linked by this call. Commits once.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        from app.models.entity_adjustment import EntityAdjustment
+        from app.models.event import Event
+        from app.models.recognized_entity import EntityEvent, RecognizedEntity
+
+        wanted = parse_entity_id_list(list(entity_ids or []))
+        if not wanted:
+            return []
+
+        event = db.query(Event).filter(Event.id == event_id).first()
+        if not event:
+            return []
+
+        existing = {
+            link.entity_id
+            for link in db.query(EntityEvent).filter(EntityEvent.event_id == event_id).all()
+        }
+        # Respect a user's earlier "this is not them" on the same event.
+        removed = {
+            row.old_entity_id
+            for row in db.query(EntityAdjustment).filter(
+                EntityAdjustment.event_id == event_id,
+                EntityAdjustment.action.in_(("remove", "unlink", "move_from")),
+            ).all()
+            if row.old_entity_id
+        }
+        matched_ids = parse_entity_id_list(event.matched_entity_ids)
+        current = list(dict.fromkeys(list(existing) + matched_ids))
+        scores = similarity_scores or {}
+        now = datetime.now(timezone.utc)
+        linked: list[str] = []
+        primary = None
+
+        for entity_id in wanted:
+            if entity_id in existing or entity_id in removed:
+                continue
+            if entity_id not in current and len(current) >= MAX_ENTITIES_PER_EVENT:
+                break
+            entity = db.query(RecognizedEntity).filter(
+                RecognizedEntity.id == entity_id
+            ).first()
+            if entity is None:
+                continue
+            score = scores.get(entity_id)
+            db.add(EntityEvent(
+                entity_id=entity_id,
+                event_id=event_id,
+                similarity_score=score if score is not None else 1.0,
+                created_at=now,
+            ))
+            apply_event_thumbnail_to_entity(entity, event)
+            entity.occurrence_count = (entity.occurrence_count or 0) + 1
+            last_seen = entity.last_seen_at
+            try:
+                if last_seen is None or (event.timestamp and event.timestamp > last_seen):
+                    entity.last_seen_at = event.timestamp
+            except TypeError:
+                # Mixed aware/naive datetimes: same fallback as assign_event.
+                entity.last_seen_at = event.timestamp
+            entity.updated_at = now
+            linked.append(entity_id)
+            if entity_id not in current:
+                current.append(entity_id)
+            if primary is None:
+                primary = (entity, score)
+
+        if not linked:
+            return []
+
+        kept = [i for i in current if i not in removed]
+        _store_entity_id_list(event, kept)
+        if not event.final_entity_id and primary is not None:
+            _set_primary_entity(event, primary[0], similarity_score=primary[1])
+
+        try:
+            db.commit()
+        except IntegrityError:
+            # A concurrent request linked the same pair first.
+            db.rollback()
+            return []
+
+        logger.info(
+            "Linked %d verified entit%s to event",
+            len(linked),
+            "y" if len(linked) == 1 else "ies",
+            extra={
+                "event_type": "entity_auto_linked",
+                "event_id": event_id,
+                "entity_ids": linked,
+            },
+        )
+        return linked
+
     async def assign_event(
         self,
         db: Session,

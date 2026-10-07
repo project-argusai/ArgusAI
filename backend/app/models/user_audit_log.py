@@ -22,6 +22,7 @@ class AuditAction(str, Enum):
     ENABLE_USER = "enable_user"
     LOGIN_SUCCESS = "login_success"
     LOGIN_FAILED = "login_failed"
+    MCP_TOOL_CALL = "mcp_tool_call"  # Issue #648: read-only MCP connector tool call (API key actor)
 
 
 class UserAuditLog(Base):

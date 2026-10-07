@@ -30,6 +30,7 @@ PROTECTED_ROUTES = (
     ("POST", "/api/v1/api-keys"),
     ("GET", "/api/v1/motion-events/export"),
     ("POST", "/api/v1/context/embeddings/batch"),
+    ("POST", "/api/v1/mcp"),
 )
 
 # scope -> routes that must reach the handler. Every other protected route is 403.
@@ -45,7 +46,13 @@ ADMITTED = {
     "write:cameras": {
         ("POST", "/api/v1/cameras"),
     },
+    "read:mcp": {
+        ("POST", "/api/v1/mcp"),
+    },
+    # The middleware admits admin to the MCP route like any allowlisted route;
+    # the MCP handler then refuses admin and write keys (tests/test_mcp_connector).
     "admin": {
+        ("POST", "/api/v1/mcp"),
         ("GET", "/api/v1/events/export"),
         ("DELETE", "/api/v1/events/bulk"),
         ("DELETE", "/api/v1/events/cleanup"),
@@ -98,7 +105,7 @@ def _app():
     return app, entered
 
 
-@pytest.mark.parametrize("scopes", ["read:events", "read:cameras", "write:cameras", "admin", []])
+@pytest.mark.parametrize("scopes", ["read:events", "read:cameras", "write:cameras", "read:mcp", "admin", []])
 def test_api_key_reaches_only_allowlisted_routes_for_its_scope(monkeypatch, scopes):
     scope_list = scopes if isinstance(scopes, list) else [scopes]
     admitted = set() if isinstance(scopes, list) else ADMITTED[scopes]
@@ -208,3 +215,26 @@ def test_jwt_and_cookie_sessions_skip_the_api_key_allowlist(monkeypatch):
     )
     assert cookie.status_code == 200
     assert entered == [("POST", "/api/v1/api-keys")]
+
+
+def test_bearer_api_key_is_only_recognized_on_the_mcp_path(monkeypatch):
+    seen = []
+
+    def verify(plaintext):
+        seen.append(plaintext)
+        return _Key(["read:mcp", "read:events"])
+
+    _install_key_service(monkeypatch, verify)
+    app, entered = _app()
+    client = TestClient(app)
+
+    response = client.post("/api/v1/mcp", headers={"Authorization": "Bearer argus_validvalid"})
+    assert response.status_code == 200
+    assert entered == [("POST", "/api/v1/mcp")]
+    assert seen == ["argus_validvalid"]
+
+    entered.clear()
+    seen.clear()
+    response = client.get("/api/v1/events/export", headers={"Authorization": "Bearer argus_validvalid"})
+    assert response.status_code == 401  # treated as a (bad) JWT, never as an API key
+    assert entered == [] and seen == []

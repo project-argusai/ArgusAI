@@ -6,7 +6,7 @@
 /**
  * Valid API key scopes
  */
-export type APIKeyScope = 'read:events' | 'read:cameras' | 'write:cameras' | 'admin';
+export type APIKeyScope = 'read:events' | 'read:cameras' | 'read:mcp' | 'write:cameras' | 'admin';
 
 /**
  * API key creation request

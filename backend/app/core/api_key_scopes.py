@@ -9,6 +9,10 @@ User sessions are authorized separately by role dependencies. This module
 does not grant or remove JWT access.
 
 Event mutations use ``admin`` because no ``write:events`` scope exists.
+
+``read:mcp`` admits a key to the MCP connector endpoint (issue #648). The MCP
+handler then refuses keys that also hold ``admin`` or any ``write:`` scope, so
+only a read-only key can reach the connector.
 Camera connection tests, analysis, and ONVIF discovery scans stay off the
 allowlist. Batch and export routes outside the event API (motion events,
 webhook logs, context adjustments, embedding batches) stay denied.
@@ -78,7 +82,25 @@ _API_KEY_ROUTE_SCOPE_ITEMS: dict[tuple[str, str], str] = {
     ("PUT", "/cameras/{camera_id}/zones"): "write:cameras",
     ("PUT", "/cameras/{camera_id}/schedule"): "write:cameras",
     ("PATCH", "/cameras/{camera_id}/audio"): "write:cameras",
+
+    # Read-only MCP connector (issue #648). POST carries JSON-RPC; GET only
+    # reaches the transport so it can answer 405 (no server-initiated stream).
+    ("POST", "/mcp"): "read:mcp",
+    ("GET", "/mcp"): "read:mcp",
 }
+
+# Scopes that let a key change state. The MCP connector rejects any key that
+# holds one of these, even though ``admin`` would satisfy the route table.
+WRITE_OR_ADMIN_SCOPES = frozenset({"admin", "write:cameras"})
+
+
+def is_read_only_scope_set(scopes) -> bool:
+    """True when no scope can change state (no admin, no ``write:*``)."""
+    for scope in scopes or ():
+        scope = str(scope)
+        if scope in WRITE_OR_ADMIN_SCOPES or scope.startswith("write:"):
+            return False
+    return True
 
 API_KEY_ROUTE_SCOPES = MappingProxyType(_API_KEY_ROUTE_SCOPE_ITEMS)
 

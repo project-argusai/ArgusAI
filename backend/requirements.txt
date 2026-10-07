@@ -58,6 +58,11 @@ sentence-transformers>=6.1.0  # CLIP model for image embeddings
 WSDiscovery>=2.1.2  # WS-Discovery protocol for camera auto-discovery
 onvif-zeep>=0.2.12  # ONVIF SOAP client for camera capabilities
 
+# Read-only MCP connector (issue #648). Official Model Context Protocol SDK;
+# 1.x keeps the dependency footprint to httpx-sse + sse-starlette.
+mcp==1.30.0
+jsonschema>=4.20.0  # MCP tool argument validation (also required by mcp)
+
 # Logging and Monitoring
 python-json-logger>=4.2.0
 prometheus_client>=0.26.0

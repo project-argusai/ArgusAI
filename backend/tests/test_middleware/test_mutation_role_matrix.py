@@ -53,6 +53,13 @@ SELF_SERVICE_ALLOWLIST = frozenset({
     ("PUT", "/api/v1/push/preferences"),
 })
 
+# Read-only endpoints that take an API key and never a user session. POST is
+# the transport (JSON-RPC), not a state change. Sessions of every role are
+# refused, which is asserted below instead of the role matrix.
+API_KEY_ONLY_ROUTES = frozenset({
+    ("POST", "/api/v1/mcp"),
+})
+
 # Day-to-day actions. Viewer is denied. Operator passes the role check.
 OPERATOR_ROUTES = frozenset({
     ("POST", "/api/v1/cameras/{camera_id}/analyze"),
@@ -121,7 +128,8 @@ def unsafe_routes() -> list[tuple[str, str]]:
 
 
 GUARDED_ROUTES = [
-    item for item in unsafe_routes() if item not in SELF_SERVICE_ALLOWLIST
+    item for item in unsafe_routes()
+    if item not in SELF_SERVICE_ALLOWLIST and item not in API_KEY_ONLY_ROUTES
 ]
 
 
@@ -296,9 +304,12 @@ def test_allowlist_and_operator_routes_are_mounted():
     mounted = set(unsafe_routes())
     missing_allow = SELF_SERVICE_ALLOWLIST - mounted
     missing_operator = OPERATOR_ROUTES - mounted
+    missing_api_key_only = API_KEY_ONLY_ROUTES - mounted
     assert not missing_allow, sorted(missing_allow)
     assert not missing_operator, sorted(missing_operator)
+    assert not missing_api_key_only, sorted(missing_api_key_only)
     assert OPERATOR_ROUTES.isdisjoint(SELF_SERVICE_ALLOWLIST)
+    assert API_KEY_ONLY_ROUTES.isdisjoint(SELF_SERVICE_ALLOWLIST | OPERATOR_ROUTES)
     assert len(GUARDED_ROUTES) >= 100
 
 
@@ -442,3 +453,16 @@ def test_api_key_scopes_are_unchanged_by_user_role_checks(matrix_client, monkeyp
     )
     assert wipe.status_code == 403
     assert wipe.json()["detail"] == "API key not permitted for this endpoint"
+
+
+@pytest.mark.parametrize("method,path", sorted(API_KEY_ONLY_ROUTES))
+def test_api_key_only_routes_refuse_every_session_role(matrix_client, method, path):
+    client, tokens = matrix_client
+    for role in (UserRole.VIEWER, UserRole.OPERATOR, UserRole.ADMIN):
+        response = client.request(
+            method,
+            _concrete(path),
+            headers={"Authorization": f"Bearer {tokens[role]}"},
+            json={},
+        )
+        assert response.status_code == 401, (method, path, role, response.status_code, response.text[:300])

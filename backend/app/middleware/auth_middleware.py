@@ -82,7 +82,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
         '/ws/',  # WebSocket connections handle their own auth
         # Mobile auth endpoints that don't require authentication (Story P12-3)
         '/api/v1/mobile/auth/status/',   # Mobile polls for confirmation
+        # MCP thumbnail links (issue #648): the handler requires an unexpired
+        # HMAC signature bound to one event id. /api/v1/mcp itself stays
+        # authenticated.
+        '/api/v1/mcp/thumbnails/',
     )
+
+    # The MCP connector also accepts an API key as ``Authorization: Bearer
+    # argus_...`` because many MCP clients can only send a bearer token. JWTs
+    # never start with the ``argus_`` key prefix.
+    MCP_BEARER_PATHS: Set[str] = {'/api/v1/mcp'}
+    API_KEY_BEARER_PREFIX = "argus_"
 
     # Only the camera WebSocket upgrade skips HTTP auth. /ws/stream/{id} is
     # already covered by EXCLUDED_PREFIXES. HTTP routes such as
@@ -258,6 +268,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         """
         api_key_header = request.headers.get("X-API-Key")
         if not api_key_header:
+            api_key_header = self._mcp_bearer_key(request)
+        if not api_key_header:
             return False
 
         client_ip = request.client.host if request.client else None
@@ -284,6 +296,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
             }
         )
         return False
+
+
+    def _mcp_bearer_key(self, request: Request) -> Optional[str]:
+        """API key sent as a bearer token, accepted on the MCP path only."""
+        if request.url.path not in self.MCP_BEARER_PATHS:
+            return None
+        auth_header = request.headers.get("Authorization") or ""
+        if not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header[7:].strip()
+        return token if token.startswith(self.API_KEY_BEARER_PREFIX) else None
 
 
 def _load_session_user(user_id: str) -> Optional[dict | bool]:
@@ -315,6 +338,8 @@ def _load_api_key(raw_key: str, client_ip: Optional[str]) -> Optional[dict]:
             "id": api_key.id,
             "name": api_key.name,
             "scopes": scopes,
+            "prefix": getattr(api_key, "prefix", None),
+            "rate_limit_per_minute": getattr(api_key, "rate_limit_per_minute", None),
         }
         service.record_usage(db, api_key, ip_address=client_ip)
         return info

@@ -65,9 +65,17 @@ import {
 const SCOPES: { value: APIKeyScope; label: string; description: string }[] = [
   { value: 'read:events', label: 'Read Events', description: 'Read access to events' },
   { value: 'read:cameras', label: 'Read Cameras', description: 'Read access to cameras' },
+  {
+    value: 'read:mcp',
+    label: 'Assistant connector (MCP)',
+    description: 'Read-only MCP endpoint for an assistant bot. Keys that also have Write or Admin are refused',
+  },
   { value: 'write:cameras', label: 'Write Cameras', description: 'Write access to cameras' },
   { value: 'admin', label: 'Admin', description: 'Allowlisted event writes and camera routes. Not user, key, or system management' },
 ];
+
+// Scopes the read-only MCP connector refuses to combine with read:mcp (#648)
+const MCP_CONFLICTING_SCOPES: APIKeyScope[] = ['admin', 'write:cameras'];
 
 function ScopesBadges({ scopes }: { scopes: string[] }) {
   return (
@@ -161,9 +169,15 @@ export function APIKeySettings() {
       // If admin is selected, clear others (admin includes all)
       if (scope === 'admin') {
         setSelectedScopes(['admin']);
+      } else if (scope === 'read:mcp') {
+        // The MCP connector refuses keys with write or admin scopes (#648)
+        setSelectedScopes((prev) => [...prev.filter((s) => !MCP_CONFLICTING_SCOPES.includes(s)), scope]);
       } else {
-        // Remove admin if selecting specific scopes
-        setSelectedScopes((prev) => [...prev.filter((s) => s !== 'admin'), scope]);
+        // Remove admin if selecting specific scopes; write scopes drop read:mcp
+        setSelectedScopes((prev) => [
+          ...prev.filter((s) => s !== 'admin' && !(s === 'read:mcp' && MCP_CONFLICTING_SCOPES.includes(scope))),
+          scope,
+        ]);
       }
     } else {
       setSelectedScopes((prev) => prev.filter((s) => s !== scope));

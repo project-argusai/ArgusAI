@@ -62,6 +62,7 @@ const sidebars = {
         'integrations/homekit',
         'integrations/native-apple-apps',
         'integrations/cloudflare-tunnel',
+        'integrations/mcp-connector',
       ],
     },
     {

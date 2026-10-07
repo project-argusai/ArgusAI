@@ -196,13 +196,28 @@ class ProtectEventHandler:
             "fallback_reason": self.ai_pipeline.last_fallback_reason or media_fallback,
         }
 
-    def _post_ai_context_fields(self, ai_result: Optional["AIResult"], event_type: str) -> dict:
-        """Carrier extract + named rewrite before first persist/notify."""
+    def _post_ai_context_fields(
+        self,
+        ai_result: Optional["AIResult"],
+        event_type: str,
+        db: Optional[Session] = None,
+    ) -> dict:
+        """Carrier extract, verified entity names, and named rewrite before first persist/notify.
+
+        ``matched_entity_ids`` only carries entities the event supports (see
+        ``event_entity_linking``): face-matched people, and a named vehicle
+        whose make the description shows. A scene-level CLIP vehicle pick the
+        description contradicts is dropped instead of being stored.
+        """
         import json
         from app.services.carrier_extractor import extract_carrier
         from app.services.entity_alert_service import (
             get_entity_alert_service,
             suppress_inconsistent_vehicle_identity,
+        )
+        from app.services.event_entity_linking import (
+            event_looks_like_vehicle,
+            verify_named_identities,
         )
 
         bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
@@ -223,26 +238,17 @@ class ProtectEventHandler:
                 getattr(ai_result, "identification", None)
             )
 
-        named = list(getattr(bundle, "named_identities", None) or [])
-        if named and description:
+        if description:
             try:
-                # Build lightweight entity-like objects for the rewriter
-                class _E:
-                    pass
-
-                entities = []
-                for match in named:
-                    if not match.name:
-                        continue
-                    e = _E()
-                    e.name = match.name
-                    e.entity_type = match.entity_type
-                    e.vehicle_color = getattr(match, "vehicle_color", None)
-                    e.vehicle_make = getattr(match, "vehicle_make", None)
-                    e.vehicle_model = getattr(match, "vehicle_model", None)
-                    entities.append(e)
-                    matched_ids.append(match.entity_id)
+                entities = verify_named_identities(
+                    db,
+                    description=description,
+                    candidates=list(getattr(bundle, "named_identities", None) or []),
+                    looks_like_vehicle=event_looks_like_vehicle(event_type, ai_result),
+                    embedding=getattr(bundle, "embedding_vector", None),
+                )
                 if entities:
+                    matched_ids = [e.entity_id for e in entities]
                     suppress_inconsistent_vehicle_identity(
                         description,
                         getattr(ai_result, "identification", None) if ai_result is not None else None,
@@ -255,7 +261,17 @@ class ProtectEventHandler:
                         ai_result.description = enriched
                     recognition_status = "known"
             except Exception as e:
-                logger.debug(f"Pre-notify description rewrite failed: {e}")
+                # Naming is best-effort: the event still stores unnamed.
+                logger.warning(
+                    "Entity naming failed; storing event without names",
+                    extra={
+                        "event_type": "protect_entity_naming_failed",
+                        "error_type": type(e).__name__,
+                    },
+                )
+                matched_ids = []
+                enriched = None
+                recognition_status = None
 
         context_stats = None
         if getattr(bundle, "context_stats", None):
@@ -269,6 +285,20 @@ class ProtectEventHandler:
             "enriched_description": enriched or description,
             "matched_entity_ids": json.dumps(matched_ids) if matched_ids else None,
         }
+
+    async def _run_entity_post_persist(self, stored_event: Any) -> None:
+        """Link the stored event's verified entities, then run alert rules.
+
+        Runs after the row is committed and broadcast, so it adds nothing to
+        the time before the event appears. ``run_post_persist_entity_steps``
+        bounds each step and never raises.
+        """
+        from app.services.event_entity_linking import run_post_persist_entity_steps
+
+        await run_post_persist_entity_steps(
+            getattr(stored_event, "id", None),
+            session_factory=get_db_session,
+        )
 
     async def _store_protect_embedding(self, event_id: str) -> None:
         """Persist the in-memory CLIP vector so Protect events become RAG candidates."""
@@ -630,6 +660,7 @@ class ProtectEventHandler:
                             # Broadcast the event even without AI description
                             await self._link_cross_camera_incident(db, stored_event)
                             await self.broadcaster.broadcast_event_created(stored_event, camera)
+                            await self._run_entity_post_persist(stored_event)
                             # Publish to MQTT for Home Assistant (even without AI)
                             await self._publish_event_to_mqtt(stored_event, camera, None)
                             return True
@@ -647,7 +678,7 @@ class ProtectEventHandler:
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
                         **persist_tracking,
-                        **self._post_ai_context_fields(ai_result, filter_type),
+                        **self._post_ai_context_fields(ai_result, filter_type, db),
                     )
 
                     if not stored_event:
@@ -685,6 +716,7 @@ class ProtectEventHandler:
 
                     # Story P2-3.3: Broadcast EVENT_CREATED via WebSocket (AC12)
                     await self.broadcaster.broadcast_event_created(stored_event, camera)
+                    await self._run_entity_post_persist(stored_event)
 
                     return True
 
@@ -1070,6 +1102,7 @@ class ProtectEventHandler:
                         )
                         await self._link_cross_camera_incident(db, stored_event)
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
+                        await self._run_entity_post_persist(stored_event)
                         return True
                     return False
 
@@ -1086,7 +1119,7 @@ class ProtectEventHandler:
                     event_id_override=generated_event_id,
                     **persist_tracking,
                     **detection_columns,
-                    **self._post_ai_context_fields(ai_result, filter_type),
+                    **self._post_ai_context_fields(ai_result, filter_type, db),
                 )
 
                 if not stored_event:
@@ -1112,6 +1145,8 @@ class ProtectEventHandler:
                 await self._link_cross_camera_incident(db, stored_event)
                 # Broadcast and publish event
                 await self.broadcaster.broadcast_event_created(stored_event, camera)
+                # Entity links + alert rules, after the event is already visible.
+                await self._run_entity_post_persist(stored_event)
 
                 return True
 

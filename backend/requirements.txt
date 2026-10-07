@@ -18,7 +18,7 @@ pydantic>=2.13.5
 pydantic-settings>=2.15.0
 
 # Camera and Image Processing
-opencv-python-headless>=5.0.0.93  # Headless version for servers (no GUI/libGL dependency)
+opencv-python-headless>=4.12,<5  # Headless (no GUI/libGL). <5: OpenCV 5 removed cv2.dnn.readNetFromCaffe, which the face and vehicle detectors need
 av>=18.0.0,<19  # PyAV 19 requires Python >=3.12 (CI/prod run 3.11); for secure RTSP (rtsps://) streams
 
 # Security and Encryption

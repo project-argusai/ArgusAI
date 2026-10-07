@@ -218,3 +218,7 @@ backend/data/clips/
 /graphify-out
 # graphify graph built when running graphify from backend/ (regenerable artifact)
 /backend/graphify-out
+
+# Downloaded detector weights (scripts/download_*_model.py)
+backend/app/models/mobilenet_ssd/
+backend/models/

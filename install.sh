@@ -920,6 +920,7 @@ setup_backend() {
     # Install dependencies
     print_step "Installing Python dependencies (this may take a few minutes)..."
     pip install -r requirements.txt --quiet
+    python scripts/download_vehicle_model.py || print_warning "Vehicle model download failed; vehicle recognition will be disabled"
     print_success "Python dependencies installed"
 
     # Create .env file if it doesn't exist

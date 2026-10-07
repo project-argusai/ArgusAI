@@ -62,18 +62,18 @@ def _ident(entity, score=0.8):
 
 @pytest.fixture
 def household(db_session):
-    brent = make_entity(db_session, entity_type="person", name="Brent")
+    alex = make_entity(db_session, entity_type="person", name="Alex")
     tesla = make_entity(
-        db_session, entity_type="vehicle", name="Brent's Tesla",
+        db_session, entity_type="vehicle", name="Alex's Tesla",
         vehicle_color="red", vehicle_make="tesla", vehicle_model="model y",
         reference_embedding=json.dumps(_vec(0.9)),
     )
     bmw = make_entity(
-        db_session, entity_type="vehicle", name="Isaac's BMW",
+        db_session, entity_type="vehicle", name="Sam's BMW",
         vehicle_color="red", vehicle_make="bmw", vehicle_model="x3",
         reference_embedding=json.dumps(_vec(0.2)),
     )
-    return SimpleNamespace(brent=brent, tesla=tesla, bmw=bmw)
+    return SimpleNamespace(alex=alex, tesla=tesla, bmw=bmw)
 
 
 class TestSelectNamedVehicles:
@@ -85,36 +85,36 @@ class TestSelectNamedVehicles:
         )
 
     def test_picks_the_vehicle_the_description_names(self):
-        tesla = self._v("Brent's Tesla", "tesla", "model y", "red")
-        bmw = self._v("Isaac's BMW", "bmw", "x3", "red")
+        tesla = self._v("Alex's Tesla", "tesla", "model y", "red")
+        bmw = self._v("Sam's BMW", "bmw", "x3", "red")
         picked = select_named_vehicles("A red BMW X3 pulls into the driveway.", [tesla, bmw])
-        assert [v.name for v in picked] == ["Isaac's BMW"]
+        assert [v.name for v in picked] == ["Sam's BMW"]
 
     def test_no_make_in_description_links_nothing(self):
-        tesla = self._v("Brent's Tesla", "tesla", "model y", "red")
+        tesla = self._v("Alex's Tesla", "tesla", "model y", "red")
         assert select_named_vehicles("A white semi-truck passes on the street.", [tesla]) == []
         assert select_named_vehicles("A red SUV is parked.", [tesla]) == []
 
     def test_contradicting_model_or_color_links_nothing(self):
-        bmw = self._v("Isaac's BMW", "bmw", "x3", "red")
+        bmw = self._v("Sam's BMW", "bmw", "x3", "red")
         assert select_named_vehicles("A red BMW X5 arrives.", [bmw]) == []
         assert select_named_vehicles("A gray BMW X3 arrives.", [bmw]) == []
 
     def test_two_agreeing_vehicles_prefer_the_clip_pick(self):
-        a = self._v("Isaac's BMW", "bmw", "x3", eid="a")
+        a = self._v("Sam's BMW", "bmw", "x3", eid="a")
         b = self._v("Neighbor BMW", "bmw", "x3", eid="b")
         picked = select_named_vehicles("A BMW X3 arrives.", [a, b], preferred_ids=["b"])
         assert [v.entity_id for v in picked] == ["b"]
 
     def test_two_agreeing_vehicles_fall_back_to_clip_similarity(self):
-        a = self._v("Isaac's BMW", "bmw", "x3", eid="a", ref=_vec(0.1))
+        a = self._v("Sam's BMW", "bmw", "x3", eid="a", ref=_vec(0.1))
         b = self._v("Neighbor BMW", "bmw", "x3", eid="b", ref=_vec(0.9))
         picked = select_named_vehicles("A BMW X3 arrives.", [a, b], embedding=_vec(0.9))
         assert [v.entity_id for v in picked] == ["b"]
         assert picked[0].similarity_score is not None
 
     def test_ambiguous_without_any_signal_links_nothing(self):
-        a = self._v("Isaac's BMW", "bmw", "x3", eid="a")
+        a = self._v("Sam's BMW", "bmw", "x3", eid="a")
         b = self._v("Neighbor BMW", "bmw", "x3", eid="b")
         assert select_named_vehicles("A BMW X3 arrives.", [a, b]) == []
 
@@ -133,7 +133,7 @@ class TestVerifyNamedIdentities:
     def test_wrong_clip_vehicle_is_replaced_by_the_described_one(self, db_session, household):
         out = verify_named_identities(
             db_session,
-            description="Isaac's red BMW X3 pulls into the driveway.",
+            description="Sam's red BMW X3 pulls into the driveway.",
             candidates=[_ident(household.tesla, 0.87)],
             looks_like_vehicle=True,
         )
@@ -154,10 +154,10 @@ class TestVerifyNamedIdentities:
         out = verify_named_identities(
             db_session,
             description="A man walks past a red BMW X3 to the front door.",
-            candidates=[_ident(household.brent, 0.74)],
+            candidates=[_ident(household.alex, 0.74)],
             looks_like_vehicle=False,
         )
-        assert [e.entity_id for e in out] == [household.brent.id]
+        assert [e.entity_id for e in out] == [household.alex.id]
 
     def test_unnamed_entities_are_never_candidates(self, db_session, household):
         make_entity(
@@ -199,7 +199,7 @@ class TestPostAiContextFields:
         assert ai.description == fields["enriched_description"]
 
     def test_naming_failure_still_returns_fields(self, db_session, household):
-        handler = self._handler([_ident(household.brent)])
+        handler = self._handler([_ident(household.alex)])
         ai = SimpleNamespace(description="A person at the door.", identification=None,
                              objects_detected=["person"])
         with patch(
@@ -212,12 +212,12 @@ class TestPostAiContextFields:
         assert fields["enriched_description"] == "A person at the door."
 
     def test_without_db_still_names_face_matched_people(self, household):
-        handler = self._handler([_ident(household.brent)])
+        handler = self._handler([_ident(household.alex)])
         ai = SimpleNamespace(description="A person walks up to the door.",
                              identification=None, objects_detected=["person"])
         fields = handler._post_ai_context_fields(ai, "person")
-        assert json.loads(fields["matched_entity_ids"]) == [household.brent.id]
-        assert fields["enriched_description"].startswith("Brent")
+        assert json.loads(fields["matched_entity_ids"]) == [household.alex.id]
+        assert fields["enriched_description"].startswith("Alex")
 
 
 class TestLinkMatchedEntities:
@@ -258,9 +258,9 @@ class TestLinkMatchedEntities:
         db_session.commit()
 
         linked = await get_entity_service().link_matched_entities(
-            db_session, ev.id, ["missing-entity", household.tesla.id, household.brent.id]
+            db_session, ev.id, ["missing-entity", household.tesla.id, household.alex.id]
         )
-        assert linked == [household.brent.id]
+        assert linked == [household.alex.id]
 
 
 class TestPostPersistSteps:
@@ -300,7 +300,7 @@ class TestPostPersistSteps:
         rule = make_alert_rule(
             db_session, conditions={"object_types": ["person"]},
         )
-        ev = self._event(db_session, household, ["person"], [household.brent.id])
+        ev = self._event(db_session, household, ["person"], [household.alex.id])
         with patch.object(
             type(get_entity_service()), "link_matched_entities",
             new_callable=AsyncMock, side_effect=RuntimeError("db gone"),
@@ -312,7 +312,7 @@ class TestPostPersistSteps:
 
     @pytest.mark.asyncio
     async def test_slow_steps_are_bounded_and_never_raise(self, db_session, household):
-        ev = self._event(db_session, household, ["person"], [household.brent.id])
+        ev = self._event(db_session, household, ["person"], [household.alex.id])
 
         async def _hang(*_a, **_k):
             await asyncio.sleep(5)

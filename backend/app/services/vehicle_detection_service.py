@@ -24,6 +24,7 @@ import base64
 import io
 import logging
 import os
+from pathlib import Path
 import time
 from dataclasses import dataclass
 from typing import Optional
@@ -35,6 +36,38 @@ from PIL import Image
 from app.core.decorators import singleton
 
 logger = logging.getLogger(__name__)
+
+# MobileNet-SSD (VOC) weights. See scripts/download_vehicle_model.py.
+VEHICLE_MODEL_DIR_ENV = "ARGUS_VEHICLE_MODEL_DIR"
+VEHICLE_PROTOTXT = "MobileNetSSD_deploy.prototxt"
+VEHICLE_CAFFEMODEL = "MobileNetSSD_deploy.caffemodel"
+_BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+def vehicle_model_search_dirs() -> list[Path]:
+    """Directories searched for the weights, in priority order.
+
+    1. ``$ARGUS_VEHICLE_MODEL_DIR`` when set
+    2. ``backend/app/models/mobilenet_ssd`` (next to the face models)
+    3. ``backend/models`` (legacy location used before this change)
+    """
+    dirs = []
+    env_dir = os.environ.get(VEHICLE_MODEL_DIR_ENV)
+    if env_dir:
+        dirs.append(Path(env_dir))
+    dirs.append(_BACKEND_DIR / "app" / "models" / "mobilenet_ssd")
+    dirs.append(_BACKEND_DIR / "models")
+    return dirs
+
+
+def resolve_vehicle_model_paths() -> tuple[Optional[str], Optional[str]]:
+    """Return (prototxt, caffemodel) from the first dir that has both."""
+    for d in vehicle_model_search_dirs():
+        proto, weights = d / VEHICLE_PROTOTXT, d / VEHICLE_CAFFEMODEL
+        if proto.is_file() and weights.is_file():
+            return str(proto), str(weights)
+    return None, None
+
 
 # Vehicle class IDs in COCO/VOC datasets
 VEHICLE_CLASSES = {
@@ -144,18 +177,17 @@ class VehicleDetectionService:
         if self._model_loaded:
             return
 
-        # Model file paths (MobileNet-SSD trained on VOC)
-        model_dir = os.path.join(os.path.dirname(__file__), "..", "..", "models")
-        prototxt_path = os.path.join(model_dir, "MobileNetSSD_deploy.prototxt")
-        caffemodel_path = os.path.join(model_dir, "MobileNetSSD_deploy.caffemodel")
+        prototxt_path, caffemodel_path = resolve_vehicle_model_paths()
 
-        if not os.path.exists(prototxt_path) or not os.path.exists(caffemodel_path):
+        if prototxt_path is None or caffemodel_path is None:
             logger.warning(
-                "Vehicle detection model files not found - using fallback mode",
+                "Vehicle detection model files not found - vehicle recognition is "
+                "DISABLED (detector returns no vehicles). Run "
+                "`python scripts/download_vehicle_model.py` or set "
+                f"{VEHICLE_MODEL_DIR_ENV}.",
                 extra={
                     "event_type": "vehicle_model_fallback",
-                    "prototxt": prototxt_path,
-                    "caffemodel": caffemodel_path,
+                    "searched_dirs": [str(d) for d in vehicle_model_search_dirs()],
                 }
             )
             self._use_fallback = True

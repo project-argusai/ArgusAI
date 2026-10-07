@@ -186,6 +186,59 @@ def apply_event_thumbnail_to_entity(entity, event) -> None:
 MAX_ENTITIES_PER_EVENT = 4
 
 
+EMBEDDING_DIM = 512
+
+
+def _has_usable_embedding(entity) -> bool:
+    raw = getattr(entity, "reference_embedding", None)
+    if not raw:
+        return False
+    try:
+        vec = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(vec, list) and len(vec) == EMBEDDING_DIM
+
+
+def seed_entity_embedding_from_event(db: Session, entity, event_id: str) -> bool:
+    """Give an entity a reference embedding from a manually linked event.
+
+    Entities created by hand (and every entity after a wipe) start with the
+    ``"[]"`` placeholder, which the match caches skip, so they could never be
+    recognised automatically. When such an entity is linked to an event that
+    has a CLIP embedding, copy that vector in. An entity that already has a
+    usable embedding is left alone: one manual link should not drift a
+    reference that recognition built.
+
+    Returns True when the embedding was set. Does not commit.
+    """
+    if entity is None or _has_usable_embedding(entity):
+        return False
+
+    from app.models.event_embedding import EventEmbedding
+
+    row = db.query(EventEmbedding).filter(EventEmbedding.event_id == event_id).first()
+    if row is None or not row.embedding:
+        return False
+    try:
+        vec = json.loads(row.embedding)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(vec, list) or len(vec) != EMBEDDING_DIM:
+        return False
+
+    entity.reference_embedding = json.dumps(vec)
+    logger.info(
+        "Seeded entity reference embedding from linked event",
+        extra={
+            "event_type": "entity_embedding_seeded",
+            "entity_id": entity.id,
+            "event_id": event_id,
+        },
+    )
+    return True
+
+
 # Adjustment action names before and after issue #652.
 _ADJUSTMENT_ACTION_ALIASES = {
     "add": ("add", "assign"),
@@ -1705,6 +1758,7 @@ class EntityService:
         current_ids = list(dict.fromkeys(list(links_by_entity) + matched_ids))
 
         target_link = links_by_entity.get(entity_id)
+        seeded = False
         others = [i for i in current_ids if i != entity_id]
         now = datetime.now(timezone.utc)
         label = target_entity.display_name
@@ -1768,6 +1822,7 @@ class EntityService:
                 event_description=event.description,
             ))
             apply_event_thumbnail_to_entity(target_entity, event)
+            seeded = seed_entity_embedding_from_event(db, target_entity, event_id)
             target_entity.occurrence_count = (target_entity.occurrence_count or 0) + 1
             last_seen = target_entity.last_seen_at
             try:
@@ -1788,6 +1843,9 @@ class EntityService:
 
         try:
             db.commit()
+            if target_link is None and seeded:
+                # The entity can now be matched; drop the stale cache.
+                self._invalidate_cache()
         except IntegrityError:
             # Another request linked the same pair first. Treat as no-op.
             db.rollback()

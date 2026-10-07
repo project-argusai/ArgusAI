@@ -48,6 +48,10 @@ RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 # Copy application code
 COPY . .
 
+# Local detector weights (checksum-pinned). Vehicle recognition is disabled
+# without them. Face weights are fetched the same way.
+RUN python scripts/download_vehicle_model.py && python scripts/download_face_model.py
+
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash --uid 1000 appuser && \
     mkdir -p /app/data && \

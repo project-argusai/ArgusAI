@@ -9,11 +9,18 @@ rules so an entity rule ("Alert: BMW X3 detected") can fire on the event.
 Why a verification step: entity reference embeddings are whole-scene CLIP
 vectors. On a fixed camera the scene dominates that vector, so an empty
 porch or a passing truck scores 0.8+ against every saved entity seen on the
-same camera, and the closest one is close to random. People are named only
-from a face match upstream. A vehicle is linked only when the AI's own
-description shows the entity's make (and does not contradict its model or
-color), using the same ``vehicle_label_agrees`` rule as the description
-rewrite. CLIP similarity only breaks a tie between vehicles that both agree.
+same camera, and the closest one is close to random. Whole-scene vectors are
+no longer used to link anything.
+
+People are named only from a face match upstream (SFace face crop against
+the person's face gallery, ``entity_gallery_service.match_face``).
+
+Vehicles combine three signals (``entity_gallery_service.
+evaluate_vehicle_candidates``): the detected vehicle *crop* against the
+vehicle's crop gallery, the crop's colour, and whether the AI description
+shows the vehicle's make (#679, ``vehicle_label_agrees``). A vehicle with an
+enrolled gallery needs crop support; without a gallery, or when no vehicle
+was detected in the frame, the #679 description rule applies unchanged.
 
 Fail-open and bounded: nothing here may drop, delay, or fail an event.
 """
@@ -27,10 +34,7 @@ from typing import Any, Callable, ContextManager, Iterable, List, Optional, Sequ
 
 from sqlalchemy.orm import Session
 
-from app.services.entity_alert_service import (
-    vehicle_label_agrees,
-    visible_vehicle_details,
-)
+from app.services.entity_alert_service import vehicle_label_agrees
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,7 @@ logger = logging.getLogger(__name__)
 # applies at await points; the DB work in between is a few small queries.
 ENTITY_LINK_TIMEOUT_S = 5.0
 ALERT_RULES_TIMEOUT_S = 10.0
+OBSERVATION_SAVE_TIMEOUT_S = 5.0
 
 _VEHICLE_WORDS = frozenset({"vehicle", "car", "truck", "van", "suv"})
 
@@ -116,13 +121,6 @@ def event_looks_like_vehicle(event_type: Optional[str], ai_result: Any = None) -
     return False
 
 
-def _has_make_hint(identity: NamedIdentity) -> bool:
-    """A make the description can confirm, from the stored make or the name."""
-    if identity.vehicle_make:
-        return True
-    return visible_vehicle_details(identity.name)[1] is not None
-
-
 def _cosine(a: Sequence[float], b: Sequence[float]) -> Optional[float]:
     try:
         if len(a) != len(b) or not a:
@@ -190,7 +188,7 @@ def select_named_vehicles(
     return []
 
 
-def _named_vehicle_rows(db: Optional[Session]) -> List[NamedIdentity]:
+def _all_named_vehicle_rows(db: Optional[Session]) -> List[NamedIdentity]:
     if db is None:
         return []
     from app.models.recognized_entity import RecognizedEntity
@@ -203,12 +201,22 @@ def _named_vehicle_rows(db: Optional[Session]) -> List[NamedIdentity]:
         )
         .all()
     )
-    out = []
-    for row in rows:
-        identity = as_named_identity(row)
-        if identity is not None and _has_make_hint(identity):
-            out.append(identity)
-    return out
+    return [i for i in (as_named_identity(r) for r in rows) if i is not None]
+
+
+def _vehicle_gallery(db: Optional[Session]) -> dict:
+    if db is None:
+        return {}
+    try:
+        from app.services.entity_gallery_service import get_entity_gallery_service
+
+        return get_entity_gallery_service().get_index(db).vehicles
+    except Exception as exc:  # noqa: BLE001 - fall back to the description rule
+        logger.info(
+            "Vehicle gallery unavailable; using the description rule only",
+            extra={"event_type": "vehicle_gallery_unavailable", "error_type": type(exc).__name__},
+        )
+        return {}
 
 
 def verify_named_identities(
@@ -218,15 +226,24 @@ def verify_named_identities(
     candidates: Iterable[Any],
     looks_like_vehicle: bool,
     embedding: Optional[Sequence[float]] = None,
+    object_analysis: Any = None,
 ) -> List[NamedIdentity]:
     """The named people and vehicles this event supports, people first.
 
     ``candidates`` are the pre-AI named identities (face-matched people and
-    the CLIP-picked vehicle). People pass through; there is no second
-    signal to check a face match against. Vehicles are chosen by
-    ``select_named_vehicles`` from every saved, named vehicle with a make,
-    plus the CLIP pick, and only on vehicle events.
+    the vehicle hint). People pass through: they were named from a face
+    gallery match, which is its own verification. Vehicles are chosen only on
+    vehicle events, from every saved named vehicle plus the hint, by
+    ``evaluate_vehicle_candidates`` / ``pick_vehicle`` using the event's
+    vehicle crops (``object_analysis``), their colour, and the description.
+    ``description`` may be None (the vision call failed); then only crop
+    evidence can link a vehicle.
     """
+    from app.services.entity_gallery_service import (
+        evaluate_vehicle_candidates,
+        pick_vehicle,
+    )
+
     people: List[NamedIdentity] = []
     clip_vehicles: List[NamedIdentity] = []
     for candidate in candidates or []:
@@ -240,22 +257,77 @@ def verify_named_identities(
             clip_vehicles.append(identity)
 
     vehicles: List[NamedIdentity] = []
-    if looks_like_vehicle and description:
-        pool = _named_vehicle_rows(db) + clip_vehicles
-        vehicles = select_named_vehicles(
-            description,
-            pool,
-            preferred_ids=[v.entity_id for v in clip_vehicles],
-            embedding=embedding,
-        )
+    observed = list(getattr(object_analysis, "vehicles", None) or [])
+    if looks_like_vehicle and (description or observed):
+        pool: List[NamedIdentity] = []
+        seen = set()
+        for identity in _all_named_vehicle_rows(db) + clip_vehicles:
+            if identity.entity_id not in seen:
+                seen.add(identity.entity_id)
+                pool.append(identity)
+        gallery = _vehicle_gallery(db)
+        evidence = evaluate_vehicle_candidates(description, pool, observed, gallery)
+        winner, tied = pick_vehicle(evidence)
+        by_id = {i.entity_id: i for i in pool}
+        if winner is not None:
+            chosen = by_id[winner.entity_id]
+            if winner.crop_score is not None:
+                chosen.similarity_score = round(float(winner.crop_score), 4)
+            vehicles = [chosen]
+        elif tied:
+            vehicles = select_named_vehicles(
+                description or "",
+                [by_id[e.entity_id] for e in tied],
+                preferred_ids=[v.entity_id for v in clip_vehicles],
+                embedding=embedding,
+            )
+        if evidence and (observed or gallery):
+            logger.info(
+                "Vehicle identity evidence",
+                extra={
+                    "event_type": "vehicle_identity_evidence",
+                    "vehicles_detected": len(observed),
+                    "linked": [v.entity_id for v in vehicles],
+                    "candidates": [e.as_log() for e in evidence if e.has_gallery or e.accepted],
+                },
+            )
 
     rejected = [v.name for v in clip_vehicles if all(v.entity_id != k.entity_id for k in vehicles)]
     if rejected:
         logger.info(
-            "Dropped a CLIP vehicle match the description does not support",
+            "Dropped a vehicle hint the event does not support",
             extra={"event_type": "vehicle_clip_match_rejected", "rejected": rejected},
         )
     return people + vehicles
+
+
+async def save_event_observations(
+    event_id: str,
+    object_analysis: Any,
+    session_factory: "SessionFactory",
+    *,
+    when: Any = None,
+) -> None:
+    """Store the event's face/vehicle crops as unconfirmed observations.
+
+    Observations never change a gallery by themselves; they are what a later
+    "assign" or "use as reference" enrolls. Errors are logged, not raised.
+    """
+    if object_analysis is None or getattr(object_analysis, "is_empty", True):
+        return
+    from app.services.entity_gallery_service import get_entity_gallery_service
+
+    with session_factory() as db:
+        created = get_entity_gallery_service().save_observations(db, event_id, object_analysis, when=when)
+    logger.debug(
+        "Stored event object observations",
+        extra={
+            "event_type": "object_observations_stored",
+            "event_id": event_id,
+            "faces": len(created.get("face", [])),
+            "vehicles": len(created.get("vehicle", [])),
+        },
+    )
 
 
 SessionFactory = Callable[[], ContextManager[Session]]
@@ -289,12 +361,15 @@ async def run_post_persist_entity_steps(
     session_factory: SessionFactory,
     link_timeout_s: float = ENTITY_LINK_TIMEOUT_S,
     alert_timeout_s: float = ALERT_RULES_TIMEOUT_S,
+    object_analysis: Any = None,
+    observation_timeout_s: float = OBSERVATION_SAVE_TIMEOUT_S,
 ) -> None:
-    """Link verified entities, then evaluate alert rules. Never raises.
+    """Link verified entities, then evaluate alert rules, then store crops. Never raises.
 
     Order matters: entity rules read ``matched_entity_ids``, which are on the
     row from the first persist, so the rules see the same names the user
     sees. A link failure or timeout is logged and alert rules still run.
+    Crop observations are stored last; they only matter for later enrollment.
     """
     if not isinstance(event_id, str) or not event_id:
         return
@@ -328,6 +403,28 @@ async def run_post_persist_entity_steps(
             "Alert rule evaluation failed",
             extra={
                 "event_type": "alert_rules_failed",
+                "event_id": event_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+
+    if object_analysis is None:
+        return
+    try:
+        await asyncio.wait_for(
+            save_event_observations(event_id, object_analysis, session_factory),
+            observation_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Storing object observations timed out",
+            extra={"event_type": "object_observations_timeout", "event_id": event_id},
+        )
+    except Exception as exc:  # noqa: BLE001 - must never fail the event
+        logger.warning(
+            "Storing object observations failed",
+            extra={
+                "event_type": "object_observations_failed",
                 "event_id": event_id,
                 "error_type": type(exc).__name__,
             },

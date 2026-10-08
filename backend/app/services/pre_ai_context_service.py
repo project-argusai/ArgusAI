@@ -9,11 +9,13 @@ Fail-open and bounded: embedding / face / MCP failures never block analysis.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -27,6 +29,12 @@ from app.services.context_prompt_service import (
 from app.services.entity_service import EntityMatchResult
 
 logger = logging.getLogger(__name__)
+
+# Upper bound for per-object analysis (YuNet/SFace faces, vehicle detection,
+# CLIP on up to three vehicle crops) before the vision call. It runs on the
+# full-resolution snapshot; on the M4 this is tens of milliseconds once CLIP
+# is warm. On timeout the event is described without object identity.
+OBJECT_ANALYSIS_TIMEOUT_S = float(os.environ.get("ARGUS_OBJECT_ANALYSIS_TIMEOUT_S", "2.5") or 2.5)
 
 
 DEFAULT_BASE_PROMPT = (
@@ -66,6 +74,9 @@ class PreAIContextBundle:
     matched_entity_ids: List[str] = field(default_factory=list)
     context_included: bool = False
     context_stats: Optional[dict] = None
+    # Per-object face/vehicle crops (ObjectAnalysis). Used after the vision
+    # call to verify vehicles and stored as observations once the event exists.
+    object_analysis: Optional[Any] = None
 
 
 def format_timestamp_for_ai(timestamp: datetime, db: Session) -> str:
@@ -140,6 +151,7 @@ class PreAIContextService:
             iso = getattr(event_time, "isoformat", None)
             local_timestamp = iso() if callable(iso) else str(event_time)
         named_identities: List[EntityMatchResult] = []
+        object_analysis = None
 
         if embedding_vector is None and thumbnail_base64:
             embedding_vector = await self._safe_embedding(thumbnail_base64)
@@ -152,18 +164,33 @@ class PreAIContextService:
             looks_like_person = any(
                 o in ("person", "people", "ring", "package") for o in objects
             ) or is_doorbell_ring
+            want_faces = looks_like_person and _privacy_flag_enabled(db, FACE_RECOGNITION_ENABLED)
+            want_vehicles = looks_like_vehicle and _privacy_flag_enabled(db, VEHICLE_RECOGNITION_ENABLED)
 
-            # Face match (named persons only). Fail-open if model files are missing.
-            if looks_like_person and _privacy_flag_enabled(db, FACE_RECOGNITION_ENABLED):
-                face_match = await self._safe_named_face_match(db, thumbnail_base64)
+            if (want_faces or want_vehicles) and thumbnail_base64:
+                object_analysis = await self._safe_object_analysis(
+                    thumbnail_base64, faces=want_faces, vehicles=want_vehicles
+                )
+                self._mark_parked(db, camera_id, object_analysis, event_id)
+
+            # Face match (named persons only): SFace face vs per-person face galleries.
+            if want_faces:
+                face_match = await self._safe_named_face_match(
+                    db, thumbnail_base64, analysis=object_analysis
+                )
                 if _is_named(face_match):
                     named_identities.append(face_match)
 
-            # Named vehicle from CLIP only when this event is actually a vehicle.
-            if looks_like_vehicle and _privacy_flag_enabled(db, VEHICLE_RECOGNITION_ENABLED):
-                vehicle_match = clip_scene_entity
-                if vehicle_match is None and embedding_vector is not None:
-                    vehicle_match = await self._safe_clip_match(db, embedding_vector)
+            # Named vehicle hint for the prompt, only when this event is a vehicle.
+            if want_vehicles:
+                vehicle_match = self._gallery_vehicle_hint(db, object_analysis)
+                if vehicle_match is None and not self._has_vehicle_galleries(db):
+                    # No vehicle gallery enrolled yet: keep the earlier scene-level
+                    # hint. It only shapes the prompt; links are verified after
+                    # the vision call (event_entity_linking).
+                    vehicle_match = clip_scene_entity
+                    if vehicle_match is None and embedding_vector is not None:
+                        vehicle_match = await self._safe_clip_match(db, embedding_vector)
                 if (
                     _is_named(vehicle_match)
                     and vehicle_match.entity_type == "vehicle"
@@ -226,6 +253,7 @@ class PreAIContextService:
             matched_entity_ids=[e.entity_id for e in named_identities],
             context_included=context_included,
             context_stats=context_stats,
+            object_analysis=object_analysis,
         )
 
     async def _safe_embedding(self, thumbnail_base64: str) -> Optional[list]:
@@ -254,42 +282,135 @@ class PreAIContextService:
             logger.debug(f"Pre-AI CLIP entity match failed: {e}")
             return None
 
-    async def _safe_named_face_match(
+    async def _safe_object_analysis(
         self,
-        db: Session,
-        thumbnail_base64: Optional[str],
-    ) -> Optional[EntityMatchResult]:
-        if not thumbnail_base64:
-            return None
+        thumbnail_base64: str,
+        *,
+        faces: bool,
+        vehicles: bool,
+    ):
+        """Faces and vehicles as crops from the snapshot. Bounded; None on failure."""
         try:
-            from app.services.face_detection_service import get_face_detection_service
-            from app.services.embedding_service import get_embedding_service
-            from app.services.person_matching_service import get_person_matching_service
+            from app.services.object_identity_service import analyze_image_bytes
 
             raw = thumbnail_base64
             if raw.startswith("data:"):
                 raw = raw.split(",", 1)[1]
-            thumbnail_bytes = base64.b64decode(raw)
-            if not thumbnail_bytes:
+            image_bytes = base64.b64decode(raw)
+            if not image_bytes:
                 return None
-
-            detector = get_face_detection_service()
-            faces = await detector.detect_faces(thumbnail_bytes)
-            if not faces:
-                return None
-
-            best = max(faces, key=lambda f: f.confidence)
-            face_bytes = await detector.extract_face_region(thumbnail_bytes, best.bbox)
-            face_embedding = await get_embedding_service().generate_embedding(face_bytes)
-            return await get_person_matching_service().match_named_person_by_embedding(
-                db, face_embedding
+            return await asyncio.wait_for(
+                analyze_image_bytes(image_bytes, faces=faces, vehicles=vehicles),
+                OBJECT_ANALYSIS_TIMEOUT_S,
             )
-        except FileNotFoundError as e:
-            logger.info(
-                f"Face model files missing; skipping pre-AI face match: {e}",
-                extra={"event_type": "pre_ai_face_model_missing"},
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Object analysis timed out; describing without object identity",
+                extra={"event_type": "object_analysis_timeout", "timeout_s": OBJECT_ANALYSIS_TIMEOUT_S},
             )
             return None
+        except Exception as e:
+            logger.debug(
+                f"Object analysis failed open: {e}",
+                extra={"event_type": "object_analysis_fail_open"},
+            )
+            return None
+
+    def _mark_parked(self, db: Session, camera_id: str, analysis, event_id: Optional[str]) -> None:
+        """Flag vehicle crops that are parked (seen in place on recent events). Never raises."""
+        if analysis is None or not getattr(analysis, "vehicles", None):
+            return
+        try:
+            from app.services.entity_gallery_service import mark_parked_vehicles
+
+            flagged = mark_parked_vehicles(db, camera_id, analysis.vehicles, exclude_event_id=event_id)
+            if flagged:
+                logger.debug(
+                    "Parked vehicles in view",
+                    extra={"event_type": "parked_vehicles_flagged", "camera_id": camera_id, "count": flagged},
+                )
+        except Exception as e:
+            logger.debug(f"Parked-vehicle check failed open: {e}")
+
+    def _has_vehicle_galleries(self, db: Session) -> bool:
+        try:
+            from app.services.entity_gallery_service import get_entity_gallery_service
+
+            return bool(get_entity_gallery_service().get_index(db).vehicles)
+        except Exception:
+            return False
+
+    def _gallery_vehicle_hint(self, db: Session, analysis) -> Optional[EntityMatchResult]:
+        """A vehicle the crop alone already identifies (strong crop score + colour)."""
+        if analysis is None or not getattr(analysis, "vehicles", None):
+            return None
+        try:
+            from app.models.recognized_entity import RecognizedEntity
+            from app.services.entity_gallery_service import (
+                evaluate_vehicle_candidates,
+                get_entity_gallery_service,
+                pick_vehicle,
+            )
+            from app.services.entity_service import _match_result
+            from app.services.event_entity_linking import as_named_identity
+
+            index = get_entity_gallery_service().get_index(db)
+            if not index.vehicles:
+                return None
+            rows = db.query(RecognizedEntity).filter(
+                RecognizedEntity.id.in_(list(index.vehicles))
+            ).all()
+            identities = [i for i in (as_named_identity(r) for r in rows) if i is not None]
+            evidence = evaluate_vehicle_candidates(None, identities, analysis.vehicles, index.vehicles)
+            winner, _ = pick_vehicle(evidence)
+            if winner is None or winner.signal != "crop+color":
+                return None
+            entity = next(r for r in rows if r.id == winner.entity_id)
+            return _match_result(entity, similarity_score=round(winner.crop_score or 0.0, 4), is_new=False)
+        except Exception as e:
+            logger.debug(f"Pre-AI vehicle gallery hint failed open: {e}")
+            return None
+
+    async def _safe_named_face_match(
+        self,
+        db: Session,
+        thumbnail_base64: Optional[str],
+        analysis=None,
+    ) -> Optional[EntityMatchResult]:
+        """Named person whose face gallery matches a face in the snapshot.
+
+        Face-to-face SFace comparison against per-person galleries (see
+        ``entity_gallery_service.match_face``). A person with no enrolled
+        face is never named. Never raises.
+        """
+        if analysis is None or not getattr(analysis, "faces", None):
+            return None
+        try:
+            from app.models.recognized_entity import RecognizedEntity
+            from app.services.entity_gallery_service import get_entity_gallery_service, match_face
+            from app.services.entity_service import _match_result
+
+            index = get_entity_gallery_service().get_index(db)
+            if not index.faces:
+                return None
+            match = match_face(index, [f.embedding for f in analysis.faces])
+            if match is None:
+                return None
+            face = analysis.faces[match.face_index]
+            face.match_entity_id, face.match_score = match.entity_id, match.score
+            entity = db.query(RecognizedEntity).filter(RecognizedEntity.id == match.entity_id).first()
+            if entity is None:
+                return None
+            logger.info(
+                "Face matched a saved person",
+                extra={
+                    "event_type": "pre_ai_face_matched",
+                    "entity_id": match.entity_id,
+                    "score": match.score,
+                    "runner_up": None if match.runner_up is None else round(match.runner_up, 4),
+                },
+            )
+            return _match_result(entity, similarity_score=match.score, is_new=False)
         except Exception as e:
             logger.debug(
                 f"Pre-AI face match failed open: {e}",

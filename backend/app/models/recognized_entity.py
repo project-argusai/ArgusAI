@@ -181,6 +181,14 @@ class RecognizedEntity(Base):
         back_populates="entity",
         lazy="dynamic"
     )
+    # Confirmed reference crops (face / vehicle galleries). Owned by the entity.
+    gallery_items = relationship(
+        "EntityGalleryItem",
+        back_populates="entity",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="dynamic"
+    )
 
     __table_args__ = (
         Index("idx_recognized_entities_last_seen", "last_seen_at"),

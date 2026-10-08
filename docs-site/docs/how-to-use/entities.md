@@ -258,7 +258,8 @@ python scripts/reembed_face_gallery.py --apply  # then restart the backend
 Older references without a stored crop are skipped; assign a few clear
 events to those people again. To go back to SFace, remove the setting,
 restart, and run the same script again. ArcFace uses its own match
-threshold (cosine 0.36; `ARGUS_FACE_MATCH_THRESHOLD` overrides it).
+threshold (cosine 0.36). The `ARGUS_FACE_MATCH_THRESHOLD` process environment
+variable overrides it; set it in the service environment, not in `backend/.env`.
 
 ### Improving Accuracy
 

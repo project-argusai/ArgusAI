@@ -206,30 +206,25 @@ class ProtectEventHandler:
         ai_result: Optional["AIResult"],
         event_type: str,
         db: Optional[Session] = None,
+        bundle: Any = None,
     ) -> dict:
         """Carrier extract, verified entity names, and named rewrite before first persist/notify.
 
         ``matched_entity_ids`` only carries entities the event supports (see
         ``event_entity_linking``): face-matched people, and a named vehicle
-        whose make the description shows. A scene-level CLIP vehicle pick the
-        description contradicts is dropped instead of being stored.
+        backed by its crop gallery and/or a description that shows its make.
+        A vehicle hint the evidence does not support is dropped instead of
+        being stored.
+
+        ``bundle`` is the pre-AI context captured right after the vision call;
+        when omitted it is read from the pipeline.
         """
         import json
         from app.services.carrier_extractor import extract_carrier
-        from app.services.entity_alert_service import (
-            get_entity_alert_service,
-            suppress_inconsistent_vehicle_identity,
-        )
-        from app.services.event_entity_linking import (
-            event_looks_like_vehicle,
-            verify_named_identities,
-        )
 
-        bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
+        if bundle is None:
+            bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
         delivery_carrier = None
-        enriched = None
-        recognition_status = None
-        matched_ids = []
         description = getattr(ai_result, "description", None) if ai_result else None
 
         if description:
@@ -243,40 +238,10 @@ class ProtectEventHandler:
                 getattr(ai_result, "identification", None)
             )
 
-        if description:
-            try:
-                entities = verify_named_identities(
-                    db,
-                    description=description,
-                    candidates=list(getattr(bundle, "named_identities", None) or []),
-                    looks_like_vehicle=event_looks_like_vehicle(event_type, ai_result),
-                    embedding=getattr(bundle, "embedding_vector", None),
-                )
-                if entities:
-                    matched_ids = [e.entity_id for e in entities]
-                    suppress_inconsistent_vehicle_identity(
-                        description,
-                        getattr(ai_result, "identification", None) if ai_result is not None else None,
-                        entities,
-                    )
-                    enriched = get_entity_alert_service().enrich_description(
-                        description, entities
-                    )
-                    if enriched and enriched != description and ai_result is not None:
-                        ai_result.description = enriched
-                    recognition_status = "known"
-            except Exception as e:
-                # Naming is best-effort: the event still stores unnamed.
-                logger.warning(
-                    "Entity naming failed; storing event without names",
-                    extra={
-                        "event_type": "protect_entity_naming_failed",
-                        "error_type": type(e).__name__,
-                    },
-                )
-                matched_ids = []
-                enriched = None
-                recognition_status = None
+        identity = self._verified_identity_fields(ai_result, event_type, db, bundle)
+        matched_ids = identity["matched_ids"]
+        enriched = identity["enriched"]
+        recognition_status = identity["recognition_status"]
 
         context_stats = None
         if getattr(bundle, "context_stats", None):
@@ -291,8 +256,81 @@ class ProtectEventHandler:
             "matched_entity_ids": json.dumps(matched_ids) if matched_ids else None,
         }
 
-    async def _run_entity_post_persist(self, stored_event: Any) -> None:
-        """Link the stored event's verified entities, then run alert rules.
+    def _verified_identity_fields(
+        self,
+        ai_result: Optional["AIResult"],
+        event_type: str,
+        db: Optional[Session],
+        bundle: Any,
+    ) -> dict:
+        """Verified entity ids (+ named rewrite when there is a description).
+
+        Runs without a description too (the vision call failed): a
+        face-matched person, or a vehicle its crop gallery and colour
+        identify, is still linked. Never raises.
+        """
+        from app.services.entity_alert_service import (
+            get_entity_alert_service,
+            suppress_inconsistent_vehicle_identity,
+        )
+        from app.services.event_entity_linking import (
+            event_looks_like_vehicle,
+            verify_named_identities,
+        )
+
+        out = {"matched_ids": [], "enriched": None, "recognition_status": None}
+        description = getattr(ai_result, "description", None) if ai_result else None
+        candidates = list(getattr(bundle, "named_identities", None) or [])
+        analysis = getattr(bundle, "object_analysis", None)
+        if not (description or candidates or getattr(analysis, "vehicles", None)):
+            return out
+        try:
+            entities = verify_named_identities(
+                db,
+                description=description,
+                candidates=candidates,
+                looks_like_vehicle=event_looks_like_vehicle(event_type, ai_result),
+                embedding=getattr(bundle, "embedding_vector", None),
+                object_analysis=analysis,
+            )
+            if entities:
+                out["matched_ids"] = [e.entity_id for e in entities]
+                out["recognition_status"] = "known"
+                if description:
+                    suppress_inconsistent_vehicle_identity(
+                        description,
+                        getattr(ai_result, "identification", None) if ai_result is not None else None,
+                        entities,
+                    )
+                    enriched = get_entity_alert_service().enrich_description(description, entities)
+                    if enriched and enriched != description and ai_result is not None:
+                        ai_result.description = enriched
+                    out["enriched"] = enriched
+        except Exception as e:
+            # Naming is best-effort: the event still stores unnamed.
+            logger.warning(
+                "Entity naming failed; storing event without names",
+                extra={
+                    "event_type": "protect_entity_naming_failed",
+                    "error_type": type(e).__name__,
+                },
+            )
+            out = {"matched_ids": [], "enriched": None, "recognition_status": None}
+        return out
+
+    def _identity_only_fields(self, event_type: str, db: Optional[Session], bundle: Any) -> dict:
+        """Entity fields for an event stored without an AI description."""
+        import json
+
+        identity = self._verified_identity_fields(None, event_type, db, bundle)
+        ids = identity["matched_ids"]
+        return {
+            "recognition_status": identity["recognition_status"],
+            "matched_entity_ids": json.dumps(ids) if ids else None,
+        }
+
+    async def _run_entity_post_persist(self, stored_event: Any, bundle: Any = None) -> None:
+        """Link the stored event's verified entities, run alert rules, store crops.
 
         Runs after the row is committed and broadcast, so it adds nothing to
         the time before the event appears. ``run_post_persist_entity_steps``
@@ -303,6 +341,7 @@ class ProtectEventHandler:
         await run_post_persist_entity_steps(
             getattr(stored_event, "id", None),
             session_factory=get_db_session,
+            object_analysis=getattr(bundle, "object_analysis", None),
         )
 
     def _dispatch_notifications(self, stored_event: Any) -> None:
@@ -614,6 +653,7 @@ class ProtectEventHandler:
                     # Capture the pipeline's ACTUAL analysis outcome now — singleton
                     # state is per-event and must be read before any further awaits.
                     persist_tracking = self._persist_tracking_kwargs(media_fallback)
+                    context_bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
 
                     # Story P3-1.4 AC3: Always cleanup clip after AI processing
                     if clip_path:
@@ -676,6 +716,7 @@ class ProtectEventHandler:
                             event_id_override=generated_event_id,
                             ai_response_time_ms=ai_response_time_ms_from_result(ai_result),
                             **persist_tracking,
+                            **self._identity_only_fields(filter_type, db, context_bundle),
                         )
 
                         if stored_event:
@@ -686,7 +727,7 @@ class ProtectEventHandler:
                             # Broadcast the event even without AI description
                             await self._link_cross_camera_incident(db, stored_event)
                             await self.broadcaster.broadcast_event_created(stored_event, camera)
-                            await self._run_entity_post_persist(stored_event)
+                            await self._run_entity_post_persist(stored_event, context_bundle)
                             # Push + MQTT (even without AI)
                             self._dispatch_notifications(stored_event)
                             return True
@@ -704,7 +745,7 @@ class ProtectEventHandler:
                         is_doorbell_ring=is_doorbell_ring,
                         event_id_override=generated_event_id,
                         **persist_tracking,
-                        **self._post_ai_context_fields(ai_result, filter_type, db),
+                        **self._post_ai_context_fields(ai_result, filter_type, db, context_bundle),
                     )
 
                     if not stored_event:
@@ -742,7 +783,7 @@ class ProtectEventHandler:
 
                     # Story P2-3.3: Broadcast EVENT_CREATED via WebSocket (AC12)
                     await self.broadcaster.broadcast_event_created(stored_event, camera)
-                    await self._run_entity_post_persist(stored_event)
+                    await self._run_entity_post_persist(stored_event, context_bundle)
                     self._dispatch_notifications(stored_event)
 
                     return True
@@ -1094,6 +1135,7 @@ class ProtectEventHandler:
                 # Capture the pipeline's ACTUAL analysis outcome now (singleton state
                 # is per-event and must be read before any further awaits).
                 persist_tracking = self._persist_tracking_kwargs(fallback_reason)
+                context_bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
 
                 # Cleanup clip after AI processing
                 if clip_path:
@@ -1121,6 +1163,7 @@ class ProtectEventHandler:
                         ai_response_time_ms=ai_response_time_ms_from_result(ai_result),
                         **persist_tracking,
                         **detection_columns,
+                        **self._identity_only_fields(filter_type, db, context_bundle),
                     )
                     if stored_event:
                         keep_reservation = True
@@ -1129,7 +1172,7 @@ class ProtectEventHandler:
                         )
                         await self._link_cross_camera_incident(db, stored_event)
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
-                        await self._run_entity_post_persist(stored_event)
+                        await self._run_entity_post_persist(stored_event, context_bundle)
                         self._dispatch_notifications(stored_event)
                         return True
                     return False
@@ -1147,7 +1190,7 @@ class ProtectEventHandler:
                     event_id_override=generated_event_id,
                     **persist_tracking,
                     **detection_columns,
-                    **self._post_ai_context_fields(ai_result, filter_type, db),
+                    **self._post_ai_context_fields(ai_result, filter_type, db, context_bundle),
                 )
 
                 if not stored_event:
@@ -1174,7 +1217,7 @@ class ProtectEventHandler:
                 # Broadcast and publish event
                 await self.broadcaster.broadcast_event_created(stored_event, camera)
                 # Entity links + alert rules, after the event is already visible.
-                await self._run_entity_post_persist(stored_event)
+                await self._run_entity_post_persist(stored_event, context_bundle)
                 # Push + MQTT in the background
                 self._dispatch_notifications(stored_event)
 

@@ -1052,6 +1052,14 @@ class AssignEventResponse(BaseModel):
         default_factory=list,
         description="All entities on the event after the change, primary first",
     )
+    reference: Optional[dict] = Field(
+        default=None,
+        description=(
+            "Reference-gallery result for a new link: status is enrolled, already_enrolled, "
+            "ambiguous (pick a crop via POST /context/entities/{id}/gallery), no_observation, "
+            "disabled, unsupported or error. Null when no new link was made."
+        ),
+    )
 
 
 @router.post("/events/{event_id}/entity", response_model=AssignEventResponse, dependencies=_REQUIRE_OPERATOR)

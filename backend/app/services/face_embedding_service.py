@@ -260,11 +260,18 @@ class FaceEmbeddingService:
         Returns:
             Number of face embeddings deleted
         """
+        crop_paths = [
+            p for (p,) in db.query(FaceEmbedding.crop_path).filter(
+                FaceEmbedding.event_id == event_id,
+                FaceEmbedding.crop_path.isnot(None),
+            ).all()
+        ]
         count = db.query(FaceEmbedding).filter(
             FaceEmbedding.event_id == event_id
         ).delete()
 
         db.commit()
+        _delete_crop_files(crop_paths)
 
         logger.info(
             f"Deleted {count} face embedding(s) for event",
@@ -290,14 +297,26 @@ class FaceEmbeddingService:
         Returns:
             Number of face embeddings deleted
         """
+        crop_paths = [
+            p for (p,) in db.query(FaceEmbedding.crop_path).filter(
+                FaceEmbedding.crop_path.isnot(None)
+            ).all()
+        ]
         count = db.query(FaceEmbedding).delete()
         db.commit()
+        _delete_crop_files(crop_paths)
+
+        # Face reference galleries are face data too.
+        from app.services.entity_gallery_service import get_entity_gallery_service
+
+        gallery_count = get_entity_gallery_service().delete_all_faces(db)
 
         logger.info(
             f"Deleted all face embeddings",
             extra={
                 "event_type": "all_face_embeddings_deleted",
                 "count": count,
+                "gallery_items_deleted": gallery_count,
             }
         )
 
@@ -333,6 +352,15 @@ class FaceEmbeddingService:
     def get_model_version(self) -> str:
         """Get the current model version string."""
         return self.MODEL_VERSION
+
+
+def _delete_crop_files(paths) -> None:
+    if not paths:
+        return
+    from app.services.entity_gallery_service import delete_crop
+
+    for rel in paths:
+        delete_crop(rel)
 
 
 # Backward compatible thin getter (delegates to @singleton decorator)

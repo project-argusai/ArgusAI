@@ -130,6 +130,65 @@ def vehicle_label_agrees(description: str, entity) -> bool:
     return True
 
 
+def _all_vocab(text: str, vocab: List[str], aliases: Dict[str, str]) -> set:
+    lowered = (text or "").lower()
+    return {
+        _norm_token(aliases.get(word, word))
+        for word in vocab
+        if re.search(rf"\b{re.escape(word)}\b", lowered)
+    }
+
+
+def vehicle_description_signal(description: Optional[str], entity) -> str:
+    """How a description bears on a saved vehicle: 'agree', 'contradict' or 'none'.
+
+    Unlike ``vehicle_label_agrees`` (one make/colour, the earliest named),
+    this looks at every make, model and colour the description names, so
+    "a white van passes as a red Tesla pulls in" neither contradicts the red
+    Tesla nor credits the van with it. Only vocabulary models count, so a
+    verb after the make ("Tesla pulls in") is not read as a model.
+
+    'agree': the saved make is among the makes named and nothing contradicts.
+    'contradict': makes (or vocabulary models, or colours) are named and the
+    saved one is not among them. 'none': nothing either way, e.g. "a red
+    SUV", or an entity with no make (a nickname never counts as positive
+    evidence).
+    """
+    from app.services.vehicle_color import color_agreement, normalize_color_name
+
+    text = description or ""
+    if not text.strip():
+        return "none"
+    name = entity.name if isinstance(getattr(entity, "name", None), str) else ""
+    makes_seen = _all_vocab(text, VEHICLE_MAKES, _MAKE_ALIASES)
+    models_seen = _all_vocab(text, VEHICLE_MODELS, {})
+    colors_seen = {
+        c for c in (normalize_color_name(w) for w in _all_vocab(text, VEHICLE_COLORS, _COLOR_ALIASES)) if c
+    }
+
+    label_make = _norm_token(_earliest_vocab(name, VEHICLE_MAKES, _MAKE_ALIASES))
+    raw_make = getattr(entity, "vehicle_make", None)
+    if isinstance(raw_make, str):
+        raw_make = _MAKE_ALIASES.get(raw_make.strip().lower(), raw_make)
+    stored_make = _norm_token(raw_make if isinstance(raw_make, str) else None)
+    expected_makes = {t for t in (label_make, stored_make) if t}
+    label_model = _norm_token(_earliest_vocab(name, VEHICLE_MODELS, {}))
+    expected_models = {t for t in (label_model, _norm_token(getattr(entity, "vehicle_model", None))) if t}
+    stored_color = normalize_color_name(getattr(entity, "vehicle_color", None))
+
+    if makes_seen and expected_makes and not (makes_seen & expected_makes):
+        return "contradict"
+    if models_seen and expected_models and not (models_seen & expected_models):
+        return "contradict"
+    if colors_seen and stored_color and all(
+        color_agreement(c, stored_color) == "conflict" for c in colors_seen
+    ):
+        return "contradict"
+    if expected_makes and makes_seen & expected_makes:
+        return "agree"
+    return "none"
+
+
 def suppress_inconsistent_vehicle_identity(
     description: str,
     identification: Optional[dict],

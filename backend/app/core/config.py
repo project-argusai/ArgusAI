@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     MEDIA_FRAMES_DIR: Optional[str] = None
     MEDIA_VIDEO_DIR: Optional[str] = None
     MEDIA_CLIPS_DIR: Optional[str] = None
+    # Small face/vehicle crops for entity galleries (default backend/data/entity_crops).
+    MEDIA_ENTITY_CROPS_DIR: Optional[str] = None
 
     # Debug Endpoints (Story P14-1.2)
     # SECURITY WARNING: Only enable for development.

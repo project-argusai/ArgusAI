@@ -54,6 +54,7 @@ from app.api.v1.system_notifications import router as system_notifications_route
 from app.api.v1.push import router as push_router  # Story P4-1.1: Web Push
 from app.api.v1.integrations import router as integrations_router  # Story P4-2.1: MQTT
 from app.api.v1.context import router as context_router  # Story P4-3.1: Embeddings
+from app.api.v1.entity_gallery import router as entity_gallery_router  # Per-entity reference galleries
 from app.api.v1.summaries import router as summaries_router  # Story P4-4.1: Activity Summaries
 from app.api.v1.digests import router as digests_router  # Story P4-4.2: Daily Digest Scheduler
 from app.api.v1.feedback import router as feedback_router  # Story P4-5.2: Feedback Statistics
@@ -1057,6 +1058,7 @@ app.include_router(system_notifications_router, prefix=settings.API_V1_PREFIX)  
 app.include_router(push_router, prefix=settings.API_V1_PREFIX)  # Story P4-1.1 - Web Push
 app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)  # Story P4-2.1 - MQTT
 app.include_router(context_router, prefix=settings.API_V1_PREFIX)  # Story P4-3.1 - Embeddings
+app.include_router(entity_gallery_router, prefix=settings.API_V1_PREFIX)  # Entity reference galleries
 app.include_router(summaries_router, prefix=settings.API_V1_PREFIX)  # Story P4-4.1 - Activity Summaries
 app.include_router(digests_router, prefix=settings.API_V1_PREFIX)  # Story P4-4.2 - Daily Digest Scheduler
 app.include_router(feedback_router, prefix=settings.API_V1_PREFIX)  # Story P4-5.2 - Feedback Statistics

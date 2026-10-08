@@ -48,8 +48,9 @@ RUN pip install --no-cache-dir /wheels/* && rm -rf /wheels
 # Copy application code
 COPY . .
 
-# Local detector weights (checksum-pinned). Vehicle recognition is disabled
-# without them. Face weights are fetched the same way.
+# Local detector weights (checksum-pinned): MobileNet-SSD vehicles plus
+# YuNet/SFace faces. Vehicle and face recognition are disabled without them.
+# download_face_model.py fetches the legacy ResNet-10 face detector.
 RUN python scripts/download_vehicle_model.py && python scripts/download_face_model.py
 
 # Create non-root user for security

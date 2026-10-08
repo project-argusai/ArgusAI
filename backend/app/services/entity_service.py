@@ -39,6 +39,7 @@ Flow:
 # Migrated to @singleton decorator (core.decorators) as a core service
 reference example for #450 (Lightweight DI Container).
 """
+import asyncio
 import json
 import logging
 import re
@@ -237,6 +238,72 @@ def seed_entity_embedding_from_event(db: Session, entity, event_id: str) -> bool
         },
     )
     return True
+
+
+# Enrolling a gallery crop may need to analyze an older event's thumbnail
+# (CLIP on a few crops). Bounded so an assign request never hangs on it.
+GALLERY_ENROLL_TIMEOUT_S = 10.0
+
+
+async def enroll_event_reference(db: Session, entity, event_id: str) -> Optional[dict]:
+    """Add the event's face/vehicle crop to the entity's gallery. Never raises.
+
+    Called for explicit user links only (assign/add/move). Returns a small
+    status dict for the API response, or None when galleries don't apply.
+    """
+    if entity is None or getattr(entity, "entity_type", None) not in ("person", "vehicle"):
+        return None
+    try:
+        from app.services.entity_gallery_service import get_entity_gallery_service
+
+        result = await asyncio.wait_for(
+            get_entity_gallery_service().enroll_from_event(db, entity, event_id),
+            GALLERY_ENROLL_TIMEOUT_S,
+        )
+        return {
+            "status": result.status,
+            "message": result.message or None,
+            "candidates": result.candidates,
+        }
+    except asyncio.TimeoutError:
+        db.rollback()
+        logger.warning(
+            "Gallery enrollment timed out",
+            extra={"event_type": "entity_gallery_enroll_timeout", "entity_id": entity.id, "event_id": event_id},
+        )
+        return {"status": "error", "message": "Reference crop enrollment timed out", "candidates": []}
+    except Exception as exc:  # noqa: BLE001 - the link itself already succeeded
+        db.rollback()
+        logger.warning(
+            "Gallery enrollment failed",
+            extra={
+                "event_type": "entity_gallery_enroll_failed",
+                "entity_id": getattr(entity, "id", None),
+                "event_id": event_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+        return {"status": "error", "message": "Reference crop enrollment failed", "candidates": []}
+
+
+def unenroll_event_reference(db: Session, entity_id: str, event_id: str) -> int:
+    """Drop gallery crops an entity got from this event. Never raises."""
+    try:
+        from app.services.entity_gallery_service import get_entity_gallery_service
+
+        return get_entity_gallery_service().unenroll_event(db, entity_id, event_id)
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.warning(
+            "Gallery unenroll failed",
+            extra={
+                "event_type": "entity_gallery_unenroll_failed",
+                "entity_id": entity_id,
+                "event_id": event_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+        return 0
 
 
 # Adjustment action names before and after issue #652.
@@ -1369,6 +1436,18 @@ class EntityService:
         if not entity:
             return False
 
+        try:
+            from app.services.entity_gallery_service import get_entity_gallery_service
+
+            # Removes the rows (the FK would cascade) and their crop files.
+            get_entity_gallery_service().reset_entity(db, entity_id)
+        except Exception as exc:  # noqa: BLE001 - orphan crops are pruned later
+            db.rollback()
+            logger.warning(
+                "Gallery cleanup failed on entity delete",
+                extra={"event_type": "entity_gallery_delete_failed", "error_type": type(exc).__name__},
+            )
+
         db.delete(entity)
         db.commit()
 
@@ -1603,6 +1682,7 @@ class EntityService:
                 self._promote_next_primary(db, event, exclude_entity_id=entity_id)
 
         db.commit()
+        unenroll_event_reference(db, entity_id, event_id)
 
         logger.info(
             "Entity removed from event",
@@ -1977,6 +2057,14 @@ class EntityService:
                 "entities": build_event_entities(db, [event]).get(event_id, []) if event else [],
             }
 
+        for old_id in removed_ids:
+            # A corrected event must not keep teaching the old entity.
+            unenroll_event_reference(db, old_id, event_id)
+
+        reference = None
+        if target_link is None:
+            reference = await enroll_event_reference(db, target_entity, event_id)
+
         logger.info(
             "Entity assigned to event",
             extra={
@@ -1997,6 +2085,7 @@ class EntityService:
             "entity_id": entity_id,
             "entity_name": target_entity.name,
             "entities": build_event_entities(db, [event]).get(event.id, []),
+            "reference": reference,
         }
 
     async def merge_entities(
@@ -2125,6 +2214,17 @@ class EntityService:
         # deletes: without this flush the cascade still sees the old rows and
         # deletes every link that was just moved to the primary.
         db.flush()
+
+        # Keep the secondary's reference crops on the merged entity.
+        try:
+            from app.services.entity_gallery_service import get_entity_gallery_service
+
+            get_entity_gallery_service().move_items(db, secondary_entity_id, primary_entity_id)
+        except Exception as exc:  # noqa: BLE001 - a merge must not fail on galleries
+            logger.warning(
+                "Gallery items not moved on merge",
+                extra={"event_type": "entity_gallery_merge_failed", "error_type": type(exc).__name__},
+            )
 
         # Delete secondary entity (EntityEvent links already moved)
         db.delete(secondary)

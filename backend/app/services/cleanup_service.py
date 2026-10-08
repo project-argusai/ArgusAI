@@ -749,11 +749,26 @@ class CleanupService:
             "thumbnails_deleted": thumb_deleted,
             "frames_deleted": frame_files,
             "frame_dirs_deleted": frame_dirs,
+            "entity_crops_deleted": self._sweep_orphan_entity_crops(),
             "space_freed_mb": round(freed, 2),
             "skipped": False,
         }
         logger.info("Orphan media cleanup complete", extra=stats)
         return stats
+
+    def _sweep_orphan_entity_crops(self) -> int:
+        """Crop files left behind by deleted events/entities (entity galleries)."""
+        try:
+            from app.services.entity_gallery_service import get_entity_gallery_service
+
+            db = self.session_factory()
+            try:
+                return get_entity_gallery_service().prune_orphan_crops(db)
+            finally:
+                db.close()
+        except Exception:
+            logger.warning("Entity crop sweep failed", exc_info=True)
+            return 0
 
     def _sweep_orphan_thumbnails(self, cutoff: datetime, protected: Set[str]) -> tuple:
         deleted = 0

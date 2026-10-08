@@ -83,6 +83,11 @@ class FaceEmbedding(Base):
         nullable=False,
         doc="Model version string for compatibility tracking (e.g., clip-ViT-B-32-v1)"
     )
+    crop_path = Column(
+        String(512),
+        nullable=True,
+        doc="Crop JPEG relative to the entity-crops media root (aligned 112x112 face / padded vehicle)"
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,

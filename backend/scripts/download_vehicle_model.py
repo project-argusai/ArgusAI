@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 """
-Download MobileNet-SSD (PASCAL VOC) weights for VehicleDetectionService.
+Download the local detector / recognizer weights, pinned by SHA-256.
 
-Source: https://github.com/chuanqi305/MobileNet-SSD (the original Caffe
-release used by OpenCV's DNN samples). Files are pinned by SHA-256 and the
-script refuses a file that does not match.
+Model sets:
+
+* ``vehicle``: MobileNet-SSD (PASCAL VOC) for VehicleDetectionService.
+  Source: https://github.com/chuanqi305/MobileNet-SSD (the original Caffe
+  release used by OpenCV's DNN samples).
+  Default destination: backend/app/models/mobilenet_ssd/ (the detector also
+  honours $ARGUS_VEHICLE_MODEL_DIR and the legacy backend/models/ directory).
+* ``face``: YuNet face detector (MIT) and SFace face recognizer
+  (Apache-2.0) from the OpenCV Model Zoo, for FaceRecognitionService.
+  Both run on OpenCV's own DNN module (cv2.FaceDetectorYN /
+  cv2.FaceRecognizerSF), so no extra Python package is needed.
+  Default destination: backend/app/models/opencv_zoo/ (also honours
+  $ARGUS_FACE_MODEL_DIR).
+
+Every file is pinned to an exact upstream commit and checked against its
+SHA-256. A file that does not match is refused and the script exits 1.
 
 Usage:
-    python scripts/download_vehicle_model.py [--dest DIR]
-
-Default destination: backend/app/models/mobilenet_ssd/
-The detector also honours $ARGUS_VEHICLE_MODEL_DIR and the legacy
-backend/models/ directory.
+    python scripts/download_vehicle_model.py              # every set
+    python scripts/download_vehicle_model.py --only face  # one set
+    python scripts/download_vehicle_model.py --only vehicle --dest DIR
 """
 import argparse
 import hashlib
@@ -19,18 +30,45 @@ import sys
 import urllib.request
 from pathlib import Path
 
-_BASE = "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/bb17b6c3eef36d80be441ae8e5339be66e8e3b7a"
-MODELS = {
-    "MobileNetSSD_deploy.prototxt": (
-        f"{_BASE}/deploy.prototxt",
-        "2d180f723b3109e21f8287f6b3c691390d07b60eed998327cd3259ffa0e50608",
-    ),
-    "MobileNetSSD_deploy.caffemodel": (
-        f"{_BASE}/mobilenet_iter_73000.caffemodel",
-        "52eed8be80522c152a17fb56740de705b79881bde1a167e0e747310523685fc7",
-    ),
+_MODELS_DIR = Path(__file__).resolve().parent.parent / "app" / "models"
+
+_SSD_BASE = "https://raw.githubusercontent.com/chuanqi305/MobileNet-SSD/bb17b6c3eef36d80be441ae8e5339be66e8e3b7a"
+# opencv_zoo stores the ONNX files in Git LFS; github.com/<repo>/raw/<sha>/
+# redirects to the LFS object, so the commit pin still holds.
+_ZOO_BASE = "https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models"
+
+MODEL_SETS = {
+    "vehicle": {
+        "dest": _MODELS_DIR / "mobilenet_ssd",
+        "files": {
+            "MobileNetSSD_deploy.prototxt": (
+                f"{_SSD_BASE}/deploy.prototxt",
+                "2d180f723b3109e21f8287f6b3c691390d07b60eed998327cd3259ffa0e50608",
+            ),
+            "MobileNetSSD_deploy.caffemodel": (
+                f"{_SSD_BASE}/mobilenet_iter_73000.caffemodel",
+                "52eed8be80522c152a17fb56740de705b79881bde1a167e0e747310523685fc7",
+            ),
+        },
+    },
+    "face": {
+        "dest": _MODELS_DIR / "opencv_zoo",
+        "files": {
+            "face_detection_yunet_2023mar.onnx": (
+                f"{_ZOO_BASE}/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+                "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+            ),
+            "face_recognition_sface_2021dec.onnx": (
+                f"{_ZOO_BASE}/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+                "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+            ),
+        },
+    },
 }
-DEFAULT_DEST = Path(__file__).resolve().parent.parent / "app" / "models" / "mobilenet_ssd"
+
+# Kept for callers that imported the old single-set constants.
+MODELS = MODEL_SETS["vehicle"]["files"]
+DEFAULT_DEST = MODEL_SETS["vehicle"]["dest"]
 
 
 def sha256(path: Path) -> str:
@@ -41,21 +79,23 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    parser.add_argument("--dest", type=Path, default=DEFAULT_DEST)
-    args = parser.parse_args()
-    args.dest.mkdir(parents=True, exist_ok=True)
-
+def download_set(files: dict, dest: Path) -> bool:
+    dest.mkdir(parents=True, exist_ok=True)
     ok = True
-    for name, (url, expected) in MODELS.items():
-        target = args.dest / name
+    for name, (url, expected) in files.items():
+        target = dest / name
         if target.is_file() and sha256(target) == expected:
             print(f"{name}: already present, checksum ok")
             continue
         tmp = target.with_suffix(target.suffix + ".part")
         print(f"Downloading {name} from {url}")
-        urllib.request.urlretrieve(url, tmp)
+        try:
+            urllib.request.urlretrieve(url, tmp)
+        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+            print(f"  DOWNLOAD FAILED: {exc}", file=sys.stderr)
+            ok = False
+            continue
         actual = sha256(tmp)
         if actual != expected:
             tmp.unlink(missing_ok=True)
@@ -64,6 +104,23 @@ def main() -> int:
             continue
         tmp.replace(target)
         print(f"  saved {target} (sha256 {actual})")
+    return ok
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument("--only", choices=sorted(MODEL_SETS), help="download one model set")
+    parser.add_argument("--dest", type=Path, help="destination directory (requires --only)")
+    args = parser.parse_args(argv)
+    if args.dest and not args.only:
+        parser.error("--dest needs --only, since each model set has its own directory")
+
+    names = [args.only] if args.only else list(MODEL_SETS)
+    ok = True
+    for name in names:
+        spec = MODEL_SETS[name]
+        print(f"== {name} models")
+        ok = download_set(spec["files"], args.dest or spec["dest"]) and ok
     return 0 if ok else 1
 
 

@@ -86,6 +86,8 @@ OPERATOR_ROUTES = frozenset({
     ("PUT", "/api/v1/context/entities/{entity_id}"),
     ("POST", "/api/v1/context/events/{event_id}/entity"),
     ("DELETE", "/api/v1/context/entities/{entity_id}/events/{event_id}"),
+    ("POST", "/api/v1/context/entities/{entity_id}/gallery"),
+    ("DELETE", "/api/v1/context/entities/{entity_id}/gallery/{item_id}"),
     ("PUT", "/api/v1/context/persons/{person_id}"),
     ("PUT", "/api/v1/context/vehicles/{vehicle_id}"),
     ("POST", "/api/v1/context/anomaly/score"),

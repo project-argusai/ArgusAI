@@ -247,11 +247,18 @@ class TestFaceEmbeddingService:
         mock_db = MagicMock()
 
         mock_db.query.return_value.delete.return_value = 10
+        gallery = MagicMock()
 
-        result = await face_embedding_service.delete_all_faces(mock_db)
+        with patch(
+            "app.services.entity_gallery_service.get_entity_gallery_service",
+            return_value=gallery,
+        ):
+            result = await face_embedding_service.delete_all_faces(mock_db)
 
         assert result == 10
         mock_db.commit.assert_called_once()
+        # Face reference galleries are face data too (privacy delete).
+        gallery.delete_all_faces.assert_called_once_with(mock_db)
 
     @pytest.mark.asyncio
     async def test_get_face_count(self, face_embedding_service):

@@ -191,6 +191,37 @@ ArgusAI learns from your manual corrections:
 | **Link event** | These features do match this entity |
 | **Merge entities** | These variations represent the same subject |
 
+### Reference Galleries
+
+Named people and vehicles are recognized from small **reference crops**, not
+from whole camera frames:
+
+- **People**: face crops (OpenCV YuNet detector + SFace recognizer, run
+  locally). A person is named only when a face in the snapshot matches one of
+  their reference faces closely enough, and clearly better than anyone else's.
+- **Vehicles**: vehicle crops from the detector, compared with the vehicle's
+  reference crops, plus the crop's colour and the make in the AI description.
+  A vehicle with references needs its crop to agree; a car that only sits
+  parked in the frame is not linked to every passing van.
+
+References are added only when **you** confirm them:
+
+1. **Assigning an event** to a person or vehicle adds that event's face or
+   vehicle crop to its references. If the event shows several similar
+   vehicles, nothing is added and the response lists the crops so you can
+   pick one.
+2. **Use as reference** (`POST /api/v1/context/entities/{id}/gallery` with an
+   `event_id` and optional `observation_id`) adds a specific crop without
+   changing the event's links.
+3. **Unlinking** an event removes the references it contributed. Automatic
+   matches never add references, so a wrong match can't spread.
+
+For good results, assign 3 to 5 clear events per entity, including a night
+one. `GET /api/v1/context/entities/{id}/gallery` lists the references; an
+admin can clear them with `DELETE /api/v1/context/entities/{id}/gallery`.
+Face and vehicle analysis follow the **Face recognition** and **Vehicle
+recognition** privacy settings.
+
 ### Improving Accuracy
 
 To improve entity matching over time:
@@ -220,7 +251,8 @@ Good names help you identify entities quickly:
 
 ### Privacy Considerations
 
-- Entity data is stored locally
-- No facial recognition is used
-- Vehicle matching based on color/make/model
+- Entity data, including face and vehicle crops, is stored locally
+- Face recognition runs only when **Face recognition** is enabled in privacy
+  settings; deleting all face data also removes face references
+- Vehicle matching uses vehicle crops, colour, and make/model
 - You control all entity data

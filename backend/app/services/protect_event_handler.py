@@ -206,6 +206,7 @@ class ProtectEventHandler:
         ai_result: Optional["AIResult"],
         event_type: str,
         db: Optional[Session] = None,
+        bundle: Any = None,
     ) -> dict:
         """Carrier extract, verified entity names, and named rewrite before first persist/notify.
 
@@ -225,7 +226,8 @@ class ProtectEventHandler:
             verify_named_identities,
         )
 
-        bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
+        if bundle is None:
+            bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
         delivery_carrier = None
         enriched = None
         recognition_status = None
@@ -321,6 +323,55 @@ class ProtectEventHandler:
                 "Protect notification dispatch failed",
                 extra={
                     "event_type": "protect_notify_dispatch_failed",
+                    "event_id": getattr(stored_event, "id", None),
+                    "error_type": type(exc).__name__,
+                },
+            )
+
+    def _schedule_local_redescribe(
+        self,
+        stored_event: Any,
+        snapshot_result: Any,
+        camera: Any,
+        event_type: str,
+        bundle: Any,
+    ) -> None:
+        """Hand a failed event to the local vision model, in the background.
+
+        Called last on the AI-failure path, after the row is stored, linked,
+        broadcast, and notified. Off unless LOCAL_VLM_ENABLED; scheduling
+        never blocks and never raises (see ``local_vlm_fallback``).
+        """
+        try:
+            from app.services.local_vlm_fallback import (
+                RedescribeJob,
+                get_local_vlm_fallback_service,
+            )
+
+            service = get_local_vlm_fallback_service()
+            if not service.enabled:
+                return
+
+            def _fields(ai_result, db, _bundle=bundle, _type=event_type):
+                return self._post_ai_context_fields(ai_result, _type, db, bundle=_bundle)
+
+            service.schedule(
+                RedescribeJob(
+                    event_id=getattr(stored_event, "id", None),
+                    image_base64=getattr(snapshot_result, "image_base64", None) or "",
+                    camera_id=getattr(camera, "id", None),
+                    camera_name=getattr(camera, "name", "") or "",
+                    event_type=event_type,
+                    local_timestamp=getattr(bundle, "local_timestamp", None),
+                    custom_prompt=getattr(bundle, "custom_prompt", None),
+                    fields_builder=_fields,
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "Local VLM fallback scheduling failed",
+                extra={
+                    "event_type": "local_vlm_schedule_failed",
                     "event_id": getattr(stored_event, "id", None),
                     "error_type": type(exc).__name__,
                 },
@@ -614,6 +665,7 @@ class ProtectEventHandler:
                     # Capture the pipeline's ACTUAL analysis outcome now — singleton
                     # state is per-event and must be read before any further awaits.
                     persist_tracking = self._persist_tracking_kwargs(media_fallback)
+                    context_bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
 
                     # Story P3-1.4 AC3: Always cleanup clip after AI processing
                     if clip_path:
@@ -689,6 +741,9 @@ class ProtectEventHandler:
                             await self._run_entity_post_persist(stored_event)
                             # Push + MQTT (even without AI)
                             self._dispatch_notifications(stored_event)
+                            self._schedule_local_redescribe(
+                                stored_event, snapshot_result, camera, filter_type, context_bundle
+                            )
                             return True
 
                         return False
@@ -1094,6 +1149,7 @@ class ProtectEventHandler:
                 # Capture the pipeline's ACTUAL analysis outcome now (singleton state
                 # is per-event and must be read before any further awaits).
                 persist_tracking = self._persist_tracking_kwargs(fallback_reason)
+                context_bundle = getattr(self.ai_pipeline, "last_context_bundle", None)
 
                 # Cleanup clip after AI processing
                 if clip_path:
@@ -1131,6 +1187,9 @@ class ProtectEventHandler:
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
                         await self._run_entity_post_persist(stored_event)
                         self._dispatch_notifications(stored_event)
+                        self._schedule_local_redescribe(
+                            stored_event, snapshot_result, camera, filter_type, context_bundle
+                        )
                         return True
                     return False
 

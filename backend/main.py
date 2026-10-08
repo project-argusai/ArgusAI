@@ -269,6 +269,21 @@ async def lifespan(app: FastAPI):
         extra={"event_type": "directory_init", "path": thumbnail_dir}
     )
 
+    # Opt-in ArcFace: verify and load its weights off the event loop now, so
+    # the first face event does not pay for hashing and loading ~170 MB.
+    try:
+        from app.services.face_recognition_service import configured_face_recognizer, get_face_recognition_service
+
+        if (configured_face_recognizer() or "").lower() == "arcface":
+            def _warm_face_backend():
+                return get_face_recognition_service().is_available()
+
+            import asyncio as _asyncio
+
+            await _asyncio.get_running_loop().run_in_executor(None, _warm_face_backend)
+    except Exception as e:  # noqa: BLE001 - faces fail open
+        logger.warning(f"Face backend warm-up failed: {e}", extra={"event_type": "face_backend_warmup_failed"})
+
     # Initialize Event Processor (Story 3.3)
     # Pass already-initialized services for better DI and startup ordering
     await initialize_event_processor(

@@ -23,7 +23,7 @@ def _load(name):
 class TestDownloadManifest:
     def test_face_and_vehicle_sets_are_pinned(self):
         mod = _load("download_vehicle_model")
-        assert set(mod.MODEL_SETS) == {"face", "vehicle"}
+        assert set(mod.MODEL_SETS) == {"face", "vehicle", "plate"}
         face = mod.MODEL_SETS["face"]["files"]
         assert set(face) == {"face_detection_yunet_2023mar.onnx", "face_recognition_sface_2021dec.onnx"}
         for url, digest in face.values():
@@ -31,6 +31,22 @@ class TestDownloadManifest:
             # Pinned to a commit, not a branch.
             assert "/main/" not in url and "/master/" not in url
         assert mod.MODELS is mod.MODEL_SETS["vehicle"]["files"]
+
+    def test_plate_set_is_pinned_and_opt_in(self):
+        mod = _load("download_vehicle_model")
+        plate = mod.MODEL_SETS["plate"]["files"]
+        assert set(plate) == {
+            "yolo-v9-t-384-license-plates-end2end.onnx",
+            "cct_xs_v2_global.onnx",
+            "cct_xs_v2_global_plate_config.yaml",
+        }
+        for url, digest in plate.values():
+            assert url.startswith("https://github.com/ankandrew/") and len(digest) == 64
+        assert mod.OPT_IN_SETS == {"plate"}
+        fetched = []
+        with patch.object(mod, "download_set", side_effect=lambda files, dest: fetched.append(dest.name) or True):
+            assert mod.main([]) == 0
+        assert "plates" not in fetched and set(fetched) == {"mobilenet_ssd", "opencv_zoo"}
 
     def test_dest_requires_only(self, tmp_path):
         mod = _load("download_vehicle_model")

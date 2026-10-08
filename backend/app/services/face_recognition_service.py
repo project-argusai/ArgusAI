@@ -15,6 +15,14 @@ new Python dependency. Weights: ``scripts/download_vehicle_model.py --only face`
 
 Everything here is synchronous and CPU-bound. Callers run it in an executor
 and must treat a missing model as "no faces" (fail-open).
+
+Pluggable: callers use ``get_face_recognition_service()``, which returns the
+recognizer named by ``ARGUS_FACE_RECOGNIZER`` (default and only built-in:
+``sface``). Another backend implements ``FaceRecognizer`` and registers with
+``register_face_recognizer``. Every embedding is stored with the backend's
+``model_version`` and galleries only compare vectors of the active version,
+so switching backends never mixes vector spaces; the stored 112x112 aligned
+crops can be re-embedded with ``embed_aligned``.
 """
 from __future__ import annotations
 
@@ -23,7 +31,7 @@ import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 import cv2
 import numpy as np
@@ -101,8 +109,32 @@ def normalize(vec) -> Optional[np.ndarray]:
     return arr / norm
 
 
+@runtime_checkable
+class FaceRecognizer(Protocol):
+    """What the gallery and live path need from a face backend."""
+
+    name: str
+    model_version: str  # stored with every embedding
+    dim: int
+    # Cosine a gallery match must reach for this backend's vector space.
+    default_match_threshold: float
+
+    def is_available(self) -> bool: ...
+
+    def identify(self, image: np.ndarray) -> List["FaceIdentity"]: ...
+
+    def embed_aligned(self, aligned_crop: np.ndarray) -> Optional[np.ndarray]: ...
+
+
 class FaceRecognitionService:
-    """Lazy-loaded YuNet detector + SFace recognizer. Thread-safe."""
+    """Lazy-loaded YuNet detector + SFace recognizer. Thread-safe. The default backend."""
+
+    name = "sface"
+    model_version = SFACE_MODEL_VERSION
+    dim = SFACE_DIM
+    # OpenCV publishes 0.363 for SFace on LFW; 0.40 is a little stricter
+    # (LFW impostor FPR 0.03% per pair, see the PR / docs).
+    default_match_threshold = 0.40
 
     def __init__(self, yunet_path: Optional[str] = None, sface_path: Optional[str] = None):
         self._paths = (yunet_path, sface_path)
@@ -207,16 +239,41 @@ class FaceRecognitionService:
             return normalize(self._recognizer.feature(aligned_crop))
 
 
-_service: Optional[FaceRecognitionService] = None
+FACE_RECOGNIZER_ENV = "ARGUS_FACE_RECOGNIZER"
+DEFAULT_FACE_RECOGNIZER = "sface"
+
+_RECOGNIZERS: Dict[str, Callable[[], FaceRecognizer]] = {"sface": FaceRecognitionService}
+_service: Optional[FaceRecognizer] = None
 _service_lock = threading.Lock()
 
 
-def get_face_recognition_service() -> FaceRecognitionService:
+def register_face_recognizer(name: str, factory: Callable[[], FaceRecognizer]) -> None:
+    """Make a face backend selectable with ``ARGUS_FACE_RECOGNIZER=<name>``."""
+    with _service_lock:
+        _RECOGNIZERS[name.strip().lower()] = factory
+
+
+def get_face_recognition_service() -> FaceRecognizer:
+    """The active face backend (created lazily; models load on first use)."""
     global _service
     with _service_lock:
         if _service is None:
-            _service = FaceRecognitionService()
+            name = (os.environ.get(FACE_RECOGNIZER_ENV) or DEFAULT_FACE_RECOGNIZER).strip().lower()
+            if name not in _RECOGNIZERS:
+                logger.warning(
+                    "Unknown face recognizer; using the default",
+                    extra={"event_type": "face_recognizer_unknown", "requested": name,
+                           "default": DEFAULT_FACE_RECOGNIZER},
+                )
+                name = DEFAULT_FACE_RECOGNIZER
+            _service = _RECOGNIZERS[name]()
         return _service
+
+
+def active_face_model() -> Tuple[str, int]:
+    """(model_version, dim) of the active backend. Does not load model weights."""
+    svc = get_face_recognition_service()
+    return svc.model_version, svc.dim
 
 
 def reset_face_recognition_service() -> None:

@@ -162,7 +162,8 @@ def analyze_frame_sync(image: np.ndarray, *, faces: bool, vehicles: bool) -> Obj
 
     if faces:
         result.faces_checked = True
-        for ident in get_face_recognition_service().identify(image):
+        recognizer = get_face_recognition_service()
+        for ident in recognizer.identify(image):
             crop = encode_jpeg(ident.aligned_crop)
             if not crop:
                 continue
@@ -171,6 +172,7 @@ def analyze_frame_sync(image: np.ndarray, *, faces: bool, vehicles: bool) -> Obj
                 score=round(ident.face.score, 4),
                 embedding=ident.embedding,
                 crop_jpeg=crop,
+                model_version=recognizer.model_version,
             ))
 
     if vehicles:

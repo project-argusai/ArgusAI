@@ -220,7 +220,10 @@ class TestPickVehicle:
     def _ev(self, eid, signal, score):
         from app.services.entity_gallery_service import VehicleEvidence
 
-        return VehicleEvidence(eid, eid, True, score, "agree", "agree", accepted=True, signal=signal)
+        from app.services.entity_gallery_service import _TIER
+
+        return VehicleEvidence(eid, eid, True, score, "agree", "agree", accepted=True, signal=signal,
+                               tier=_TIER[signal], rank_score=score)
 
     def test_crop_backed_beats_description_only(self):
         winner, _ = pick_vehicle([self._ev("a", "description", None), self._ev("b", "crop+color", 0.93)], T)
@@ -362,3 +365,117 @@ def test_box_iou():
     assert box_iou(a, {"x": 50, "y": 0, "width": 100, "height": 100}) == pytest.approx(1 / 3)
     assert box_iou(a, {"x": 500, "y": 500, "width": 10, "height": 10}) == 0.0
     assert box_iou(a, None) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Extension points (later PRs: a plate signal, an opt-in face backend)
+# ---------------------------------------------------------------------------
+
+class _FakePlate:
+    """Stands in for a future plate reader: plate -> entity id."""
+
+    name = "plate"
+    tier = 4
+
+    def __init__(self, reads):
+        self.reads = reads  # entity_id -> "agree" | "contradict"
+
+    def evaluate(self, identity, observations, description):
+        from app.services.entity_gallery_service import SignalVerdict
+
+        status = self.reads.get(identity.entity_id, "none")
+        return SignalVerdict(status, 0.99 if status == "agree" else None)
+
+
+class TestExtraVehicleSignals:
+    def test_no_signals_registered_by_default(self):
+        from app.services.entity_gallery_service import registered_vehicle_signals
+
+        assert registered_vehicle_signals() == []
+
+    def test_agreeing_signal_links_at_its_tier(self, galleries):
+        obs = car(with_cosine(galleries["vecs"]["bmw"], 0.95), None)  # night, crop alone not enough
+        ev = evaluate_vehicle_candidates(None, [TESLA, BMW], [obs], galleries["gallery"], T,
+                                         extra_signals=[_FakePlate({"tesla": "agree"})])
+        winner, _ = pick_vehicle(ev, T)
+        assert winner.entity_id == "tesla" and winner.signal == "plate" and winner.tier == 4
+        assert {e.entity_id: e.signals for e in ev}["tesla"] == {"plate": "agree"}
+
+    def test_contradicting_signal_vetoes_a_strong_crop(self, galleries):
+        obs = car(with_cosine(galleries["vecs"]["tesla"], 0.97), "red")
+        ev = evaluate_vehicle_candidates(None, [TESLA], [obs], galleries["gallery"], T,
+                                         extra_signals=[_FakePlate({"tesla": "contradict"})])
+        assert ev[0].reason == "plate_contradicts" and not ev[0].accepted
+
+    def test_built_in_vetoes_still_apply_to_an_agreeing_signal(self, galleries):
+        obs = car(with_cosine(galleries["vecs"]["tesla"], 0.97), "black")
+        ev = evaluate_vehicle_candidates(None, [TESLA], [obs], galleries["gallery"], T,
+                                         extra_signals=[_FakePlate({"tesla": "agree"})])
+        assert ev[0].reason == "color_conflict"
+
+    def test_a_failing_signal_counts_as_no_opinion(self, galleries):
+        class Broken:
+            name, tier = "broken", 5
+
+            def evaluate(self, *a):
+                raise RuntimeError("camera offline")
+
+        obs = car(with_cosine(galleries["vecs"]["tesla"], 0.95), "red")
+        ev = evaluate_vehicle_candidates(None, [TESLA], [obs], galleries["gallery"], T, extra_signals=[Broken()])
+        assert ev[0].signal == "crop+color" and ev[0].signals == {"broken": "none"}
+
+    def test_registry(self, galleries):
+        from app.services.entity_gallery_service import register_vehicle_signal, unregister_vehicle_signal
+
+        register_vehicle_signal(_FakePlate({"tesla": "agree"}))
+        try:
+            ev = evaluate_vehicle_candidates(None, [TESLA], [], galleries["gallery"], T)
+            assert ev[0].signal == "plate"
+        finally:
+            unregister_vehicle_signal("plate")
+
+
+class TestPluggableFaceBackend:
+    def test_sface_is_the_default(self, monkeypatch):
+        from app.services import face_recognition_service as frs
+
+        monkeypatch.delenv("ARGUS_FACE_RECOGNIZER", raising=False)
+        frs.reset_face_recognition_service()
+        assert frs.get_face_recognition_service().name == "sface"
+        assert frs.active_face_model() == ("sface-2021dec-v1", 128)
+
+    def test_registered_backend_is_selected_and_galleries_follow_its_version(self, monkeypatch):
+        from app.services import face_recognition_service as frs
+
+        class Fake:
+            name, model_version, dim, default_match_threshold = "fake", "fake-v1", 512, 0.3
+
+            def is_available(self):
+                return True
+
+            def identify(self, image):
+                return []
+
+            def embed_aligned(self, crop):
+                return None
+
+        frs.register_face_recognizer("fake", Fake)
+        monkeypatch.setenv("ARGUS_FACE_RECOGNIZER", "fake")
+        frs.reset_face_recognition_service()
+        try:
+            assert isinstance(frs.get_face_recognition_service(), frs.FaceRecognizer)
+            assert frs.active_face_model() == ("fake-v1", 512)
+            assert MatchThresholds.from_env().face_match == 0.3
+        finally:
+            frs._RECOGNIZERS.pop("fake", None)
+            frs.reset_face_recognition_service()
+
+    def test_unknown_backend_falls_back_to_sface(self, monkeypatch):
+        from app.services import face_recognition_service as frs
+
+        monkeypatch.setenv("ARGUS_FACE_RECOGNIZER", "nope")
+        frs.reset_face_recognition_service()
+        try:
+            assert frs.get_face_recognition_service().name == "sface"
+        finally:
+            frs.reset_face_recognition_service()

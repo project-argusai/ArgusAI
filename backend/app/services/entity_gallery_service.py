@@ -35,14 +35,14 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 import numpy as np
 from sqlalchemy.orm import Session
 
 from app.core.decorators import singleton
 from app.services.ai_types import FACE_RECOGNITION_ENABLED, VEHICLE_RECOGNITION_ENABLED
-from app.services.face_recognition_service import SFACE_DIM, SFACE_MODEL_VERSION, normalize
+from app.services.face_recognition_service import active_face_model, normalize
 from app.services.object_identity_service import (
     VEHICLE_CROP_MODEL_VERSION,
     ObjectAnalysis,
@@ -72,7 +72,8 @@ def _env_float(name: str, default: float) -> float:
 class MatchThresholds:
     # SFace: OpenCV's published cosine threshold is 0.363 (LFW). We start a
     # little stricter, since a false name on a doorbell alert is worse than
-    # a missed one, and require a margin over the next person.
+    # a missed one, and require a margin over the next person. ``from_env``
+    # takes the active face backend's ``default_match_threshold``.
     face_match: float = 0.40
     face_margin: float = 0.05
     # CLIP B/32 crop vs crop. "strong" may link with colour alone (no
@@ -84,8 +85,15 @@ class MatchThresholds:
     @classmethod
     def from_env(cls) -> "MatchThresholds":
         d = cls()
+        face_default = d.face_match
+        try:
+            from app.services.face_recognition_service import get_face_recognition_service
+
+            face_default = float(getattr(get_face_recognition_service(), "default_match_threshold", face_default))
+        except Exception:  # noqa: BLE001
+            pass
         return cls(
-            face_match=_env_float("ARGUS_FACE_MATCH_THRESHOLD", d.face_match),
+            face_match=_env_float("ARGUS_FACE_MATCH_THRESHOLD", face_default),
             face_margin=_env_float("ARGUS_FACE_MATCH_MARGIN", d.face_margin),
             vehicle_strong=_env_float("ARGUS_VEHICLE_CROP_STRONG", d.vehicle_strong),
             vehicle_support=_env_float("ARGUS_VEHICLE_CROP_SUPPORT", d.vehicle_support),
@@ -204,11 +212,12 @@ def load_gallery_index(db: Session) -> GalleryIndex:
     from app.models.entity_gallery_item import EntityGalleryItem
     from app.models.recognized_entity import RecognizedEntity
 
+    face_version, face_dim = active_face_model()
     rows = (
         db.query(EntityGalleryItem, RecognizedEntity)
         .join(RecognizedEntity, RecognizedEntity.id == EntityGalleryItem.entity_id)
         .filter(
-            ((EntityGalleryItem.kind == FACE) & (EntityGalleryItem.model_version == SFACE_MODEL_VERSION))
+            ((EntityGalleryItem.kind == FACE) & (EntityGalleryItem.model_version == face_version))
             | (
                 (EntityGalleryItem.kind == VEHICLE)
                 & (EntityGalleryItem.model_version == VEHICLE_CROP_MODEL_VERSION)
@@ -224,7 +233,7 @@ def load_gallery_index(db: Session) -> GalleryIndex:
         expected_type = "person" if item.kind == FACE else "vehicle"
         if entity.entity_type != expected_type:
             continue
-        vec = _parse_vec(item.embedding, SFACE_DIM if item.kind == FACE else VEHICLE_CROP_DIM)
+        vec = _parse_vec(item.embedding, face_dim if item.kind == FACE else VEHICLE_CROP_DIM)
         if vec is None:
             continue
         slot = grouped.setdefault((item.kind, entity.id), {"entity": entity, "vecs": [], "colors": []})
@@ -326,6 +335,12 @@ class VehicleEvidence:
     signal: Optional[str] = None
     reason: str = ""
     parked_score: Optional[float] = None
+    # Rank of the link (see ``_TIER`` / ``VehicleSignal.tier``) and the score
+    # that orders links within a tier.
+    tier: int = 0
+    rank_score: Optional[float] = None
+    # Verdicts of registered extra signals (e.g. a plate reader), by name.
+    signals: Dict[str, str] = field(default_factory=dict)
 
     def as_log(self) -> dict:
         return {
@@ -337,10 +352,74 @@ class VehicleEvidence:
             "accepted": self.accepted,
             "signal": self.signal,
             "reason": self.reason,
+            **({"signals": dict(self.signals)} if self.signals else {}),
         }
 
 
+# Built-in link kinds, strongest first. Extra signals declare their own tier.
 _TIER = {"crop+description": 3, "crop+color": 2, "description": 1}
+
+
+# ---------------------------------------------------------------------------
+# Extra vehicle signals (extension point, e.g. a licence-plate reader)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SignalVerdict:
+    status: str = "none"  # agree | contradict | none
+    score: Optional[float] = None
+
+
+@runtime_checkable
+class VehicleSignal(Protocol):
+    """An extra, independent piece of evidence about one saved vehicle.
+
+    ``evaluate`` sees the saved vehicle (``NamedIdentity``-like), the event's
+    vehicle observations and the description, and answers:
+
+    * ``contradict``: veto this vehicle (e.g. a different plate was read);
+    * ``agree``: link it on this signal alone, ranked at ``tier``
+      (``crop+description`` is 3; a confident plate read would sit above);
+    * ``none``: no opinion (no plate visible).
+
+    The built-in vetoes (description, parked, colour) still apply to an
+    ``agree``. A signal that raises counts as ``none``.
+    """
+
+    name: str
+    tier: int
+
+    def evaluate(self, identity: Any, observations: Sequence[Any], description: Optional[str]) -> SignalVerdict: ...
+
+
+_VEHICLE_SIGNALS: List[VehicleSignal] = []
+
+
+def register_vehicle_signal(signal: VehicleSignal) -> None:
+    """Add an extra signal to every vehicle decision (replaces one of the same name)."""
+    _VEHICLE_SIGNALS[:] = [s for s in _VEHICLE_SIGNALS if s.name != signal.name] + [signal]
+
+
+def unregister_vehicle_signal(name: str) -> None:
+    _VEHICLE_SIGNALS[:] = [s for s in _VEHICLE_SIGNALS if s.name != name]
+
+
+def registered_vehicle_signals() -> List[VehicleSignal]:
+    return list(_VEHICLE_SIGNALS)
+
+
+def _run_signal(signal: VehicleSignal, ident: Any, observations: Sequence[Any], description: Optional[str]) -> SignalVerdict:
+    try:
+        verdict = signal.evaluate(ident, observations, description)
+    except Exception as exc:  # noqa: BLE001 - an extra signal must never break linking
+        logger.debug(
+            "Vehicle signal failed open",
+            extra={"event_type": "vehicle_signal_failed", "signal": signal.name, "error_type": type(exc).__name__},
+        )
+        return SignalVerdict()
+    if not isinstance(verdict, SignalVerdict) or verdict.status not in ("agree", "contradict", "none"):
+        return SignalVerdict()
+    return verdict
 
 
 def _color_status_for(expected: Optional[str], colors: Iterable[Optional[str]]) -> str:
@@ -360,6 +439,7 @@ def evaluate_vehicle_candidates(
     vehicles: Sequence[Any],
     gallery: Dict[str, GalleryEntry],
     thresholds: Optional[MatchThresholds] = None,
+    extra_signals: Optional[Sequence[VehicleSignal]] = None,
 ) -> List[VehicleEvidence]:
     """Score each named vehicle against the event's evidence.
 
@@ -386,6 +466,11 @@ def evaluate_vehicle_candidates(
     parked crop is the saved vehicle and nothing moving matches it, the
     vehicle is not linked at all ("parked_in_view"), which also blocks the
     description rule from naming a car that is just parked in the frame.
+
+    ``extra_signals`` (default: ``registered_vehicle_signals()``) plug in
+    more evidence, e.g. a plate reader: a ``contradict`` vetoes right after
+    the description veto; an ``agree`` links at the signal's tier once the
+    built-in vetoes have passed. None are registered by default.
     """
     from app.services.entity_alert_service import vehicle_description_signal, vehicle_label_agrees
 
@@ -397,6 +482,7 @@ def evaluate_vehicle_candidates(
         if getattr(v, "stationary", False) and getattr(v, "embedding", None) is not None
     ]
     with_embedding = [v for v in observed if getattr(v, "embedding", None) is not None]
+    extras = list(registered_vehicle_signals() if extra_signals is None else extra_signals)
     out: List[VehicleEvidence] = []
     for ident in identities:
         entry = gallery.get(ident.entity_id)
@@ -432,8 +518,18 @@ def evaluate_vehicle_candidates(
             description_status=desc,
             parked_score=parked_score,
         )
+        verdicts = {sig.name: (sig, _run_signal(sig, ident, present, description)) for sig in extras}
+        ev.signals = {name: v.status for name, (_, v) in verdicts.items()}
+        contradicting = [name for name, (_, v) in verdicts.items() if v.status == "contradict"]
+        agreeing = sorted(
+            ((sig, v) for sig, v in verdicts.values() if v.status == "agree"),
+            key=lambda sv: (sv[0].tier, sv[1].score or 0.0),
+            reverse=True,
+        )
         if desc == "contradict":
             ev.reason = "description_contradicts"
+        elif contradicting:
+            ev.reason = f"{contradicting[0]}_contradicts"
         elif (
             parked_score is not None
             and parked_score >= t.vehicle_support
@@ -444,6 +540,9 @@ def evaluate_vehicle_candidates(
             ev.reason = "parked_in_view"
         elif color_status == "conflict":
             ev.reason = "color_conflict"
+        elif agreeing:
+            sig, verdict = agreeing[0]
+            ev.accepted, ev.signal, ev.tier, ev.rank_score = True, sig.name, int(sig.tier), verdict.score
         elif has_gallery and with_embedding:
             if crop_score is not None and crop_score >= t.vehicle_support and desc == "agree":
                 ev.accepted, ev.signal = True, "crop+description"
@@ -456,6 +555,8 @@ def evaluate_vehicle_candidates(
             ev.accepted, ev.signal = True, "description"
         else:
             ev.reason = "no_signal"
+        if ev.accepted and ev.signal in _TIER:
+            ev.tier, ev.rank_score = _TIER[ev.signal], crop_score
         out.append(ev)
     return out
 
@@ -475,13 +576,13 @@ def pick_vehicle(
     accepted = [e for e in evidence if e.accepted]
     if not accepted:
         return None, []
-    accepted.sort(key=lambda e: (_TIER[e.signal], e.crop_score or 0.0), reverse=True)
+    accepted.sort(key=lambda e: (e.tier, e.rank_score or 0.0), reverse=True)
     top = accepted[0]
     if top.signal == "description":
         tied = [e for e in accepted if e.signal == "description"]
         return (top, []) if len(tied) == 1 else (None, tied)
-    same_tier = [e for e in accepted[1:] if e.signal == top.signal]
-    if same_tier and (top.crop_score or 0.0) - (same_tier[0].crop_score or 0.0) < t.vehicle_margin:
+    same_tier = [e for e in accepted[1:] if e.tier == top.tier]
+    if same_tier and (top.rank_score or 0.0) - (same_tier[0].rank_score or 0.0) < t.vehicle_margin:
         logger.info(
             "Two saved vehicles match the crop equally well; not linking either",
             extra={"event_type": "vehicle_crop_ambiguous", "candidates": [top.entity_id, same_tier[0].entity_id]},
@@ -670,7 +771,7 @@ class EntityGalleryService:
         try:
             if analysis.faces and not db.query(FaceEmbedding.id).filter(
                 FaceEmbedding.event_id == event_id,
-                FaceEmbedding.model_version == SFACE_MODEL_VERSION,
+                FaceEmbedding.model_version == active_face_model()[0],
             ).first():
                 for obs in analysis.faces:
                     row_id = str(uuid.uuid4())
@@ -726,7 +827,7 @@ class EntityGalleryService:
         if kind in (None, FACE):
             out += [(FACE, r) for r in db.query(FaceEmbedding).filter(
                 FaceEmbedding.event_id == event_id,
-                FaceEmbedding.model_version == SFACE_MODEL_VERSION,
+                FaceEmbedding.model_version == active_face_model()[0],
             ).all()]
         if kind in (None, VEHICLE):
             out += [(VEHICLE, r) for r in db.query(VehicleEmbedding).filter(

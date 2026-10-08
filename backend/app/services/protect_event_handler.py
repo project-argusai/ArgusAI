@@ -151,6 +151,11 @@ class ProtectEventHandler:
         # Event broadcasting (WebSocket + HomeKit) (Phase 4)
         self.broadcaster: ProtectEventBroadcaster = get_protect_event_broadcaster()
 
+        # Push + MQTT for stored events (dropped in Phase B, restored here)
+        from app.services.protect_event_notifications import get_protect_event_notifier
+
+        self.notifier = get_protect_event_notifier()
+
         # Story P3-5.3: Track last audio transcription for passing to event storage
         self._last_audio_transcription: Optional[str] = None
 
@@ -299,6 +304,27 @@ class ProtectEventHandler:
             getattr(stored_event, "id", None),
             session_factory=get_db_session,
         )
+
+    def _dispatch_notifications(self, stored_event: Any) -> None:
+        """Start push + MQTT for the stored event in the background.
+
+        Runs after the event is broadcast and its entities linked, so the push
+        title can carry verified names. The notifier bounds and swallows every
+        failure; this wrapper only guards the scheduling itself.
+        """
+        try:
+            self.notifier.schedule(
+                getattr(stored_event, "id", None), session_factory=get_db_session
+            )
+        except Exception as exc:
+            logger.warning(
+                "Protect notification dispatch failed",
+                extra={
+                    "event_type": "protect_notify_dispatch_failed",
+                    "event_id": getattr(stored_event, "id", None),
+                    "error_type": type(exc).__name__,
+                },
+            )
 
     async def _store_protect_embedding(self, event_id: str) -> None:
         """Persist the in-memory CLIP vector so Protect events become RAG candidates."""
@@ -661,8 +687,8 @@ class ProtectEventHandler:
                             await self._link_cross_camera_incident(db, stored_event)
                             await self.broadcaster.broadcast_event_created(stored_event, camera)
                             await self._run_entity_post_persist(stored_event)
-                            # Publish to MQTT for Home Assistant (even without AI)
-                            await self._publish_event_to_mqtt(stored_event, camera, None)
+                            # Push + MQTT (even without AI)
+                            self._dispatch_notifications(stored_event)
                             return True
 
                         return False
@@ -717,6 +743,7 @@ class ProtectEventHandler:
                     # Story P2-3.3: Broadcast EVENT_CREATED via WebSocket (AC12)
                     await self.broadcaster.broadcast_event_created(stored_event, camera)
                     await self._run_entity_post_persist(stored_event)
+                    self._dispatch_notifications(stored_event)
 
                     return True
 
@@ -1042,7 +1069,7 @@ class ProtectEventHandler:
 
                 # For doorbell rings, broadcast immediately
                 if is_doorbell_ring:
-                    await self._broadcast_doorbell_ring(
+                    await self.broadcaster.broadcast_doorbell_ring(
                         camera_id=camera.id,
                         camera_name=camera.name,
                         thumbnail_url=snapshot_result.thumbnail_path,
@@ -1103,6 +1130,7 @@ class ProtectEventHandler:
                         await self._link_cross_camera_incident(db, stored_event)
                         await self.broadcaster.broadcast_event_created(stored_event, camera)
                         await self._run_entity_post_persist(stored_event)
+                        self._dispatch_notifications(stored_event)
                         return True
                     return False
 
@@ -1147,6 +1175,8 @@ class ProtectEventHandler:
                 await self.broadcaster.broadcast_event_created(stored_event, camera)
                 # Entity links + alert rules, after the event is already visible.
                 await self._run_entity_post_persist(stored_event)
+                # Push + MQTT in the background
+                self._dispatch_notifications(stored_event)
 
                 return True
 

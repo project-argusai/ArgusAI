@@ -323,6 +323,19 @@ class Settings(BaseSettings):
     MCP_THUMBNAIL_URL_TTL_SECONDS: int = Field(default=600, ge=30, le=3600)  # Signed thumbnail URL lifetime
     MCP_PUBLIC_BASE_URL: Optional[str] = None  # e.g. https://argusai.example.com; unset = relative thumbnail URLs
 
+    # Local vision model (Ollama, mlx-vlm, LM Studio: any OpenAI-compatible
+    # /v1 server). Off by default. When enabled it only re-describes Protect
+    # events whose cloud analysis failed ("AI analysis unavailable"), in the
+    # background after the event is stored and notified, so a slow or stopped
+    # local server never delays ingest, alerts, or notifications.
+    LOCAL_VLM_ENABLED: bool = False
+    LOCAL_VLM_BASE_URL: str = "http://127.0.0.1:11434/v1"
+    LOCAL_VLM_MODEL: str = "qwen3-vl:4b-instruct"
+    LOCAL_VLM_TIMEOUT_MS: int = Field(default=60_000, ge=5_000, le=300_000)  # One local call, not the live SLA
+    LOCAL_VLM_MAX_IMAGE_SIDE: int = Field(default=1024, ge=256, le=2048)  # Downscale before sending (vision tokens)
+    LOCAL_VLM_MAX_PENDING: int = Field(default=4, ge=1, le=32)  # Queue bound; extra failures are skipped
+    LOCAL_VLM_ALLOW_REMOTE: bool = False  # Images stay on this host unless explicitly allowed
+
     @property
     def fcm_ready(self) -> bool:
         """Check if FCM is properly configured and ready to use."""

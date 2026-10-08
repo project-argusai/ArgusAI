@@ -20,6 +20,10 @@ from app.services.ai_provider_order import is_quota_error
 
 logger = logging.getLogger(__name__)
 
+# Placeholder bearer value for local OpenAI-compatible servers (Ollama,
+# mlx-vlm, LM Studio). They ignore it; the SDK requires a non-empty key.
+LOCAL_PROVIDER_API_KEY = "local-no-key"
+
 
 def response_body_is_quota(response: httpx.Response) -> bool:
     """True when an HTTP response body is a quota or no-credit failure.
@@ -55,7 +59,12 @@ class QuotaAwareAsyncOpenAI(_QuotaRetryMixin, openai.AsyncOpenAI):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         base_url = str(kwargs.get("base_url") or "")
-        self._quota_provider_name = "grok" if "x.ai" in base_url else "openai"
+        if "x.ai" in base_url:
+            self._quota_provider_name = "grok"
+        elif kwargs.get("api_key") == LOCAL_PROVIDER_API_KEY:
+            self._quota_provider_name = "local"
+        else:
+            self._quota_provider_name = "openai"
 
 
 class QuotaAwareAsyncAnthropic(_QuotaRetryMixin, anthropic.AsyncAnthropic):
@@ -64,11 +73,22 @@ class QuotaAwareAsyncAnthropic(_QuotaRetryMixin, anthropic.AsyncAnthropic):
     _quota_provider_name = "claude"
 
 
-def build_openai_client(api_key: str, base_url: Optional[str] = None) -> QuotaAwareAsyncOpenAI:
-    """Async OpenAI-compatible client. ``base_url`` selects the xAI endpoint."""
+def build_openai_client(
+    api_key: str,
+    base_url: Optional[str] = None,
+    max_retries: Optional[int] = None,
+) -> QuotaAwareAsyncOpenAI:
+    """Async OpenAI-compatible client.
+
+    ``base_url`` selects the xAI endpoint or a local OpenAI-compatible server.
+    ``max_retries`` overrides the SDK default (2); a local server that is down
+    should fail fast instead of retrying.
+    """
     kwargs = {"api_key": api_key}
     if base_url:
         kwargs["base_url"] = base_url
+    if max_retries is not None:
+        kwargs["max_retries"] = max_retries
     return QuotaAwareAsyncOpenAI(**kwargs)
 
 

@@ -30,6 +30,7 @@ _REQUIRE_ADMIN = [Depends(require_admin())]
 _REQUIRE_OPERATOR = [Depends(require_operator_or_admin())]
 
 IdParam = Annotated[str, Path(min_length=1, max_length=128)]
+MAX_PLATE_INPUT = 20
 
 
 class PlateItem(BaseModel):
@@ -47,10 +48,11 @@ class PlatesResponse(BaseModel):
 
 
 class SetPlateRequest(BaseModel):
+    # No length constraints here: pydantic echoes the input in a length
+    # error. The handler checks the length and answers without the value.
     plate: SecretStr = Field(
-        min_length=2,
-        max_length=20,
-        description="The plate as written (spaces and dashes are ignored). Hashed at once; never stored or returned.",
+        description="The plate as written, up to 20 characters (spaces and dashes are ignored). "
+        "Hashed at once; never stored or returned.",
     )
 
 
@@ -100,7 +102,11 @@ async def list_entity_plates(entity_id: IdParam, db: Session = Depends(get_db)):
 async def add_entity_plate(request: SetPlateRequest, entity_id: IdParam, db: Session = Depends(get_db)):
     """Save a plate on this vehicle (stored as a keyed hash only)."""
     entity = _vehicle_or_404(db, entity_id)
-    result = plates.set_plate(db, entity, request.plate.get_secret_value())
+    raw = request.plate.get_secret_value()
+    if len(raw) > MAX_PLATE_INPUT:
+        raise HTTPException(status_code=422, detail="A plate is 2-10 letters or digits")
+    result = plates.set_plate(db, entity, raw)
+    del raw
     if result.status == "invalid":
         raise HTTPException(status_code=422, detail=result.message)
     if result.status == "disabled":

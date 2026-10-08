@@ -1451,14 +1451,20 @@ class EntityService:
                 extra={"event_type": "entity_gallery_delete_failed", "error_type": type(exc).__name__},
             )
 
+        try:
+            from app.services.entity_plate_service import clear_plates
+
+            # Explicit, so it does not depend on SQLite's foreign_keys pragma.
+            clear_plates(db, entity_id)
+        except Exception as exc:  # noqa: BLE001 - the FK cascade still removes them
+            db.rollback()
+            logger.warning(
+                "Plate cleanup failed on entity delete",
+                extra={"event_type": "entity_plate_delete_failed", "error_type": type(exc).__name__},
+            )
+
         db.delete(entity)
         db.commit()
-        try:
-            from app.services.entity_plate_service import invalidate_plate_index
-
-            invalidate_plate_index()  # its plates went with it (FK cascade)
-        except Exception:  # noqa: BLE001
-            pass
 
         # Remove from cache
         if entity_id in self._entity_cache:

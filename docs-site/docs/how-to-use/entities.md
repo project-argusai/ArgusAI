@@ -222,6 +222,44 @@ admin can clear them with `DELETE /api/v1/context/entities/{id}/gallery`.
 Face and vehicle analysis follow the **Face recognition** and **Vehicle
 recognition** privacy settings.
 
+### Optional ArcFace face model
+
+Faces are matched with SFace by default (Apache-2.0, downloaded with the
+other models). ArcFace (InsightFace `w600k_r50`) is a stronger identity
+model you can switch to, but its weights are licensed by InsightFace for
+**non-commercial research use only**. ArgusAI therefore never ships or
+downloads them: you get them yourself and decide whether that licence fits
+your use.
+
+1. Download InsightFace's `buffalo_l` model pack from the InsightFace
+   project and take `w600k_r50.onnx` out of it.
+2. Put it at `backend/app/models/arcface/w600k_r50.onnx` (ignored by git), or
+   anywhere else and set `ARGUS_ARCFACE_MODEL_PATH` to the file.
+3. Check it: `python scripts/verify_arcface_weights.py --load`. The file must
+   have SHA-256
+   `4c06341c33c2ca1f86781dab0e829f88ad5b64be9fba56e56bc9ebdefc619e43`
+   (the `buffalo_l` release). For a different export, set
+   `ARGUS_ARCFACE_SHA256` to its hash. You can also check by hand with
+   `shasum -a 256 w600k_r50.onnx` (macOS) or `sha256sum w600k_r50.onnx`.
+4. Set `ARGUS_FACE_RECOGNIZER=arcface` in `backend/.env` and restart the
+   backend. If the file is missing or the checksum does not match, ArgusAI
+   logs a warning and keeps using SFace.
+
+**Re-enroll after switching.** Face references are kept per model: SFace and
+ArcFace vectors are never compared with each other, so right after a switch
+no one is recognised. Rebuild the references from the stored face crops
+(back up the database first):
+
+```bash
+python scripts/reembed_face_gallery.py          # shows what would change
+python scripts/reembed_face_gallery.py --apply  # then restart the backend
+```
+
+Older references without a stored crop are skipped; assign a few clear
+events to those people again. To go back to SFace, remove the setting,
+restart, and run the same script again. ArcFace uses its own match
+threshold (cosine 0.36; `ARGUS_FACE_MATCH_THRESHOLD` overrides it).
+
 ### Improving Accuracy
 
 To improve entity matching over time:

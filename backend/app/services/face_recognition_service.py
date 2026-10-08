@@ -110,6 +110,32 @@ def normalize(vec) -> Optional[np.ndarray]:
     return arr / norm
 
 
+def yunet_detect(detector, image: np.ndarray) -> List[DetectedFace]:
+    """YuNet faces in a BGR image, largest first (shared by every YuNet-based backend)."""
+    h, w = image.shape[:2]
+    scale = min(1.0, DETECT_MAX_SIDE / float(max(h, w)))
+    small = image if scale == 1.0 else cv2.resize(
+        image, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA
+    )
+    sh, sw = small.shape[:2]
+    detector.setInputSize((sw, sh))
+    _, rows = detector.detect(small)
+    if rows is None:
+        return []
+    faces = []
+    for raw in rows:
+        row = np.array(raw, dtype=np.float32).copy()
+        row[:14] /= scale  # box + landmarks back to source pixels
+        x, y, fw, fh = (int(round(v)) for v in row[:4])
+        x0, y0 = max(0, x), max(0, y)
+        x1, y1 = min(w, x + fw), min(h, y + fh)
+        if x1 - x0 < MIN_FACE_PX or y1 - y0 < MIN_FACE_PX:
+            continue
+        faces.append(DetectedFace(x0, y0, x1 - x0, y1 - y0, float(row[14]), row))
+    faces.sort(key=lambda f: f.width * f.height, reverse=True)
+    return faces[:MAX_FACES]
+
+
 @runtime_checkable
 class FaceRecognizer(Protocol):
     """What the gallery and live path need from a face backend."""
@@ -189,28 +215,7 @@ class FaceRecognitionService:
             return self._detect_locked(image)
 
     def _detect_locked(self, image: np.ndarray) -> List[DetectedFace]:
-        h, w = image.shape[:2]
-        scale = min(1.0, DETECT_MAX_SIDE / float(max(h, w)))
-        small = image if scale == 1.0 else cv2.resize(
-            image, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA
-        )
-        sh, sw = small.shape[:2]
-        self._detector.setInputSize((sw, sh))
-        _, rows = self._detector.detect(small)
-        if rows is None:
-            return []
-        faces = []
-        for raw in rows:
-            row = np.array(raw, dtype=np.float32).copy()
-            row[:14] /= scale  # box + landmarks back to source pixels
-            x, y, fw, fh = (int(round(v)) for v in row[:4])
-            x0, y0 = max(0, x), max(0, y)
-            x1, y1 = min(w, x + fw), min(h, y + fh)
-            if x1 - x0 < MIN_FACE_PX or y1 - y0 < MIN_FACE_PX:
-                continue
-            faces.append(DetectedFace(x0, y0, x1 - x0, y1 - y0, float(row[14]), row))
-        faces.sort(key=lambda f: f.width * f.height, reverse=True)
-        return faces[:MAX_FACES]
+        return yunet_detect(self._detector, image)
 
     def identify(self, image: np.ndarray, faces: Optional[List[DetectedFace]] = None) -> List[FaceIdentity]:
         """Detect (unless ``faces`` given), align, and embed every usable face."""

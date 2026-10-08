@@ -47,6 +47,7 @@ from app.services.face_recognition_service import (
     FaceRecognitionService,
     face_model_search_dirs,
     normalize,
+    yunet_detect,
 )
 
 logger = logging.getLogger(__name__)
@@ -164,8 +165,6 @@ class ArcFaceRecognizer:
         self._detector = detector
         self._loaded = net is not None and detector is not None
         self._available = self._loaded
-        # Reuse the SFace service's detection code with our own YuNet instance.
-        self._detect_helper = FaceRecognitionService()
         self._lock = threading.Lock()
 
     def _load(self) -> None:
@@ -211,9 +210,7 @@ class ArcFaceRecognizer:
             return self._detect_locked(image)
 
     def _detect_locked(self, image: np.ndarray) -> List[DetectedFace]:
-        helper = self._detect_helper
-        helper._detector = self._detector
-        return helper._detect_locked(image)
+        return yunet_detect(self._detector, image)
 
     def identify(self, image: np.ndarray, faces: Optional[List[DetectedFace]] = None) -> List[FaceIdentity]:
         with self._lock:

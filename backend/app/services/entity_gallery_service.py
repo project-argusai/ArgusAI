@@ -677,6 +677,9 @@ class EnrollResult:
     items: List[Any] = field(default_factory=list)
     candidates: List[dict] = field(default_factory=list)
     message: str = ""
+    # Plate learned from the same crop (vehicles, plate matching on):
+    # enrolled | already_enrolled | no_read | low_confidence | ... ; None when not tried.
+    plate: Optional[str] = None
 
 
 def _kind_for_entity(entity) -> Optional[str]:
@@ -961,7 +964,10 @@ class EntityGalleryService:
             EntityGalleryItem.source_observation_id == chosen.id,
         ).first()
         if existing is not None:
-            return EnrollResult("already_enrolled", items=[existing])
+            return EnrollResult(
+                "already_enrolled", items=[existing],
+                plate=await self._enroll_plate(db, entity, kind, chosen, event_id),
+            )
 
         item_id = str(uuid.uuid4())
         rel = None
@@ -997,7 +1003,29 @@ class EntityGalleryService:
                 "kind": kind,
             },
         )
-        return EnrollResult("enrolled", items=[item])
+        return EnrollResult(
+            "enrolled", items=[item],
+            plate=await self._enroll_plate(db, entity, kind, chosen, event_id),
+        )
+
+    async def _enroll_plate(self, db: Session, entity, kind: str, chosen, event_id: str) -> Optional[str]:
+        """Save the plate on a newly enrolled vehicle crop, if one is read. Never raises."""
+        if kind != VEHICLE:
+            return None
+        try:
+            from app.services.entity_plate_service import enroll_plate_from_crop
+            from app.services.plate_reader import plates_enabled
+
+            if not plates_enabled():
+                return None
+            result = await enroll_plate_from_crop(db, entity, read_crop(chosen.crop_path), event_id)
+            return result.status
+        except Exception as exc:  # noqa: BLE001 - the crop is enrolled either way
+            logger.info(
+                "Plate enrollment skipped",
+                extra={"event_type": "entity_plate_enroll_skipped", "error_type": type(exc).__name__},
+            )
+            return "error"
 
     def unenroll_event(self, db: Session, entity_id: str, event_id: str) -> int:
         """Drop gallery items that came from this event (a corrected link). Commits."""
@@ -1007,7 +1035,18 @@ class EntityGalleryService:
             EntityGalleryItem.entity_id == entity_id,
             EntityGalleryItem.source_event_id == event_id,
         ).all()
-        return self._delete_items(db, items)
+        removed = self._delete_items(db, items)
+        try:
+            from app.services.entity_plate_service import unenroll_event_plates
+
+            unenroll_event_plates(db, entity_id, event_id)
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            logger.warning(
+                "Plate unenroll failed",
+                extra={"event_type": "entity_plate_unenroll_failed", "error_type": type(exc).__name__},
+            )
+        return removed
 
     def remove_item(self, db: Session, entity_id: str, item_id: str) -> bool:
         from app.models.entity_gallery_item import EntityGalleryItem
@@ -1063,6 +1102,15 @@ class EntityGalleryService:
             item.entity_id = to_entity_id
             moved += 1
         self.invalidate()
+        try:
+            from app.services.entity_plate_service import move_plates
+
+            move_plates(db, from_entity_id, to_entity_id)
+        except Exception as exc:  # noqa: BLE001 - plates cascade away with the secondary
+            logger.warning(
+                "Plates not moved on merge",
+                extra={"event_type": "entity_plate_merge_failed", "error_type": type(exc).__name__},
+            )
         return moved
 
     def list_items(self, db: Session, entity_id: str) -> List[Any]:

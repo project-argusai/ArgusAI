@@ -55,6 +55,7 @@ from app.api.v1.push import router as push_router  # Story P4-1.1: Web Push
 from app.api.v1.integrations import router as integrations_router  # Story P4-2.1: MQTT
 from app.api.v1.context import router as context_router  # Story P4-3.1: Embeddings
 from app.api.v1.entity_gallery import router as entity_gallery_router  # Per-entity reference galleries
+from app.api.v1.entity_plates import router as entity_plates_router  # Known-vehicle plates (hashed)
 from app.api.v1.summaries import router as summaries_router  # Story P4-4.1: Activity Summaries
 from app.api.v1.digests import router as digests_router  # Story P4-4.2: Daily Digest Scheduler
 from app.api.v1.feedback import router as feedback_router  # Story P4-5.2: Feedback Statistics
@@ -268,6 +269,15 @@ async def lifespan(app: FastAPI):
         "Thumbnails directory ready",
         extra={"event_type": "directory_init", "path": thumbnail_dir}
     )
+
+    # Licence-plate matching for saved vehicles (off unless PLATE_RECOGNITION_ENABLED
+    # and PLATE_HASH_SALT are set). Never blocks startup; models load in the background.
+    try:
+        from app.services.entity_plate_service import install_plate_signal
+
+        install_plate_signal()
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Plate matching not installed: {e}", extra={"event_type": "plate_signal_install_failed"})
 
     # Initialize Event Processor (Story 3.3)
     # Pass already-initialized services for better DI and startup ordering
@@ -1059,6 +1069,7 @@ app.include_router(push_router, prefix=settings.API_V1_PREFIX)  # Story P4-1.1 -
 app.include_router(integrations_router, prefix=settings.API_V1_PREFIX)  # Story P4-2.1 - MQTT
 app.include_router(context_router, prefix=settings.API_V1_PREFIX)  # Story P4-3.1 - Embeddings
 app.include_router(entity_gallery_router, prefix=settings.API_V1_PREFIX)  # Entity reference galleries
+app.include_router(entity_plates_router, prefix=settings.API_V1_PREFIX)  # Known-vehicle plates
 app.include_router(summaries_router, prefix=settings.API_V1_PREFIX)  # Story P4-4.1 - Activity Summaries
 app.include_router(digests_router, prefix=settings.API_V1_PREFIX)  # Story P4-4.2 - Daily Digest Scheduler
 app.include_router(feedback_router, prefix=settings.API_V1_PREFIX)  # Story P4-5.2 - Feedback Statistics

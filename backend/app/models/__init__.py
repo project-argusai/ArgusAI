@@ -26,6 +26,7 @@ from app.models.prompt_history import PromptHistory
 from app.models.face_embedding import FaceEmbedding
 from app.models.vehicle_embedding import VehicleEmbedding
 from app.models.entity_gallery_item import EntityGalleryItem
+from app.models.entity_plate import EntityPlate
 from app.models.frame_embedding import FrameEmbedding
 from app.models.homekit import HomeKitConfig, HomeKitAccessory
 from app.models.device import Device
@@ -66,6 +67,7 @@ __all__ = [
     "FaceEmbedding",
     "VehicleEmbedding",
     "EntityGalleryItem",
+    "EntityPlate",
     "FrameEmbedding",
     "HomeKitConfig",
     "HomeKitAccessory",

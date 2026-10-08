@@ -260,11 +260,14 @@ async def enroll_event_reference(db: Session, entity, event_id: str) -> Optional
             get_entity_gallery_service().enroll_from_event(db, entity, event_id),
             GALLERY_ENROLL_TIMEOUT_S,
         )
-        return {
+        out = {
             "status": result.status,
             "message": result.message or None,
             "candidates": result.candidates,
         }
+        if getattr(result, "plate", None):
+            out["plate_status"] = result.plate
+        return out
     except asyncio.TimeoutError:
         db.rollback()
         logger.warning(
@@ -1450,6 +1453,12 @@ class EntityService:
 
         db.delete(entity)
         db.commit()
+        try:
+            from app.services.entity_plate_service import invalidate_plate_index
+
+            invalidate_plate_index()  # its plates went with it (FK cascade)
+        except Exception:  # noqa: BLE001
+            pass
 
         # Remove from cache
         if entity_id in self._entity_cache:

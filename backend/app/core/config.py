@@ -336,6 +336,15 @@ class Settings(BaseSettings):
     LOCAL_VLM_MAX_PENDING: int = Field(default=4, ge=1, le=32)  # Queue bound; extra failures are skipped
     LOCAL_VLM_ALLOW_REMOTE: bool = False  # Images stay on this host unless explicitly allowed
 
+    # Face recognizer backend: "sface" (default) or the opt-in "arcface".
+    # ArcFace weights are user-supplied (non-commercial licence), never in the
+    # repo and never downloaded automatically; see docs how-to-use/entities.
+    # Declared here so these can live in .env (unknown .env keys are rejected).
+    # A process environment variable of the same name wins.
+    ARGUS_FACE_RECOGNIZER: Optional[str] = None
+    ARGUS_ARCFACE_MODEL_PATH: Optional[str] = None  # default backend/app/models/arcface/w600k_r50.onnx
+    ARGUS_ARCFACE_SHA256: Optional[str] = None  # only for a different export than InsightFace buffalo_l
+
     @property
     def fcm_ready(self) -> bool:
         """Check if FCM is properly configured and ready to use."""

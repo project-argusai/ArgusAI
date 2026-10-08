@@ -57,7 +57,9 @@ VEHICLE_CROP_DIM = 512
 
 
 def _env_float(name: str, default: float) -> float:
-    raw = os.environ.get(name)
+    from app.core.config import env_or_setting
+
+    raw = env_or_setting(name)
     if raw is None or not str(raw).strip():
         return default
     try:

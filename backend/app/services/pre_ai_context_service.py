@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from app.core.config import env_or_setting
 from app.core.decorators import singleton
 from app.services.ai_types import FACE_RECOGNITION_ENABLED, VEHICLE_RECOGNITION_ENABLED
 from app.services.context_prompt_service import (
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 # CLIP on up to three vehicle crops) before the vision call. It runs on the
 # full-resolution snapshot; on the M4 this is tens of milliseconds once CLIP
 # is warm. On timeout the event is described without object identity.
-OBJECT_ANALYSIS_TIMEOUT_S = float(os.environ.get("ARGUS_OBJECT_ANALYSIS_TIMEOUT_S", "2.5") or 2.5)
+OBJECT_ANALYSIS_TIMEOUT_S = float(env_or_setting("ARGUS_OBJECT_ANALYSIS_TIMEOUT_S") or 2.5)
 
 
 DEFAULT_BASE_PROMPT = (

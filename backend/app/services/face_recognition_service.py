@@ -62,7 +62,9 @@ MAX_FACES = 5
 
 def face_model_search_dirs() -> List[Path]:
     dirs = []
-    env_dir = os.environ.get(FACE_MODEL_DIR_ENV)
+    from app.core.config import env_or_setting
+
+    env_dir = env_or_setting(FACE_MODEL_DIR_ENV)
     if env_dir:
         dirs.append(Path(env_dir))
     dirs.append(_BACKEND_DIR / "app" / "models" / "opencv_zoo")
@@ -258,7 +260,9 @@ def get_face_recognition_service() -> FaceRecognizer:
     global _service
     with _service_lock:
         if _service is None:
-            name = (os.environ.get(FACE_RECOGNIZER_ENV) or DEFAULT_FACE_RECOGNIZER).strip().lower()
+            from app.core.config import env_or_setting
+
+            name = (env_or_setting(FACE_RECOGNIZER_ENV) or DEFAULT_FACE_RECOGNIZER).strip().lower()
             if name not in _RECOGNIZERS:
                 logger.warning(
                     "Unknown face recognizer; using the default",

@@ -4,7 +4,7 @@ License-plate reading and keyed hashing for known-vehicle matching.
 Privacy model (the reason this module is shaped the way it is):
 
 * A plate is only ever handled as a *keyed hash*: HMAC-SHA256 with the
-  ``PLATE_HASH_SALT`` secret over the normalised plate text. ``read_plates``
+  ``PLATE_HASH_SALT`` secret over the normalised plate text. ``PlateReader.read``
   hashes each OCR result inside this module and returns only the hash and a
   confidence; the text never leaves the function, is never logged, and is
   never written anywhere.

@@ -323,6 +323,19 @@ class Settings(BaseSettings):
     MCP_THUMBNAIL_URL_TTL_SECONDS: int = Field(default=600, ge=30, le=3600)  # Signed thumbnail URL lifetime
     MCP_PUBLIC_BASE_URL: Optional[str] = None  # e.g. https://argusai.example.com; unset = relative thumbnail URLs
 
+    # Local face / vehicle matching (#681). Declared so they can live in .env
+    # (unknown .env keys are rejected at startup). Code reads them through
+    # env_or_setting(), so a process environment variable still wins.
+    ARGUS_FACE_MODEL_DIR: Optional[str] = None  # unset = backend/app/models/opencv_zoo
+    ARGUS_VEHICLE_MODEL_DIR: Optional[str] = None  # unset = backend/app/models/mobilenet_ssd, then backend/models
+    ARGUS_FACE_RECOGNIZER: Optional[str] = None  # unset = sface
+    ARGUS_FACE_MATCH_THRESHOLD: Optional[float] = Field(default=None, ge=-1.0, le=1.0)  # unset = the face backend's own default
+    ARGUS_FACE_MATCH_MARGIN: float = Field(default=0.05, ge=-1.0, le=1.0)
+    ARGUS_VEHICLE_CROP_STRONG: float = Field(default=0.92, ge=-1.0, le=1.0)
+    ARGUS_VEHICLE_CROP_SUPPORT: float = Field(default=0.80, ge=-1.0, le=1.0)
+    ARGUS_VEHICLE_CROP_MARGIN: float = Field(default=0.03, ge=-1.0, le=1.0)
+    ARGUS_OBJECT_ANALYSIS_TIMEOUT_S: float = Field(default=2.5, gt=0)  # per-object analysis cap before the vision call
+
     # Local vision model (Ollama, mlx-vlm, LM Studio: any OpenAI-compatible
     # /v1 server). Off by default. When enabled it only re-describes Protect
     # events whose cloud analysis failed ("AI analysis unavailable"), in the
@@ -368,3 +381,13 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def env_or_setting(name: str):
+    """Setting ``name``: a non-empty process environment variable wins (read at
+    call time, as a raw string), otherwise the value on ``settings`` (.env or
+    the declared default)."""
+    raw = os.environ.get(name)
+    if raw is not None and raw.strip():
+        return raw
+    return getattr(settings, name, None)

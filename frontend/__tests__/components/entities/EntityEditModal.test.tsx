@@ -18,6 +18,10 @@ vi.mock('@/hooks/useEntities', () => ({
   }),
 }));
 
+vi.mock('@/components/entities/EntityPlateSection', () => ({
+  EntityPlateSection: () => null,
+}));
+
 // Mock sonner toast
 vi.mock('sonner', () => ({
   toast: {

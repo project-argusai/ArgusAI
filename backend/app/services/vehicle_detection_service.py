@@ -52,7 +52,9 @@ def vehicle_model_search_dirs() -> list[Path]:
     3. ``backend/models`` (legacy location used before this change)
     """
     dirs = []
-    env_dir = os.environ.get(VEHICLE_MODEL_DIR_ENV)
+    from app.core.config import env_or_setting
+
+    env_dir = env_or_setting(VEHICLE_MODEL_DIR_ENV)
     if env_dir:
         dirs.append(Path(env_dir))
     dirs.append(_BACKEND_DIR / "app" / "models" / "mobilenet_ssd")

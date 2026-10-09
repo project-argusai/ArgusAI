@@ -222,6 +222,55 @@ admin can clear them with `DELETE /api/v1/context/entities/{id}/gallery`.
 Face and vehicle analysis follow the **Face recognition** and **Vehicle
 recognition** privacy settings.
 
+### Licence plates (optional, off by default)
+
+ArgusAI can also recognise a **saved** vehicle by its licence plate. It is
+off unless you turn it on, and it is built to store as little as possible:
+
+- Plates are kept **only for vehicles you have saved**, and only as a keyed
+  hash (HMAC-SHA256 with a secret salt you set). The plate text itself is
+  never stored in the database or written to the logs.
+- A plate read on an event that matches none of your saved vehicles is
+  dropped immediately and never stored, not even as a hash.
+- The API never returns a plate or its hash.
+
+How a plate is used: when the plate on a moving vehicle matches one saved on
+a vehicle, that vehicle is linked (this ranks above the crop and description
+checks). When the only moving vehicle has a clearly read, different plate,
+the saved vehicle is ruled out. The description, colour, and parked-car
+checks still apply, and a failed or missing read never blocks an event.
+
+To turn it on (on the server):
+
+1. `pip install -r requirements-plates.txt` (MIT-licensed fast-alpr and
+   ONNX Runtime).
+2. `python scripts/download_vehicle_model.py --only plate` (downloads the
+   plate detector and OCR weights and checks their SHA-256).
+3. In `backend/.env`, set `PLATE_RECOGNITION_ENABLED=true` and
+   `PLATE_HASH_SALT=` to a long random value, for example from
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Keep it
+   secret and don't change it later: a new salt makes every saved plate
+   unusable (they show as `usable: false`), and they must be entered again.
+4. Restart the backend. **Vehicle recognition** must be on in privacy settings.
+
+To save a vehicle's plate:
+
+- Type it in: `POST /api/v1/context/entities/{id}/plates` with
+  `{"plate": "..."}` (operator or admin). It is hashed as soon as it
+  arrives. This is the most reliable way.
+- Or assign an event to the vehicle (or use it as a reference): if the
+  plate on the stored vehicle crop is read with high confidence
+  (`PLATE_STRICT_CONFIDENCE`), its hash is saved on the vehicle. Undoing that
+  assignment removes it again. The stored crop is small, so this often finds
+  no plate; type the plate in instead.
+
+`GET /api/v1/context/entities/{id}/plates` lists saved plates (date and
+source only), `DELETE .../plates/{plate_id}` removes one, and an admin can
+clear a vehicle's plates (`DELETE .../plates`) or every saved plate
+(`DELETE /api/v1/context/plates`). `GET /api/v1/context/plates/status` shows
+whether the feature is active. Deleting or merging a vehicle deletes or
+moves its plates.
+
 ### Improving Accuracy
 
 To improve entity matching over time:
@@ -255,4 +304,6 @@ Good names help you identify entities quickly:
 - Face recognition runs only when **Face recognition** is enabled in privacy
   settings; deleting all face data also removes face references
 - Vehicle matching uses vehicle crops, colour, and make/model
+- Licence plates (optional, off by default) are stored only for saved
+  vehicles and only as keyed hashes; other plates are never stored
 - You control all entity data

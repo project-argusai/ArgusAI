@@ -1,0 +1,10 @@
+# Optional: licence-plate matching for known vehicles (PLATE_RECOGNITION_ENABLED).
+# Not needed otherwise; without these packages plate matching reports "no opinion".
+#   pip install -r requirements-plates.txt
+#   python scripts/download_vehicle_model.py --only plate
+# Licences: fast-alpr, open-image-models, fast-plate-ocr MIT; onnxruntime MIT;
+# flatbuffers Apache-2.0. No AGPL/GPL packages.
+fast-alpr[onnx]==0.4.0
+open-image-models==0.6.0
+fast-plate-ocr==1.1.0
+onnxruntime==1.30.0

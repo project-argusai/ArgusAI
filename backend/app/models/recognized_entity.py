@@ -189,6 +189,14 @@ class RecognizedEntity(Base):
         passive_deletes=True,
         lazy="dynamic"
     )
+    # Keyed plate hashes of a known vehicle (no plain text). Owned by the entity.
+    plates = relationship(
+        "EntityPlate",
+        back_populates="entity",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="dynamic"
+    )
 
     __table_args__ = (
         Index("idx_recognized_entities_last_seen", "last_seen_at"),

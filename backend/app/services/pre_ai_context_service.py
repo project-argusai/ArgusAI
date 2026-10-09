@@ -170,9 +170,13 @@ class PreAIContextService:
 
             if (want_faces or want_vehicles) and thumbnail_base64:
                 object_analysis = await self._safe_object_analysis(
-                    thumbnail_base64, faces=want_faces, vehicles=want_vehicles
+                    thumbnail_base64,
+                    faces=want_faces,
+                    vehicles=want_vehicles,
+                    plates=want_vehicles and self._plates_enabled(),
                 )
                 self._mark_parked(db, camera_id, object_analysis, event_id)
+                self._resolve_plates(db, object_analysis)
 
             # Face match (named persons only): SFace face vs per-person face galleries.
             if want_faces:
@@ -289,6 +293,7 @@ class PreAIContextService:
         *,
         faces: bool,
         vehicles: bool,
+        plates: bool = False,
     ):
         """Faces and vehicles as crops from the snapshot. Bounded; None on failure."""
         try:
@@ -301,7 +306,7 @@ class PreAIContextService:
             if not image_bytes:
                 return None
             return await asyncio.wait_for(
-                analyze_image_bytes(image_bytes, faces=faces, vehicles=vehicles),
+                analyze_image_bytes(image_bytes, faces=faces, vehicles=vehicles, plates=plates),
                 OBJECT_ANALYSIS_TIMEOUT_S,
             )
         except asyncio.TimeoutError:
@@ -333,6 +338,27 @@ class PreAIContextService:
         except Exception as e:
             logger.debug(f"Parked-vehicle check failed open: {e}")
 
+    def _plates_enabled(self) -> bool:
+        try:
+            from app.services.plate_reader import plates_enabled
+
+            return plates_enabled()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _resolve_plates(self, db: Session, analysis) -> None:
+        """Compare plate reads with saved vehicles and drop the hashes. Never raises."""
+        if analysis is None or not getattr(analysis, "vehicles", None):
+            return
+        try:
+            from app.services.entity_plate_service import resolve_plate_evidence
+
+            resolve_plate_evidence(db, analysis)
+        except Exception as e:
+            logger.debug(f"Plate evidence failed open: {e}")
+            for obs in analysis.vehicles:
+                obs.plate_reads = []
+
     def _has_vehicle_galleries(self, db: Session) -> bool:
         try:
             from app.services.entity_gallery_service import get_entity_gallery_service
@@ -356,15 +382,23 @@ class PreAIContextService:
             from app.services.event_entity_linking import as_named_identity
 
             index = get_entity_gallery_service().get_index(db)
-            if not index.vehicles:
+            plate_matched = set()
+            for obs in analysis.vehicles:
+                ev = getattr(obs, "plate_evidence", None)
+                if ev is not None:
+                    plate_matched |= set(ev.matched_entity_ids)
+            candidate_ids = set(index.vehicles) | plate_matched
+            if not candidate_ids:
                 return None
             rows = db.query(RecognizedEntity).filter(
-                RecognizedEntity.id.in_(list(index.vehicles))
+                RecognizedEntity.id.in_(list(candidate_ids))
             ).all()
             identities = [i for i in (as_named_identity(r) for r in rows) if i is not None]
             evidence = evaluate_vehicle_candidates(None, identities, analysis.vehicles, index.vehicles)
             winner, _ = pick_vehicle(evidence)
-            if winner is None or winner.signal != "crop+color":
+            # Only evidence that needs no description may shape the prompt:
+            # a strong crop + colour, or a saved plate read on a moving car.
+            if winner is None or winner.signal not in ("crop+color", "plate"):
                 return None
             entity = next(r for r in rows if r.id == winner.entity_id)
             return _match_result(entity, similarity_score=round(winner.crop_score or 0.0, 4), is_new=False)

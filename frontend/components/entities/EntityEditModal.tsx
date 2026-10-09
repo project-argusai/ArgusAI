@@ -46,6 +46,7 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { useUpdateEntity } from '@/hooks/useEntities';
+import { EntityPlateSection } from './EntityPlateSection';
 import type { EntityType } from '@/types/entity';
 
 // Form validation schema (Story P16-3.1 constraints)
@@ -312,6 +313,11 @@ export function EntityEditModal({
                 </FormItem>
               )}
             />
+
+            {/* Licence plate (vehicles only; hidden unless plate recognition is on) */}
+            {entity && (
+              <EntityPlateSection entityId={entity.id} entityType={entity.entity_type} />
+            )}
 
             <DialogFooter>
               <Button

@@ -124,7 +124,10 @@ export const EntityCard = memo(function EntityCard({
   const displayName = getEntityDisplayName(entity);
   const isNamed = entityHasResolvedLabel(entity);
 
+  // Modals are siblings of the Card, not children: React portals bubble events
+  // through the React tree, so a child dialog would trigger the card's onClick.
   return (
+    <>
     <Card
       className={cn(
         'overflow-hidden cursor-pointer transition-all hover:shadow-md',
@@ -243,26 +246,27 @@ export const EntityCard = memo(function EntityCard({
           </Button>
         </div>
       </div>
-
-      {/* Story P7-4.3: Entity Alert Modal */}
-      <EntityAlertModal
-        isOpen={isAlertModalOpen}
-        onClose={() => setIsAlertModalOpen(false)}
-        entity={entity}
-      />
-
-      {/* Story P16-3.3: Entity Edit Modal */}
-      <EntityEditModal
-        open={isEditModalOpen}
-        onOpenChange={setIsEditModalOpen}
-        entity={{
-          id: entity.id,
-          entity_type: entity.entity_type,
-          name: entity.name,
-          thumbnail_path: entity.thumbnail_path,
-        } as EntityEditData}
-        onUpdated={onEntityUpdated}
-      />
     </Card>
+
+        {/* Story P7-4.3: Entity Alert Modal */}
+        <EntityAlertModal
+          isOpen={isAlertModalOpen}
+          onClose={() => setIsAlertModalOpen(false)}
+          entity={entity}
+        />
+
+        {/* Story P16-3.3: Entity Edit Modal */}
+        <EntityEditModal
+          open={isEditModalOpen}
+          onOpenChange={setIsEditModalOpen}
+          entity={{
+            id: entity.id,
+            entity_type: entity.entity_type,
+            name: entity.name,
+            thumbnail_path: entity.thumbnail_path,
+          } as EntityEditData}
+          onUpdated={onEntityUpdated}
+        />
+    </>
   );
 });

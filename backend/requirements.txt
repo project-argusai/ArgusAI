@@ -1,5 +1,5 @@
 # FastAPI and Web Framework
-fastapi[standard]==0.142.2
+fastapi[standard]==0.142.4
 uvicorn[standard]==0.54.0
 python-multipart>=0.0.32
 
@@ -7,10 +7,10 @@ python-multipart>=0.0.32
 apscheduler>=3.11.3
 
 # Retry Logic (Phase 3)
-tenacity>=9.1.4
+tenacity>=9.2.1
 
 # Database
-sqlalchemy>=2.0.51,<2.1  # 2.1 omits greenlet unless the asyncio extra is installed
+sqlalchemy>=2.1.4,<2.2  # 2.1 omits greenlet unless the asyncio extra is installed
 alembic>=1.20.0
 
 # Data Validation
@@ -18,8 +18,8 @@ pydantic>=2.13.5
 pydantic-settings>=2.15.0
 
 # Camera and Image Processing
-opencv-python-headless>=4.12,<5  # Headless (no GUI/libGL). <5: OpenCV 5 removed cv2.dnn.readNetFromCaffe, which the face and vehicle detectors need
-av>=18.0.0,<19  # PyAV 19 requires Python >=3.12 (CI/prod run 3.11); for secure RTSP (rtsps://) streams
+opencv-python-headless>=5.0.0.93,<6  # Headless (no GUI/libGL). <5: OpenCV 5 removed cv2.dnn.readNetFromCaffe, which the face and vehicle detectors need
+av>=19.0.1,<20  # PyAV 19 requires Python >=3.12 (CI/prod run 3.11); for secure RTSP (rtsps://) streams
 
 # Security and Encryption
 cryptography==50.0.2
@@ -28,15 +28,15 @@ bcrypt>=5.0.0
 slowapi>=0.1.10
 
 # AI Vision APIs
-openai>=2.53.0,<3  # litellm requires openai<3
-anthropic>=1.11.0
-google-genai>=2.26.0  # Gemini Developer API (from google import genai)
-litellm>=1.103.1  # Unified LLM gateway SDK with fallbacks and cost tracking
+openai>=3.26.0,<4  # litellm requires openai<3
+anthropic>=1.12.0
+google-genai>=2.29.0  # Gemini Developer API (from google import genai)
+litellm>=1.104.1  # Unified LLM gateway SDK with fallbacks and cost tracking
 pillow>=12.3.0
 pytesseract>=0.3.13  # OCR for frame overlay text extraction (optional, requires tesseract binary)
 
 # UniFi Protect Integration (Phase 2)
-uiprotect>=17.7.0  # UniFi Protect API client
+uiprotect>=23.0.1  # UniFi Protect API client
 
 # Web Push Notifications (Phase 4)
 pywebpush>=2.5.0  # Web Push with VAPID authentication
@@ -60,8 +60,8 @@ onvif-zeep>=0.2.12  # ONVIF SOAP client for camera capabilities
 
 # Read-only MCP connector (issue #648). Official Model Context Protocol SDK;
 # 1.x keeps the dependency footprint to httpx-sse + sse-starlette.
-mcp==1.30.0
-jsonschema>=4.20.0  # MCP tool argument validation (also required by mcp)
+mcp==2.3.0
+jsonschema>=4.26.0  # MCP tool argument validation (also required by mcp)
 
 # Logging and Monitoring
 python-json-logger>=4.2.0

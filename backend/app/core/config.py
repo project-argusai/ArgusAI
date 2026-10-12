@@ -349,6 +349,14 @@ class Settings(BaseSettings):
     LOCAL_VLM_MAX_PENDING: int = Field(default=4, ge=1, le=32)  # Queue bound; extra failures are skipped
     LOCAL_VLM_ALLOW_REMOTE: bool = False  # Images stay on this host unless explicitly allowed
 
+    # ArcFace (opt-in; select it with ARGUS_FACE_RECOGNIZER=arcface above).
+    # ArcFace weights are user-supplied (non-commercial licence), never in the
+    # repo and never downloaded automatically; see docs how-to-use/entities.
+    # Declared here so these can live in .env (unknown .env keys are rejected).
+    # A process environment variable of the same name wins.
+    ARGUS_ARCFACE_MODEL_PATH: Optional[str] = None  # default backend/app/models/arcface/w600k_r50.onnx
+    ARGUS_ARCFACE_SHA256: Optional[str] = None  # only for a different export than InsightFace buffalo_l
+
     # License-plate matching for KNOWN vehicles (off by default). Plates are
     # read on the vehicle crop, keyed with PLATE_HASH_SALT (HMAC-SHA256) and
     # compared with the keyed hashes saved on vehicle entities. Plain-text

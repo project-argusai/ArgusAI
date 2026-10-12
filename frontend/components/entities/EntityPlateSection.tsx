@@ -44,8 +44,10 @@ export function EntityPlateSection({ entityId, entityType }: EntityPlateSectionP
   const records = saved?.plates ?? [];
   const onFile = records.length > 0;
 
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Not a <form>: this section renders inside the Edit Entity <form>, and a
+  // nested form's submit bubbles to the outer one (saving and closing the
+  // dialog instead of saving the plate).
+  const handleAdd = async () => {
     const input = inputRef.current;
     if (!input) return;
     const value = input.value.trim();
@@ -95,7 +97,7 @@ export function EntityPlateSection({ entityId, entityType }: EntityPlateSectionP
         )}
       </div>
 
-      <form onSubmit={handleAdd} className="flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <Input
           id="entity-plate-input"
           ref={inputRef}
@@ -108,11 +110,19 @@ export function EntityPlateSection({ entityId, entityType }: EntityPlateSectionP
           data-1p-ignore
           placeholder={onFile ? 'Replace or add another plate' : 'Enter plate'}
           disabled={addPlate.isPending}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              // Keep Enter from submitting the surrounding edit form.
+              e.preventDefault();
+              e.stopPropagation();
+              void handleAdd();
+            }
+          }}
         />
-        <Button type="submit" size="sm" disabled={addPlate.isPending}>
+        <Button type="button" size="sm" onClick={() => void handleAdd()} disabled={addPlate.isPending}>
           {addPlate.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save plate'}
         </Button>
-      </form>
+      </div>
 
       {onFile && (
         <Button

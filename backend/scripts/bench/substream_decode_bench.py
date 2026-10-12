@@ -26,35 +26,47 @@ def low_urls(client):
     return urls
 
 
-def worker(i, url, fps, stop, stats, hw):
+def _decode(url, fps, stop, hw, counters):
     import av
-    kept = decoded = 0
-    opts = {"rtsp_transport": "tcp"}
+    kw = {}
+    if hw:
+        from av.codec.hwaccel import HWAccel
+        kw["hwaccel"] = HWAccel(device_type="videotoolbox", allow_software_fallback=True)
+    c = av.open(url, options={"rtsp_transport": "tcp"}, timeout=10, **kw)
     try:
-        kw = {}
-        if hw:
-            try:
-                from av.codec.hwaccel import HWAccel
-                kw["hwaccel"] = HWAccel(device_type="videotoolbox", allow_software_fallback=True)
-            except Exception:
-                pass
-        c = av.open(url, options=opts, timeout=10, **kw)
-        stream = c.streams.video[0]
         last = 0.0
-        for frame in c.decode(stream):
-            decoded += 1
+        for frame in c.decode(video=0):
+            counters["decoded"] += 1
             now = time.monotonic()
             if now - last >= 1.0 / fps:
                 frame.to_ndarray(format="gray")  # what the motion gate would use
-                kept += 1
+                counters["kept"] += 1
                 last = now
             if stop.is_set():
-                break
+                return
+    finally:
         c.close()
-    except Exception as e:  # noqa: BLE001
-        stats["errors"][type(e).__name__] = stats["errors"].get(type(e).__name__, 0) + 1
-    stats["decoded"][i] = decoded
-    stats["kept"][i] = kept
+
+
+def worker(i, url, fps, stop, stats, hw):
+    """Decode until stop; VideoToolbox first, software if it fails; reconnect on drops."""
+    counters = {"decoded": 0, "kept": 0}
+    use_hw = hw
+    while not stop.is_set():
+        try:
+            _decode(url, fps, stop, use_hw, counters)
+        except Exception as e:  # noqa: BLE001
+            key = f"{'hw' if use_hw else 'sw'}:{type(e).__name__}"
+            stats["errors"][key] = stats["errors"].get(key, 0) + 1
+            if use_hw:
+                use_hw = False
+                stats["hw_fallback"].append(i)
+            else:
+                stats["reconnects"] += 1
+                time.sleep(2)
+    stats["decoded"][i] = counters["decoded"]
+    stats["kept"][i] = counters["kept"]
+    stats["hw_final"][i] = use_hw
 
 
 async def main(a):
@@ -66,7 +78,7 @@ async def main(a):
         return
     proc = psutil.Process()
     stop = threading.Event()
-    stats = {"decoded": {}, "kept": {}, "errors": {}}
+    stats = {"decoded": {}, "kept": {}, "errors": {}, "hw_fallback": [], "hw_final": {}, "reconnects": 0}
     net0 = psutil.net_io_counters().bytes_recv
     proc.cpu_percent(None); psutil.cpu_percent(None)
     ths = [threading.Thread(target=worker, args=(i, u, a.fps, stop, stats, not a.software), daemon=True)
@@ -93,7 +105,8 @@ async def main(a):
         "process_cpu_pct_of_one_core": summary(cpu), "system_cpu_pct": summary(sys_cpu),
         "process_rss_mb": summary(rss), "host_rx_mbps_total": round(mbps, 2),
         "decoded_fps_per_stream": [round(stats["decoded"].get(i, 0) / el, 1) for i in range(len(urls))],
-        "kept_frames": sum(stats["kept"].values()), "errors": stats["errors"]})
+        "kept_frames": sum(stats["kept"].values()), "errors": stats["errors"],
+        "hw_decode_streams": sum(1 for v in stats["hw_final"].values() if v), "reconnects": stats["reconnects"]})
 
 
 if __name__ == "__main__":

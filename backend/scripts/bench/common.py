@@ -88,3 +88,29 @@ def emit(name: str, data: dict) -> None:
     print(json.dumps(data, indent=1))
     with open(bench_dir() / f"{name}.json", "w") as f:
         json.dump(data, f, indent=1)
+
+
+def rtsps_urls(client, channel: str):
+    """{cam_index: (protect_camera_id, url, 'WxH')} for the named channel (High/Medium/Low).
+    URLs carry a secret token: never print or log them."""
+    out = {}
+    cams = [c for c in client.bootstrap.cameras.values() if c.is_connected]
+    for i, cam in enumerate(cams):
+        for ch in cam.channels:
+            if ch.name.lower() == channel.lower() and ch.is_rtsp_enabled:
+                out[i] = (cam.id, ch.rtsps_url, f"{ch.width}x{ch.height}")
+    return out
+
+
+def grab_frame(url: str, timeout: float = 10.0):
+    """Open an RTSPS stream, return (PIL.Image, seconds) for the first decoded frame."""
+    import av
+    t = time.perf_counter()
+    c = av.open(url, options={"rtsp_transport": "tcp"}, timeout=timeout)
+    try:
+        for frame in c.decode(video=0):
+            img = frame.to_image()
+            return img, time.perf_counter() - t
+    finally:
+        c.close()
+    raise RuntimeError("no frame")

@@ -260,11 +260,14 @@ async def enroll_event_reference(db: Session, entity, event_id: str) -> Optional
             get_entity_gallery_service().enroll_from_event(db, entity, event_id),
             GALLERY_ENROLL_TIMEOUT_S,
         )
-        return {
+        out = {
             "status": result.status,
             "message": result.message or None,
             "candidates": result.candidates,
         }
+        if getattr(result, "plate", None):
+            out["plate_status"] = result.plate
+        return out
     except asyncio.TimeoutError:
         db.rollback()
         logger.warning(
@@ -1446,6 +1449,18 @@ class EntityService:
             logger.warning(
                 "Gallery cleanup failed on entity delete",
                 extra={"event_type": "entity_gallery_delete_failed", "error_type": type(exc).__name__},
+            )
+
+        try:
+            from app.services.entity_plate_service import clear_plates
+
+            # Explicit, so it does not depend on SQLite's foreign_keys pragma.
+            clear_plates(db, entity_id)
+        except Exception as exc:  # noqa: BLE001 - the FK cascade still removes them
+            db.rollback()
+            logger.warning(
+                "Plate cleanup failed on entity delete",
+                extra={"event_type": "entity_plate_delete_failed", "error_type": type(exc).__name__},
             )
 
         db.delete(entity)

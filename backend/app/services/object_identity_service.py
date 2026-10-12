@@ -23,7 +23,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, List, Optional
 
 import cv2
 import numpy as np
@@ -82,6 +82,11 @@ class VehicleObservation:
     # Same place and look as a recent observation on this camera: a parked
     # vehicle, not the subject of the event (``mark_parked_vehicles``).
     stationary: bool = False
+    # Plate reads as keyed hashes (``plate_reader``), only until
+    # ``entity_plate_service.resolve_plate_evidence`` swaps them for a
+    # ``PlateEvidence`` (which saved vehicles matched). Never persisted.
+    plate_reads: list = field(default_factory=list, repr=False)
+    plate_evidence: Optional[Any] = None
 
     @property
     def area(self) -> int:
@@ -153,8 +158,12 @@ def _detect_vehicle_boxes(image: np.ndarray) -> list:
     return out[:MAX_VEHICLES]
 
 
-def analyze_frame_sync(image: np.ndarray, *, faces: bool, vehicles: bool) -> ObjectAnalysis:
-    """CPU part of the analysis (no CLIP). Safe to call from an executor."""
+def analyze_frame_sync(image: np.ndarray, *, faces: bool, vehicles: bool, plates: bool = False) -> ObjectAnalysis:
+    """CPU part of the analysis (no CLIP). Safe to call from an executor.
+
+    ``plates``: also read licence plates on the full-resolution vehicle crops
+    (``plate_reader``; keyed hashes only, within ``PLATE_TIME_BUDGET_MS``).
+    """
     started = time.monotonic()
     h, w = image.shape[:2]
     gray = frame_is_grayscale(image)
@@ -177,6 +186,7 @@ def analyze_frame_sync(image: np.ndarray, *, faces: bool, vehicles: bool) -> Obj
 
     if vehicles:
         result.vehicles_checked = True
+        plate_crops = []
         for bbox, score, vtype, frac in _detect_vehicle_boxes(image):
             x0, y0, x1, y1 = _pad_box(bbox, w, h, VEHICLE_CROP_PADDING)
             crop_img = image[y0:y1, x0:x1]
@@ -194,6 +204,12 @@ def analyze_frame_sync(image: np.ndarray, *, faces: bool, vehicles: bool) -> Obj
                 color=dominant_vehicle_color(tight, frame_grayscale=gray),
                 area_fraction=round(frac, 5),
             ))
+            plate_crops.append(crop_img)
+        if plates and plate_crops:
+            from app.services.plate_reader import read_vehicle_plates
+
+            for obs, reads in zip(result.vehicles, read_vehicle_plates(plate_crops)):
+                obs.plate_reads = reads
 
     result.elapsed_ms = round((time.monotonic() - started) * 1000, 1)
     return result
@@ -214,6 +230,7 @@ async def analyze_image_bytes(
     faces: bool,
     vehicles: bool,
     embed: Optional[EmbedFn] = None,
+    plates: bool = False,
 ) -> ObjectAnalysis:
     """Full analysis of an encoded image. Raises nothing; empty on failure."""
     if not image_bytes or not (faces or vehicles):
@@ -225,7 +242,7 @@ async def analyze_image_bytes(
         if image is None:
             return ObjectAnalysis()
         result = await loop.run_in_executor(
-            None, lambda: analyze_frame_sync(image, faces=faces, vehicles=vehicles)
+            None, lambda: analyze_frame_sync(image, faces=faces, vehicles=vehicles, plates=plates)
         )
     except Exception as exc:  # noqa: BLE001 - identity is best-effort
         logger.info(

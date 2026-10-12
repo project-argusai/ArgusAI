@@ -1,6 +1,6 @@
 """Application configuration using Pydantic Settings"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from typing import List, Optional
 from pathlib import Path
 from cryptography.fernet import Fernet
@@ -323,6 +323,19 @@ class Settings(BaseSettings):
     MCP_THUMBNAIL_URL_TTL_SECONDS: int = Field(default=600, ge=30, le=3600)  # Signed thumbnail URL lifetime
     MCP_PUBLIC_BASE_URL: Optional[str] = None  # e.g. https://argusai.example.com; unset = relative thumbnail URLs
 
+    # Local face / vehicle matching (#681). Declared so they can live in .env
+    # (unknown .env keys are rejected at startup). Code reads them through
+    # env_or_setting(), so a process environment variable still wins.
+    ARGUS_FACE_MODEL_DIR: Optional[str] = None  # unset = backend/app/models/opencv_zoo
+    ARGUS_VEHICLE_MODEL_DIR: Optional[str] = None  # unset = backend/app/models/mobilenet_ssd, then backend/models
+    ARGUS_FACE_RECOGNIZER: Optional[str] = None  # unset = sface
+    ARGUS_FACE_MATCH_THRESHOLD: Optional[float] = Field(default=None, ge=-1.0, le=1.0)  # unset = the face backend's own default
+    ARGUS_FACE_MATCH_MARGIN: float = Field(default=0.05, ge=-1.0, le=1.0)
+    ARGUS_VEHICLE_CROP_STRONG: float = Field(default=0.92, ge=-1.0, le=1.0)
+    ARGUS_VEHICLE_CROP_SUPPORT: float = Field(default=0.80, ge=-1.0, le=1.0)
+    ARGUS_VEHICLE_CROP_MARGIN: float = Field(default=0.03, ge=-1.0, le=1.0)
+    ARGUS_OBJECT_ANALYSIS_TIMEOUT_S: float = Field(default=2.5, gt=0)  # per-object analysis cap before the vision call
+
     # Local vision model (Ollama, mlx-vlm, LM Studio: any OpenAI-compatible
     # /v1 server). Off by default. When enabled it only re-describes Protect
     # events whose cloud analysis failed ("AI analysis unavailable"), in the
@@ -336,14 +349,27 @@ class Settings(BaseSettings):
     LOCAL_VLM_MAX_PENDING: int = Field(default=4, ge=1, le=32)  # Queue bound; extra failures are skipped
     LOCAL_VLM_ALLOW_REMOTE: bool = False  # Images stay on this host unless explicitly allowed
 
-    # Face recognizer backend: "sface" (default) or the opt-in "arcface".
+    # ArcFace (opt-in; select it with ARGUS_FACE_RECOGNIZER=arcface above).
     # ArcFace weights are user-supplied (non-commercial licence), never in the
     # repo and never downloaded automatically; see docs how-to-use/entities.
     # Declared here so these can live in .env (unknown .env keys are rejected).
     # A process environment variable of the same name wins.
-    ARGUS_FACE_RECOGNIZER: Optional[str] = None
     ARGUS_ARCFACE_MODEL_PATH: Optional[str] = None  # default backend/app/models/arcface/w600k_r50.onnx
     ARGUS_ARCFACE_SHA256: Optional[str] = None  # only for a different export than InsightFace buffalo_l
+
+    # License-plate matching for KNOWN vehicles (off by default). Plates are
+    # read on the vehicle crop, keyed with PLATE_HASH_SALT (HMAC-SHA256) and
+    # compared with the keyed hashes saved on vehicle entities. Plain-text
+    # plates are never stored or logged, and reads that match no saved
+    # vehicle are dropped at once. Needs `pip install -r requirements-plates.txt`
+    # and `python scripts/download_vehicle_model.py --only plate`.
+    PLATE_RECOGNITION_ENABLED: bool = False
+    PLATE_HASH_SALT: Optional[SecretStr] = None  # >= 16 random chars; keep out of git. Changing it orphans saved plates.
+    PLATE_MODEL_DIR: Optional[str] = None  # default backend/app/models/plates
+    PLATE_MIN_CONFIDENCE: float = Field(default=0.5, ge=0.0, le=1.0)  # weakest character a matching read may have
+    PLATE_STRICT_CONFIDENCE: float = Field(default=0.85, ge=0.0, le=1.0)  # for a veto and for saving a plate read from an event
+    PLATE_VETO_ENABLED: bool = True  # a confident read of another plate rules a saved vehicle out
+    PLATE_TIME_BUDGET_MS: int = Field(default=800, ge=50, le=5000)  # per event, inside the object-analysis cap
 
     @property
     def fcm_ready(self) -> bool:
@@ -363,3 +389,13 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+
+
+def env_or_setting(name: str):
+    """Setting ``name``: a non-empty process environment variable wins (read at
+    call time, as a raw string), otherwise the value on ``settings`` (.env or
+    the declared default)."""
+    raw = os.environ.get(name)
+    if raw is not None and raw.strip():
+        return raw
+    return getattr(settings, name, None)

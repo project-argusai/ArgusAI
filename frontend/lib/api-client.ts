@@ -2430,6 +2430,47 @@ export const apiClient = {
     },
 
     /**
+     * Licence-plate status (no plate data). Used to show or hide plate UI.
+     */
+    plateStatus: async (): Promise<{
+      enabled: boolean;
+      salt_configured: boolean;
+      active: boolean;
+    }> => {
+      return apiFetch('/context/plates/status');
+    },
+
+    /**
+     * Saved-plate records for a vehicle (ids only; never plate text or hash).
+     */
+    listPlates: async (
+      entityId: string
+    ): Promise<{ entity_id: string; plates: Array<{ id: string; entity_id: string; usable: boolean }> }> => {
+      return apiFetch(`/context/entities/${encodeURIComponent(entityId)}/plates`);
+    },
+
+    /**
+     * Save a plate on a vehicle. The server hashes it at once.
+     * The value is only placed in the request body, never a URL.
+     */
+    addPlate: async (entityId: string, plate: string): Promise<{ status: string }> => {
+      return apiFetch(`/context/entities/${encodeURIComponent(entityId)}/plates`, {
+        method: 'POST',
+        body: JSON.stringify({ plate }),
+      });
+    },
+
+    /**
+     * Remove one saved plate from a vehicle.
+     */
+    removePlate: async (entityId: string, plateId: string): Promise<{ deleted_count: number }> => {
+      return apiFetch(
+        `/context/entities/${encodeURIComponent(entityId)}/plates/${encodeURIComponent(plateId)}`,
+        { method: 'DELETE' }
+      );
+    },
+
+    /**
      * Delete entity
      * @param id Entity ID
      * @returns Deletion confirmation

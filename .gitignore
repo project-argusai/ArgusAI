@@ -223,4 +223,5 @@ backend/data/clips/
 backend/app/models/mobilenet_ssd/
 backend/app/models/opencv_zoo/
 backend/app/models/arcface/
+backend/app/models/plates/
 backend/models/

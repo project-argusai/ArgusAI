@@ -92,6 +92,11 @@ class EnrollResponse(BaseModel):
     message: Optional[str] = None
     items: list[GalleryItem] = Field(default_factory=list)
     candidates: list[ObservationItem] = Field(default_factory=list)
+    plate_status: Optional[str] = Field(
+        default=None,
+        description="Vehicles with plate matching on: whether a plate on the crop was saved "
+        "(enrolled, already_enrolled, no_read, low_confidence, unavailable, error).",
+    )
 
 
 class GalleryDeleteResponse(BaseModel):
@@ -146,6 +151,7 @@ async def enroll_entity_reference(
         message=result.message or None,
         items=[GalleryItem(**gallery_item_to_dict(i)) for i in result.items],
         candidates=[ObservationItem(**c) for c in result.candidates],
+        plate_status=result.plate,
     )
 
 

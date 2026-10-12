@@ -15,12 +15,20 @@ Model sets:
   cv2.FaceRecognizerSF), so no extra Python package is needed.
   Default destination: backend/app/models/opencv_zoo/ (also honours
   $ARGUS_FACE_MODEL_DIR).
+* ``plate``: licence-plate detector (open-image-models YOLOv9-t 384, MIT)
+  and plate OCR (fast-plate-ocr CCT-XS v2 global, MIT) for plate matching
+  on known vehicles. Needs the optional ``requirements-plates.txt``
+  packages to run. These are GitHub release assets (not commit-addressed),
+  so the SHA-256 pin is what guarantees the bytes.
+  Default destination: backend/app/models/plates/ (or $PLATE_MODEL_DIR /
+  the PLATE_MODEL_DIR setting).
 
 Every file is pinned to an exact upstream commit and checked against its
 SHA-256. A file that does not match is refused and the script exits 1.
 
 Usage:
-    python scripts/download_vehicle_model.py              # every set
+    python scripts/download_vehicle_model.py              # vehicle + face (plate is opt-in)
+    python scripts/download_vehicle_model.py --only plate # plate matching models
     python scripts/download_vehicle_model.py --only face  # one set
     python scripts/download_vehicle_model.py --only vehicle --dest DIR
 """
@@ -65,6 +73,29 @@ MODEL_SETS = {
         },
     },
 }
+
+_OIM_ASSETS = "https://github.com/ankandrew/open-image-models/releases/download/assets"
+_OCR_ASSETS = "https://github.com/ankandrew/cnn-ocr-lp/releases/download/arg-plates"
+
+MODEL_SETS["plate"] = {
+    "dest": _MODELS_DIR / "plates",
+    "files": {
+        "yolo-v9-t-384-license-plates-end2end.onnx": (
+            f"{_OIM_ASSETS}/yolo-v9-t-384-license-plates-end2end.onnx",
+            "888397b96d761c89db40bc9c305838e8652660f5e282c2cadebbe8d2951a77a8",
+        ),
+        "cct_xs_v2_global.onnx": (
+            f"{_OCR_ASSETS}/cct_xs_v2_global.onnx",
+            "8031afb5fdc6b4d80462c9d542f1284ebd2cfddf5dbacd62609848d7e2855f44",
+        ),
+        "cct_xs_v2_global_plate_config.yaml": (
+            f"{_OCR_ASSETS}/cct_xs_v2_global_plate_config.yaml",
+            "0335c74a305173bb6f393efed0fde03cadeaa0b649ed8e19f431016d8232d0a6",
+        ),
+    },
+}
+
+OPT_IN_SETS = frozenset({"plate"})
 
 # Kept for callers that imported the old single-set constants.
 MODELS = MODEL_SETS["vehicle"]["files"]
@@ -115,7 +146,8 @@ def main(argv=None) -> int:
     if args.dest and not args.only:
         parser.error("--dest needs --only, since each model set has its own directory")
 
-    names = [args.only] if args.only else list(MODEL_SETS)
+    # Plate models are only needed when plate matching is turned on.
+    names = [args.only] if args.only else [n for n in MODEL_SETS if n not in OPT_IN_SETS]
     ok = True
     for name in names:
         spec = MODEL_SETS[name]

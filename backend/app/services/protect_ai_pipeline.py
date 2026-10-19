@@ -109,6 +109,54 @@ class ProtectAIPipeline:
                         extra={"camera_id": camera.id, "error": str(ctx_err)},
                     )
 
+            # === Local-first (AI_PRIMARY=local, #691) ===
+            # The local model answers first. Cloud runs below only when the
+            # local answer is unusable and the daily cloud cap has room.
+            from app.services.local_first import LocalFirstConfig
+
+            local_first = LocalFirstConfig.from_settings()
+            cloud_is_fallback = False
+            if local_first.enabled:
+                # This singleton keeps per-event state, and the local wait can
+                # be long while other events run. Restore this event's state
+                # after the await so the handler reads its own context.
+                own_bundle = self._last_context_bundle
+                local_result, problem = await self._try_local_primary(
+                    snapshot_result, camera, event_type, local_timestamp, custom_prompt, local_first
+                )
+                self._restore_event_state(own_bundle)
+                if problem is None:
+                    self._last_analysis_mode = "single_frame"
+                    self._last_requested_mode = "local_primary"
+                    self._last_frame_count = 1
+                    return local_result
+                from app.services.local_first import get_cloud_fallback_budget
+
+                budget = get_cloud_fallback_budget(local_first.daily_cloud_cap)
+                if not budget.try_acquire():
+                    logger.warning(
+                        "Local answer unusable (%s) and the daily cloud fallback cap (%s) is reached",
+                        problem,
+                        budget.cap,
+                        extra={"event_type": "local_primary_cloud_cap_reached", "reason": problem},
+                    )
+                    self._last_analysis_mode = "single_frame"
+                    self._last_requested_mode = "local_primary"
+                    self._last_frame_count = 1
+                    self._last_fallback_reason = f"local_primary:{problem};cloud_cap_reached"
+                    if problem == "low_confidence":
+                        return local_result  # stored and flagged low confidence
+                    return _local_failure(problem)
+                logger.info(
+                    "Local answer unusable (%s); using cloud fallback (%s/%s today)",
+                    problem,
+                    budget.used,
+                    budget.cap,
+                    extra={"event_type": "local_primary_cloud_fallback", "reason": problem},
+                )
+                self._last_fallback_reason = f"local_primary:{problem}"
+                cloud_is_fallback = True
+
             # The camera's configured analysis_mode is AUTHORITATIVE. The pipeline is
             # NOT opportunistic: it does not silently upgrade a single_frame camera to
             # multi_frame just because a clip happens to be present, nor escalate a
@@ -234,6 +282,7 @@ class ProtectAIPipeline:
                 detected_objects=None,
                 custom_prompt=custom_prompt,
                 camera_id=camera.id,
+                extended_budget=cloud_is_fallback,
             )
 
             self._last_analysis_mode = "single_frame"
@@ -311,6 +360,63 @@ class ProtectAIPipeline:
         except Exception as e:
             logger.warning(f"Frame extraction failed for clip {clip_path}: {e}")
             return [], []
+
+    def _restore_event_state(self, bundle: Any) -> None:
+        """Reset per-event tracking to this event after a long await."""
+        self._last_analysis_mode = None
+        self._last_requested_mode = None
+        self._last_frame_count = None
+        self._last_fallback_reason = None
+        self._last_audio_transcription = None
+        self._last_extracted_frames = []
+        self._last_frame_timestamps = []
+        self._last_context_bundle = bundle
+        self._last_subject_crop_count = 0
+
+    async def _try_local_primary(
+        self,
+        snapshot_result: SnapshotResult,
+        camera: Camera,
+        event_type: Optional[str],
+        local_timestamp: Optional[str],
+        custom_prompt: Optional[str],
+        config: Any,
+    ):
+        """Ask the local model first. Returns (result or None, problem or None)."""
+        from app.services.local_first import local_answer_problem
+        from app.services.local_vlm_fallback import (
+            RedescribeJob,
+            get_local_vlm_fallback_service,
+        )
+
+        service = get_local_vlm_fallback_service()
+        job = RedescribeJob(
+            event_id="live",
+            image_base64=getattr(snapshot_result, "image_base64", None) or "",
+            camera_id=getattr(camera, "id", None),
+            camera_name=getattr(camera, "name", "") or "",
+            event_type=event_type,
+            local_timestamp=local_timestamp,
+            custom_prompt=custom_prompt,
+        )
+        outcome = await service.describe_now(job, config.max_wait_ms / 1000.0)
+        if outcome.result is None:
+            problem = "busy" if outcome.reason == "busy" else f"local_{outcome.reason}".split(":")[0]
+        else:
+            problem = local_answer_problem(outcome.result, config.min_confidence)
+        logger.info(
+            "Local-first analysis for camera '%s': %s (waited %.1fs)",
+            getattr(camera, "name", ""),
+            problem or "ok",
+            outcome.waited_s,
+            extra={
+                "event_type": "local_primary_result",
+                "outcome": problem or "ok",
+                "waited_ms": int(outcome.waited_s * 1000),
+                "elapsed_ms": getattr(outcome.result, "response_time_ms", None),
+            },
+        )
+        return outcome.result, problem
 
     async def _try_video_native_analysis(
         self,
@@ -414,3 +520,20 @@ def get_protect_ai_pipeline() -> "ProtectAIPipeline":
 
 def reset_protect_ai_pipeline() -> None:
     ProtectAIPipeline._reset_instance()
+
+
+def _local_failure(problem: str) -> "AIResult":
+    """Failed result for a local-first event that gets no cloud fallback."""
+    from app.services.ai_types import AIResult as _AIResult
+
+    return _AIResult(
+        description="",
+        confidence=0,
+        objects_detected=[],
+        provider="local",
+        tokens_used=0,
+        response_time_ms=0,
+        cost_estimate=0.0,
+        success=False,
+        error=f"local-first: {problem}; cloud fallback cap reached",
+    )

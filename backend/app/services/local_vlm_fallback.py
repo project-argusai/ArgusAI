@@ -124,6 +124,15 @@ class RedescribeJob:
     created_monotonic: float = field(default_factory=time.monotonic)
 
 
+@dataclass
+class PrimaryOutcome:
+    """Result of a live local-first call. ``result`` is None when no call ran."""
+
+    result: Optional[AIResult]
+    reason: str
+    waited_s: float
+
+
 class LocalVLMFallbackService:
     """Bounded background queue that re-describes failed events locally."""
 
@@ -316,7 +325,37 @@ class LocalVLMFallbackService:
         )
         return ensure_identification_prompt(prompt)
 
-    async def redescribe(self, job: RedescribeJob) -> AIResult:
+    async def describe_now(self, job: RedescribeJob, max_wait_s: float) -> "PrimaryOutcome":
+        """Live local-first call: wait for the single local slot, then describe.
+
+        Queue wait plus the call must fit in ``max_wait_s``. Shares the
+        one-at-a-time slot with background re-descriptions. Never raises.
+        Returns the result (possibly failed) and a short reason label.
+        """
+        if not self.enabled:
+            return PrimaryOutcome(None, "disabled", 0.0)
+        if not job.image_base64:
+            return PrimaryOutcome(None, "no_image", 0.0)
+        start = time.monotonic()
+        semaphore = self._get_semaphore()
+        try:
+            await asyncio.wait_for(semaphore.acquire(), timeout=max(0.0, max_wait_s))
+        except asyncio.TimeoutError:
+            self.stats["primary_busy"] = self.stats.get("primary_busy", 0) + 1
+            return PrimaryOutcome(None, "busy", time.monotonic() - start)
+        try:
+            waited = time.monotonic() - start
+            remaining = max_wait_s - waited
+            if remaining < 1.0:
+                return PrimaryOutcome(None, "busy", waited)
+            result = await self.redescribe(job, timeout_s=min(self.config.timeout_ms / 1000.0, remaining))
+            return PrimaryOutcome(result, "ok" if result.success else "error", waited)
+        except Exception as exc:  # noqa: BLE001 - live path must not raise
+            return PrimaryOutcome(None, f"error:{type(exc).__name__}", time.monotonic() - start)
+        finally:
+            semaphore.release()
+
+    async def redescribe(self, job: RedescribeJob, timeout_s: Optional[float] = None) -> AIResult:
         """One bounded local call. Returns a failed AIResult instead of raising."""
         from app.services.ai_providers.local_provider import (
             LOCAL_PROVIDER_NAME,
@@ -324,7 +363,7 @@ class LocalVLMFallbackService:
         )
 
         start = time.time()
-        timeout_s = self.config.timeout_ms / 1000.0
+        timeout_s = self.config.timeout_ms / 1000.0 if timeout_s is None else float(timeout_s)
         try:
             prompt = self.build_prompt(job)
             # PIL work off the event loop; the provider then sees a small image.

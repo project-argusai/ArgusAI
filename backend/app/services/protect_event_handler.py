@@ -388,6 +388,12 @@ class ProtectEventHandler:
             service = get_local_vlm_fallback_service()
             if not service.enabled:
                 return
+            from app.services.local_first import LocalFirstConfig
+
+            if LocalFirstConfig.from_settings().enabled:
+                # Local-first already asked the local model for this event;
+                # a second background attempt would only repeat that work.
+                return
 
             def _fields(ai_result, db, _bundle=bundle, _type=event_type):
                 return self._post_ai_context_fields(ai_result, _type, db, bundle=_bundle)

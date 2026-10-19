@@ -88,11 +88,43 @@ def load_ai_provider_order() -> List[AIProvider]:
             exc,
         )
 
+    disabled = disabled_providers()
+    if disabled:
+        effective = [p for p in effective if p not in disabled]
+
     logger.info(
         "Using configured provider order: %s",
         [provider.value for provider in effective],
     )
     return effective
+
+
+# AI_DISABLED_PROVIDERS accepts the enum values and the settings-API names.
+_DISABLE_ALIASES = {
+    "openai": AIProvider.OPENAI,
+    "grok": AIProvider.GROK,
+    "xai": AIProvider.GROK,
+    "claude": AIProvider.CLAUDE,
+    "anthropic": AIProvider.CLAUDE,
+    "gemini": AIProvider.GEMINI,
+    "google": AIProvider.GEMINI,
+}
+
+
+def parse_disabled_providers(raw: Optional[str]) -> frozenset:
+    """Providers named in a comma-separated list. Unknown names are ignored."""
+    names = [part.strip().lower() for part in (raw or "").split(",")]
+    return frozenset(_DISABLE_ALIASES[n] for n in names if n in _DISABLE_ALIASES)
+
+
+def disabled_providers() -> frozenset:
+    """Providers switched off with AI_DISABLED_PROVIDERS (keys stay stored)."""
+    try:
+        from app.core.config import settings
+
+        return parse_disabled_providers(getattr(settings, "AI_DISABLED_PROVIDERS", ""))
+    except Exception:  # noqa: BLE001 - a bad setting must not stop analysis
+        return frozenset()
 
 
 # Quota and no-credit failures do not recover inside one event. Matching is
@@ -111,15 +143,23 @@ _QUOTA_ERROR_MARKERS = (
 )
 
 
+_PAYMENT_REQUIRED_RE = re.compile(
+    r"(?:error\s*code|status(?:_code)?|http)\s*[:=]?\s*402\b|payment required",
+    re.IGNORECASE,
+)
+
+
 def is_quota_error(error: Optional[str]) -> bool:
-    """True when a provider error is a quota or no-credit failure.
+    """True when a provider error is a quota, no-credit, or HTTP 402 failure.
 
     Rate-limit 429s that do not match these phrases stay retryable.
     """
     if not error:
         return False
     text = error.lower()
-    return any(marker in text for marker in _QUOTA_ERROR_MARKERS)
+    if any(marker in text for marker in _QUOTA_ERROR_MARKERS):
+        return True
+    return bool(_PAYMENT_REQUIRED_RE.search(error))
 
 
 def classify_provider_error(error: Optional[str]) -> str:

@@ -182,6 +182,15 @@ class TestVehicleRules:
         winner, _, _ = decide("A red BMW X3 pulls in.", [obs], {})
         assert winner.entity_id == "bmw" and winner.signal == "description"
 
+    def test_without_galleries_a_wrong_crop_colour_does_not_block_description(self):
+        # Prod Driveway: detector read Brent's red Tesla as "blue"; with no
+        # vehicle gallery enrolled, colour must not veto the #679 make match.
+        obs = car(unit(), "blue")
+        winner, _, ev = decide("A red Tesla Model Y enters; matching Brent's Tesla.", [obs], {})
+        assert winner.entity_id == "tesla" and winner.signal == "description"
+        assert ev["tesla"].color_status == "conflict"
+        assert ev["tesla"].accepted
+
     def test_description_without_a_make_never_links(self):
         winner, _, _ = decide("A red SUV pulls in.", [car(unit(), "red")], {})
         assert winner is None

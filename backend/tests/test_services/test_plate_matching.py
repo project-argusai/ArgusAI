@@ -290,9 +290,10 @@ class TestSignal:
         # The description names another colour: the built-in veto wins.
         ev = evaluate_vehicle_candidates("A white van pulls in", [ident("mine")], obs, {}, extra_signals=[self.sig])
         assert not ev[0].accepted and ev[0].reason == "description_contradicts"
-        # Colour conflict on the crop also still vetoes.
+        # Colour conflict only vetoes when a gallery is enrolled; without one,
+        # a plate match still links (crop colour alone is too noisy).
         ev = evaluate_vehicle_candidates(None, [ident("mine")], [with_ev(evidence(["mine"]), color="white")], {}, extra_signals=[self.sig])
-        assert not ev[0].accepted and ev[0].reason == "color_conflict"
+        assert ev[0].accepted and ev[0].signal == "plate"
 
     def test_veto_blocks_a_description_link(self):
         ev = evaluate_vehicle_candidates(

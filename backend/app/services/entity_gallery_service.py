@@ -452,13 +452,18 @@ def evaluate_vehicle_candidates(
     The rule, per saved vehicle:
 
     1. Veto when the description contradicts it (other make/model/colour).
-    2. Veto when the crop colour conflicts with its colour (red vs black).
+    2. Veto when the crop colour conflicts with its colour (red vs black),
+       but only when an enrolled gallery is present. Without a gallery the
+       #679 description rule is the verifier; a bad crop colour reading
+       (e.g. headlights read as blue on a red car) must not block it.
        At night the colour is unknown and never vetoes.
     3. With an enrolled gallery and at least one detected vehicle crop:
        * crop score >= support and description shows its make
                                                   -> link ("crop+description")
        * crop score >= strong and colour agrees  -> link ("crop+color")
        * otherwise no link: the detected vehicle does not look like it.
+       A colour conflict still vetoes here even when the description agrees
+       (a black crop is not the enrolled red Tesla).
     4. Without a gallery, or with no vehicle crop at all (detector miss or
        model missing): the #679 rule, description shows its make
        -> link ("description").
@@ -540,7 +545,10 @@ def evaluate_vehicle_candidates(
             # It is parked in view, and nothing moving looks like it: the
             # event is about something else, even if the description names it.
             ev.reason = "parked_in_view"
-        elif color_status == "conflict":
+        elif color_status == "conflict" and has_gallery:
+            # Colour veto needs an enrolled gallery. Without one, fall through
+            # to the description rule: crop colour alone is too noisy (Driveway
+            # headlights often read a red Tesla as blue) to block a make match.
             ev.reason = "color_conflict"
         elif agreeing:
             sig, verdict = agreeing[0]

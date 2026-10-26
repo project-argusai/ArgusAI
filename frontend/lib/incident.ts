@@ -56,8 +56,8 @@ export function readIncident(event: IEvent): IncidentView | null {
   const status = STATUSES.includes(statusRaw as IncidentStatus) ? (statusRaw as IncidentStatus) : null;
   const descRaw = obj[FIELDS.combinedDescription];
   const desc = typeof descRaw === 'string' && descRaw.trim() ? descRaw.trim() : null;
-  // Only a finished pass (or an unknown status with text present) counts.
-  const usable = status === 'done' || (status === null && desc !== null);
+  // Only a finished pass counts; any other or unknown status keeps per-camera text.
+  const usable = status === 'done';
   return {
     id,
     status,

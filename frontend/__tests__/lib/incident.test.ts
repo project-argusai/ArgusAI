@@ -16,7 +16,7 @@ describe('readIncident', () => {
     expect(v).toEqual({ id: 'g1', status: 'done', combinedDescription: 'Combined', matchedEntityIds: ['a', 'b'] });
   });
   it('ignores the description when the pass fell back, failed or is pending', () => {
-    for (const status of ['fallback', 'failed', 'pending']) {
+    for (const status of ['fallback', 'failed', 'pending', 'mystery', undefined, null]) {
       expect(combinedDescriptionFor(ev({ status, combined_description: 'x' }))).toBeNull();
     }
   });

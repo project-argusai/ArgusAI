@@ -1850,7 +1850,9 @@ async def get_event(
 
             event_dict["incident"] = incidents_for_events(db, [event]).get(event.correlation_group_id)
         except Exception as incident_error:
-            logger.debug(f"Could not get incident for event {event_id}: {incident_error}")
+            logger.debug(
+                "Could not get incident for event %s: %s", event_id, type(incident_error).__name__
+            )
 
         # Story P4-5.1: Add feedback if exists
         if event.feedback:

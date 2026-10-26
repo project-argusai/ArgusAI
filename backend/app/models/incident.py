@@ -5,7 +5,7 @@ per-camera descriptions; this row only adds the combined result.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text
 
 from app.core.database import Base
 
@@ -18,6 +18,7 @@ def _now():
 
 class Incident(Base):
     __tablename__ = "incidents"
+    __table_args__ = (Index("idx_incidents_status", "status"),)
 
     id = Column(String, primary_key=True)  # == events.correlation_group_id
     status = Column(String(16), nullable=False, default="pending")

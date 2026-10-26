@@ -111,10 +111,11 @@ class BoundingBox:
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
-            "x": self.x,
-            "y": self.y,
-            "width": self.width,
-            "height": self.height,
+            # int(): detector coords are numpy int64, which json.dumps rejects.
+            "x": int(self.x),
+            "y": int(self.y),
+            "width": int(self.width),
+            "height": int(self.height),
         }
 
     @classmethod

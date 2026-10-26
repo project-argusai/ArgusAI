@@ -13,6 +13,8 @@ updates:
       - dependency-name: "serialize-javascript"
       - dependency-name: "copy-webpack-plugin"
       - dependency-name: "css-minimizer-webpack-plugin"
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/docs-site"
@@ -26,6 +28,8 @@ updates:
       # Persistent transitive webpack plugin issues in current Docusaurus 3.x
       - dependency-name: "serialize-javascript"
       - dependency-name: "copy-webpack-plugin"
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "pip"
     directory: "/backend"
@@ -35,3 +39,7 @@ updates:
       python-dependencies:
         patterns:
           - "*"
+    ignore:
+      # Major upgrades are handled manually
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

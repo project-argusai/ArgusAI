@@ -37,6 +37,7 @@ from app.models.user_audit_log import UserAuditLog, AuditAction
 from app.models.hot_activity import HotCameraActivity, HotEntityActivity
 
 __all__ = [
+    "Incident",
     "ProtectController",
     "Camera",
     "MotionEvent",

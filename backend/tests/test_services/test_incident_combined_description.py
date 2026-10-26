@@ -326,3 +326,71 @@ class TestFailedStatus:
     def test_update_pushed_at_column_exists_and_nullable(self):
         col = Incident.__table__.c.update_pushed_at
         assert col.nullable is True
+
+
+class TestReviewFixes:
+    @pytest.mark.asyncio
+    async def test_recompute_clears_stale_combined_fields(self, db_session):
+        _enable(db_session)
+        gid, _ = _group(db_session, 2)
+        await incident_service.run_combined_pass(db_session, gid, orchestrator=_orch(_ok()))
+        _event(db_session, _camera(db_session, "Cam late"), gid, seconds=2)
+        seen = {}
+
+        async def capture(**_):
+            row = db_session.get(Incident, gid)
+            seen["desc"], seen["ident"], seen["status"] = (
+                row.combined_description, row.combined_identification, row.status)
+            raise RuntimeError("provider down")
+
+        await incident_service.run_combined_pass(db_session, gid, orchestrator=_orch(side_effect=capture))
+        assert seen == {"desc": None, "ident": None, "status": "pending"}
+
+    @pytest.mark.asyncio
+    async def test_schedule_inserts_pending_row_idempotently(self, db_session, monkeypatch):
+        gid, _ = _group(db_session, 2)
+
+        async def never(*a, **k):
+            return None
+
+        monkeypatch.setattr(incident_service, "_settle_then_run", never)
+        incident_service.schedule_combined_pass(db_session, gid)
+        incident_service.schedule_combined_pass(db_session, gid)
+        rows = db_session.query(Incident).filter(Incident.id == gid).all()
+        assert len(rows) == 1 and rows[0].status == "pending"
+        for t in list(incident_service._pending_tasks.values()):
+            t.cancel()
+        incident_service._pending_tasks.clear()
+
+    @pytest.mark.asyncio
+    async def test_schedule_does_not_reset_finished_row(self, db_session, monkeypatch):
+        _enable(db_session)
+        gid, _ = _group(db_session, 2)
+        await incident_service.run_combined_pass(db_session, gid, orchestrator=_orch(_ok()))
+
+        async def never(*a, **k):
+            return None
+
+        monkeypatch.setattr(incident_service, "_settle_then_run", never)
+        incident_service.schedule_combined_pass(db_session, gid)
+        db_session.expire_all()
+        assert db_session.get(Incident, gid).status == "done"
+        incident_service._pending_tasks.clear()
+
+    def test_cleanup_deletes_incidents_without_members(self, db_session):
+        from app.services.cleanup_service import CleanupService
+        gid, events = _group(db_session, 2)
+        db_session.add(Incident(id=gid, status="done", member_count=2))
+        db_session.add(Incident(id=_uid(), status="pending", member_count=2))
+        db_session.commit()
+        CleanupService(session_factory=lambda: db_session)._delete_orphan_dependent_rows(db_session)
+        db_session.commit()
+        assert [i.id for i in db_session.query(Incident).all()] == [gid]
+
+    def test_invalid_base64_frame_is_skipped(self):
+        ev = Event(thumbnail_base64="not*valid*base64!!", key_frames_base64=None)
+        assert incident_service._frame_bytes(ev) is None
+
+    def test_models_export_incident(self):
+        import app.models as models
+        assert "Incident" in models.__all__

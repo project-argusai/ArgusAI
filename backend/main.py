@@ -703,7 +703,8 @@ async def lifespan(app: FastAPI):
         import asyncio as _asyncio
         from app.services.incident_service import sweep_pending_incidents
 
-        _asyncio.create_task(sweep_pending_incidents())
+        # Keep a reference so the task is not garbage-collected mid-run.
+        app.state.incident_sweep_task = _asyncio.create_task(sweep_pending_incidents())
     except Exception as e:
         logger.warning(f"Incident sweep not started: {type(e).__name__}")
 

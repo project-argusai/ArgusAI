@@ -622,3 +622,54 @@ describe('EventCard', () => {
   })
 })
 
+
+describe('EventCard grouped incident (#720)', () => {
+  it('shows the combined description on a grouped card, with the camera text reachable', async () => {
+    const user = userEvent.setup()
+    renderWithProvider(
+      <EventCard
+        event={createMockEvent({
+          correlation_group_id: 'group-1',
+          incident: { id: 'group-1', status: 'done', combined_description: 'A delivery driver left a package.', matched_entity_ids: ['ent-a', 'ent-b'] },
+        })}
+        onClick={vi.fn()}
+      />
+    )
+    expect(screen.getByText('A delivery driver left a package.')).toBeInTheDocument()
+    expect(screen.getByTestId('incident-summary-label')).toBeInTheDocument()
+    expect(screen.queryByTestId('camera-description')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /show this camera's description/i }))
+    expect(screen.getByTestId('camera-description')).toHaveTextContent('A person was detected walking towards the front door.')
+    expect(screen.getByTestId('incident-entity-count')).toHaveTextContent('2 identified across cameras')
+  })
+
+  it('keeps the per-camera description on an ungrouped card', () => {
+    renderWithProvider(<EventCard event={createMockEvent()} onClick={vi.fn()} />)
+    expect(screen.getByText('A person was detected walking towards the front door.')).toBeInTheDocument()
+    expect(screen.queryByTestId('incident-summary-label')).not.toBeInTheDocument()
+  })
+
+  it.each([null, { status: 'fallback', combined_description: null }, { status: 'pending' }])(
+    'falls back to the per-camera description when combined data is missing (%o)',
+    (incident) => {
+      renderWithProvider(
+        <EventCard event={createMockEvent({ correlation_group_id: 'group-1', incident })} onClick={vi.fn()} />
+      )
+      expect(screen.getByText('A person was detected walking towards the front door.')).toBeInTheDocument()
+      expect(screen.queryByTestId('incident-summary-label')).not.toBeInTheDocument()
+    }
+  )
+
+  it('never builds an entity chip from description text', () => {
+    renderWithProvider(
+      <EventCard
+        event={createMockEvent({
+          correlation_group_id: 'group-1',
+          incident: { status: 'done', combined_description: 'Known visitor arrived by car.', matched_entity_ids: null },
+        })}
+        onClick={vi.fn()}
+      />
+    )
+    expect(screen.queryByTestId('incident-entity-count')).not.toBeInTheDocument()
+  })
+})

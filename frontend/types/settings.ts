@@ -61,7 +61,8 @@ export interface SystemSettings {
   video_retention_days?: number;  // Days to retain videos (default: 30)
 
   // Story P9-3.2: OCR Frame Overlay Extraction
-  attempt_ocr_extraction?: boolean;  // Attempt OCR on frame overlays (default: false)
+  attempt_ocr_extraction?: boolean;
+  notify_per_incident?: boolean;  // #675/#719: one notification per grouped incident (default: false)  // Attempt OCR on frame overlays (default: false)
 
   // Story P9-2.1: Frame Extraction Offset
   frame_extraction_offset_ms?: number;  // Milliseconds to skip from clip start (0-10000, default: 2000)

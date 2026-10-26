@@ -40,6 +40,7 @@ from app.api.v1.cameras import router as cameras_router, camera_service
 from app.api.v1.motion_events import router as motion_events_router
 from app.api.v1.ai import router as ai_router
 from app.api.v1.events import router as events_router
+from app.api.v1.incidents import router as incidents_router
 from app.api.v1.metrics import router as metrics_router
 from app.api.v1.system import router as system_router
 from app.services.backup_service import get_backup_service
@@ -696,6 +697,16 @@ async def lifespan(app: FastAPI):
         }
     )
 
+    # Recompute incidents left pending by a restart (no-op when the combined
+    # description setting is off). Runs in the background.
+    try:
+        import asyncio as _asyncio
+        from app.services.incident_service import sweep_pending_incidents
+
+        _asyncio.create_task(sweep_pending_incidents())
+    except Exception as e:
+        logger.warning(f"Incident sweep not started: {type(e).__name__}")
+
     yield  # Application runs here
 
     # Shutdown logic with structured logging
@@ -1070,6 +1081,7 @@ app.include_router(motion_events_router, prefix=settings.API_V1_PREFIX)
 app.include_router(cameras_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ai_router, prefix=settings.API_V1_PREFIX)
 app.include_router(events_router, prefix=settings.API_V1_PREFIX)
+app.include_router(incidents_router, prefix=settings.API_V1_PREFIX)
 app.include_router(metrics_router, prefix=settings.API_V1_PREFIX)
 app.include_router(system_router, prefix=settings.API_V1_PREFIX)  # Story 3.4
 app.include_router(alert_rules_router, prefix=settings.API_V1_PREFIX)  # Story 5.1

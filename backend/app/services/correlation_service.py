@@ -357,7 +357,7 @@ class CorrelationService:
         """
         async with self._lock:
             try:
-                return self._assign_group_locked(db, event)
+                group_id = self._assign_group_locked(db, event)
             except Exception as exc:
                 db.rollback()
                 logger.warning(
@@ -369,6 +369,16 @@ class CorrelationService:
                     },
                 )
                 return None
+        if group_id:
+            # Combined incident description runs after a settle delay, off
+            # the alert path. No-op unless the setting is on.
+            try:
+                from app.services import incident_service
+
+                incident_service.schedule_combined_pass(db, group_id)
+            except Exception:
+                pass
+        return group_id
 
     def determine_correlation_group(
         self,

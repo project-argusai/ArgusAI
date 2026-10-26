@@ -95,18 +95,51 @@ def _first_delivery(db: Session, group_id: str, channel: str) -> Optional[Incide
     )
 
 
-def _claim(db: Session, event: Event, channel: str) -> bool:
-    """True when this event wins ``channel`` for its incident."""
-    group_id = event.correlation_group_id
-    if group_id and _first_delivery(db, group_id, channel) is not None:
-        return False
-    db.add(IncidentDelivery(group_key=group_id or event.id, channel=channel, event_id=event.id))
+def _insert_claim(session: Session, group_key: str, channel: str, event_id: str) -> bool:
+    """Insert-if-not-exists on (group_key, channel). True when this insert won."""
+    session.add(IncidentDelivery(group_key=group_key, channel=channel, event_id=event_id))
     try:
-        db.commit()
+        session.commit()
     except IntegrityError:
-        db.rollback()
+        session.rollback()
         return False
     return True
+
+
+def _claim(db: Session, event: Event, channel: str) -> bool:
+    """True when this event wins ``channel`` for its incident.
+
+    Runs in its own short session so it never commits or rolls back the
+    caller's shared session (AlertEngine keeps one ``self.db``).
+
+    Grouped events claim on the group id only. Before that, a claim an
+    earlier member made under its own event id (it alerted before the group
+    existed) is copied to the group id with insert-if-not-exists, so two
+    members racing in separate sessions both hit the same unique key.
+    """
+    group_id = event.correlation_group_id
+    event_id = event.id
+    session = Session(bind=db.get_bind())
+    try:
+        if group_id:
+            member_ids = [
+                row[0]
+                for row in session.query(Event.id).filter(Event.correlation_group_id == group_id)
+            ]
+            earlier = None
+            if member_ids:
+                earlier = (
+                    session.query(IncidentDelivery)
+                    .filter(IncidentDelivery.group_key.in_(member_ids),
+                            IncidentDelivery.channel == channel)
+                    .order_by(IncidentDelivery.created_at, IncidentDelivery.id)
+                    .first()
+                )
+            if earlier is not None:
+                _insert_claim(session, group_id, channel, earlier.event_id)
+        return _insert_claim(session, group_id or event_id, channel, event_id)
+    finally:
+        session.close()
 
 
 def should_deliver(db: Session, event: Event, channel: str) -> bool:
@@ -118,10 +151,6 @@ def should_deliver(db: Session, event: Event, channel: str) -> bool:
             return True
         won = _claim(db, event, channel)
     except Exception as exc:
-        try:
-            db.rollback()
-        except Exception:
-            pass
         logger.warning(
             "Incident dedup check failed; sending",
             extra={"event_type": "incident_dedup_error", "event_id": getattr(event, "id", None),
@@ -171,7 +200,7 @@ def _claim_update_push(db: Session, incident_id: str) -> bool:
 
 async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> bool:
     """Send the single post-combined-pass update push. True when sent."""
-    if incident is None or incident.status not in ("done", "fallback"):
+    if incident is None or incident.status not in ("done", "fallback", "failed"):
         return False
     try:
         if not notify_per_incident_enabled(db):
@@ -213,6 +242,7 @@ async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> b
     except Exception as exc:
         logger.warning("Incident update push failed",
                        extra={"incident_id": incident.id, "error_type": type(exc).__name__})
+        return False
     logger.info("Incident update push sent",
                 extra={"event_type": "incident_update_push", "incident_id": incident.id,
                        "late_members": len(late)})

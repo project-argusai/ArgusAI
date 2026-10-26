@@ -409,6 +409,11 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
             if incident is not None and incident.status == "pending":
                 incident.status = "failed"
                 db.commit()
+            if incident is not None and incident.status == "failed":
+                # "failed" behaves like "fallback": update push with per-camera text.
+                from app.services import incident_notifications
+
+                await incident_notifications.maybe_send_update_push(db, incident)
         except Exception:
             db.rollback()
         logger.warning(

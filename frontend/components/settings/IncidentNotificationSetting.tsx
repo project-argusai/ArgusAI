@@ -25,13 +25,19 @@ export function IncidentNotificationSetting() {
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let active = true;
     apiClient.settings
       .get()
       .then((s) => active && setEnabled(readNotifyPerIncident(s)))
-      .catch(() => active && setEnabled(false))
+      .catch(() => {
+        if (!active) return;
+        // Don't let a save overwrite a stored value we couldn't read.
+        setEnabled(false);
+        setLoadError(true);
+      })
       .finally(() => active && setLoaded(true));
     return () => {
       active = false;
@@ -68,11 +74,16 @@ export function IncidentNotificationSetting() {
             <p className="text-xs text-muted-foreground">
               Off by default: each camera sends its own notification, as it does today.
             </p>
+            {loadError && (
+              <p role="alert" className="text-xs text-destructive">
+                Couldn&apos;t load this setting. Reload the page to try again.
+              </p>
+            )}
           </div>
           <Switch
             id="notify-per-incident"
             checked={enabled}
-            disabled={!loaded || saving}
+            disabled={!loaded || saving || loadError}
             onCheckedChange={onChange}
           />
         </div>

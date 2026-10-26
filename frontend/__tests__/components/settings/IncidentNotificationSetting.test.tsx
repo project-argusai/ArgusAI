@@ -34,12 +34,14 @@ describe('IncidentNotificationSetting', () => {
     expect(screen.getByText(/each camera sends its own notification/i)).toBeInTheDocument()
   })
 
-  it('stays off when settings cannot be read', async () => {
+  it('stays disabled with an error when settings cannot be read', async () => {
     get.mockRejectedValue(new Error('down'))
     render(<IncidentNotificationSetting />)
     const toggle = screen.getByRole('switch')
-    await waitFor(() => expect(toggle).not.toBeDisabled())
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn.t load this setting/i)
+    expect(toggle).toBeDisabled()
     expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('saves notify_per_incident when toggled', async () => {

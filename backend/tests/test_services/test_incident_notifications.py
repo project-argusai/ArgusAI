@@ -769,3 +769,19 @@ class TestTerryLows:
         monkeypatch.setattr(db_session, "close", lambda: None)
         await incident_service._settle_then_run(gid, 0)
         assert calls == [gid]
+
+
+class TestUpdatePushResultShape:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", ["fallback", "failed"])
+    @pytest.mark.parametrize("returned", [None, "mock", []])
+    async def test_non_failure_result_counts_as_sent_once(self, db_session, status, returned):
+        from unittest.mock import MagicMock
+        gid, members = await TestUpdatePush()._setup(db_session)
+        inc = _incident(db_session, gid, members, status=status)
+        value = MagicMock() if returned == "mock" else returned
+        with patch(SEND, new=AsyncMock(return_value=value)) as send:
+            assert await inn.maybe_send_update_push(db_session, inc) is True
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+        assert send.await_count == 1
+        assert send.await_args.kwargs["description"] == "Late camera text."

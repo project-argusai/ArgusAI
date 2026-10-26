@@ -274,7 +274,11 @@ async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> b
         logger.warning("Incident update push failed",
                        extra={"incident_id": incident.id, "error_type": type(exc).__name__})
         return False
-    if results and not any(getattr(r, "success", False) for r in results):
+    if (
+        isinstance(results, (list, tuple))
+        and results
+        and all(getattr(r, "success", None) is False for r in results)
+    ):
         # Send-once: update_pushed_at stays claimed; no retry.
         logger.warning("Incident update push not delivered",
                        extra={"incident_id": incident.id})

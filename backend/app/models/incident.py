@@ -5,7 +5,7 @@ per-camera descriptions; this row only adds the combined result.
 """
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -38,3 +38,21 @@ class Incident(Base):
 
     def __repr__(self):
         return f"<Incident(id={self.id}, status={self.status})>"
+
+
+class IncidentDelivery(Base):
+    """One delivered notification channel per incident (or per lone event).
+
+    ``group_key`` is the correlation_group_id, or the event id when the event
+    had no group yet when it alerted. ``channel`` is ``push`` or
+    ``rule:<rule_id>``. The unique constraint is the atomic dedup claim.
+    """
+
+    __tablename__ = "incident_deliveries"
+    __table_args__ = (UniqueConstraint("group_key", "channel", name="uq_incident_delivery"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_key = Column(String, nullable=False, index=True)
+    channel = Column(String(64), nullable=False)
+    event_id = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)

@@ -351,7 +351,11 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
 
     db = SessionLocal()
     try:
-        await run_combined_pass(db, group_id)
+        incident = await run_combined_pass(db, group_id)
+        if incident is not None:
+            from app.services import incident_notifications
+
+            await incident_notifications.maybe_send_update_push(db, incident)
     except Exception as exc:
         db.rollback()
         try:
@@ -389,7 +393,11 @@ async def sweep_pending_incidents(older_than_ms: Optional[int] = None) -> int:
                 created = created.replace(tzinfo=timezone.utc)
             if created is not None and (now - created).total_seconds() * 1000 < cutoff_ms:
                 continue
-            await run_combined_pass(db, incident.id)
+            done = await run_combined_pass(db, incident.id)
+            if done is not None:
+                from app.services import incident_notifications
+
+                await incident_notifications.maybe_send_update_push(db, done)
             count += 1
     except Exception as exc:
         db.rollback()

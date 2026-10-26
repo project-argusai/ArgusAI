@@ -1162,7 +1162,13 @@ class AlertEngine:
             "webhooks_failed": 0
         }
 
+        from app.services.incident_notifications import should_deliver
+
         for rule in matched_rules:
+            # Rules match per event; with notify_per_incident on, each rule
+            # delivers once per incident (no-op when the setting is off).
+            if not should_deliver(self.db, event, f"rule:{rule.id}"):
+                continue
             # P14-5.10: pass rule_id for error context
             actions = self._parse_actions(rule.actions, rule_id=rule.id)
 

@@ -194,6 +194,12 @@ Keep the summary concise (2-3 paragraphs).""",
     min_motion_area: float = Field(default=5, ge=1, le=10)
     save_debug_images: bool = Field(default=False)
 
+    # Notifications: one push per multi-camera incident (off = per camera)
+    notify_per_incident: bool = Field(
+        default=False,
+        description="Send one notification per multi-camera incident instead of one per camera",
+    )
+
     # Data & Privacy
     retention_days: int = Field(default=30)  # -1 for forever
     thumbnail_storage: Literal["filesystem", "database"] = Field(default="filesystem")
@@ -342,6 +348,7 @@ class SystemSettingsUpdate(BaseModel):
     cooldown_period: Optional[int] = Field(None, ge=30, le=300)
     min_motion_area: Optional[float] = Field(None, ge=1, le=10)
     save_debug_images: Optional[bool] = None
+    notify_per_incident: Optional[bool] = None
 
     # Data & Privacy
     retention_days: Optional[int] = None

@@ -127,7 +127,7 @@ def _frame_bytes(event: Event) -> Optional[bytes]:
     for raw in candidates:
         try:
             data = raw.split(",", 1)[1] if raw.startswith("data:") else raw
-            return base64.b64decode(data)
+            return base64.b64decode(data, validate=True)
         except Exception:
             continue
     return None
@@ -171,6 +171,10 @@ async def run_combined_pass(
 
     members = _members(db, group_id)
     if len({m.camera_id for m in members}) < 2:
+        stub = db.get(Incident, group_id)
+        if stub is not None and stub.status == "pending" and not stub.combined_description:
+            db.delete(stub)  # placeholder from scheduling; nothing to combine
+            db.commit()
         return None
 
     incident = db.get(Incident, group_id)
@@ -180,8 +184,13 @@ async def run_combined_pass(
     elif incident.status != "pending" and incident.member_count == len(members):
         return incident
     else:
+        # Recompute: drop the stale combined result so a reader never sees
+        # an old description next to status=pending.
         incident.status = "pending"
         incident.attempts = 0
+        incident.combined_description = None
+        incident.combined_identification = None
+        incident.provider_used = None
 
     incident.member_count = len(members)
     incident.primary_event_id = members[0].id
@@ -336,10 +345,39 @@ def schedule_combined_pass(db: Session, group_id: Optional[str]) -> None:
         loop = asyncio.get_running_loop()
     except Exception:
         return
+    _insert_pending_row(db, group_id)
+    # Single worker process assumed: this map is in-memory. Cancelling a
+    # superseded task during its settle sleep is free, but cancelling one
+    # whose AI call is already in flight wastes that call (the re-armed
+    # task makes a fresh one).
     existing = _pending_tasks.get(group_id)
     if existing is not None and not existing.done():
         existing.cancel()
     _pending_tasks[group_id] = loop.create_task(_settle_then_run(group_id, resolve_settle_ms()))
+
+
+def _insert_pending_row(db: Session, group_id: str) -> None:
+    """Insert a pending row if none exists, so a restart mid-settle is swept.
+
+    Uses INSERT .. ON CONFLICT DO NOTHING; an existing row (any status) is
+    left untouched. Never raises.
+    """
+    try:
+        now = datetime.now(timezone.utc)
+        values = dict(id=group_id, status="pending", member_count=0, attempts=0,
+                      created_at=now, updated_at=now)
+        dialect = db.get_bind().dialect.name
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert as dialect_insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert as dialect_insert
+        stmt = dialect_insert(Incident).values(**values).on_conflict_do_nothing(index_elements=["id"])
+        db.execute(stmt)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.warning("Incident pending insert failed",
+                       extra={"incident_id": group_id, "error_type": type(exc).__name__})
 
 
 async def _settle_then_run(group_id: str, settle_ms: int) -> None:

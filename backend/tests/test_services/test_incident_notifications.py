@@ -662,9 +662,23 @@ class TestClaimAfterGrouping:
         return first, second
 
     def test_terry_order_push_path(self, two):
+        """A->B->A through the real push gate: exactly one actual send."""
         s1, s2 = two
-        b_won, a_won = self._terry_order(s1, s2, lambda s, e: inn.should_deliver(s, e, "push"))
-        assert (b_won, a_won) == (True, False)
+        calls = []
+        self._terry_order(s1, s2, lambda s, e: calls.append((s, e)))
+        (sb, b), (sa, a_stale) = calls
+        sends = []
+
+        async def run():
+            with patch(SEND, new=AsyncMock(return_value=_ok())) as send:
+                await _push(sb, b.id)
+                # A's notifier reads its snapshot in s1; s1 still holds the
+                # stale ungrouped copy of A.
+                await _push(sa, a_stale.id)
+                sends.append(send.await_count)
+
+        asyncio.run(run())
+        assert sends == [1]
 
     @pytest.mark.asyncio
     async def test_terry_order_alert_rule_path(self, two):
@@ -711,28 +725,15 @@ class TestTerryLows:
                 SystemSettingsUpdate(notify_per_incident=bad)
 
     @pytest.mark.asyncio
-    async def test_definite_send_failure_retries_exactly_once(self, db_session):
+    async def test_reported_send_failure_is_send_once(self, db_session):
         gid, members = await TestUpdatePush()._setup(db_session)
         inc = _incident(db_session, gid, members)
-        failed = [SimpleNamespace(success=False)]
-        with patch(SEND, new=AsyncMock(return_value=failed)) as send:
-            assert await inn.maybe_send_update_push(db_session, inc) is False  # try
-            assert await inn.maybe_send_update_push(db_session, inc) is False  # one retry
-            assert await inn.maybe_send_update_push(db_session, inc) is False  # capped
+        with patch(SEND, new=AsyncMock(return_value=[SimpleNamespace(success=False)])) as send:
             assert await inn.maybe_send_update_push(db_session, inc) is False
-        assert send.await_count == 2
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+        assert send.await_count == 1
         db_session.expire_all()
         assert db_session.get(Incident, gid).update_pushed_at is not None
-
-    @pytest.mark.asyncio
-    async def test_definite_failure_then_retry_succeeds(self, db_session):
-        gid, members = await TestUpdatePush()._setup(db_session)
-        inc = _incident(db_session, gid, members)
-        with patch(SEND, new=AsyncMock(side_effect=[[SimpleNamespace(success=False)], _ok()])) as send:
-            assert await inn.maybe_send_update_push(db_session, inc) is False
-            assert await inn.maybe_send_update_push(db_session, inc) is True
-            assert await inn.maybe_send_update_push(db_session, inc) is False
-        assert send.await_count == 2
 
     @pytest.mark.asyncio
     async def test_ambiguous_exception_never_resends(self, db_session):

@@ -78,20 +78,22 @@ def _group(db, n_cameras=2, **kw):
 
 
 class TestFlag:
-    def test_flag_defaults_off(self, db_session):
-        assert incident_service.combined_description_enabled(db_session) is False
+    def test_flag_defaults_on(self, db_session):
+        assert incident_service.combined_description_enabled(db_session) is True
 
-    @pytest.mark.parametrize("value", ["", "yes please", "0", "false", "nonsense"])
-    def test_unparseable_or_false_is_off(self, db_session, value):
+    @pytest.mark.parametrize("value", ["false", "0", "off", "no", " False "])
+    def test_explicit_false_is_off(self, db_session, value):
         _enable(db_session, value)
         assert incident_service.combined_description_enabled(db_session) is False
 
-    def test_true_is_on(self, db_session):
-        _enable(db_session)
+    @pytest.mark.parametrize("value", ["true", "", "nonsense"])
+    def test_true_or_unparseable_uses_default_on(self, db_session, value):
+        _enable(db_session, value)
         assert incident_service.combined_description_enabled(db_session) is True
 
     @pytest.mark.asyncio
     async def test_flag_off_makes_no_call_and_no_row(self, db_session):
+        _enable(db_session, "false")
         gid, _ = _group(db_session)
         orch = _orch(_ok())
         assert await incident_service.run_combined_pass(db_session, gid, orchestrator=orch) is None
@@ -302,3 +304,25 @@ class TestApi:
             assert client.get(f"/api/v1/incidents/{_uid()}").status_code == 404
         finally:
             app.dependency_overrides.pop(get_db, None)
+
+
+class TestFailedStatus:
+    @pytest.mark.asyncio
+    async def test_internal_error_marks_failed(self, db_session, monkeypatch):
+        gid, _ = _group(db_session, 2)
+        db_session.add(Incident(id=gid, status="pending", member_count=2))
+        db_session.commit()
+
+        async def boom(db, group_id, orchestrator=None):
+            raise RuntimeError("internal")
+
+        monkeypatch.setattr(incident_service, "run_combined_pass", boom)
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None)
+        await incident_service._settle_then_run(gid, 0)
+        db_session.expire_all()
+        assert db_session.get(Incident, gid).status == "failed"
+
+    def test_update_pushed_at_column_exists_and_nullable(self):
+        col = Incident.__table__.c.update_pushed_at
+        assert col.nullable is True

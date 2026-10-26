@@ -9,8 +9,8 @@ The entity chip (``matched_entity_ids``) is the ordered union of member
 events' ``matched_entity_ids``, set by identity verification. It is never
 parsed from combined or per-camera description text.
 
-Gated by the ``incident_combined_description_enabled`` system setting, off
-unless it is exactly a true value. Logs carry ids, status and timings only.
+Gated by the ``incident_combined_description_enabled`` system setting, on
+by default; an explicit false value turns it off. Logs carry ids, status and timings only.
 """
 from __future__ import annotations
 
@@ -46,15 +46,23 @@ COMBINED_PROMPT = (
     "them. Do not name or identify any person or vehicle."
 )
 
+_OFF_VALUES = {"false", "0", "off", "no"}
+
+
 def combined_description_enabled(db: Session) -> bool:
-    """Missing, unreadable or anything but an explicit true value -> off."""
+    """On by default. Only an explicit false/0/off/no value turns it off.
+
+    Missing or unparseable values use the default (on). It only adds data;
+    alerts never wait on it. A failed settings read is treated as off so a
+    broken DB never triggers extra AI calls.
+    """
     try:
         row = db.get(SystemSetting, COMBINED_SETTING_KEY)
     except Exception:
         return False
     if row is None or row.value is None:
-        return False
-    return str(row.value).strip().strip('"').lower() == "true"
+        return True
+    return str(row.value).strip().strip('"').lower() not in _OFF_VALUES
 
 
 def resolve_settle_ms(value: Optional[Any] = None) -> int:
@@ -346,6 +354,13 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
         await run_combined_pass(db, group_id)
     except Exception as exc:
         db.rollback()
+        try:
+            incident = db.get(Incident, group_id)
+            if incident is not None and incident.status == "pending":
+                incident.status = "failed"
+                db.commit()
+        except Exception:
+            db.rollback()
         logger.warning(
             "Incident combined pass failed",
             extra={"event_type": "incident_combined_pass_error", "incident_id": group_id,

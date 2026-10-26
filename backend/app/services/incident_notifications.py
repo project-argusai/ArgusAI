@@ -106,38 +106,67 @@ def _insert_claim(session: Session, group_key: str, channel: str, event_id: str)
     return True
 
 
+def _current_group(session: Session, event_id: str, fallback: Optional[str]) -> Optional[str]:
+    """Group id as committed now (the caller's object may be stale)."""
+    row = session.query(Event.correlation_group_id).filter(Event.id == event_id).first()
+    if row is None:
+        return fallback
+    return row[0]
+
+
+def _claim_group(session: Session, group_id: str, channel: str, event_id: str) -> bool:
+    """Claim ``channel`` on the group id. An earlier member's own-id claim
+    (made before the group existed) is copied to the group id first, with
+    insert-if-not-exists, so it keeps the claim."""
+    member_ids = [
+        row[0] for row in session.query(Event.id).filter(Event.correlation_group_id == group_id)
+    ]
+    if member_ids:
+        earlier = (
+            session.query(IncidentDelivery)
+            .filter(IncidentDelivery.group_key.in_(member_ids), IncidentDelivery.channel == channel)
+            .order_by(IncidentDelivery.created_at, IncidentDelivery.id)
+            .first()
+        )
+        if earlier is not None:
+            _insert_claim(session, group_id, channel, earlier.event_id)
+    if _insert_claim(session, group_id, channel, event_id):
+        return True
+    holder = (
+        session.query(IncidentDelivery.event_id)
+        .filter(IncidentDelivery.group_key == group_id, IncidentDelivery.channel == channel)
+        .first()
+    )
+    return holder is not None and holder[0] == event_id
+
+
 def _claim(db: Session, event: Event, channel: str) -> bool:
     """True when this event wins ``channel`` for its incident.
 
     Runs in its own short session so it never commits or rolls back the
-    caller's shared session (AlertEngine keeps one ``self.db``).
+    caller's shared session (AlertEngine keeps one ``self.db``). Never waits:
+    correlation already ran inline before delivery.
 
-    Grouped events claim on the group id only. Before that, a claim an
-    earlier member made under its own event id (it alerted before the group
-    existed) is copied to the group id with insert-if-not-exists, so two
-    members racing in separate sessions both hit the same unique key.
+    - Grouped (as committed now, not the caller's possibly stale object):
+      claim on the group id only.
+    - No group (alone, or correlation failed/timed out): claim on the event
+      id and send. Then re-read the group; if a group formed meanwhile, the
+      group-id claim decides, so a grouped member and this event can never
+      both win.
     """
-    group_id = event.correlation_group_id
     event_id = event.id
     session = Session(bind=db.get_bind())
     try:
+        group_id = _current_group(session, event_id, event.correlation_group_id)
         if group_id:
-            member_ids = [
-                row[0]
-                for row in session.query(Event.id).filter(Event.correlation_group_id == group_id)
-            ]
-            earlier = None
-            if member_ids:
-                earlier = (
-                    session.query(IncidentDelivery)
-                    .filter(IncidentDelivery.group_key.in_(member_ids),
-                            IncidentDelivery.channel == channel)
-                    .order_by(IncidentDelivery.created_at, IncidentDelivery.id)
-                    .first()
-                )
-            if earlier is not None:
-                _insert_claim(session, group_id, channel, earlier.event_id)
-        return _insert_claim(session, group_id or event_id, channel, event_id)
+            return _claim_group(session, group_id, channel, event_id)
+        if not _insert_claim(session, event_id, channel, event_id):
+            return False
+        session.expire_all()
+        group_id = _current_group(session, event_id, None)
+        if group_id:
+            return _claim_group(session, group_id, channel, event_id)
+        return True
     finally:
         session.close()
 

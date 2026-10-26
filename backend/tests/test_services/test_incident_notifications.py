@@ -332,6 +332,24 @@ class TestSettingsApi:
         from app.api.v1.auth import get_current_user
         from app.models.user import UserRole
 
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+        from app.core.database import Base
+
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
+                               poolclass=StaticPool)
+        Base.metadata.create_all(engine)
+        TestSession = sessionmaker(bind=engine, autoflush=False)
+
+        def _test_db():
+            db = TestSession()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        app.dependency_overrides[get_db] = _test_db
         app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
             id="settings-admin", username="settings-admin", role=UserRole.ADMIN)
         try:
@@ -341,13 +359,15 @@ class TestSettingsApi:
             assert got.json()["notify_per_incident"] is False
             r = client.put("/api/v1/system/settings", json={"notify_per_incident": True})
             assert r.status_code == 200 and r.json()["notify_per_incident"] is True
-            provider = app.dependency_overrides.get(get_db, get_db)
-            gen = provider()
-            db = next(gen) if hasattr(gen, "__next__") else gen
-            assert inn.notify_per_incident_enabled(db) is True
-            client.put("/api/v1/system/settings", json={"notify_per_incident": False})
+            db = TestSession()
+            try:
+                assert inn.notify_per_incident_enabled(db) is True
+            finally:
+                db.close()
         finally:
             app.dependency_overrides.pop(get_current_user, None)
+            app.dependency_overrides.pop(get_db, None)
+            engine.dispose()
 
 
 class TestCleanup:
@@ -468,3 +488,159 @@ class TestClaimReview:
         monkeypatch.setattr(db_session, "close", lambda: None)
         await incident_service._settle_then_run(gid, 0)
         assert calls == [(gid, "failed")]
+
+
+class TestClaimAfterGrouping:
+    """#724 M1 follow-up: grouped and ungrouped claims must collide on one key.
+
+    Two real sessions on a file-backed SQLite DB. The claim never waits:
+    correlation runs inline before it, and an event with no group (or a
+    failed correlation) claims on its own id and sends.
+    """
+
+    @pytest.fixture
+    def two(self, tmp_path):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from app.core.database import Base
+
+        engine = create_engine(f"sqlite:///{tmp_path / 'm1.db'}",
+                               connect_args={"check_same_thread": False})
+        Base.metadata.create_all(engine)
+        make = sessionmaker(bind=engine, autoflush=False)
+        s1, s2 = make(), make()
+        _on(s1)
+        yield s1, s2
+        s1.close()
+        s2.close()
+        engine.dispose()
+
+    @staticmethod
+    def _group(session, gid, *events):
+        for ev in events:
+            session.query(Event).filter(Event.id == ev.id).update({"correlation_group_id": gid})
+        session.commit()
+
+    @staticmethod
+    def _rows(session, gid):
+        from app.models.incident import IncidentDelivery
+        session.expire_all()
+        return session.query(IncidentDelivery).filter_by(group_key=gid, channel="push").all()
+
+    def test_grouped_claims_first_then_stale_ungrouped_loses(self, two):
+        s1, s2 = two
+        a = _event(s1, _camera(s1), None, 0)
+        b = _event(s1, _camera(s1), None, 1)
+        a_stale = s2.get(Event, a.id)  # s2 still thinks A is ungrouped
+        gid = _uid()
+        self._group(s1, gid, a, b)
+        s1.refresh(b)
+        assert inn.should_deliver(s1, b, "push") is True
+        assert a_stale.correlation_group_id is None
+        assert inn.should_deliver(s2, a_stale, "push") is False
+
+    def test_ungrouped_first_then_grouped_loses(self, two):
+        s1, s2 = two
+        a = _event(s1, _camera(s1), None, 0)
+        assert inn.should_deliver(s1, a, "push") is True
+        b = _event(s2, _camera(s2), None, 1)
+        gid = _uid()
+        self._group(s2, gid, s2.get(Event, a.id), b)
+        s2.refresh(b)
+        assert inn.should_deliver(s2, b, "push") is False
+
+    def test_interleaved_mid_claim_one_winner(self, two, monkeypatch):
+        """A reads 'no group'; before A inserts, B groups A+B and claims."""
+        s1, s2 = two
+        a = _event(s1, _camera(s1), None, 0)
+        b = _event(s2, _camera(s2), None, 1)
+        gid = _uid()
+        real = inn._insert_claim
+        fired = []
+
+        def racing_insert(session, key, channel, event_id):
+            if event_id == a.id and not fired:
+                fired.append(1)
+                self._group(s2, gid, s2.get(Event, a.id), b)
+                s2.refresh(b)
+                results.append(inn.should_deliver(s2, b, "push"))
+            return real(session, key, channel, event_id)
+
+        results = []
+        monkeypatch.setattr(inn, "_insert_claim", racing_insert)
+        results.insert(0, inn.should_deliver(s1, a, "push"))
+        assert sorted(results) == [False, True]
+        assert len(self._rows(s1, gid)) == 1
+
+    def test_two_early_ungrouped_then_grouped(self, two):
+        s1, s2 = two
+        a = _event(s1, _camera(s1), None, 0)
+        c = _event(s2, _camera(s2), None, 1)
+        assert inn.should_deliver(s1, a, "push") is True
+        assert inn.should_deliver(s2, c, "push") is True  # separate at send time
+        gid = _uid()
+        d = _event(s1, _camera(s1), None, 2)
+        self._group(s1, gid, a, s1.get(Event, c.id), d)
+        s1.refresh(d)
+        assert inn.should_deliver(s1, d, "push") is False
+        assert inn.should_deliver(s2, s2.get(Event, d.id), "push") is False
+        assert [r.event_id for r in self._rows(s2, gid)] == [a.id]
+
+    def test_concurrent_threads_one_winner(self, two):
+        import threading
+        s1, s2 = two
+        gid = _uid()
+        a = _event(s1, _camera(s1), None, 0)
+        b = _event(s1, _camera(s1), None, 1)
+        self._group(s1, gid, a, b)
+        evs = {s1: s1.get(Event, a.id), s2: s2.get(Event, b.id)}
+        s1.refresh(evs[s1])
+        barrier = threading.Barrier(2)
+        out = []
+
+        def run(sess):
+            barrier.wait()
+            out.append(inn.should_deliver(sess, evs[sess], "push"))
+
+        threads = [threading.Thread(target=run, args=(s,)) for s in (s1, s2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert sorted(out) == [False, True]
+
+    @pytest.mark.asyncio
+    async def test_first_alert_adds_no_wait(self, db_session, monkeypatch):
+        _on(db_session)
+        a = _event(db_session, _camera(db_session), None, 0)
+        sleeps = []
+        real_sleep = asyncio.sleep
+
+        async def spy(delay, *args, **kw):
+            sleeps.append(delay)
+            return await real_sleep(0)
+
+        monkeypatch.setattr(asyncio, "sleep", spy)
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        with patch(SEND, new=AsyncMock(return_value=_ok())) as send:
+            assert await _push(db_session, a.id) == 1
+        assert (loop.time() - start) < 0.5
+        assert not [d for d in sleeps if d and d > 0]
+        send.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_correlation_failure_claims_on_event_id_and_sends(self, db_session):
+        from app.services.protect_event_handler import ProtectEventHandler
+        from app.models.incident import IncidentDelivery
+        _on(db_session)
+        a = _event(db_session, _camera(db_session), None, 0)
+        with patch("app.services.correlation_service.get_correlation_service") as gcs:
+            gcs.return_value.assign_group = AsyncMock(side_effect=asyncio.TimeoutError())
+            await ProtectEventHandler._link_cross_camera_incident(
+                SimpleNamespace(), db_session, a)
+        with patch(SEND, new=AsyncMock(return_value=_ok())) as send:
+            assert await _push(db_session, a.id) == 1
+        send.assert_awaited_once()
+        row = db_session.query(IncidentDelivery).filter_by(channel="push").one()
+        assert row.group_key == a.id

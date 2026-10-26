@@ -54,6 +54,20 @@ describe('IncidentNotificationSetting', () => {
     await user.click(toggle)
     expect(update).toHaveBeenCalledWith({ notify_per_incident: true })
     await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    expect(screen.getByText(/at most one update if more cameras join/i)).toBeInTheDocument()
+    expect(screen.queryByText(/each camera sends its own notification/i)).not.toBeInTheDocument()
+  })
+
+  it('shows the on-state help text when stored as on', async () => {
+    get.mockResolvedValue({ notify_per_incident: true })
+    render(<IncidentNotificationSetting />)
+    const toggle = screen.getByRole('switch')
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    expect(
+      screen.getByText(
+        'You get one notification per grouped incident, plus at most one update if more cameras join after the first alert.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('stays off if saving fails', async () => {

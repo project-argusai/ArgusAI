@@ -72,7 +72,9 @@ export function IncidentNotificationSetting() {
               Send one notification per grouped incident
             </Label>
             <p className="text-xs text-muted-foreground">
-              Off by default: each camera sends its own notification, as it does today.
+              {enabled
+                ? 'You get one notification per grouped incident, plus at most one update if more cameras join after the first alert.'
+                : 'Off by default: each camera sends its own notification, as it does today.'}
             </p>
             {loadError && (
               <p role="alert" className="text-xs text-destructive">

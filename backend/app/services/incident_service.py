@@ -370,22 +370,27 @@ def _insert_pending_row(db: Session, group_id: str) -> None:
     Uses INSERT .. ON CONFLICT DO NOTHING; an existing row (any status) is
     left untouched. Never raises.
     """
+    # Own short session: never commit or roll back the caller's session
+    # (correlation_service passes its shared one).
+    session = Session(bind=db.get_bind())
     try:
         now = datetime.now(timezone.utc)
         values = dict(id=group_id, status="pending", member_count=0, attempts=0,
                       created_at=now, updated_at=now)
-        dialect = db.get_bind().dialect.name
+        dialect = session.get_bind().dialect.name
         if dialect == "postgresql":
             from sqlalchemy.dialects.postgresql import insert as dialect_insert
         else:
             from sqlalchemy.dialects.sqlite import insert as dialect_insert
         stmt = dialect_insert(Incident).values(**values).on_conflict_do_nothing(index_elements=["id"])
-        db.execute(stmt)
-        db.commit()
+        session.execute(stmt)
+        session.commit()
     except Exception as exc:
-        db.rollback()
+        session.rollback()
         logger.warning("Incident pending insert failed",
                        extra={"incident_id": group_id, "error_type": type(exc).__name__})
+    finally:
+        session.close()
 
 
 async def _settle_then_run(group_id: str, settle_ms: int) -> None:

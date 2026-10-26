@@ -428,3 +428,36 @@ class TestOverallDeadline:
         assert inc.status == "done"
         second = orch.analyze_images.await_args_list[1].kwargs["sla_timeout_ms"]
         assert 0 < second <= 1000
+
+
+class TestPendingRowAndSweep:
+    def test_pending_insert_leaves_caller_session_alone(self, db_session):
+        from unittest.mock import patch
+        gid, _ = _group(db_session, 2)
+        pending = SystemSetting(key="caller_pending_work", value="x")
+        db_session.add(pending)
+        with patch.object(db_session, "commit", side_effect=AssertionError("commit")), \
+                patch.object(db_session, "rollback", side_effect=AssertionError("rollback")):
+            incident_service._insert_pending_row(db_session, gid)
+        assert pending in db_session.new
+        db_session.expire_all()
+        assert db_session.get(Incident, gid).status == "pending"
+
+    @pytest.mark.asyncio
+    async def test_sweeper_recomputes_pending_row_end_to_end(self, db_session, monkeypatch):
+        _enable(db_session)
+        gid, _ = _group(db_session, 2)
+        incident_service._insert_pending_row(db_session, gid)
+        old = datetime.now(timezone.utc) - timedelta(minutes=5)
+        row = db_session.get(Incident, gid)
+        row.created_at = row.updated_at = old
+        db_session.commit()
+        orch = _orch(_ok())
+        monkeypatch.setattr(incident_service, "_get_orchestrator", lambda: orch)
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None)
+        assert await incident_service.sweep_pending_incidents() == 1
+        db_session.expire_all()
+        inc = db_session.get(Incident, gid)
+        assert inc.status == "done" and inc.combined_description.startswith("Combined")
+        orch.analyze_images.assert_awaited_once()

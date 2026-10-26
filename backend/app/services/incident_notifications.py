@@ -150,9 +150,10 @@ def _claim(db: Session, event: Event, channel: str) -> bool:
     - Grouped (as committed now, not the caller's possibly stale object):
       claim on the group id only.
     - No group (alone, or correlation failed/timed out): claim on the event
-      id and send. Then re-read the group; if a group formed meanwhile, the
-      group-id claim decides, so a grouped member and this event can never
-      both win.
+      id, then re-read the committed group before returning, i.e. before any
+      send. If a group formed meanwhile and this event does not hold the
+      group's claim, it loses and does not send, so a grouped member and this
+      event can never both send.
     """
     event_id = event.id
     session = Session(bind=db.get_bind())

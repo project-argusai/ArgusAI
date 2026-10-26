@@ -157,6 +157,13 @@ def delete_crop(relative: Optional[str]) -> bool:
         return False
 
 
+def _plain_bbox(bbox: Any) -> Any:
+    """Bbox dict with builtin numbers so json.dumps never sees numpy scalars."""
+    if not isinstance(bbox, dict):
+        return bbox
+    return {k: (v.item() if isinstance(v, np.generic) else v) for k, v in bbox.items()}
+
+
 def _observation_rel(kind: str, when: datetime, row_id: str) -> str:
     return f"observations/{kind}/{when.strftime('%Y-%m-%d')}/{row_id}.jpg"
 
@@ -795,7 +802,7 @@ class EntityGalleryService:
                         id=row_id,
                         event_id=event_id,
                         embedding=json.dumps([round(float(x), 6) for x in obs.embedding]),
-                        bounding_box=json.dumps(obs.bbox),
+                        bounding_box=json.dumps(_plain_bbox(obs.bbox)),
                         confidence=float(obs.score),
                         model_version=obs.model_version,
                         crop_path=rel,
@@ -815,7 +822,7 @@ class EntityGalleryService:
                         id=row_id,
                         event_id=event_id,
                         embedding=json.dumps([round(float(x), 6) for x in obs.embedding]),
-                        bounding_box=json.dumps(obs.bbox),
+                        bounding_box=json.dumps(_plain_bbox(obs.bbox)),
                         confidence=float(obs.score),
                         vehicle_type=obs.vehicle_type,
                         model_version=obs.model_version,

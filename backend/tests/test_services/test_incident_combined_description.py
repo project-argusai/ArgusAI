@@ -394,3 +394,37 @@ class TestReviewFixes:
     def test_models_export_incident(self):
         import app.models as models
         assert "Incident" in models.__all__
+
+
+class TestOverallDeadline:
+    @pytest.mark.asyncio
+    async def test_retry_stays_within_one_sla_budget(self, db_session, monkeypatch):
+        """A slow failure then retry must not take ~2x the SLA."""
+        monkeypatch.setattr(incident_service, "SLA_GRACE_MS", 0)
+        _enable(db_session)
+        gid, _ = _group(db_session, 2)
+
+        async def slow_fail(**kwargs):
+            await asyncio.sleep(0.07)
+            raise RuntimeError("provider error")
+
+        orch = _orch(side_effect=slow_fail)
+        orch.default_multi_image_sla_ms = 100
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        inc = await incident_service.run_combined_pass(db_session, gid, orchestrator=orch)
+        elapsed_ms = (loop.time() - start) * 1000
+        assert inc.status == "fallback"
+        assert elapsed_ms < 100 + 40, elapsed_ms
+
+    @pytest.mark.asyncio
+    async def test_retry_gets_only_remaining_budget(self, db_session, monkeypatch):
+        monkeypatch.setattr(incident_service, "SLA_GRACE_MS", 0)
+        _enable(db_session)
+        gid, _ = _group(db_session, 2)
+        orch = _orch(side_effect=[RuntimeError("x"), _ok()])
+        orch.default_multi_image_sla_ms = 1000
+        inc = await incident_service.run_combined_pass(db_session, gid, orchestrator=orch)
+        assert inc.status == "done"
+        second = orch.analyze_images.await_args_list[1].kwargs["sla_timeout_ms"]
+        assert 0 < second <= 1000

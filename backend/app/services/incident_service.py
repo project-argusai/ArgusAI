@@ -208,18 +208,26 @@ async def run_combined_pass(
 
     result = None
     reason = None
+    # One overall budget for the whole pass: a retry only gets what is left.
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + (sla_ms + SLA_GRACE_MS) / 1000.0
     while incident.attempts < MAX_ATTEMPTS:
+        remaining_s = deadline - loop.time()
+        if remaining_s <= 0:
+            reason = reason or "timeout"
+            break
         incident.attempts += 1
+        attempt_sla_ms = max(1, min(sla_ms, int(remaining_s * 1000)))
         try:
             result = await asyncio.wait_for(
                 orchestrator.analyze_images(
                     images=frames,
                     camera_name="Multiple cameras",
                     timestamp=members[0].timestamp.isoformat() if members[0].timestamp else None,
-                    sla_timeout_ms=sla_ms,
+                    sla_timeout_ms=attempt_sla_ms,
                     custom_prompt=COMBINED_PROMPT,
                 ),
-                timeout=(sla_ms + SLA_GRACE_MS) / 1000.0,
+                timeout=remaining_s,
             )
         except asyncio.TimeoutError:
             reason = "timeout"

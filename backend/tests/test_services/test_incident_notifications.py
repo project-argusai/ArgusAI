@@ -348,3 +348,16 @@ class TestSettingsApi:
             client.put("/api/v1/system/settings", json={"notify_per_incident": False})
         finally:
             app.dependency_overrides.pop(get_current_user, None)
+
+
+class TestCleanup:
+    def test_orphan_deliveries_deleted(self, db_session):
+        from app.models.incident import IncidentDelivery
+        from app.services.cleanup_service import CleanupService
+        ev = _event(db_session, _camera(db_session), None, 0)
+        db_session.add(IncidentDelivery(group_key=ev.id, channel="push", event_id=ev.id))
+        db_session.add(IncidentDelivery(group_key=_uid(), channel="push", event_id=_uid()))
+        db_session.commit()
+        CleanupService(session_factory=lambda: db_session)._delete_orphan_dependent_rows(db_session)
+        db_session.commit()
+        assert [d.group_key for d in db_session.query(IncidentDelivery).all()] == [ev.id]

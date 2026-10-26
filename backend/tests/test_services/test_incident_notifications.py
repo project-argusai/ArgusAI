@@ -644,3 +644,127 @@ class TestClaimAfterGrouping:
         send.assert_awaited_once()
         row = db_session.query(IncidentDelivery).filter_by(channel="push").one()
         assert row.group_key == a.id
+
+    def _terry_order(self, s1, s2, channel_call):
+        """Terry's ordering: (1) A loaded ungrouped and passes the gate,
+        (2) B joins group G and claims G first, (3) A claims with its stale
+        ungrouped object. Exactly one may win."""
+        a = _event(s1, _camera(s1), None, 0)
+        a_stale = s1.get(Event, a.id)                     # step 1: group is None
+        assert a_stale.correlation_group_id is None
+        b = _event(s2, _camera(s2), None, 1)
+        gid = _uid()
+        self._group(s2, gid, s2.get(Event, a.id), b)      # step 2: G forms
+        s2.refresh(b)
+        first = channel_call(s2, b)
+        assert a_stale.correlation_group_id is None       # still stale in s1
+        second = channel_call(s1, a_stale)                # step 3
+        return first, second
+
+    def test_terry_order_push_path(self, two):
+        s1, s2 = two
+        b_won, a_won = self._terry_order(s1, s2, lambda s, e: inn.should_deliver(s, e, "push"))
+        assert (b_won, a_won) == (True, False)
+
+    @pytest.mark.asyncio
+    async def test_terry_order_alert_rule_path(self, two):
+        from app.services.alert_engine import AlertEngine
+        s1, s2 = two
+        rule = SimpleNamespace(id="rule-t", actions=json.dumps({"dashboard_notification": True}),
+                               name="r", trigger_count=0, last_triggered_at=None)
+        engines = {}
+
+        def engine_for(s):
+            if s not in engines:
+                e = AlertEngine(s)
+                e._execute_dashboard_notification = AsyncMock(return_value=True)
+                e.update_rule_triggered = lambda r: None
+                e.update_event_alert_status = lambda ev, r: None
+                engines[s] = e
+            return engines[s]
+
+        calls = []
+
+        def via_engine(s, ev):
+            calls.append((s, ev))
+            return None
+
+        self._terry_order(s1, s2, via_engine)
+        # Replay the same ordering through AlertEngine (shared, stale self.db).
+        (sb, b), (sa, a_stale) = calls
+        from app.models.incident import IncidentDelivery
+        sb.query(IncidentDelivery).delete()
+        sb.commit()
+        await engine_for(sb).execute_actions(b, [rule])
+        await engine_for(sa).execute_actions(a_stale, [rule])
+        total = sum(e._execute_dashboard_notification.await_count for e in engines.values())
+        assert total == 1
+
+
+class TestTerryLows:
+    def test_notify_per_incident_strict_bool(self):
+        from pydantic import ValidationError
+        from app.schemas.system import SystemSettingsUpdate
+        assert SystemSettingsUpdate(notify_per_incident=True).notify_per_incident is True
+        for bad in ("yes", 1, "true"):
+            with pytest.raises(ValidationError):
+                SystemSettingsUpdate(notify_per_incident=bad)
+
+    @pytest.mark.asyncio
+    async def test_definite_send_failure_retries_exactly_once(self, db_session):
+        gid, members = await TestUpdatePush()._setup(db_session)
+        inc = _incident(db_session, gid, members)
+        failed = [SimpleNamespace(success=False)]
+        with patch(SEND, new=AsyncMock(return_value=failed)) as send:
+            assert await inn.maybe_send_update_push(db_session, inc) is False  # try
+            assert await inn.maybe_send_update_push(db_session, inc) is False  # one retry
+            assert await inn.maybe_send_update_push(db_session, inc) is False  # capped
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+        assert send.await_count == 2
+        db_session.expire_all()
+        assert db_session.get(Incident, gid).update_pushed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_definite_failure_then_retry_succeeds(self, db_session):
+        gid, members = await TestUpdatePush()._setup(db_session)
+        inc = _incident(db_session, gid, members)
+        with patch(SEND, new=AsyncMock(side_effect=[[SimpleNamespace(success=False)], _ok()])) as send:
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+            assert await inn.maybe_send_update_push(db_session, inc) is True
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+        assert send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_exception_never_resends(self, db_session):
+        gid, members = await TestUpdatePush()._setup(db_session)
+        inc = _incident(db_session, gid, members)
+        with patch(SEND, new=AsyncMock(side_effect=RuntimeError("after send?"))) as send:
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+        assert send.await_count == 1
+        db_session.expire_all()
+        assert db_session.get(Incident, gid).update_pushed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_failure_path_calls_update_push_once(self, db_session, monkeypatch):
+        from app.services import incident_service
+        gid, members = await TestUpdatePush()._setup(db_session)
+        _incident(db_session, gid, members, status="pending")
+        calls = []
+
+        async def ok_pass(db, group_id, orchestrator=None):
+            inc = db.get(Incident, group_id)
+            inc.status = "failed"
+            db.commit()
+            return inc
+
+        async def raising_update(db, incident):
+            calls.append(incident.id)
+            raise RuntimeError("push gate blew up")
+
+        monkeypatch.setattr(incident_service, "run_combined_pass", ok_pass)
+        monkeypatch.setattr(inn, "maybe_send_update_push", raising_update)
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None)
+        await incident_service._settle_then_run(gid, 0)
+        assert calls == [gid]

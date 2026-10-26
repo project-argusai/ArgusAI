@@ -401,11 +401,13 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
     from app.core.database import SessionLocal
 
     db = SessionLocal()
+    update_attempted = False
     try:
         incident = await run_combined_pass(db, group_id)
         if incident is not None:
             from app.services import incident_notifications
 
+            update_attempted = True
             await incident_notifications.maybe_send_update_push(db, incident)
     except Exception as exc:
         db.rollback()
@@ -414,7 +416,7 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
             if incident is not None and incident.status == "pending":
                 incident.status = "failed"
                 db.commit()
-            if incident is not None and incident.status == "failed":
+            if incident is not None and incident.status == "failed" and not update_attempted:
                 # "failed" behaves like "fallback": update push with per-camera text.
                 from app.services import incident_notifications
 

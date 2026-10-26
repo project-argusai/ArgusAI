@@ -3,7 +3,7 @@ System Settings Schemas
 
 Pydantic schemas for system-level configuration and monitoring endpoints.
 """
-from pydantic import BaseModel, Field, field_validator
+from pydantic import StrictBool, BaseModel, Field, field_validator
 from datetime import datetime
 from app.schemas.types import UTCDateTime
 from typing import Optional, Literal
@@ -348,7 +348,7 @@ class SystemSettingsUpdate(BaseModel):
     cooldown_period: Optional[int] = Field(None, ge=30, le=300)
     min_motion_area: Optional[float] = Field(None, ge=1, le=10)
     save_debug_images: Optional[bool] = None
-    notify_per_incident: Optional[bool] = None
+    notify_per_incident: Optional[StrictBool] = None
 
     # Data & Privacy
     retention_days: Optional[int] = None

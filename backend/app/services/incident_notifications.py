@@ -227,6 +227,27 @@ def _claim_update_push(db: Session, incident_id: str) -> bool:
     return result.rowcount == 1
 
 
+UPDATE_RETRY_CHANNEL = "update_push_retry"
+
+
+def _release_update_claim_once(db: Session, incident_id: str, event_id: str) -> bool:
+    """Clear update_pushed_at at most once per incident. The once-marker is
+    a unique (incident id, retry channel) row in incident_deliveries."""
+    session = Session(bind=db.get_bind())
+    try:
+        if not _insert_claim(session, incident_id, UPDATE_RETRY_CHANNEL, event_id):
+            return False
+        session.execute(update(Incident).where(Incident.id == incident_id)
+                        .values(update_pushed_at=None))
+        session.commit()
+        return True
+    except Exception:
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+
 async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> bool:
     """Send the single post-combined-pass update push. True when sent."""
     if incident is None or incident.status not in ("done", "fallback", "failed"):
@@ -260,7 +281,7 @@ async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> b
     from app.services.push_notification_service import send_event_notification
 
     try:
-        await send_event_notification(
+        results = await send_event_notification(
             event_id=pushed.id,
             camera_name="Multiple cameras",
             description=text,
@@ -269,8 +290,17 @@ async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> b
             db=db,
         )
     except Exception as exc:
+        # Ambiguous: it may have gone out. Keep the claim; never re-send.
         logger.warning("Incident update push failed",
-                       extra={"incident_id": incident.id, "error_type": type(exc).__name__})
+                       extra={"incident_id": incident.id, "error_type": type(exc).__name__,
+                              "retry": False})
+        return False
+    if results and not any(getattr(r, "success", False) for r in results):
+        # Definite failure reported by the sender before delivery: release
+        # the claim once so a later pass retries exactly one more time.
+        retry = _release_update_claim_once(db, incident.id, pushed.id)
+        logger.warning("Incident update push not delivered",
+                       extra={"incident_id": incident.id, "retry": retry})
         return False
     logger.info("Incident update push sent",
                 extra={"event_type": "incident_update_push", "incident_id": incident.id,

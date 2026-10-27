@@ -90,7 +90,10 @@ def is_within_quiet_hours(
             return start_time <= current_time < end_time
 
     except Exception as e:
-        logger.warning(f"Error checking quiet hours: {e}, defaulting to not-in-quiet-hours")
+        logger.warning(
+            "Error checking quiet hours, defaulting to not-in-quiet-hours",
+            extra={"error_type": type(e).__name__},
+        )
         return False
 
 
@@ -154,7 +157,10 @@ def should_send_notification(
         return (True, preference.sound_enabled)
 
     except Exception as e:
-        logger.error(f"Error checking notification preferences: {e}", exc_info=True)
+        logger.error(
+            "Error checking notification preferences",
+            extra={"error_type": type(e).__name__},
+        )
         # On error, send notification (fail open) with sound
         return (True, True)
 
@@ -167,6 +173,17 @@ class NotificationResult:
     error: Optional[str] = None
     status_code: Optional[int] = None
     retries: int = 0
+
+
+def _endpoint_host(endpoint: Optional[str]) -> str:
+    """Push service hostname only (no userinfo, port, path or query), or
+    "N/A" for empty or non-URL values. Safe to log (#728)."""
+    if not endpoint or not isinstance(endpoint, str):
+        return "N/A"
+    try:
+        return urlparse(endpoint).hostname or "N/A"
+    except ValueError:
+        return "N/A"
 
 
 class PushSendResults(list):
@@ -377,7 +394,10 @@ class PushNotificationService:
         notification_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.error(f"Broadcast exception for subscription: {result}")
+                logger.error(
+                    "Broadcast exception for subscription",
+                    extra={"error_type": type(result).__name__},
+                )
                 notification_results.append(NotificationResult(
                     subscription_id=subscriptions[i].id,
                     success=False,
@@ -501,7 +521,10 @@ class PushNotificationService:
         notification_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.error(f"Broadcast exception for subscription: {result}")
+                logger.error(
+                    "Broadcast exception for subscription",
+                    extra={"error_type": type(result).__name__},
+                )
                 notification_results.append(NotificationResult(
                     subscription_id=send_list[i][0].id,
                     success=False,
@@ -557,8 +580,9 @@ class PushNotificationService:
             f"_send_to_subscription starting",
             extra={
                 "subscription_id": subscription.id,
-                "endpoint_prefix": subscription.endpoint[:50] if subscription.endpoint else "N/A",
-                "title": title,
+                # Host only: the endpoint path is a per-device capability URL (#728).
+                "endpoint_host": _endpoint_host(subscription.endpoint),
+                # No title: it can carry recognized names and camera names.
             }
         )
 
@@ -589,6 +613,7 @@ class PushNotificationService:
 
         retries = 0
         last_error = None
+        last_error_type = None
         last_status_code = None
         start_time = time.time()
 
@@ -635,7 +660,6 @@ class PushNotificationService:
                     f"Push notification sent successfully",
                     extra={
                         "subscription_id": subscription.id,
-                        "title": title,
                         "retries": retries,
                         "duration_seconds": duration
                     }
@@ -648,7 +672,8 @@ class PushNotificationService:
                 )
 
             except WebPushException as e:
-                last_error = str(e)
+                last_error = str(e)  # returned in NotificationResult; never logged
+                last_error_type = type(e).__name__
                 last_status_code = e.response.status_code if e.response else None
 
                 # Check if subscription is invalid/expired (should not retry)
@@ -684,7 +709,7 @@ class PushNotificationService:
                             "subscription_id": subscription.id,
                             "attempt": retries + 1,
                             "max_retries": MAX_RETRIES,
-                            "error": last_error,
+                            "error_type": last_error_type,
                             "status_code": last_status_code
                         }
                     )
@@ -694,11 +719,11 @@ class PushNotificationService:
                     break
 
             except Exception as e:
-                last_error = str(e)
+                last_error = str(e)  # returned in NotificationResult; never logged
+                last_error_type = type(e).__name__
                 logger.error(
-                    f"Unexpected error sending push notification: {e}",
-                    exc_info=True,
-                    extra={"subscription_id": subscription.id}
+                    "Unexpected error sending push notification",
+                    extra={"subscription_id": subscription.id, "error_type": last_error_type}
                 )
 
                 if retries < MAX_RETRIES:
@@ -716,7 +741,7 @@ class PushNotificationService:
             f"Push notification failed after {MAX_RETRIES} retries",
             extra={
                 "subscription_id": subscription.id,
-                "error": last_error,
+                "error_type": last_error_type,
                 "status_code": last_status_code,
                 "duration_seconds": duration
             }
@@ -1044,12 +1069,12 @@ async def send_event_notification(
             return await _send_notification(db)
 
     except Exception as e:
+        # Class name only: push errors can embed endpoints or tokens (#728).
         logger.error(
-            f"Error sending event notification",
-            exc_info=True,
+            "Error sending event notification",
             extra={
                 "event_id": event_id,
-                "error": str(e),
+                "error_type": type(e).__name__,
             }
         )
         # Swallowed on purpose (callers expect a list). The empty list carries

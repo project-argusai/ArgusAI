@@ -115,6 +115,17 @@ def _sla_from_env(name: str, default: int) -> int:
     return value
 
 
+def _setting_ms(name: str, default: int) -> int:
+    """A positive millisecond setting from app settings, else ``default``."""
+    try:
+        from app.core.config import settings
+
+        value = int(getattr(settings, name, default))
+        return value if value > 0 else default
+    except Exception:  # noqa: BLE001
+        return default
+
+
 @singleton
 class VisionAnalysisOrchestrator:
     """
@@ -144,7 +155,9 @@ class VisionAnalysisOrchestrator:
 
         # Default SLA targets (can be overridden per call).
         # Multi-frame is configurable via AI_MULTI_IMAGE_SLA_MS.
-        self.default_single_image_sla_ms = DEFAULT_SINGLE_IMAGE_SLA_MS
+        self.default_single_image_sla_ms = _setting_ms(
+            "AI_SINGLE_IMAGE_SLA_MS", DEFAULT_SINGLE_IMAGE_SLA_MS
+        )
         self.default_multi_image_sla_ms = _sla_from_env(
             "AI_MULTI_IMAGE_SLA_MS", DEFAULT_MULTI_IMAGE_SLA_MS
         )
@@ -153,7 +166,7 @@ class VisionAnalysisOrchestrator:
         self.min_provider_call_ms = MIN_PROVIDER_CALL_MS
         self.fallback_reserve_ms = FALLBACK_RESERVE_MS
         self.fallback_grace_ms = FALLBACK_GRACE_MS
-        self.max_first_single_ms = MAX_FIRST_SINGLE_MS
+        self.max_first_single_ms = _setting_ms("AI_SINGLE_FIRST_CALL_MS", MAX_FIRST_SINGLE_MS)
         self.max_fallback_single_ms = MAX_FALLBACK_SINGLE_MS
         self.single_fallback_reserve_ms = SINGLE_FALLBACK_RESERVE_MS
         self.single_fallback_grace_ms = SINGLE_FALLBACK_GRACE_MS
@@ -284,9 +297,15 @@ class VisionAnalysisOrchestrator:
         ocr_result: Optional[OCRResult] = None,
         analysis_mode: str = "single_image",
         user_initiated: bool = False,
+        extended_budget: bool = False,
     ) -> AIResult:
         """
         Main entry point for single-frame analysis (Phase 3.2).
+
+        ``extended_budget`` is for background callers that already waited
+        (the local-first cloud fallback): the call gets the multi-frame
+        per-provider caps and the multi-frame SLA instead of the 5 s live
+        single-image target, so a slow Grok is not cut off at 3 s.
 
         This is the extracted version of the old AIService.generate_description.
         Owns SLA enforcement, provider fallback, resilience checks, and backoff.
@@ -296,9 +315,11 @@ class VisionAnalysisOrchestrator:
             user_initiated=user_initiated,
             live_default=self.default_single_image_sla_ms,
         )
+        if extended_budget and not user_initiated:
+            sla_timeout_ms = max(sla_timeout_ms, self.default_multi_image_sla_ms)
         # Manual re-analysis uses the live multi-frame per-provider caps
         # (15s first call) so a slow Grok is not cut off at 3s.
-        use_multi_budget = user_initiated
+        use_multi_budget = user_initiated or extended_budget
 
         start_time = time.time()
 
@@ -889,8 +910,23 @@ class VisionAnalysisOrchestrator:
                 self._trip_quota_breaker(provider_name)
             elif failure_class in _AUTH_FAILURES:
                 self._trip_quota_breaker(provider_name, reason="auth_error")
+            elif failure_class == "http_429":
+                self._trip_rate_limit_breaker(provider_name)
         if self.resilience_service and result is not None:
             self.resilience_service.record_result(provider_name, result.success)
+
+    def _trip_rate_limit_breaker(self, provider_name: str) -> None:
+        trip = getattr(self.resilience_service, "trip_rate_limit", None)
+        if trip is None:
+            return
+        try:
+            trip(provider_name)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to open rate-limit circuit for %s (%s)",
+                provider_name,
+                type(exc).__name__,
+            )
 
     def _trip_quota_breaker(self, provider_name: str, reason: Optional[str] = None) -> None:
         if self.resilience_service is None:

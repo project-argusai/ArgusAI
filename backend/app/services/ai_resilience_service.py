@@ -41,11 +41,23 @@ from app.services.ai_circuit_breaker import (
     AICircuitBreaker,
     CircuitBreakerConfig,
     CircuitState,
-    QUOTA_CIRCUIT_OPEN_SECONDS,
 )
 from app.services.ai_types import AIProvider  # used in get_ai_resilience_status / reset (was missing -> NameError)
 
 logger = logging.getLogger(__name__)
+
+
+def _cooldown_settings() -> tuple:
+    """(quota base s, quota max s, rate-limit s) from settings, with safe defaults."""
+    try:
+        from app.core.config import settings
+
+        base = float(getattr(settings, "AI_QUOTA_COOLDOWN_S", 3600.0))
+        cap = max(base, float(getattr(settings, "AI_QUOTA_COOLDOWN_MAX_S", 21_600.0)))
+        rate = float(getattr(settings, "AI_RATE_LIMIT_COOLDOWN_S", 300.0))
+        return base, cap, rate
+    except Exception:  # noqa: BLE001
+        return 3600.0, 21_600.0, 300.0
 
 
 # Default configuration used when no SystemSetting override exists
@@ -68,6 +80,8 @@ class AIResilienceService:
     def __init__(self):
         """Initialize with empty breaker map. Breakers are created on configure."""
         self.circuit_breakers: Dict[str, AICircuitBreaker] = {}
+        # Consecutive quota trips per provider (doubles the cooldown).
+        self._quota_trips: Dict[str, int] = {}
 
     # =====================================================================
     # Configuration & Provider Initialization
@@ -169,6 +183,7 @@ class AIResilienceService:
         previous_state = breaker.state.value
 
         if success:
+            self._quota_trips.pop(name, None)
             breaker.record_success()
         else:
             breaker.record_failure()
@@ -197,30 +212,51 @@ class AIResilienceService:
                 },
             )
 
+    def quota_cooldown_s(self, provider: str) -> float:
+        """Cooldown for the next quota trip: base, doubled per repeat, capped."""
+        base, cap = _cooldown_settings()[:2]
+        trips = self._quota_trips.get(provider.lower(), 0)
+        return min(cap, base * (2 ** min(trips, 16)))
+
     def trip_quota(
         self,
         provider: str,
-        cooldown_s: float = QUOTA_CIRCUIT_OPEN_SECONDS,
+        cooldown_s: Optional[float] = None,
         reason: str = "quota_exhausted",
     ) -> None:
         """Open the provider circuit immediately after quota or auth failure.
 
-        The cooldown is brief (two minutes by default) so a burst of events
-        skips the exhausted provider, and a misclassification recovers on its
-        own. ``reason`` is a short class label. The provider error body is not
-        accepted here and is not logged.
+        Without an explicit ``cooldown_s`` the provider stays out for
+        AI_QUOTA_COOLDOWN_S (1 h by default), doubling on each repeat trip up
+        to AI_QUOTA_COOLDOWN_MAX_S, so an out-of-credit provider is retried a
+        few times a day instead of every two minutes. A success resets the
+        escalation. ``reason`` is a short class label; the provider error body
+        is not accepted here and is not logged.
         """
         name = provider.lower()
+        if cooldown_s is None:
+            cooldown_s = self.quota_cooldown_s(name)
+            self._quota_trips[name] = self._quota_trips.get(name, 0) + 1
+        label = reason if reason in ("quota_exhausted", "auth_error") else "quota_exhausted"
+        self._force_open(name, cooldown_s, label)
+
+    def trip_rate_limit(self, provider: str, cooldown_s: Optional[float] = None) -> None:
+        """Open the provider circuit for AI_RATE_LIMIT_COOLDOWN_S after an HTTP 429."""
+        if cooldown_s is None:
+            cooldown_s = _cooldown_settings()[2]
+        self._force_open(provider.lower(), cooldown_s, "rate_limited")
+
+    def _force_open(self, name: str, cooldown_s: float, label: str) -> None:
         breaker = self.circuit_breakers.get(name)
         if breaker is None:
             logger.info(
-                "No circuit breaker for %s; quota failure is not cached",
+                "No circuit breaker for %s; %s is not cached",
                 name,
+                label,
                 extra={"event_type": "ai_circuit_quota_untracked", "provider": name},
             )
             return
 
-        label = reason if reason in ("quota_exhausted", "auth_error") else "quota_exhausted"
         previous_state = breaker.state.value
         breaker.force_open(cooldown_s, reason=label)
 

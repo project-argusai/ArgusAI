@@ -1,7 +1,7 @@
 """Application configuration using Pydantic Settings"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, SecretStr, field_validator
-from typing import List, Optional
+from typing import Literal, List, Optional
 from pathlib import Path
 from cryptography.fernet import Fernet
 import os
@@ -348,6 +348,35 @@ class Settings(BaseSettings):
     LOCAL_VLM_MAX_IMAGE_SIDE: int = Field(default=1024, ge=256, le=2048)  # Downscale before sending (vision tokens)
     LOCAL_VLM_MAX_PENDING: int = Field(default=4, ge=1, le=32)  # Queue bound; extra failures are skipped
     LOCAL_VLM_ALLOW_REMOTE: bool = False  # Images stay on this host unless explicitly allowed
+
+    # Local-first analysis (#691). "cloud" (default) keeps today's behaviour:
+    # cloud providers first, the local model only as a background fallback.
+    # "local" asks the local model first for every Protect event (needs
+    # LOCAL_VLM_ENABLED) and uses the cloud chain only when the local answer
+    # errors, is blank, scores below LOCAL_PRIMARY_MIN_CONFIDENCE, or cannot
+    # start and finish within LOCAL_PRIMARY_MAX_WAIT_MS (queue wait + call).
+    AI_PRIMARY: Literal["cloud", "local"] = "cloud"
+    LOCAL_PRIMARY_MAX_WAIT_MS: int = Field(default=120_000, ge=5_000, le=600_000)
+    LOCAL_PRIMARY_MIN_CONFIDENCE: int = Field(default=50, ge=0, le=100)
+    # Cloud fallbacks allowed per local day while AI_PRIMARY=local. 0 = never
+    # call cloud. Counted per event in memory (resets on restart, seeded from
+    # today's cloud-described events at first use).
+    CLOUD_FALLBACK_DAILY_CAP: int = Field(default=50, ge=0, le=10_000)
+
+    # Cloud provider controls. Comma-separated provider names to skip without
+    # deleting their keys: openai, grok, claude (or anthropic), gemini (or google).
+    AI_DISABLED_PROVIDERS: str = ""
+    # Circuit breaker cooldowns. Quota / no-credit / HTTP 402 opens the
+    # provider for AI_QUOTA_COOLDOWN_S, doubling on each repeat trip up to
+    # AI_QUOTA_COOLDOWN_MAX_S (reset by a success). HTTP 429 without a quota
+    # message opens it for AI_RATE_LIMIT_COOLDOWN_S.
+    AI_QUOTA_COOLDOWN_S: float = Field(default=3600.0, ge=30.0, le=86_400.0)
+    AI_QUOTA_COOLDOWN_MAX_S: float = Field(default=21_600.0, ge=30.0, le=604_800.0)
+    AI_RATE_LIMIT_COOLDOWN_S: float = Field(default=300.0, ge=10.0, le=86_400.0)
+    # Live single-image chain: overall budget and the first provider's cap.
+    # The 3 s first-call cap cut off Grok often (Oct 12-19: ~115 timeouts).
+    AI_SINGLE_IMAGE_SLA_MS: int = Field(default=5_000, ge=1_000, le=60_000)
+    AI_SINGLE_FIRST_CALL_MS: int = Field(default=3_000, ge=1_000, le=60_000)
 
     # ArcFace (opt-in; select it with ARGUS_FACE_RECOGNIZER=arcface above).
     # ArcFace weights are user-supplied (non-commercial licence), never in the

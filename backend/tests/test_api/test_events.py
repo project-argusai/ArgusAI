@@ -1891,6 +1891,147 @@ def test_reanalyze_slow_provider_budget_succeeds(test_camera, monkeypatch):
     assert seen["timeout_s"] >= 10
 
 
+def _local_first_on(monkeypatch):
+    from app.services import local_first
+
+    monkeypatch.setattr(
+        local_first.LocalFirstConfig,
+        "from_settings",
+        classmethod(lambda cls: cls(enabled=True, max_wait_ms=30_000, min_confidence=50, daily_cloud_cap=5)),
+    )
+    local_first.reset_cloud_fallback_budget()
+
+
+def _fake_local(monkeypatch, outcome):
+    """Replace the local service's live call; record the calls made."""
+    from app.services import local_vlm_fallback
+
+    calls = []
+
+    class _Service:
+        async def describe_now(self, job, max_wait_s):
+            calls.append((job, max_wait_s))
+            return outcome
+
+    monkeypatch.setattr(local_vlm_fallback, "get_local_vlm_fallback_service", lambda: _Service())
+    return calls
+
+
+def _local_outcome(description="A person in a blue jacket walked to the front door.", ai_confidence=85, success=True):
+    from app.services.ai_types import AIResult
+    from app.services.local_vlm_fallback import PrimaryOutcome
+
+    return PrimaryOutcome(
+        AIResult(
+            description=description if success else "",
+            confidence=ai_confidence,
+            objects_detected=["person"],
+            provider="local",
+            tokens_used=5,
+            response_time_ms=9000,
+            cost_estimate=0.0,
+            success=success,
+            error=None if success else "ConnectError",
+            ai_confidence=ai_confidence,
+        ),
+        "ok" if success else "error",
+        0.0,
+    )
+
+
+def test_reanalyze_local_first_uses_local_and_skips_cloud(test_camera, monkeypatch):
+    """With AI_PRIMARY=local the manual re-analyze asks the local model first (#691)."""
+    from app.services.entity_alert_service import reset_entity_alert_service
+
+    reset_entity_alert_service()
+    cloud_calls = []
+    _mock_reanalyze_provider(monkeypatch, "cloud answer")
+    from app.services.ai_service import AIService
+
+    async def _no_cloud(self, *a, **k):
+        cloud_calls.append(1)
+        raise AssertionError("cloud must not run when local answers")
+
+    monkeypatch.setattr(AIService, "generate_description", _no_cloud)
+    _local_first_on(monkeypatch)
+    calls = _fake_local(monkeypatch, _local_outcome())
+
+    _reanalyze_event("event-local-first", _tiny_jpeg_b64(), test_camera.id)
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-local-first/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["provider_used"] == "local"
+    assert "blue jacket" in data["description"]
+    assert len(calls) == 1 and calls[0][1] <= 60
+    assert not cloud_calls
+
+
+def test_reanalyze_local_first_falls_back_to_cloud_when_local_fails(test_camera, monkeypatch):
+    from app.services.entity_alert_service import reset_entity_alert_service
+    from app.services import local_first
+
+    reset_entity_alert_service()
+    _mock_reanalyze_provider(monkeypatch, "A red sedan is parked in the driveway.")
+    _local_first_on(monkeypatch)
+    _fake_local(monkeypatch, _local_outcome(success=False))
+
+    _reanalyze_event("event-local-fail", _tiny_jpeg_b64(), test_camera.id)
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-local-fail/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["provider_used"] == "grok"
+    assert local_first.get_cloud_fallback_budget().used == 1
+
+
+def test_reanalyze_local_first_cap_reached_returns_503_without_cloud(test_camera, monkeypatch):
+    from app.services import local_first
+    from app.services.ai_service import AIService
+
+    _local_first_on(monkeypatch)
+    budget = local_first.get_cloud_fallback_budget()
+    while budget.try_acquire():
+        pass
+    _fake_local(monkeypatch, _local_outcome(success=False))
+
+    async def _no_cloud(self, *a, **k):
+        raise AssertionError("cloud must not run past the daily cap")
+
+    monkeypatch.setattr(AIService, "generate_description", _no_cloud)
+
+    _reanalyze_event("event-local-cap", _tiny_jpeg_b64(), test_camera.id)
+    response = client.post(
+        "/api/v1/events/event-local-cap/reanalyze",
+        json={"analysis_mode": "single_frame"},
+    )
+    assert response.status_code == 503, response.text
+
+
+def test_reanalyze_cloud_primary_never_calls_local(test_camera, monkeypatch):
+    """Default AI_PRIMARY=cloud leaves manual re-analyze unchanged."""
+    from app.services.entity_alert_service import reset_entity_alert_service
+
+    reset_entity_alert_service()
+    _mock_reanalyze_provider(monkeypatch, "A red sedan is parked in the driveway.")
+    calls = _fake_local(monkeypatch, _local_outcome())
+
+    _reanalyze_event("event-cloud-primary", _tiny_jpeg_b64(), test_camera.id)
+    with _without_fts_update_trigger():
+        response = client.post(
+            "/api/v1/events/event-cloud-primary/reanalyze",
+            json={"analysis_mode": "single_frame"},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["provider_used"] == "grok"
+    assert not calls
+
+
 def test_reanalyze_quota_exhausted_tries_next_provider(test_camera, monkeypatch):
     """A quota failure is not retried; the next provider still runs."""
     from unittest.mock import AsyncMock, MagicMock

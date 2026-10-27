@@ -259,7 +259,10 @@ class ProtectEventNotifier:
             return 0
 
         from app.services.carrier_extractor import CARRIER_DISPLAY_NAMES
-        from app.services.push_notification_service import send_event_notification
+        from app.services.push_notification_service import (
+            classify_push_outcome,
+            send_event_notification,
+        )
 
         detection = "ring" if snap.is_doorbell_ring else snap.smart_detection_type
         results: List[Any] = []
@@ -279,7 +282,9 @@ class ProtectEventNotifier:
                     delivery_carrier=snap.delivery_carrier,
                     delivery_carrier_display=CARRIER_DISPLAY_NAMES.get(snap.delivery_carrier or ""),
                     db=db,
-                ) or []
+                )
+                if results is None:
+                    results = []
         finally:
             # Nothing was attempted (no subscriptions, all filtered by
             # preferences, or the send raised): don't hold the camera window.
@@ -290,6 +295,7 @@ class ProtectEventNotifier:
             extra={
                 "event_type": "protect_push_sent",
                 "event_id": snap.event_id,
+                "outcome": classify_push_outcome(results),
                 "attempted": len(results),
                 "successful": sum(1 for r in results if getattr(r, "success", False)),
             },

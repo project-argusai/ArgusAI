@@ -258,8 +258,14 @@ async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> b
     text = incident.combined_description if incident.status == "done" and incident.combined_description else None
     if not text:
         text = late[-1].description or pushed.description or ""
-    from app.services.push_notification_service import send_event_notification
+    from app.services.push_notification_service import (
+        PushSendResults,
+        classify_push_outcome,
+        send_event_notification,
+    )
 
+    error_type = None
+    results = None
     try:
         results = await send_event_notification(
             event_id=pushed.id,
@@ -269,21 +275,20 @@ async def maybe_send_update_push(db: Session, incident: Optional[Incident]) -> b
             smart_detection_type=pushed.smart_detection_type,
             db=db,
         )
+        outcome = classify_push_outcome(results)
+        error_type = results.error_type if isinstance(results, PushSendResults) else None
     except Exception as exc:
         # Send-once: keep the claim; never re-send.
-        logger.warning("Incident update push failed",
-                       extra={"incident_id": incident.id, "error_type": type(exc).__name__})
-        return False
-    if (
-        isinstance(results, (list, tuple))
-        and results
-        and all(getattr(r, "success", None) is False for r in results)
-    ):
-        # Send-once: update_pushed_at stays claimed; no retry.
-        logger.warning("Incident update push not delivered",
-                       extra={"incident_id": incident.id})
-        return False
-    logger.info("Incident update push sent",
-                extra={"event_type": "incident_update_push", "incident_id": incident.id,
-                       "late_members": len(late)})
-    return True
+        outcome = "error"
+        error_type = type(exc).__name__
+    # Structured outcome only: ids, counts, outcome, exception class name.
+    # Never notification text, recipients, endpoints, or exception text.
+    extra = {"event_type": "incident_update_push", "incident_id": incident.id,
+             "outcome": outcome, "late_members": len(late)}
+    if isinstance(results, (list, tuple)):
+        extra["results_count"] = len(results)
+    if error_type:
+        extra["error_type"] = error_type
+    log = logger.info if outcome in ("sent", "no_recipients") else logger.warning
+    log("Incident update push outcome", extra=extra)
+    return outcome == "sent"

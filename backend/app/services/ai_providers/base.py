@@ -42,7 +42,7 @@ def resolve_request_timeout(requested: Optional[float], default: float) -> float
 _NUMERIC_STRING = re.compile(r"\d{1,3}(?:\.\d+)?")
 
 
-def normalize_confidence(value: Any) -> Optional[int]:
+def normalize_confidence(value: Any, *, count_exact_one: bool = True) -> Optional[int]:
     """Map a model's confidence to an int on the 0-100 scale (#745, #747).
 
     - Accepts int, float, ``Decimal``, numpy scalars and plain numeric
@@ -59,7 +59,9 @@ def normalize_confidence(value: Any) -> Optional[int]:
       worst costs one capped cloud fallback with a correct result, while
       reading it as 100% could silently skip the fallback for an answer the
       model rated near zero. Each such value bumps the count-only metric
-      ``ai_confidence_exactly_one_total``. 0 stays 0.
+      ``ai_confidence_exactly_one_total``, unless ``count_exact_one=False``
+      (use that when re-normalizing a value that was already parsed, so it
+      is counted once). 0 stays 0.
     - NaN, inf, out-of-range values, bools and anything else return None
       (the existing "no usable score" path).
     """
@@ -82,6 +84,8 @@ def normalize_confidence(value: Any) -> Optional[int]:
     if not number.is_finite() or number < 0 or number > 100:
         return None
     if number == 1:
+        if not count_exact_one:
+            return 1
         try:
             from app.core.metrics import ai_confidence_exactly_one_total
             ai_confidence_exactly_one_total.inc()

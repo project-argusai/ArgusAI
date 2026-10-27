@@ -454,3 +454,42 @@ class TestConfidenceScale747Review:
         normalize_confidence(0.85)
         normalize_confidence(100)
         assert count() - before == 3
+
+
+class TestIdentificationConfidence747:
+    """#747: identification's ai_confidence goes through normalize_confidence, counted once."""
+
+    def _count(self):
+        from app.core.metrics import REGISTRY
+        return REGISTRY.get_sample_value("ai_confidence_exactly_one_total") or 0.0
+
+    @pytest.mark.parametrize("value,expected", [(85, 85), (0.85, 85), (0.285, 29), ("85", 85), (1, 1)])
+    def test_reported_value_normalized(self, value, expected):
+        from app.services.identification import confidence_from_identification
+        assert confidence_from_identification(None, ai_confidence=value) == expected
+
+    @pytest.mark.parametrize("value", [None, float("nan"), float("inf"), 101, -1, True, "abc"])
+    def test_unusable_falls_back_to_heuristic(self, value):
+        from app.services.identification import confidence_from_identification
+        heuristic = confidence_from_identification(None, ai_confidence=None)
+        assert confidence_from_identification(None, ai_confidence=value) == heuristic
+
+    def test_renormalizing_does_not_double_count(self, monkeypatch):
+        from app.services.ai_providers.base import normalize_confidence
+        from app.services.identification import confidence_from_identification
+        before = self._count()
+        parsed = normalize_confidence(1.0)  # parse step counts once
+        assert confidence_from_identification(None, ai_confidence=parsed) == 1
+        assert self._count() - before == 1
+
+    def test_skip_keyword(self):
+        from app.services.ai_providers.base import normalize_confidence
+        before = self._count()
+        assert normalize_confidence(1, count_exact_one=False) == 1
+        assert self._count() == before
+
+    def test_no_raw_int_on_confidence_left(self):
+        import inspect, re
+        from app.services import identification
+        src = inspect.getsource(identification)
+        assert not re.search(r"int\(\s*\w*confidence", src)

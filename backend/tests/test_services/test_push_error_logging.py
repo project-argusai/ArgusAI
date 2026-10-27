@@ -138,3 +138,57 @@ class TestPreferenceAndQuietHoursPaths:
             dt.now.side_effect = LeakyError(LEAKY_MESSAGE)
             assert pns.is_within_quiet_hours("22:00", "06:00", "UTC") is False
         _assert_clean(capture, "LeakyError")
+
+
+FAKE_PERSON = "Zorblat Quenneville"   # synthetic, recognizable-looking name
+FAKE_CAMERA = "Gazebo Cam Seven"
+
+
+class TestTitleNeverLogged:
+    @pytest.mark.asyncio
+    @patch.object(pns, "webpush")
+    async def test_title_with_name_and_camera_not_logged(
+            self, mock_webpush, db_session, subscription, capture):
+        mock_webpush.return_value = MagicMock()
+        service = pns.PushNotificationService(db_session)
+        title = f"{FAKE_PERSON} at {FAKE_CAMERA}"
+        result = await service.send_notification(subscription_id=subscription.id,
+                                                 title=title, body="b")
+        assert result.success is True
+        records = [r for r in capture.records if r.name == LOGGER]
+        assert any(r.getMessage() == "Push notification sent successfully" for r in records)
+        assert any(r.getMessage() == "_send_to_subscription starting" for r in records)
+        for r in records:
+            blob = _record_blob(r)
+            assert FAKE_PERSON not in blob and FAKE_CAMERA not in blob, blob
+            assert not hasattr(r, "title")
+
+
+class TestEndpointHost:
+    @pytest.mark.parametrize("endpoint,expected", [
+        ("https://user:secret@push.example.invalid:8443/wp/FAKE-ENDPOINT-abc", "push.example.invalid"),
+        ("https://push.example.invalid/wp/FAKE-ENDPOINT-abc", "push.example.invalid"),
+        ("", "N/A"),
+        (None, "N/A"),
+        ("not a url FAKE-ENDPOINT-abc", "N/A"),
+    ])
+    def test_endpoint_host(self, endpoint, expected):
+        assert pns._endpoint_host(endpoint) == expected
+
+    @pytest.mark.asyncio
+    @patch.object(pns, "webpush")
+    async def test_debug_log_strips_userinfo_and_port(self, mock_webpush, db_session, capture):
+        ensure_vapid_keys(db_session)
+        sub = PushSubscription(
+            endpoint="https://user:FAKE-TOKEN-zz9xq@push.example.invalid:8443/wp/FAKE-ENDPOINT-abc",
+            p256dh_key="p256dh-synthetic", auth_key="auth-synthetic")
+        db_session.add(sub)
+        db_session.commit()
+        mock_webpush.return_value = MagicMock()
+        service = pns.PushNotificationService(db_session)
+        await service.send_notification(subscription_id=sub.id, title="t", body="b")
+        start = [r for r in capture.records if r.getMessage() == "_send_to_subscription starting"]
+        assert start and start[0].endpoint_host == "push.example.invalid"
+        for r in capture.records:
+            blob = _record_blob(r)
+            assert "FAKE-TOKEN" not in blob and "8443" not in blob and "FAKE-ENDPOINT" not in blob

@@ -175,6 +175,17 @@ class NotificationResult:
     retries: int = 0
 
 
+def _endpoint_host(endpoint: Optional[str]) -> str:
+    """Push service hostname only (no userinfo, port, path or query), or
+    "N/A" for empty or non-URL values. Safe to log (#728)."""
+    if not endpoint or not isinstance(endpoint, str):
+        return "N/A"
+    try:
+        return urlparse(endpoint).hostname or "N/A"
+    except ValueError:
+        return "N/A"
+
+
 class PushSendResults(list):
     """List of ``NotificationResult`` that also records a swallowed failure.
 
@@ -570,8 +581,8 @@ class PushNotificationService:
             extra={
                 "subscription_id": subscription.id,
                 # Host only: the endpoint path is a per-device capability URL (#728).
-                "endpoint_host": (urlparse(subscription.endpoint).netloc or "N/A") if subscription.endpoint else "N/A",
-                "title": title,
+                "endpoint_host": _endpoint_host(subscription.endpoint),
+                # No title: it can carry recognized names and camera names.
             }
         )
 
@@ -649,7 +660,6 @@ class PushNotificationService:
                     f"Push notification sent successfully",
                     extra={
                         "subscription_id": subscription.id,
-                        "title": title,
                         "retries": retries,
                         "duration_seconds": duration
                     }

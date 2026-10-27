@@ -23,6 +23,8 @@ Performance Targets:
 """
 import asyncio
 import logging
+import math
+from decimal import ROUND_HALF_UP, Decimal
 import time
 import random
 import httpx
@@ -68,6 +70,27 @@ if TYPE_CHECKING:
     from app.services.mqtt_service import MQTTService
 
 logger = logging.getLogger(__name__)
+
+
+def _event_confidence(value: Any) -> int:
+    """``Event.confidence`` (0-100 int) from ``ai_result.confidence`` (#748).
+
+    The value here is the AI analysis confidence, which ``AIResult`` already
+    carries on 0-100 (``confidence_from_identification``); it is not a raw
+    detector score. So an integer value, including exactly 1 / 1.0, is kept
+    as is (1 means 1%, matching #745). Only a non-integer value strictly
+    between 0 and 1 is treated as a 0-1 score and scaled half up
+    (0.85 -> 85). Previously ``int(c * 100)`` turned a genuine 1% into 100.
+    Above 100 is clamped to 100; missing, bool, NaN/inf or negative give 0.
+    """
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        return 0
+    if 0 < number < 1:
+        return int((Decimal(str(number)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    return int(min(number, 100.0))
 
 
 def query_cameras_for_motion_monitoring(db):
@@ -971,9 +994,7 @@ class EventProcessor:
                         event_id = str(uuid.uuid4())
 
                     # Create event record
-                    # Convert confidence from 0.0-1.0 to 0-100 integer
-                    confidence_float = event_data.get("confidence", 0.0)
-                    confidence_int = int(confidence_float * 100) if confidence_float <= 1.0 else int(confidence_float)
+                    confidence_int = _event_confidence(event_data.get("confidence"))
 
                     # Convert objects_detected list to JSON string
                     objects_detected = event_data.get("objects_detected", [])

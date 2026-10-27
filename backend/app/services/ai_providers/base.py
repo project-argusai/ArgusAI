@@ -7,6 +7,7 @@ Extracted from the monolithic ai_service.py during Phase 3.3.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
+import math
 
 # Temporary import during extraction phase.
 # Long-term: AIResult should live in a shared ai_types module.
@@ -31,6 +32,24 @@ def resolve_request_timeout(requested: Optional[float], default: float) -> float
     if value <= 0:
         return default
     return value
+
+
+def box_confidence_fraction(value: Any) -> float:
+    """Store a bounding-box confidence as a 0-1 fraction (#748).
+
+    The prompt now asks for box confidences on 0-100, like the overall
+    confidence. Stored boxes (annotation labels, API schemas) keep their 0-1
+    float, so a value above 1 up to 100 is divided by 100. A value from 0 to
+    1 is read as an old-style fraction and kept, so exactly 1 means 100% for
+    a box. Missing, non-numeric, bool, NaN/inf or out-of-range values give
+    the previous default of 0.5.
+    """
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.5
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or number > 100:
+        return 0.5
+    return number / 100.0 if number > 1 else number
 
 
 class AIProviderBase(ABC):
@@ -128,7 +147,7 @@ class AIProviderBase(ABC):
                                     'width': float(width) if width is not None else 0,
                                     'height': float(height) if height is not None else 0,
                                     'entity_type': box.get('entity_type', 'other'),
-                                    'confidence': float(box.get('confidence', 0.5)),
+                                    'confidence': box_confidence_fraction(box.get('confidence')),
                                     'label': box.get('label', ''),
                                 })
                     if validated_boxes:

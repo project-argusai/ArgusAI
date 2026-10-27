@@ -78,6 +78,22 @@ async def scheduled_video_cleanup_job():
         logger.error(f"Scheduled video cleanup failed: {e}", exc_info=True)
 
 
+async def scheduled_shadow_retention_job():
+    """Purge cloud-audit pairs after 30 days and summaries after 365 (#735)."""
+    from app.core.database import SessionLocal
+    from app.services.shadow_audit_service import purge_expired
+
+    db = SessionLocal()
+    try:
+        purge_expired(db)
+    except Exception as e:
+        db.rollback()
+        logger.error("Scheduled shadow retention failed",
+                     extra={"error_type": type(e).__name__})
+    finally:
+        db.close()
+
+
 def register_retention_jobs(scheduler) -> None:
     """Register the daily event and video retention jobs."""
     scheduler.add_job(
@@ -92,5 +108,12 @@ def register_retention_jobs(scheduler) -> None:
         trigger=CronTrigger(hour=2, minute=15),
         id="daily_video_cleanup",
         name="Daily motion video cleanup based on video retention policy",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        scheduled_shadow_retention_job,
+        trigger=CronTrigger(hour=2, minute=30),
+        id="daily_shadow_retention",
+        name="Daily cloud-audit pair and summary retention",
         replace_existing=True,
     )

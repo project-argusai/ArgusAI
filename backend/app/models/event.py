@@ -185,6 +185,8 @@ class Event(Base):
     webhook_logs = relationship("WebhookLog", back_populates="event", cascade="all, delete-orphan")
     # Story P14-5.9: Relationship to notifications for bidirectional navigation
     notifications = relationship("Notification", back_populates="event", cascade="all, delete-orphan")
+    # #735: cloud-audit pair for this event (paired text kept 30 days)
+    shadow_result = relationship("ShadowResult", uselist=False, cascade="all, delete-orphan")
 
     __table_args__ = (
         CheckConstraint('confidence >= 0 AND confidence <= 100', name='check_confidence_range'),

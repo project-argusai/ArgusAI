@@ -176,10 +176,18 @@ class PushSendResults(list):
     ``send_event_notification`` returns an empty one with ``error_type`` set
     (exception class name only, never its text) when it swallowed its own
     internal error, so callers can tell that apart from "no subscribers".
+
+    Callers must keep the returned object as is. Wrapping it (``results or
+    []``, ``list(results)``, slicing, copying) drops the ``error_type`` marker
+    and turns an ``error`` outcome into ``no_recipients``. The contract tests in
+    ``tests/test_services/test_incident_update_push_outcome.py`` cover this.
     """
 
     def __init__(self, items=(), error_type: Optional[str] = None):
         super().__init__(items)
+        # Set only when send_event_notification swallowed an internal error.
+        # Exception class name only, never its text. Lost if the object is
+        # re-wrapped into a plain list (see class docstring).
         self.error_type = error_type
 
 
@@ -1044,4 +1052,7 @@ async def send_event_notification(
                 "error": str(e),
             }
         )
+        # Swallowed on purpose (callers expect a list). The empty list carries
+        # error_type so "error" stays distinct from "no_recipients"; callers
+        # must pass this object through unchanged, not `or []` / `list(...)` it.
         return PushSendResults(error_type=type(e).__name__)

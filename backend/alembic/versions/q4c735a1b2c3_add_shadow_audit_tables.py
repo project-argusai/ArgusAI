@@ -32,6 +32,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["event_id"], ["events.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("event_id"),
+        sa.CheckConstraint("source IN ('audit', 'fallback')", name="ck_shadow_results_source"),
+        sa.CheckConstraint("verdict IS NULL OR verdict IN ('agree', 'disagree', 'unsure')",
+                           name="ck_shadow_results_verdict"),
     )
     op.create_index("idx_shadow_results_created_at", "shadow_results", ["created_at"])
     op.create_index("idx_shadow_results_source_created", "shadow_results", ["source", "created_at"])

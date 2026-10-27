@@ -2,7 +2,9 @@
 
 ``shadow_results``: one row per audited event. Frozen JSON copies of the
 local and cloud results, a source (``audit`` or a free ``fallback`` pair) and
-the owner's verdict. Paired text, kept 30 days.
+the owner's verdict. After 30 days the paired text (``local_result`` and
+``cloud_result``) is nulled; the row keeps its source, verdict and
+timestamps until it is deleted at 365 days.
 
 ``shadow_daily_summary``: numbers only, one row per (day, source), kept
 365 days.
@@ -10,7 +12,7 @@ the owner's verdict. Paired text, kept 30 days.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 
 from app.core.database import Base
 
@@ -27,6 +29,9 @@ class ShadowResult(Base):
     __table_args__ = (
         Index("idx_shadow_results_created_at", "created_at"),
         Index("idx_shadow_results_source_created", "source", "created_at"),
+        CheckConstraint("source IN ('audit', 'fallback')", name="ck_shadow_results_source"),
+        CheckConstraint("verdict IS NULL OR verdict IN ('agree', 'disagree', 'unsure')",
+                        name="ck_shadow_results_verdict"),
     )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

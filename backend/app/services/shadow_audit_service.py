@@ -4,7 +4,12 @@
 - ``count_audits_since``: the audit cap counts ``shadow_results`` rows, so it
   survives a restart (no in-memory counter).
 - ``upsert_daily_summary``: numbers only, one row per (day, source).
-- ``purge_expired``: paired text kept 30 days, summaries 365 days.
+- ``purge_expired``: after 30 days the paired text is nulled (the row keeps
+  its source, verdict and timestamps); rows and summaries are deleted after
+  365 days.
+- ``recompute_daily_summary``: recomputable counts for any past day. Verdicts
+  count by ``verdict_at``, so a verdict given after a day's summary ran is
+  counted in the summary for the day it was given.
 
 All stored numbers go through the numpy-safe helper (#708). Logs carry ids,
 counts and outcomes only: never descriptions, image paths, names or plates.
@@ -41,7 +46,7 @@ def _now(now: Optional[datetime] = None) -> datetime:
 def _dumps(value: Any) -> Optional[str]:
     if value is None:
         return None
-    return json.dumps(json_safe(value))
+    return json.dumps(json_safe(value), allow_nan=False)
 
 
 def _check_source(source: str) -> None:
@@ -130,7 +135,7 @@ def upsert_daily_summary(db: Session, day: date, source: str,
     safe = json_safe(metrics)
     if not isinstance(safe, dict) or not _numbers_only(safe):
         raise ValueError("daily summary metrics must be numbers only")
-    payload = json.dumps(safe)
+    payload = json.dumps(safe, allow_nan=False)
     row = (
         db.query(ShadowDailySummary)
         .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == source)
@@ -145,19 +150,58 @@ def upsert_daily_summary(db: Session, day: date, source: str,
     return row
 
 
+def _local_day_bounds(day: date):
+    start = datetime.combine(day, datetime.min.time()).astimezone()
+    return start.astimezone(timezone.utc), (start + timedelta(days=1)).astimezone(timezone.utc)
+
+
+def recompute_daily_summary(db: Session, day: date, source: str) -> ShadowDailySummary:
+    """Recount ``day`` (box-local) from ``shadow_results`` and merge into its summary.
+
+    ``pairs_recorded`` counts rows created that day; ``verdicts_<v>`` counts
+    verdicts whose ``verdict_at`` falls on that day. Other keys already in the
+    summary (e.g. metric sums from the audit service) are kept. Safe to re-run.
+    """
+    _check_source(source)
+    start, end = _local_day_bounds(day)
+    base = db.query(ShadowResult).filter(ShadowResult.source == source)
+    counts = {"pairs_recorded": base.filter(ShadowResult.created_at >= start,
+                                            ShadowResult.created_at < end).count()}
+    for verdict in SHADOW_VERDICTS:
+        counts[f"verdicts_{verdict}"] = base.filter(
+            ShadowResult.verdict == verdict,
+            ShadowResult.verdict_at >= start,
+            ShadowResult.verdict_at < end,
+        ).count()
+    row = (db.query(ShadowDailySummary)
+           .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == source)
+           .first())
+    merged = json.loads(row.metrics) if row is not None else {}
+    merged.update(counts)
+    return upsert_daily_summary(db, day, source, merged)
+
+
 def purge_expired(
     db: Session,
     now: Optional[datetime] = None,
     pair_days: int = PAIR_RETENTION_DAYS,
     summary_days: int = SUMMARY_RETENTION_DAYS,
 ) -> Dict[str, int]:
-    """Delete pairs older than ``pair_days`` and summaries older than ``summary_days``."""
+    """Null paired text after ``pair_days``; delete rows and summaries after ``summary_days``."""
     current = _now(now)
     pair_cutoff = current - timedelta(days=pair_days)
-    summary_cutoff = (current - timedelta(days=summary_days)).date()
-    pairs = (
+    row_cutoff = current - timedelta(days=summary_days)
+    summary_cutoff = row_cutoff.date()
+    redacted = (
         db.query(ShadowResult)
-        .filter(ShadowResult.created_at < pair_cutoff)
+        .filter(ShadowResult.created_at < pair_cutoff,
+                (ShadowResult.local_result.isnot(None)) | (ShadowResult.cloud_result.isnot(None)))
+        .update({ShadowResult.local_result: None, ShadowResult.cloud_result: None},
+                synchronize_session=False)
+    )
+    deleted = (
+        db.query(ShadowResult)
+        .filter(ShadowResult.created_at < row_cutoff)
         .delete(synchronize_session=False)
     )
     summaries = (
@@ -166,7 +210,8 @@ def purge_expired(
         .delete(synchronize_session=False)
     )
     db.commit()
-    result = {"shadow_results_deleted": int(pairs or 0),
+    result = {"shadow_results_redacted": int(redacted or 0),
+              "shadow_results_deleted": int(deleted or 0),
               "shadow_summaries_deleted": int(summaries or 0)}
     logger.info("Shadow retention complete", extra={"event_type": "shadow_retention", **result})
     return result

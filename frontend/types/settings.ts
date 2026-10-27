@@ -62,6 +62,7 @@ export interface SystemSettings {
 
   // Story P9-3.2: OCR Frame Overlay Extraction
   attempt_ocr_extraction?: boolean;  // Attempt OCR on frame overlays (default: false)
+  notify_per_incident?: boolean;  // #675/#719: one notification per grouped incident (default: false)
 
   // Story P9-2.1: Frame Extraction Offset
   frame_extraction_offset_ms?: number;  // Milliseconds to skip from clip start (0-10000, default: 2000)

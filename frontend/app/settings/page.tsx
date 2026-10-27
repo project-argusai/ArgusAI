@@ -53,6 +53,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
+import { IncidentNotificationSetting } from '@/components/settings/IncidentNotificationSetting';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/settings/ConfirmDialog';
@@ -1404,6 +1405,10 @@ Keep the summary concise (2-3 paragraphs).`}
             {/* Notifications Tab - Story P4-1.2, P12-2.3, P16-1.7 */}
             <TabsContent value="notifications" className="space-y-4">
               <PushNotificationSettings />
+              {/* #675 / #720: one notification per grouped incident */}
+              <ErrorBoundary context="Grouped Incident Notifications">
+                <IncidentNotificationSetting />
+              </ErrorBoundary>
               {/* Story P16-1.7: SMTP Email Settings */}
               <ErrorBoundary context="SMTP Settings">
                 <SMTPSettings />

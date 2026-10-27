@@ -22,7 +22,17 @@ def upgrade() -> None:
         batch.add_column(sa.Column("was_audit_claim", sa.Boolean(), nullable=False,
                                    server_default=sa.false()))
     # Rows written before this column: audit-sourced rows were audit claims.
-    op.execute("UPDATE shadow_results SET was_audit_claim = 1 WHERE source = 'audit'")
+    # sa.true() renders TRUE on Postgres booleans and 1 on SQLite.
+    shadow_results = sa.table(
+        "shadow_results",
+        sa.column("was_audit_claim", sa.Boolean()),
+        sa.column("source", sa.String()),
+    )
+    op.execute(
+        shadow_results.update()
+        .where(shadow_results.c.source == "audit")
+        .values(was_audit_claim=sa.true())
+    )
     op.create_index("idx_shadow_results_claim_created", "shadow_results",
                     ["was_audit_claim", "created_at"])
     op.create_index("idx_shadow_results_status_created", "shadow_results",

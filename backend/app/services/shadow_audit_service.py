@@ -7,9 +7,10 @@
 - ``purge_expired``: after 30 days the paired text is nulled (the row keeps
   its source, verdict and timestamps); rows and summaries are deleted after
   365 days.
-- ``recompute_daily_summary``: recomputable counts for any past day. Verdicts
-  count by ``verdict_at``, so a verdict given after a day's summary ran is
-  counted in the summary for the day it was given.
+- ``recompute_daily_summary``: recomputable counts for any past day. Each
+  pair's current verdict counts on the day the pair was created, so a late or
+  changed verdict is counted once, as its final value, when that day is
+  recomputed (the daily job recomputes the last 30 days).
 
 All stored numbers go through the numpy-safe helper (#708). Logs carry ids,
 counts and outcomes only: never descriptions, image paths, names or plates.
@@ -36,6 +37,7 @@ from app.utils.json_safe import json_safe
 logger = logging.getLogger(__name__)
 
 PAIR_RETENTION_DAYS = 30
+RECOMPUTE_DAYS = 30
 SUMMARY_RETENTION_DAYS = 365
 
 
@@ -159,20 +161,18 @@ def recompute_daily_summary(db: Session, day: date, source: str) -> ShadowDailyS
     """Recount ``day`` (box-local) from ``shadow_results`` and merge into its summary.
 
     ``pairs_recorded`` counts rows created that day; ``verdicts_<v>`` counts
-    verdicts whose ``verdict_at`` falls on that day. Other keys already in the
+    the current verdict of those same rows (by ``created_at``, not
+    ``verdict_at``), so a changed verdict never lands on two days. Other keys already in the
     summary (e.g. metric sums from the audit service) are kept. Safe to re-run.
     """
     _check_source(source)
     start, end = _local_day_bounds(day)
-    base = db.query(ShadowResult).filter(ShadowResult.source == source)
-    counts = {"pairs_recorded": base.filter(ShadowResult.created_at >= start,
-                                            ShadowResult.created_at < end).count()}
+    base = db.query(ShadowResult).filter(ShadowResult.source == source,
+                                         ShadowResult.created_at >= start,
+                                         ShadowResult.created_at < end)
+    counts = {"pairs_recorded": base.count()}
     for verdict in SHADOW_VERDICTS:
-        counts[f"verdicts_{verdict}"] = base.filter(
-            ShadowResult.verdict == verdict,
-            ShadowResult.verdict_at >= start,
-            ShadowResult.verdict_at < end,
-        ).count()
+        counts[f"verdicts_{verdict}"] = base.filter(ShadowResult.verdict == verdict).count()
     row = (db.query(ShadowDailySummary)
            .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == source)
            .first())

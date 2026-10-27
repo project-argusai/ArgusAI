@@ -1894,6 +1894,54 @@ def _reanalysis_provider_failure(result) -> HTTPException:
     return HTTPException(status_code=code, detail=client_reanalysis_error(raw))
 
 
+async def _local_first_reanalysis(image_base64: str, event, camera):
+    """Local-first for manual re-analysis (AI_PRIMARY=local, #691).
+
+    Returns the local model's result when it is usable, else None so the
+    caller runs the cloud chain. A cloud fallback counts against
+    CLOUD_FALLBACK_DAILY_CAP like a live event. When the cap is reached, a
+    low-confidence local answer is kept and anything else becomes a 503.
+    Returns None straight away when local-first is off.
+    """
+    from app.services.local_first import (
+        LocalFirstConfig,
+        get_cloud_fallback_budget,
+        try_local_reanalysis,
+    )
+
+    config = LocalFirstConfig.from_settings()
+    if not config.enabled or not image_base64:
+        return None
+    local_result, problem = await try_local_reanalysis(
+        image_base64,
+        event_id=str(event.id),
+        camera=camera,
+        local_timestamp=event.timestamp.isoformat() if event.timestamp else None,
+        config=config,
+    )
+    if problem is None:
+        return local_result
+    budget = get_cloud_fallback_budget(config.daily_cloud_cap)
+    if budget.try_acquire():
+        logger.info(
+            "Re-analysis local answer unusable (%s); using cloud fallback (%s/%s today)",
+            problem,
+            budget.used,
+            budget.cap,
+            extra={"event_type": "reanalyze_local_cloud_fallback", "reason": problem},
+        )
+        return None
+    logger.warning(
+        "Re-analysis local answer unusable (%s) and the daily cloud fallback cap (%s) is reached",
+        problem,
+        budget.cap,
+        extra={"event_type": "reanalyze_cloud_cap_reached", "reason": problem},
+    )
+    if problem == "low_confidence" and local_result is not None:
+        return local_result
+    raise _reanalysis_provider_failure(local_result)
+
+
 @router.post("/{event_id}/reanalyze", response_model=EventResponse, dependencies=_REQUIRE_OPERATOR)
 async def reanalyze_event(
     event_id: str,
@@ -2104,14 +2152,16 @@ async def reanalyze_event(
                     detail="Thumbnail image is corrupted or invalid. Please capture a new event."
                 )
 
-            result = await ai_service.generate_description(
-                frame=frame,
-                camera_name=camera.name,
-                timestamp=event.timestamp.isoformat(),
-                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
-                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
-                user_initiated=True,
-            )
+            result = await _local_first_reanalysis(image_base64, event, camera)
+            if result is None:
+                result = await ai_service.generate_description(
+                    frame=frame,
+                    camera_name=camera.name,
+                    timestamp=event.timestamp.isoformat(),
+                    detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
+                    sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
+                    user_initiated=True,
+                )
 
         elif analysis_mode == 'multi_frame' and video_path:
             # Honor the admin-configured frame budget. A stored detection box
@@ -2171,15 +2221,22 @@ async def reanalyze_event(
                     _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
                     frame_bytes.append(buffer.tobytes())
 
-            result = await ai_service.describe_images(
-                images=frame_bytes,
-                camera_name=camera.name,
-                timestamp=event.timestamp.isoformat(),
-                detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
-                subject_crop_count=subject_crop_count,
-                sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
-                user_initiated=True,
+            # Local-first sends the middle frame (the local model reads one image).
+            result = await _local_first_reanalysis(
+                base64.b64encode(frame_bytes[len(frame_bytes) // 2]).decode("ascii"),
+                event,
+                camera,
             )
+            if result is None:
+                result = await ai_service.describe_images(
+                    images=frame_bytes,
+                    camera_name=camera.name,
+                    timestamp=event.timestamp.isoformat(),
+                    detected_objects=json.loads(event.objects_detected) if isinstance(event.objects_detected, str) else event.objects_detected,
+                    subject_crop_count=subject_crop_count,
+                    sla_timeout_ms=_MANUAL_ANALYSIS_SLA_MS,
+                    user_initiated=True,
+                )
 
         elif analysis_mode == 'video_native' and video_path:
             from app.services.settings_service import SettingsService

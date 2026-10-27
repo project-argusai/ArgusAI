@@ -145,3 +145,48 @@ def reset_cloud_fallback_budget() -> None:
     global _budget
     with _budget_lock:
         _budget = None
+
+
+# A person waits on a manual re-analysis, so cap the local wait below the
+# live-event budget.
+REANALYZE_LOCAL_MAX_WAIT_S = 60.0
+
+
+async def try_local_reanalysis(
+    image_base64: str,
+    *,
+    event_id: str,
+    camera,
+    local_timestamp: Optional[str],
+    config: Optional[LocalFirstConfig] = None,
+):
+    """Ask the local model for a manual re-analysis. Returns (result, problem).
+
+    ``problem`` is None when the answer is usable (see ``local_answer_problem``),
+    otherwise a short label (``busy``, ``local_error``, ``blank``, ...). Never
+    raises and never logs description text.
+    """
+    from app.services.local_vlm_fallback import RedescribeJob, get_local_vlm_fallback_service
+
+    config = config or LocalFirstConfig.from_settings()
+    job = RedescribeJob(
+        event_id=event_id,
+        image_base64=image_base64,
+        camera_id=getattr(camera, "id", None),
+        camera_name=getattr(camera, "name", "") or "",
+        event_type=None,
+        local_timestamp=local_timestamp,
+    )
+    max_wait_s = min(config.max_wait_ms / 1000.0, REANALYZE_LOCAL_MAX_WAIT_S)
+    outcome = await get_local_vlm_fallback_service().describe_now(job, max_wait_s)
+    if outcome.result is None:
+        problem = "busy" if outcome.reason == "busy" else f"local_{outcome.reason}".split(":")[0]
+    else:
+        problem = local_answer_problem(outcome.result, config.min_confidence)
+    logger.info(
+        "Local-first re-analysis: %s (waited %.1fs)",
+        problem or "ok",
+        outcome.waited_s,
+        extra={"event_type": "reanalyze_local_result", "outcome": problem or "ok"},
+    )
+    return outcome.result, problem

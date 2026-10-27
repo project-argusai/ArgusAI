@@ -425,3 +425,102 @@ class TestSettings:
         with local_first.track_cloud_fallback():
             assert local_first.cloud_fallback_in_progress() is True
         assert local_first.cloud_fallback_in_progress() is False
+
+
+class TestLifecycleAndMetrics:
+    """Adapts #736 to the #742 row lifecycle and #743 score_pair."""
+
+    @pytest.mark.asyncio
+    async def test_summary_recomputed_after_store(self, db_factory):
+        svc, _ = _svc(db_factory)
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        db = db_factory()
+        m = json.loads(db.query(ShadowDailySummary).one().metrics)
+        db.close()
+        assert m["pairs"] == 1 and m["pairs_recorded"] == 1
+        assert m["sum_objects_jaccard"] == 1.0
+        assert {m["verdicts_agree"], m["verdicts_disagree"], m["verdicts_unsure"]} == {0}
+
+    @pytest.mark.asyncio
+    async def test_non_finite_metrics_skipped_and_strict_json(self, db_factory):
+        svc, _ = _svc(db_factory, scorer=lambda l, c: {"pair_complete": 1,
+                                                       "confidence_delta": float("nan"),
+                                                       "objects_jaccard": float("inf")})
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        db = db_factory()
+        raw = db.query(ShadowDailySummary).one().metrics
+        db.close()
+        m = json.loads(raw, parse_constant=lambda c: pytest.fail(c))
+        assert "sum_confidence_delta" not in m and "sum_objects_jaccard" not in m
+        assert m["sum_pair_complete"] == 1
+
+    @pytest.mark.asyncio
+    async def test_entities_compared_summed_for_averaging(self, db_factory):
+        scores = iter([{"pair_complete": 1, "entities_compared": 1, "entities_jaccard": 0.5},
+                       {"pair_complete": 1, "entities_compared": 0, "entities_jaccard": 0.0}])
+        svc, _ = _svc(db_factory, scorer=lambda l, c: next(scores))
+        for _ in range(2):
+            eid, _ = _event(db_factory)
+            await _run(svc, eid)
+        db = db_factory()
+        m = json.loads(db.query(ShadowDailySummary).one().metrics)
+        db.close()
+        assert m["sum_entities_compared"] == 1 and m["sum_entities_jaccard"] == 0.5
+
+    @pytest.mark.asyncio
+    async def test_ai_confidence_kept_in_frozen_copies(self, db_factory):
+        seen = {}
+
+        def scorer(l, c):
+            seen.update(local=l, cloud=c)
+            return {}
+        svc, _ = _svc(db_factory, call=Calls(result={**CLOUD, "ai_confidence": 88}), scorer=scorer)
+        eid, _ = _event(db_factory)
+        svc.maybe_schedule(event_id=eid, event_type="person",
+                           local_result={**LOCAL, "ai_confidence": 55}, image_base64=IMAGE)
+        await svc.drain()
+        assert seen["local"]["ai_confidence"] == 55 and seen["cloud"]["ai_confidence"] == 88
+
+    @pytest.mark.asyncio
+    async def test_redacted_event_not_reaudited(self, db_factory):
+        from app.services import shadow_audit_service as sas
+        call = Calls()
+        svc, _ = _svc(db_factory, call=call)
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        db = db_factory()
+        sas.purge_expired(db, now=datetime.now(timezone.utc) + timedelta(days=31))
+        assert db.query(ShadowResult).one().local_result is None
+        db.close()
+        assert await _run(svc, eid) != "scheduled"
+        assert call.n == 1
+        assert _rows(db_factory)[0].local_result is None  # never refilled
+
+    @pytest.mark.asyncio
+    async def test_redacted_rows_still_count_toward_cap(self, db_factory):
+        from app.services import shadow_audit_service as sas
+        call = Calls()
+        svc, state = _svc(db_factory, call=call)
+        state["cfg"] = replace(BASE_CFG, daily_cap=1)
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        db = db_factory()
+        db.query(ShadowResult).update({ShadowResult.local_result: None,
+                                       ShadowResult.cloud_result: None})
+        db.commit()
+        db.close()
+        eid2, _ = _event(db_factory)
+        await _run(svc, eid2)  # cap is re-checked inside the task
+        assert call.n == 1 and len(_rows(db_factory)) == 1
+
+    def test_real_score_pair_output_accumulates_when_available(self, db_factory):
+        pm = pytest.importorskip("app.services.pair_metrics")
+        svc, _ = _svc(db_factory, scorer=pm.score_pair)
+        eid, _ = _event(db_factory)
+        svc.record_fallback_pair(event_id=eid, local_result=LOCAL, cloud_result=CLOUD)
+        db = db_factory()
+        m = json.loads(db.query(ShadowDailySummary).one().metrics)
+        db.close()
+        assert m["sum_pair_complete"] == 1 and "sum_entities_compared" in m

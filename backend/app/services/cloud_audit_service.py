@@ -335,3 +335,6 @@ class CloudAuditService:
             name = f"sum_{key}"
             current[name] = current.get(name, 0) + value
         sas.upsert_daily_summary(db, day, source, current)
+        # #742: refresh row-derived counts (pairs_recorded, verdicts by
+        # verdict_at) while keeping the sums above.
+        sas.recompute_daily_summary(db, day, source)

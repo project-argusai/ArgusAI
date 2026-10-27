@@ -149,6 +149,27 @@ class TestParseConfidenceResponse:
         assert confidence == 85
         assert isinstance(confidence, int)
 
+    @pytest.mark.parametrize("response", [
+        "confidence" + " " * 50_000,
+        "confidence score" + " " * 50_000,
+        "confidence" + " \t" * 25_000 + ":",
+    ])
+    def test_text_pattern_no_quadratic_backtracking(self, provider, response):
+        """#747: long whitespace after 'confidence' must not backtrack quadratically."""
+        import time
+        start = time.perf_counter()
+        _, confidence, _ = provider._parse_confidence_response(response)
+        assert time.perf_counter() - start < 0.5
+        assert confidence is None
+
+    @pytest.mark.parametrize("text", [
+        "confidence score: 85", "Confidence level 85", "confidence rating : 85",
+        "confidence:85", "confidence   85",
+    ])
+    def test_text_pattern_variants_still_match(self, provider, text):
+        _, confidence, _ = provider._parse_confidence_response(text)
+        assert confidence == 85
+
 
 class TestAIResultWithConfidence:
     """AC6: Test AIResult dataclass includes ai_confidence field"""

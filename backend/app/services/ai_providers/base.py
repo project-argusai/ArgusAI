@@ -221,7 +221,9 @@ class AIProviderBase(ABC):
         confidence_patterns = [
             r'confidence[:\s]+' + number + r'(?:%|\b)',
             number + r'%?\s*confiden',
-            r'confidence\s*(?:score|level|rating)?[:\s]*' + number,
+            # Linear: the old \s*[:\s]* (and \s*:?\s*) backtrack quadratically
+            # on long whitespace runs; the second \s* only runs after a colon (#747).
+            r'confidence(?:\s*(?:score|level|rating))?\s*(?::\s*)?' + number,
         ]
         for pattern in confidence_patterns:
             match = re.search(pattern, response_text, re.IGNORECASE)

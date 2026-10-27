@@ -6,6 +6,7 @@
  * and a side-by-side pair detail with keyboard-friendly verdict buttons.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ApiError } from '@/lib/api-client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,7 +47,14 @@ export function SummaryStrip({ now = new Date() }: { now?: Date }) {
   const q = useQuery({ queryKey: ['ai-audit', 'summary', from, to], queryFn: () => aiAuditApi.getSummary(from, to) });
 
   if (q.isLoading) return <Skeleton className="h-20 w-full" data-testid="summary-loading" />;
-  if (q.isError) return <p role="alert" className="text-sm text-destructive">Couldn’t load the daily summary.</p>;
+  if (q.isError) {
+    const forbidden = q.error instanceof ApiError && q.error.statusCode === 403;
+    return (
+      <p role="alert" className="text-sm text-destructive">
+        {forbidden ? 'The AI audit summary is available to admins only.' : 'Couldn’t load the daily summary.'}
+      </p>
+    );
+  }
   const s = q.data!;
   const totals = s.days.reduce(
     (a, d) => ({ pairs: a.pairs + d.pairs, reviewed: a.reviewed + d.reviewed, skipped: a.skipped + d.skippedCap + d.skippedBudget }),
@@ -111,6 +119,9 @@ function PairDetail({
     onError: (e) => setError(verdictErrorMessage(e)),
   });
   const { mutate, isPending } = m;
+  const [openedAt] = useState(() => Date.now());
+  const expiresAt = q.data?.textExpiresAt;
+  const expired = !!expiresAt && new Date(expiresAt).getTime() <= openedAt;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,14 +129,14 @@ function PairDetail({
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       const v = (Object.keys(VERDICT_KEY) as AuditVerdict[]).find((k) => VERDICT_KEY[k] === e.key.toLowerCase());
-      if (v) {
+      if (v && !expired) {
         e.preventDefault();
         mutate(v);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [mutate, isPending]);
+  }, [mutate, isPending, expired]);
 
   if (q.isLoading) return <Skeleton className="h-40 w-full" data-testid="pair-loading" />;
   if (q.isError || !q.data) {
@@ -153,7 +164,7 @@ function PairDetail({
             variant={p.verdict === v ? 'default' : 'outline'}
             aria-pressed={p.verdict === v}
             aria-keyshortcuts={VERDICT_KEY[v].toUpperCase()}
-            disabled={isPending}
+            disabled={isPending || expired}
             onClick={() => mutate(v)}
           >
             {VERDICT_LABEL[v]} <kbd className="ml-1 text-xs opacity-70">{VERDICT_KEY[v].toUpperCase()}</kbd>
@@ -162,7 +173,12 @@ function PairDetail({
         <span className="text-xs text-muted-foreground">Keys A / D / U. Moves to the next unreviewed pair.</span>
       </div>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      {p.textExpiresAt && (
+      {expired && (
+        <p role="status" className="text-sm text-muted-foreground">
+          This pair’s text has expired (kept 30 days), so it can no longer be reviewed.
+        </p>
+      )}
+      {p.textExpiresAt && !expired && (
         <p className="text-xs text-muted-foreground">Text kept until {new Date(p.textExpiresAt).toLocaleDateString()}.</p>
       )}
     </section>
@@ -280,7 +296,11 @@ export function AuditReview({ now }: { now?: Date } = {}) {
               <Skeleton className="h-40 w-full" data-testid="pairs-loading" />
             ) : list.isError ? (
               <div role="alert" className="space-y-2 text-sm text-destructive">
-                <p>Couldn’t load audit pairs.</p>
+                <p>
+                  {list.error instanceof ApiError && list.error.statusCode === 403
+                    ? 'The AI audit is available to admins only.'
+                    : 'Couldn’t load audit pairs.'}
+                </p>
                 <Button type="button" size="sm" variant="outline" onClick={() => list.refetch()}>
                   Retry
                 </Button>

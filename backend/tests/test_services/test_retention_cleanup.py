@@ -504,7 +504,7 @@ class TestScheduledJobs:
         scheduler = _Scheduler()
         register_retention_jobs(scheduler)
         by_id = {job["id"]: job for job in scheduler.jobs}
-        assert set(by_id) == {"daily_cleanup", "daily_video_cleanup"}
+        assert set(by_id) == {"daily_cleanup", "daily_video_cleanup", "daily_shadow_retention"}
         assert by_id["daily_cleanup"]["func"] is scheduled_cleanup_job
         assert by_id["daily_video_cleanup"]["func"] is scheduled_video_cleanup_job
         event_trigger = str(by_id["daily_cleanup"]["trigger"])

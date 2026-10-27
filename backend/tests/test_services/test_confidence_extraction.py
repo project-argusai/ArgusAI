@@ -359,7 +359,8 @@ class TestConfidenceScale745:
         got = self._conf(provider, value)
         assert got == expected and type(got) is int
 
-    @pytest.mark.parametrize("raw", ['NaN', 'Infinity', '-Infinity', '101', '-0.5', '1e9', 'true', '"85"'])
+    @pytest.mark.parametrize("raw", ['NaN', 'Infinity', '-Infinity', '101', '-0.5', '1e9', 'true',
+                                     '"NaN"', '"inf"', '"-5"', '"abc"', '"101"', '""'])
     def test_rejected_like_before(self, provider, raw):
         text = '{"description": "A person at the door.", "confidence": %s}' % raw
         description, confidence, _ = provider._parse_confidence_response(text)
@@ -388,3 +389,68 @@ class TestConfidenceScale745:
                              ai_confidence=self._conf(provider, 0.3))
         assert local_low.ai_confidence == 30
         assert local_answer_problem(local_low, min_confidence=50) == "low_confidence"
+
+
+class TestConfidenceScale747Review:
+    """#747 review (Gracie/Terry): text path, LiteLLM path, Decimal rounding, strings, counter."""
+
+    @pytest.fixture
+    def provider(self):
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        AIProviderBase.__init__(provider, "test-api-key")
+        return provider
+
+    @pytest.mark.parametrize("value,expected", [
+        (0.285, 29), (0.125, 13), (0.004, 0), (0.005, 1), (0.995, 100),
+    ])
+    def test_half_up_decimal_rounding(self, value, expected):
+        from app.services.ai_providers.base import normalize_confidence
+        assert normalize_confidence(value) == expected
+
+    @pytest.mark.parametrize("value,expected", [
+        ("85", 85), (" 85 ", 85), ("0.85", 85), ("85.7", 85), ("1", 1),
+        (__import__("decimal").Decimal("0.85"), 85), (__import__("decimal").Decimal("85"), 85),
+        ("NaN", None), ("inf", None), ("-1", None), ("1e2", None), ("85%", None),
+        (__import__("decimal").Decimal("NaN"), None), (__import__("decimal").Decimal("Infinity"), None),
+    ])
+    def test_strings_and_decimals(self, value, expected):
+        from app.services.ai_providers.base import normalize_confidence
+        assert normalize_confidence(value) == expected
+
+    def test_json_string_confidence_now_accepted(self, provider):
+        text = '{"description": "A person at the door.", "confidence": "85"}'
+        assert provider._parse_confidence_response(text)[1] == 85
+
+    @pytest.mark.parametrize("text,expected", [
+        ("A person at the door. Confidence: 0.85", 85),
+        ("A person at the door. Confidence: 85", 85),
+        ("A person at the door. 0.9 confidence", 90),
+        ("A person at the door. Confidence: 0.285", 29),
+    ])
+    def test_text_path(self, provider, text, expected):
+        assert provider._parse_confidence_response(text)[1] == expected
+
+    def test_litellm_paths(self):
+        from app.services.litellm_provider import LiteLLMProvider
+        p = LiteLLMProvider.__new__(LiteLLMProvider)
+        assert p._parse_response('{"description": "A cat.", "confidence": 0.85}')[1] == 85
+        assert p._parse_response('Note {"description": "A cat.", "confidence": 0.85} end')[1] == 85
+        desc, conf, _ = p._parse_response("A cat on the porch. Confidence: 0.85")
+        assert conf == 85 and "0.85" not in desc and "onfidence" not in desc
+        assert p._parse_response('{"description": "A cat.", "confidence": 85}')[1] == 85
+        assert p._parse_response('{"description": "A cat.", "confidence": NaN}')[1] is None
+        assert p._parse_response("A cat. Confidence: 150")[1] is None
+
+    def test_exactly_one_counter(self):
+        from app.core.metrics import REGISTRY
+        from app.services.ai_providers.base import normalize_confidence
+
+        def count():
+            return REGISTRY.get_sample_value("ai_confidence_exactly_one_total") or 0.0
+        before = count()
+        assert normalize_confidence(1) == 1
+        assert normalize_confidence(1.0) == 1
+        assert normalize_confidence("1") == 1
+        normalize_confidence(0.85)
+        normalize_confidence(100)
+        assert count() - before == 3

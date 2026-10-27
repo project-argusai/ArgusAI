@@ -9,6 +9,8 @@ from typing import List, Optional, Dict, Any
 import logging
 import math
 import numbers
+import re
+from decimal import ROUND_HALF_UP, Decimal
 
 import numpy as np
 
@@ -37,31 +39,57 @@ def resolve_request_timeout(requested: Optional[float], default: float) -> float
     return value
 
 
-def normalize_confidence(value: Any) -> Optional[int]:
-    """Map a model's top-level confidence to an int on the 0-100 scale (#745).
+_NUMERIC_STRING = re.compile(r"\d{1,3}(?:\.\d+)?")
 
-    - A non-integer float strictly between 0 and 1 (e.g. 0.85) is a 0-1
-      score: scaled by 100 and rounded half up (0.85 -> 85). Before #745,
-      ``int(0.85)`` gave 0 and could trigger the #696 cloud fallback.
-    - Anything else from 0 to 100 (int, or float such as 85.0 / 85.7) is
-      already 0-100 and is truncated as before (85.7 -> 85).
-    - Exactly 1 / 1.0 is kept as 1 (1%), not 100. A low reading at worst
-      costs one capped cloud fallback with a correct result; reading it as
-      100% could silently skip the fallback for an answer the model rated
-      near zero. 0 / 0.0 stay 0.
-    - NaN, inf, out-of-range values, bools and non-numbers return None
+
+def normalize_confidence(value: Any) -> Optional[int]:
+    """Map a model's confidence to an int on the 0-100 scale (#745, #747).
+
+    - Accepts int, float, ``Decimal``, numpy scalars and plain numeric
+      strings such as ``"85"`` or ``"0.85"`` (digits with an optional
+      decimal part; no sign, exponent, ``%``, NaN or inf).
+    - A non-integer value strictly between 0 and 1 (e.g. 0.85) is a 0-1
+      score: scaled by 100 and rounded half up on the decimal string
+      (``Decimal(str(v))``), so 0.285 -> 29 and 0.005 -> 1. Values below
+      0.005 round to 0. Before #745, ``int(0.85)`` gave 0 and could trigger
+      the #696 cloud fallback.
+    - Anything else from 0 to 100 is already 0-100 and is truncated as
+      before (85.7 -> 85).
+    - Exactly 1 / 1.0 / "1" is kept as 1 (1%), not 100: a low reading at
+      worst costs one capped cloud fallback with a correct result, while
+      reading it as 100% could silently skip the fallback for an answer the
+      model rated near zero. Each such value bumps the count-only metric
+      ``ai_confidence_exactly_one_total``. 0 stays 0.
+    - NaN, inf, out-of-range values, bools and anything else return None
       (the existing "no usable score" path).
-    numpy scalars are accepted.
     """
     if value is None or isinstance(value, (bool, np.bool_)):
         return None
-    if not isinstance(value, (numbers.Real, np.integer, np.floating)):
+    if isinstance(value, str):
+        text = value.strip()
+        if not _NUMERIC_STRING.fullmatch(text):
+            return None
+        number = Decimal(text)
+    elif isinstance(value, Decimal):
+        number = value
+    elif isinstance(value, (numbers.Real, np.integer, np.floating)):
+        as_float = float(value)
+        if not math.isfinite(as_float):
+            return None
+        number = Decimal(str(as_float)) if not isinstance(value, (int, np.integer)) else Decimal(int(value))
+    else:
         return None
-    number = float(value)
-    if not math.isfinite(number) or number < 0 or number > 100:
+    if not number.is_finite() or number < 0 or number > 100:
         return None
+    if number == 1:
+        try:
+            from app.core.metrics import ai_confidence_exactly_one_total
+            ai_confidence_exactly_one_total.inc()
+        except Exception:  # noqa: BLE001 - metrics must never break parsing
+            pass
+        return 1
     if 0 < number < 1:
-        return int(math.floor(number * 100 + 0.5))
+        return int((number * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
     return int(number)
 
 
@@ -185,20 +213,18 @@ class AIProviderBase(ABC):
             partial_desc = truncated_match.group(1).strip()
             return partial_desc, None, None
 
+        number = r'(\d{1,3}(?:\.\d+)?)'  # "85" or "0.85" (#747)
         confidence_patterns = [
-            r'confidence[:\s]+(\d{1,3})(?:%|\b)',
-            r'(\d{1,3})%?\s*confiden',
-            r'confidence\s*(?:score|level|rating)?[:\s]*(\d{1,3})',
+            r'confidence[:\s]+' + number + r'(?:%|\b)',
+            number + r'%?\s*confiden',
+            r'confidence\s*(?:score|level|rating)?[:\s]*' + number,
         ]
         for pattern in confidence_patterns:
             match = re.search(pattern, response_text, re.IGNORECASE)
             if match:
-                try:
-                    confidence = int(match.group(1))
-                    if 0 <= confidence <= 100:
-                        return response_text, confidence, None
-                except (ValueError, IndexError):
-                    continue
+                confidence = normalize_confidence(match.group(1))
+                if confidence is not None:
+                    return response_text, confidence, None
 
         return response_text, None, None
 

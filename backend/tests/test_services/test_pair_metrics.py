@@ -66,8 +66,9 @@ class TestBlankAndMissing:
     @pytest.mark.parametrize("blank", [
         {"description": "", "objects_detected": []},
         {"description": "   ", "objects_detected": []},
-        {"description": "No activity detected.", "objects_detected": []},
-        {"description": "Nothing notable.", "objects_detected": ["unknown"]},
+        {"description": "No person, vehicle, animal, or package is visible.",
+         "objects_detected": []},
+        {"description": "AI analysis unavailable", "objects_detected": ["unknown"]},
         {"blank": True, "description": "ignored", "objects_detected": ["person"]},
     ])
     def test_blank_results(self, blank):
@@ -76,7 +77,7 @@ class TestBlankAndMissing:
         assert m["local_blank"] == 1 and m["cloud_blank"] == 0 and m["blank_agree"] == 0
 
     def test_both_blank_agree(self):
-        m = pm.score_pair({"description": ""}, {"description": "No motion."})
+        m = pm.score_pair({"description": ""}, {"description": "AI analysis unavailable"})
         assert m["local_blank"] == 1 and m["cloud_blank"] == 1 and m["blank_agree"] == 1
         assert m["objects_jaccard"] == 1.0  # both empty sets agree
 
@@ -159,3 +160,49 @@ class TestHelpers:
         assert pm.description_similarity("", "") == 1.0
         assert pm.description_similarity("a cat", "") == 0.0
         assert pm.description_similarity("The Cat!", "the cat") == 1.0
+
+
+class TestGracieReview:
+    @pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"),
+                                     "nan", "inf", np.float64("nan"), 10 ** 400])
+    def test_number_non_finite_is_none(self, bad):
+        assert pm._number(bad) is None
+
+    def test_non_finite_confidence_gives_zero_delta(self):
+        m = pm.score_pair({**LOCAL, "confidence": float("nan")}, {**CLOUD, "confidence": 10 ** 400})
+        _assert_plain_numbers(m)
+        assert m["confidence_delta"] == 0
+
+    def test_blank_constants_come_from_source(self):
+        from app.services.ai_providers.local_provider import EMPTY_SCENE_DESCRIPTION
+        from app.services.local_vlm_fallback import UNAVAILABLE_DESCRIPTION
+        assert pm.BLANK_DESCRIPTIONS == frozenset({EMPTY_SCENE_DESCRIPTION, UNAVAILABLE_DESCRIPTION})
+
+    @pytest.mark.parametrize("text", ["No activity detected.", "Nothing notable.", "No motion.",
+                                      "No person, vehicle, animal, or package is visible. A cat sits."])
+    def test_near_miss_text_is_not_blank(self, text):
+        assert pm.is_blank({"description": text, "objects_detected": []}) is False
+
+    def test_entities_not_compared_without_ids(self):
+        a = {k: v for k, v in LOCAL.items() if k != "matched_entity_ids"}
+        b = {k: v for k, v in CLOUD.items() if k != "matched_entity_ids"}
+        m = pm.score_pair(a, b)
+        assert m["entities_compared"] == 0 and m["entities_jaccard"] == 0.0
+
+    def test_entities_compared_flag_set(self):
+        m = pm.score_pair(LOCAL, CLOUD)
+        assert m["entities_compared"] == 1
+        assert m["entities_jaccard"] == pytest.approx(0.5)
+
+    def test_entities_compared_in_metric_keys(self):
+        assert "entities_compared" in pm.METRIC_KEYS
+        assert pm.score_pair(None, None)["entities_compared"] == 0
+
+    def test_prefers_ai_confidence(self):
+        m = pm.score_pair({**LOCAL, "ai_confidence": 40, "confidence": 99},
+                          {**CLOUD, "ai_confidence": 50, "confidence": 1})
+        assert m["confidence_delta"] == -10
+
+    def test_falls_back_to_confidence(self):
+        m = pm.score_pair({**LOCAL, "ai_confidence": None}, CLOUD)
+        assert m["confidence_delta"] == -20

@@ -8,16 +8,25 @@ the numbers-only ``shadow_daily_summary`` (#735).
 A result may be a dict, an ``AIResult``-like object, or ``None``.
 - Missing: ``None``, an empty dict, or ``success`` is False. When either side
   is missing, ``pair_complete`` is 0 and every comparison metric is 0.
-- Blank: an explicit ``blank`` flag, an empty description, or a "nothing
-  happened" description with no meaningful objects (``unknown`` ignored).
+- Blank: an explicit ``blank`` flag, an empty description, or a description
+  that exactly equals one of the pipeline's own placeholder strings
+  (``BLANK_DESCRIPTIONS``, imported from where they are produced).
 - Entities come from ``matched_entity_ids`` (top level or inside
   ``identification``; a JSON string is accepted). Never from description text.
+  ``entities_jaccard`` is scored only when at least one side has ids;
+  ``entities_compared`` says whether it was.
+- Confidence prefers ``ai_confidence`` and falls back to ``confidence``.
+  Non-finite or unparseable numbers count as absent.
 """
 from __future__ import annotations
 
 import json
+import math
 import re
 from typing import Any, Iterable, Optional, Set
+
+from app.services.ai_providers.local_provider import EMPTY_SCENE_DESCRIPTION
+from app.services.local_vlm_fallback import UNAVAILABLE_DESCRIPTION
 
 METRIC_KEYS = (
     "pair_complete",
@@ -29,13 +38,13 @@ METRIC_KEYS = (
     "objects_jaccard",
     "objects_local_only",
     "objects_cloud_only",
+    "entities_compared",
     "entities_jaccard",
     "description_similarity",
     "confidence_delta",
 )
 
-_BLANK_PREFIXES = ("no activity", "no motion", "nothing", "no one", "no people",
-                   "no objects", "empty scene", "no notable")
+BLANK_DESCRIPTIONS = frozenset({EMPTY_SCENE_DESCRIPTION, UNAVAILABLE_DESCRIPTION})
 _IGNORED_OBJECTS = {"unknown", ""}
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
@@ -90,9 +99,15 @@ def _number(value: Any) -> Optional[float]:
     if value is None or isinstance(value, bool):
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
         return None
+    return number if math.isfinite(number) else None
+
+
+def _confidence(result: Any) -> Optional[float]:
+    value = _number(_get(result, "ai_confidence"))
+    return value if value is not None else _number(_get(result, "confidence"))
 
 
 def jaccard(a: Iterable[str], b: Iterable[str]) -> float:
@@ -111,12 +126,8 @@ def description_similarity(a: Optional[str], b: Optional[str]) -> float:
 def is_blank(result: Any) -> bool:
     if _get(result, "blank") is True or str(_get(result, "blank", "")).lower() == "true":
         return True
-    description = str(_get(result, "description") or "").strip().lower()
-    if not description:
-        return True
-    if not _labels(_get(result, "objects_detected")):
-        return description.startswith(_BLANK_PREFIXES)
-    return False
+    description = str(_get(result, "description") or "").strip()
+    return not description or description in BLANK_DESCRIPTIONS
 
 
 def score_pair(local: Any, cloud: Any) -> dict:
@@ -138,8 +149,10 @@ def score_pair(local: Any, cloud: Any) -> dict:
 
     local_objects = _labels(_get(local, "objects_detected"))
     cloud_objects = _labels(_get(cloud, "objects_detected"))
-    local_conf = _number(_get(local, "confidence"))
-    cloud_conf = _number(_get(cloud, "confidence"))
+    local_conf = _confidence(local)
+    cloud_conf = _confidence(cloud)
+    local_ids, cloud_ids = _entity_ids(local), _entity_ids(cloud)
+    entities_compared = bool(local_ids or cloud_ids)
 
     metrics.update({
         "pair_complete": 1,
@@ -147,7 +160,8 @@ def score_pair(local: Any, cloud: Any) -> dict:
         "objects_jaccard": jaccard(local_objects, cloud_objects),
         "objects_local_only": len(local_objects - cloud_objects),
         "objects_cloud_only": len(cloud_objects - local_objects),
-        "entities_jaccard": jaccard(_entity_ids(local), _entity_ids(cloud)),
+        "entities_compared": int(entities_compared),
+        "entities_jaccard": jaccard(local_ids, cloud_ids) if entities_compared else 0.0,
         "description_similarity": description_similarity(
             _get(local, "description"), _get(cloud, "description")),
         "confidence_delta": (

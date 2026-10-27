@@ -316,6 +316,15 @@ async function apiFetch<T>(
  * Camera API client
  */
 export const apiClient = {
+  /**
+   * #691 S5: AI audit (local vs cloud) endpoints from S4b (#734).
+   * Raw transport only; every backend field name lives in lib/ai-audit.ts.
+   */
+  aiAudit: {
+    get: async (path: string): Promise<unknown> => apiFetch<unknown>(`/ai-audit${path}`),
+    put: async (path: string, body: unknown): Promise<unknown> =>
+      apiFetch<unknown>(`/ai-audit${path}`, { method: 'PUT', body: JSON.stringify(body) }),
+  },
   cameras: {
     /**
      * Get all cameras

@@ -15,7 +15,7 @@ from sqlalchemy import Column, Date, DateTime, ForeignKey, Index, Integer, Strin
 from app.core.database import Base
 
 SHADOW_SOURCES = ("audit", "fallback")
-SHADOW_VERDICTS = ("local_better", "cloud_better", "same", "both_wrong")
+SHADOW_VERDICTS = ("agree", "disagree", "unsure")  # matches #734 API and #739 UI
 
 
 def _now():

@@ -85,23 +85,35 @@ class TestShadowResultStorage:
         with pytest.raises(ValueError):
             _pair(db_session, source="other")
 
-    def test_verdict_set_and_validated(self, db_session):
+    @pytest.mark.parametrize("verdict", ["agree", "disagree", "unsure"])
+    def test_verdict_set(self, db_session, verdict):
         ev, _ = _pair(db_session)
-        row = sas.set_verdict(db_session, ev.id, "cloud_better", now=NOW)
-        assert row.verdict == "cloud_better" and row.verdict_at is not None
+        row = sas.set_verdict(db_session, ev.id, verdict, now=NOW)
+        assert row.verdict == verdict and row.verdict_at is not None
+
+    @pytest.mark.parametrize("bad", ["local_better", "cloud_better", "same", "both_wrong",
+                                     "Agree", "", "nonsense"])
+    def test_verdict_rejects_other_values(self, db_session, bad):
+        ev, _ = _pair(db_session)
         with pytest.raises(ValueError):
-            sas.set_verdict(db_session, ev.id, "nonsense")
-        assert sas.set_verdict(db_session, "missing-event", "same") is None
+            sas.set_verdict(db_session, ev.id, bad)
+
+    def test_verdict_values_match_api(self):
+        from app.models.shadow_result import SHADOW_VERDICTS
+        assert SHADOW_VERDICTS == ("agree", "disagree", "unsure")
+
+    def test_verdict_missing_event(self, db_session):
+        assert sas.set_verdict(db_session, "missing-event", "agree") is None
 
 
 class TestDailySummary:
     def test_numbers_only_and_round_trip(self, db_session):
         metrics = {"pairs": np.int64(5), "agree_rate": np.float32(0.75),
-                   "by_verdict": {"same": np.int32(3)}, "hist": np.array([1, 2])}
+                   "by_verdict": {"agree": np.int32(3)}, "hist": np.array([1, 2])}
         row = sas.upsert_daily_summary(db_session, date(2026, 6, 1), "audit", metrics)
         db_session.expire_all()
         loaded = json.loads(db_session.get(ShadowDailySummary, row.id).metrics)
-        assert loaded == {"pairs": 5, "agree_rate": 0.75, "by_verdict": {"same": 3},
+        assert loaded == {"pairs": 5, "agree_rate": 0.75, "by_verdict": {"agree": 3},
                           "hist": [1, 2]}
 
     @pytest.mark.parametrize("bad", [{"note": "text"}, {"x": [1, "a"]}, {"d": {"n": FAKE_NAME}}])
@@ -213,7 +225,7 @@ class TestLogsCarryNoText:
     def test_no_descriptions_paths_names_or_plates(self, db_session, caplog):
         caplog.set_level(logging.DEBUG)
         ev, _ = _pair(db_session, created=NOW - timedelta(days=40))
-        sas.set_verdict(db_session, ev.id, "same")
+        sas.set_verdict(db_session, ev.id, "agree")
         sas.purge_expired(db_session, now=NOW)
         for r in caplog.records:
             blob = f"{r.getMessage()} {r.args!r} {sorted(vars(r).items(), key=lambda kv: kv[0])!r}"

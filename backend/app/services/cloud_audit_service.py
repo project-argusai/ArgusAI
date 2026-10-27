@@ -3,14 +3,24 @@
 Local is primary. For a deterministic sample of key events (person,
 vehicle, package, doorbell ring) a background cloud call produces a second
 opinion, stored with the frozen local result in ``shadow_results`` (#735)
-and scored into the numbers-only daily summary.
+with its score_pair numbers; the daily summary is rebuilt from rows by
+``recompute_daily_summary``.
+
+Claim row: before the cloud call the task inserts a ``claimed`` row (the
+unique event_id dedupes concurrent audits and fallbacks). Success marks it
+complete; a timeout, error, cloud failure or OOM marks it failed with the
+exception class name only. Failed rows are kept, count against the cap and
+the event is never audited again (a later fallback pair may fill it in as
+source=fallback). Claims stuck over 5 minutes are failed at startup and by
+the 02:30 job.
 
 Rules:
 - Never with ``AI_PRIMARY=cloud``; off unless ``CLOUD_AUDIT_ENABLED`` (kill
   switch). Both are re-checked inside the background task.
 - The same event always gets the same sample decision (hash of the id).
 - Daily cap (default 200) counts ``shadow_results`` rows with source=audit
-  since local midnight, so it survives a restart.
+  since local midnight, of any status (claimed, complete, failed), so it
+  holds with audits in flight and survives a restart.
 - At most ``max_pending`` (2) scheduled or running audits; a 3rd is dropped.
 - One cloud call per audit, ``timeout_s`` (30 s), no retry.
 - Steps aside while a #696 fallback call is running, when free memory is
@@ -19,6 +29,8 @@ Rules:
 - A fallback that already called cloud is recorded free with
   source=fallback; no extra cloud call, and it does not use the audit cap.
 - Never writes to ``events``. Logs carry ids, labels and counts only.
+- ``maybe_schedule`` does no DB work; blocking DB work in the task runs in
+  ``asyncio.to_thread``.
 
 The hook into the live pipeline lands in #737: it calls ``maybe_schedule``
 after the event is stored and ``record_fallback_pair`` when the fallback
@@ -31,11 +43,12 @@ import dataclasses
 import hashlib
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 
-from app.models.shadow_result import ShadowDailySummary, ShadowResult
+from app.models.shadow_result import ShadowResult
 from app.services import shadow_audit_service as sas
 from app.utils.json_safe import json_safe
 
@@ -150,6 +163,9 @@ class CloudAuditService:
         self._now = now
         self._tasks: Set[asyncio.Task] = set()
         self.pending = 0
+        self._claim_lock = threading.Lock()
+        # event_id -> token of the task that opened the claim and hasn't settled it
+        self._owned_claims: Dict[str, object] = {}
         self.last_outcomes: List[str] = []
 
     # --- decisions -------------------------------------------------------
@@ -180,18 +196,16 @@ class CloudAuditService:
                            "outcome": outcome, **extra})
         return outcome
 
-    def _already_paired(self, event_id: str) -> bool:
-        db = self._session_factory()
-        try:
-            return db.query(ShadowResult.id).filter(ShadowResult.event_id == event_id).first() is not None
-        finally:
-            db.close()
-
     # --- scheduling ------------------------------------------------------
 
     def maybe_schedule(self, *, event_id: str, event_type: Optional[str], local_result: Any,
                        image_base64: str, is_doorbell_ring: bool = False) -> str:
-        """Quick checks, then start the background audit. Never raises."""
+        """Quick in-memory checks, then start the background audit.
+
+        No DB work here (dedupe and the cap happen in the task via the claim
+        row). Never raises.
+        """
+        counted = False
         try:
             cfg = self._config()
             if not cfg.enabled:
@@ -202,19 +216,23 @@ class CloudAuditService:
                 return self._note(event_id, "not_key_type")
             if not self.should_sample(event_id, event_type, is_doorbell_ring):
                 return self._note(event_id, "not_sampled")
-            if self._already_paired(event_id):
-                return self._note(event_id, "already_paired")
             if self.pending >= cfg.max_pending:
                 return self._note(event_id, "dropped_busy")
             loop = asyncio.get_running_loop()
+            self.pending += 1
+            counted = True
+            local_copy = json.loads(json.dumps(json_safe(_as_dict(local_result)), default=str))
+            task = loop.create_task(self._run(
+                event_id, str(event_type or ("ring" if is_doorbell_ring else "")),
+                local_copy, image_base64))
         except RuntimeError:
+            if counted:
+                self.pending = max(0, self.pending - 1)
             return self._note(event_id, "no_loop")
         except Exception as exc:  # noqa: BLE001
+            if counted:
+                self.pending = max(0, self.pending - 1)
             return self._note(event_id, "error", error_type=type(exc).__name__)
-        self.pending += 1
-        local_copy = json.loads(json.dumps(json_safe(_as_dict(local_result)), default=str))
-        task = loop.create_task(self._run(event_id, str(event_type or ("ring" if is_doorbell_ring else "")),
-                                          local_copy, image_base64))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         logger.debug("Cloud audit scheduled",
@@ -226,9 +244,18 @@ class CloudAuditService:
         while self._tasks:
             await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
+    def startup(self) -> int:
+        """Fail claims left in ``claimed`` for over 5 minutes (e.g. a crash)."""
+        db = self._session_factory()
+        try:
+            return sas.mark_stale_claims_failed(db, now=self._now())
+        finally:
+            db.close()
+
     # --- background task -------------------------------------------------
 
     def _gate(self, cfg: AuditConfig) -> Optional[str]:
+        """In-memory gates; the DB gates run in ``_claim_sync``."""
         if not cfg.enabled:
             return "disabled"
         if not cfg.primary_local:
@@ -239,102 +266,163 @@ class CloudAuditService:
             return "low_memory"
         if self._fallback_remaining() < cfg.min_fallback_left:
             return "fallback_floor"
+        return None
+
+    def _claim_sync(self, event_id: str, cfg: AuditConfig,
+                    local_result: Optional[Dict[str, Any]], token: object) -> Optional[str]:
+        """Cost cap, daily cap and the claim insert. Returns a block reason or None.
+
+        Claimed and failed rows count against the cap; the lock makes
+        count-then-insert atomic within this process.
+        """
+        with self._claim_lock:
+            db = self._session_factory()
+            try:
+                if db.query(ShadowResult.id).filter(ShadowResult.event_id == event_id).first():
+                    return "already_paired"
+                if not self._cost_ok(db):
+                    return "cost_cap"
+                used = sas.count_audits_since(db, _local_midnight_utc(self._now()))
+                if used >= cfg.daily_cap:
+                    return "daily_cap"
+                row = sas.claim_shadow_result(
+                    db, event_id=event_id, source="audit", local_result=local_result,
+                    local_provider=(local_result or {}).get("provider"), now=self._now())
+                if row is None:
+                    return "already_paired"
+                # Recorded in the thread so a cancel during the await still
+                # knows this task owns the claim.
+                self._owned_claims[event_id] = token
+                return None
+            finally:
+                db.close()
+
+    def _fail_sync(self, event_id: str, error_type: str) -> None:
         db = self._session_factory()
         try:
-            if not self._cost_ok(db):
-                return "cost_cap"
-            used = sas.count_audits_since(db, _local_midnight_utc(self._now()))
-            if used >= cfg.daily_cap:
-                return "daily_cap"
+            row = sas.fail_claim(db, event_id, error_type=error_type)
+            if row is not None:
+                self._recompute(db, row)  # keeps the day's ``failed`` count current
         finally:
             db.close()
-        return None
 
     async def _run(self, event_id: str, event_type: str, local_result: Optional[Dict[str, Any]],
                    image_base64: str) -> str:
+        settled = False
+        token = object()
         try:
             cfg = self._config()  # re-read: kill switch / AI_PRIMARY may have changed
             blocked = self._gate(cfg)
             if blocked:
                 return self._note(event_id, blocked)
-            if self._already_paired(event_id):
-                return self._note(event_id, "already_paired")
+            blocked = await asyncio.to_thread(self._claim_sync, event_id, cfg, local_result, token)
+            if blocked:
+                return self._note(event_id, blocked)
+            failure: Optional[str] = None
+            outcome = ""
+            cloud_result = None
             try:
                 raw = await asyncio.wait_for(
                     self.cloud_call(event_id=event_id, image_base64=image_base64,
                                     event_type=event_type),
                     timeout=cfg.timeout_s,
                 )
+                cloud_result = _as_dict(raw)
+                if _cloud_failed(cloud_result):
+                    failure, outcome = "cloud_failed", "cloud_failed"
             except asyncio.TimeoutError:
-                return self._note(event_id, "timeout")
+                failure, outcome = "TimeoutError", "timeout"
             except MemoryError:
-                return self._note(event_id, "out_of_memory")
+                failure, outcome = "MemoryError", "out_of_memory"
             except Exception as exc:  # noqa: BLE001 - nothing escapes
-                return self._note(event_id, "error", error_type=type(exc).__name__)
-            cloud_result = _as_dict(raw)
-            if _cloud_failed(cloud_result):
-                return self._note(event_id, "cloud_failed")
-            return self._store(event_id, "audit", local_result, cloud_result)
+                failure, outcome = type(exc).__name__, "error"
+            if failure:
+                await asyncio.to_thread(self._fail_sync, event_id, failure)
+                settled = True
+                if outcome == "error":
+                    return self._note(event_id, "error", error_type=failure)
+                return self._note(event_id, outcome)
+            metrics = self._score(event_id, local_result, cloud_result)
+            await asyncio.to_thread(self._store, event_id, cloud_result, metrics)
+            settled = True
+            return self._note(event_id, "recorded", source="audit")
         except MemoryError:
             return self._note(event_id, "out_of_memory")
         except Exception as exc:  # noqa: BLE001
             return self._note(event_id, "error", error_type=type(exc).__name__)
         finally:
+            owner = self._owned_claims.get(event_id) is token
+            if owner and not settled:
+                # Crash or cancellation mid-audit: fail the claim (sync, best effort).
+                try:
+                    self._fail_sync(event_id, "interrupted")
+                except Exception:  # noqa: BLE001
+                    pass
+            if owner:
+                self._owned_claims.pop(event_id, None)
             self.pending = max(0, self.pending - 1)
 
     # --- storage -----------------------------------------------------------
 
+    def _store(self, event_id: str, cloud_result: Dict[str, Any], metrics: Dict[str, Any]) -> None:
+        """Complete the claim with the pair's numbers, then rebuild that day's summary."""
+        db = self._session_factory()
+        try:
+            row = sas.complete_claim(db, event_id, cloud_result=cloud_result,
+                                     cloud_provider=(cloud_result or {}).get("provider"),
+                                     metrics=metrics)
+            if row is not None:
+                self._recompute(db, row)
+        finally:
+            db.close()
+
+    @staticmethod
+    def _recompute(db, row: ShadowResult, source: Optional[str] = None) -> None:
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        sas.recompute_daily_summary(db, created.astimezone().date(), source or row.source)
+
     def record_fallback_pair(self, *, event_id: str, local_result: Any, cloud_result: Any) -> str:
-        """The #696 fallback already called cloud: record the pair free."""
+        """The #696 fallback already called cloud: record the pair free.
+
+        Skipped while an audit claim is open or done; fills a failed audit
+        claim in as source=fallback, complete.
+        """
         try:
             if not self._config().enabled:
                 return self._note(event_id, "disabled")
-            if self._already_paired(event_id):
-                return self._note(event_id, "already_paired")
             cloud = _as_dict(cloud_result)
             if _cloud_failed(cloud):
                 return self._note(event_id, "cloud_failed")
-            return self._store(event_id, "fallback", _as_dict(local_result), cloud)
+            local = _as_dict(local_result)
+            metrics = self._score(event_id, local, cloud)
+            db = self._session_factory()
+            try:
+                row = sas.record_fallback_pair(
+                    db, event_id=event_id, local_result=local, cloud_result=cloud,
+                    local_provider=(local or {}).get("provider"),
+                    cloud_provider=(cloud or {}).get("provider"),
+                    metrics=metrics, now=self._now())
+                if row is None:
+                    return self._note(event_id, "already_paired")
+                self._recompute(db, row)
+                self._recompute(db, row, source="audit")  # in case it filled a failed audit claim
+            finally:
+                db.close()
+            return self._note(event_id, "recorded", source="fallback")
         except Exception as exc:  # noqa: BLE001
             return self._note(event_id, "error", error_type=type(exc).__name__)
-
-    def _store(self, event_id: str, source: str, local_result, cloud_result) -> str:
-        db = self._session_factory()
-        try:
-            sas.record_shadow_result(db, event_id=event_id, source=source,
-                                     local_result=local_result, cloud_result=cloud_result,
-                                     local_provider=(local_result or {}).get("provider"),
-                                     cloud_provider=(cloud_result or {}).get("provider"),
-                                     now=self._now())
-            metrics = self._score(event_id, local_result, cloud_result)
-            self._accumulate(db, source, metrics)
-        finally:
-            db.close()
-        return self._note(event_id, "recorded", source=source)
 
     def _score(self, event_id: str, local_result, cloud_result) -> Dict[str, Any]:
         if self._scorer is None:
             return {}
         try:
-            return dict(self._scorer(local_result, cloud_result) or {})
+            raw = dict(self._scorer(local_result, cloud_result) or {})
         except Exception as exc:  # noqa: BLE001
             logger.warning("Cloud audit scoring failed",
                            extra={"event_id": event_id, "error_type": type(exc).__name__})
             return {}
-
-    def _accumulate(self, db, source: str, metrics: Dict[str, Any]) -> None:
-        day = self._now().astimezone().date()
-        row = (db.query(ShadowDailySummary)
-               .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == source)
-               .first())
-        current = json.loads(row.metrics) if row is not None else {}
-        current["pairs"] = int(current.get("pairs", 0)) + 1
-        for key, value in json_safe(metrics).items():
-            if isinstance(value, bool) or not isinstance(value, (int, float)):
-                continue
-            name = f"sum_{key}"
-            current[name] = current.get(name, 0) + value
-        sas.upsert_daily_summary(db, day, source, current)
-        # #742: refresh row-derived counts (pairs_recorded, verdicts by
-        # verdict_at) while keeping the sums above.
-        sas.recompute_daily_summary(db, day, source)
+        # Numbers only; anything else (or non-finite, via json_safe) is dropped.
+        return {k: v for k, v in json_safe(raw).items()
+                if isinstance(k, str) and not isinstance(v, bool) and isinstance(v, (int, float))}

@@ -174,7 +174,8 @@ class TestHappyPath:
         summary = db.query(ShadowDailySummary).one()
         metrics = json.loads(summary.metrics)
         db.close()
-        assert summary.source == "audit" and metrics["pairs"] == 1
+        assert summary.source == "audit" and metrics["pairs_recorded"] == 1
+        assert rows[0].status == "complete" and json.loads(rows[0].metrics)["objects_jaccard"] == 1.0
         assert metrics["sum_objects_jaccard"] == 1.0
 
     @pytest.mark.asyncio
@@ -337,7 +338,9 @@ class TestFailures:
         eid, before = _event(db_factory)
         await _run(svc, eid)  # nothing escapes
         assert call.n == 1 and svc.last_outcomes[-1] == label
-        assert _rows(db_factory) == []
+        (row,) = _rows(db_factory)
+        assert row.status == "failed" and row.error_type == type(exc).__name__
+        assert row.cloud_result is None
         assert _event_row(db_factory, eid) == before
         assert all(FAKE_NAME not in r.getMessage() for r in caplog.records)
 
@@ -348,14 +351,18 @@ class TestFailures:
         eid, before = _event(db_factory)
         await _run(svc, eid)
         assert call.n == 1 and svc.last_outcomes[-1] == "timeout"
-        assert _rows(db_factory) == [] and _event_row(db_factory, eid) == before
+        (row,) = _rows(db_factory)
+        assert row.status == "failed" and row.error_type == "TimeoutError"
+        assert _event_row(db_factory, eid) == before
 
     @pytest.mark.asyncio
     async def test_failed_cloud_result_not_recorded(self, db_factory):
         svc, _ = _svc(db_factory, call=Calls(result={"success": False, "description": ""}))
         eid, _ = _event(db_factory)
         await _run(svc, eid)
-        assert svc.last_outcomes[-1] == "cloud_failed" and _rows(db_factory) == []
+        assert svc.last_outcomes[-1] == "cloud_failed"
+        (row,) = _rows(db_factory)
+        assert row.status == "failed" and row.error_type == "cloud_failed" and row.cloud_result is None
 
     @pytest.mark.asyncio
     async def test_scorer_failure_still_records_pair(self, db_factory):
@@ -381,10 +388,10 @@ class TestFallbackPair:
         assert len(rows) == 1 and rows[0].event_id == eid
         assert _event_row(db_factory, eid) == before
         # A later audit for the same event makes no cloud call either.
-        assert svc.maybe_schedule(event_id=eid, event_type="person", local_result=LOCAL,
-                                  image_base64=IMAGE) == "already_paired"
+        svc.maybe_schedule(event_id=eid, event_type="person", local_result=LOCAL,
+                           image_base64=IMAGE)
         await svc.drain()
-        assert call.n == 0
+        assert call.n == 0 and svc.last_outcomes[-1] == "already_paired"
 
     def test_fallback_pair_recorded_even_when_primary_cloud_or_disabled(self, db_factory):
         svc, _ = _svc(db_factory, cfg=replace(BASE_CFG, enabled=False))
@@ -438,7 +445,7 @@ class TestLifecycleAndMetrics:
         db = db_factory()
         m = json.loads(db.query(ShadowDailySummary).one().metrics)
         db.close()
-        assert m["pairs"] == 1 and m["pairs_recorded"] == 1
+        assert "pairs" not in m and m["pairs_recorded"] == 1 and m["failed"] == 0
         assert m["sum_objects_jaccard"] == 1.0
         assert {m["verdicts_agree"], m["verdicts_disagree"], m["verdicts_unsure"]} == {0}
 
@@ -494,8 +501,8 @@ class TestLifecycleAndMetrics:
         sas.purge_expired(db, now=datetime.now(timezone.utc) + timedelta(days=31))
         assert db.query(ShadowResult).one().local_result is None
         db.close()
-        assert await _run(svc, eid) != "scheduled"
-        assert call.n == 1
+        await _run(svc, eid)
+        assert call.n == 1 and svc.last_outcomes[-1] == "already_paired"
         assert _rows(db_factory)[0].local_result is None  # never refilled
 
     @pytest.mark.asyncio
@@ -524,3 +531,181 @@ class TestLifecycleAndMetrics:
         m = json.loads(db.query(ShadowDailySummary).one().metrics)
         db.close()
         assert m["sum_pair_complete"] == 1 and "sum_entities_compared" in m
+
+
+
+class TestClaimDesign:
+    """#744 QA: claim row before the cloud call (Gracie's design, team-settled)."""
+
+    def _sums(self, factory):
+        db = factory()
+        out = {r.source: json.loads(r.metrics) for r in db.query(ShadowDailySummary).all()}
+        db.close()
+        return out
+
+    @staticmethod
+    def _schedule(svc, eid):
+        return svc.maybe_schedule(event_id=eid, event_type="person", local_result=LOCAL,
+                                  image_base64=IMAGE)
+
+    @pytest.mark.asyncio
+    async def test_two_calls_one_event_one_cloud_call(self, db_factory):
+        call = Calls(delay=0.05)
+        svc, _ = _svc(db_factory, call=call)
+        eid, _ = _event(db_factory)
+        assert self._schedule(svc, eid) == "scheduled"
+        assert self._schedule(svc, eid) == "scheduled"
+        await svc.drain()
+        assert call.n == 1 and len(_rows(db_factory)) == 1
+        assert "already_paired" in svc.last_outcomes
+        assert self._sums(db_factory)["audit"]["pairs_recorded"] == 1
+
+    @pytest.mark.asyncio
+    async def test_fallback_during_audit_is_skipped(self, db_factory):
+        call = Calls(delay=0.05)
+        svc, _ = _svc(db_factory, call=call)
+        eid, _ = _event(db_factory)
+        self._schedule(svc, eid)
+        for _ in range(20):  # wait until the claim row exists
+            await asyncio.sleep(0.005)
+            if _rows(db_factory):
+                break
+        assert _rows(db_factory)[0].status == "claimed"
+        assert svc.record_fallback_pair(event_id=eid, local_result=LOCAL,
+                                        cloud_result=CLOUD) == "already_paired"
+        await svc.drain()
+        (row,) = _rows(db_factory)
+        assert row.source == "audit" and row.status == "complete"
+        sums = self._sums(db_factory)
+        assert set(sums) == {"audit"} and sums["audit"]["pairs_recorded"] == 1
+
+    @pytest.mark.asyncio
+    async def test_cap_holds_at_max_pending_with_audits_in_flight(self, db_factory):
+        call = Calls(delay=0.05)
+        svc, state = _svc(db_factory, call=call)
+        state["cfg"] = replace(BASE_CFG, daily_cap=1, max_pending=2)
+        e1, _ = _event(db_factory)
+        e2, _ = _event(db_factory)
+        assert self._schedule(svc, e1) == "scheduled" and self._schedule(svc, e2) == "scheduled"
+        await svc.drain()
+        assert call.n == 1 and len(_rows(db_factory)) == 1
+        assert "daily_cap" in svc.last_outcomes
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("call,cfg,error_type", [
+        (Calls(delay=1.0), replace(BASE_CFG, timeout_s=0.02), "TimeoutError"),
+        (Calls(exc=RuntimeError("boom")), BASE_CFG, "RuntimeError"),
+        (Calls(exc=MemoryError()), BASE_CFG, "MemoryError"),
+        (Calls(result={"success": False}), BASE_CFG, "cloud_failed"),
+    ])
+    async def test_failure_marks_claim_failed_kept_and_capped(self, db_factory, call, cfg, error_type):
+        svc, state = _svc(db_factory, cfg=cfg, call=call)
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        (row,) = _rows(db_factory)
+        assert row.status == "failed" and row.error_type == error_type
+        # Never audited again, and it used the cap.
+        state["cfg"] = replace(cfg, daily_cap=1, timeout_s=30.0)
+        await _run(svc, eid)
+        assert call.n == 1 and svc.last_outcomes[-1] == "already_paired"
+        e2, _ = _event(db_factory)
+        await _run(svc, e2)
+        assert call.n == 1 and svc.last_outcomes[-1] == "daily_cap"
+        assert self._sums(db_factory)["audit"]["failed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_crash_mid_call_marks_claim_failed(self, db_factory):
+        svc, _ = _svc(db_factory, call=Calls(delay=5.0))
+        eid, _ = _event(db_factory)
+        self._schedule(svc, eid)
+        for _ in range(40):
+            await asyncio.sleep(0.005)
+            if _rows(db_factory):
+                break
+        for task in list(svc._tasks):
+            task.cancel()
+        await svc.drain()
+        (row,) = _rows(db_factory)
+        assert row.status == "failed" and row.error_type == "interrupted"
+        assert svc.pending == 0
+
+    def test_startup_fails_stale_claims(self, db_factory):
+        from app.services import shadow_audit_service as sas
+        svc, _ = _svc(db_factory, now=lambda: datetime.now(timezone.utc) + timedelta(minutes=6))
+        eid, _ = _event(db_factory)
+        db = db_factory()
+        sas.claim_shadow_result(db, event_id=eid, source="audit", local_result=LOCAL)
+        db.close()
+        assert svc.startup() == 1
+        assert _rows(db_factory)[0].status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_unfinished_claim_out_of_queue_and_recompute(self, db_factory):
+        from app.services import shadow_audit_service as sas
+        svc, _ = _svc(db_factory, call=Calls(delay=0.1))
+        eid, _ = _event(db_factory)
+        self._schedule(svc, eid)
+        for _ in range(40):
+            await asyncio.sleep(0.005)
+            if _rows(db_factory):
+                break
+        db = db_factory()
+        assert sas.set_verdict(db, eid, "agree") is None
+        today = datetime.now(timezone.utc).astimezone().date()
+        m = json.loads(sas.recompute_daily_summary(db, today, "audit").metrics)
+        db.close()
+        assert m["pairs_recorded"] == 0 and m["failed"] == 0 and m["verdicts_agree"] == 0
+        await svc.drain()
+
+    @pytest.mark.asyncio
+    async def test_fallback_fills_failed_audit_claim(self, db_factory):
+        svc, _ = _svc(db_factory, call=Calls(exc=RuntimeError("x")))
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        assert _rows(db_factory)[0].status == "failed"
+        assert svc.record_fallback_pair(event_id=eid, local_result=LOCAL,
+                                        cloud_result=CLOUD) == "recorded"
+        (row,) = _rows(db_factory)
+        assert row.source == "fallback" and row.status == "complete" and row.error_type is None
+        sums = self._sums(db_factory)
+        assert sums["fallback"]["pairs_recorded"] == 1 and sums["audit"]["failed"] == 0
+
+    def test_create_task_failure_leaves_pending_clear(self, db_factory, monkeypatch):
+        class BadLoop:
+            def create_task(self, coro):
+                coro.close()
+                raise OSError("no task")
+        monkeypatch.setattr(cas.asyncio, "get_running_loop", lambda: BadLoop())
+        svc, _ = _svc(db_factory)
+        eid, _ = _event(db_factory)
+        assert self._schedule(svc, eid) == "error"
+        assert svc.pending == 0 and not svc._tasks
+
+    @pytest.mark.asyncio
+    async def test_no_db_work_in_maybe_schedule(self, db_factory):
+        opened = []
+
+        def factory():
+            opened.append(1)
+            return db_factory()
+        svc, _ = _svc(factory)
+        eid, _ = _event(db_factory)
+        assert self._schedule(svc, eid) == "scheduled"
+        assert opened == []
+        await svc.drain()
+        assert opened  # the task does the DB work
+
+    @pytest.mark.asyncio
+    async def test_blocking_db_work_runs_off_the_event_loop(self, db_factory):
+        import threading
+        loop_thread = threading.get_ident()
+        threads = []
+
+        def factory():
+            threads.append(threading.get_ident())
+            return db_factory()
+        svc, _ = _svc(factory)
+        eid, _ = _event(db_factory)
+        self._schedule(svc, eid)
+        await svc.drain()
+        assert threads and loop_thread not in threads

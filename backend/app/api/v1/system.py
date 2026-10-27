@@ -1657,7 +1657,11 @@ def _get_setting_from_db(db: Session, key: str, default: any = None) -> any:
 def _set_setting_in_db(db: Session, key: str, value: any):
     """Set a single setting value in database, encrypting sensitive values"""
     # Convert to string if needed
-    str_value = str(value) if not isinstance(value, str) else value
+    if isinstance(value, bool):
+        # Lowercase so every reader's true/1/yes parse agrees.
+        str_value = "true" if value else "false"
+    else:
+        str_value = str(value) if not isinstance(value, str) else value
 
     # Encrypt sensitive values (API keys)
     if key in SENSITIVE_SETTING_KEYS and str_value and not is_encrypted(str_value):

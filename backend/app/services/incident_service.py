@@ -401,8 +401,14 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
     from app.core.database import SessionLocal
 
     db = SessionLocal()
+    update_attempted = False
     try:
-        await run_combined_pass(db, group_id)
+        incident = await run_combined_pass(db, group_id)
+        if incident is not None:
+            from app.services import incident_notifications
+
+            update_attempted = True
+            await incident_notifications.maybe_send_update_push(db, incident)
     except Exception as exc:
         db.rollback()
         try:
@@ -410,6 +416,11 @@ async def _settle_then_run(group_id: str, settle_ms: int) -> None:
             if incident is not None and incident.status == "pending":
                 incident.status = "failed"
                 db.commit()
+            if incident is not None and incident.status == "failed" and not update_attempted:
+                # "failed" behaves like "fallback": update push with per-camera text.
+                from app.services import incident_notifications
+
+                await incident_notifications.maybe_send_update_push(db, incident)
         except Exception:
             db.rollback()
         logger.warning(
@@ -440,7 +451,11 @@ async def sweep_pending_incidents(older_than_ms: Optional[int] = None) -> int:
                 created = created.replace(tzinfo=timezone.utc)
             if created is not None and (now - created).total_seconds() * 1000 < cutoff_ms:
                 continue
-            await run_combined_pass(db, incident.id)
+            done = await run_combined_pass(db, incident.id)
+            if done is not None:
+                from app.services import incident_notifications
+
+                await incident_notifications.maybe_send_update_push(db, done)
             count += 1
     except Exception as exc:
         db.rollback()

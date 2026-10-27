@@ -690,6 +690,17 @@ class CleanupService:
             deleted = max(result.rowcount or 0, 0)
             if deleted:
                 counts["incidents"] = deleted
+            with db.begin_nested():
+                result = db.execute(
+                    text(
+                        "DELETE FROM incident_deliveries WHERE NOT EXISTS ("
+                        "SELECT 1 FROM events WHERE events.id = incident_deliveries.group_key "
+                        "OR events.correlation_group_id = incident_deliveries.group_key)"
+                    )
+                )
+            deleted = max(result.rowcount or 0, 0)
+            if deleted:
+                counts["incident_deliveries"] = deleted
         except Exception as exc:
             logger.warning("Orphan incident cleanup skipped", extra={"error_type": type(exc).__name__})
         if counts:

@@ -38,6 +38,7 @@ from app.models.hot_activity import HotCameraActivity, HotEntityActivity
 
 __all__ = [
     "Incident",
+    "IncidentDelivery",
     "ProtectController",
     "Camera",
     "MotionEvent",
@@ -81,4 +82,4 @@ __all__ = [
     "HotCameraActivity",
     "HotEntityActivity",
 ]
-from app.models.incident import Incident
+from app.models.incident import Incident, IncidentDelivery

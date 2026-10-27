@@ -169,6 +169,51 @@ class NotificationResult:
     retries: int = 0
 
 
+class PushSendResults(list):
+    """List of ``NotificationResult`` that also records a swallowed failure.
+
+    Backward compatible: it is a plain ``list`` for every existing caller.
+    ``send_event_notification`` returns an empty one with ``error_type`` set
+    (exception class name only, never its text) when it swallowed its own
+    internal error, so callers can tell that apart from "no subscribers".
+
+    Callers must keep the returned object as is. Wrapping it (``results or
+    []``, ``list(results)``, slicing, copying) drops the ``error_type`` marker
+    and turns an ``error`` outcome into ``no_recipients``. The contract tests in
+    ``tests/test_services/test_incident_update_push_outcome.py`` cover this.
+    """
+
+    def __init__(self, items=(), error_type: Optional[str] = None):
+        super().__init__(items)
+        # Set only when send_event_notification swallowed an internal error.
+        # Exception class name only, never its text. Lost if the object is
+        # re-wrapped into a plain list (see class docstring).
+        self.error_type = error_type
+
+
+def classify_push_outcome(results) -> str:
+    """Map a ``send_event_notification`` result to one log outcome.
+
+    - ``error``: the service swallowed its own internal error.
+    - ``no_recipients``: empty list (no subscribers, or all filtered by
+      preferences) or ``None`` (not a valid contract; nothing was reported
+      delivered, so it is never counted as sent).
+    - ``not_delivered``: non-empty list where every result has success=False.
+    - ``sent``: otherwise (at least one success, or an opaque non-list result
+      that reports no failure).
+    """
+    if isinstance(results, PushSendResults) and results.error_type:
+        return "error"
+    if results is None:
+        return "no_recipients"
+    if isinstance(results, (list, tuple)):
+        if not results:
+            return "no_recipients"
+        if all(getattr(r, "success", None) is False for r in results):
+            return "not_delivered"
+    return "sent"
+
+
 class PushNotificationService:
     """
     Service for sending Web Push notifications.
@@ -1007,4 +1052,7 @@ async def send_event_notification(
                 "error": str(e),
             }
         )
-        return []
+        # Swallowed on purpose (callers expect a list). The empty list carries
+        # error_type so "error" stays distinct from "no_recipients"; callers
+        # must pass this object through unchanged, not `or []` / `list(...)` it.
+        return PushSendResults(error_type=type(e).__name__)

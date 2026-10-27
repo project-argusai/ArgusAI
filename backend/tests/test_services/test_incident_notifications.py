@@ -774,14 +774,25 @@ class TestTerryLows:
 class TestUpdatePushResultShape:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("status", ["fallback", "failed"])
-    @pytest.mark.parametrize("returned", [None, "mock", []])
-    async def test_non_failure_result_counts_as_sent_once(self, db_session, status, returned):
+    async def test_opaque_result_counts_as_sent_once(self, db_session, status):
+        """A non-list result that reports no failure (e.g. a bare mock) is sent."""
         from unittest.mock import MagicMock
         gid, members = await TestUpdatePush()._setup(db_session)
         inc = _incident(db_session, gid, members, status=status)
-        value = MagicMock() if returned == "mock" else returned
-        with patch(SEND, new=AsyncMock(return_value=value)) as send:
+        with patch(SEND, new=AsyncMock(return_value=MagicMock())) as send:
             assert await inn.maybe_send_update_push(db_session, inc) is True
             assert await inn.maybe_send_update_push(db_session, inc) is False
         assert send.await_count == 1
         assert send.await_args.kwargs["description"] == "Late camera text."
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("returned", [None, []])
+    async def test_empty_result_is_not_sent_but_claim_stays(self, db_session, returned):
+        gid, members = await TestUpdatePush()._setup(db_session)
+        inc = _incident(db_session, gid, members)
+        with patch(SEND, new=AsyncMock(return_value=returned)) as send:
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+            assert await inn.maybe_send_update_push(db_session, inc) is False
+        assert send.await_count == 1
+        db_session.expire_all()
+        assert db_session.get(Incident, gid).update_pushed_at is not None

@@ -80,12 +80,20 @@ async def scheduled_video_cleanup_job():
 
 async def scheduled_shadow_retention_job():
     """Purge cloud-audit pairs after 30 days and summaries after 365 (#735)."""
+    from datetime import datetime, timedelta
+
     from app.core.database import SessionLocal
-    from app.services.shadow_audit_service import purge_expired
+    from app.models.shadow_result import SHADOW_SOURCES
+    from app.services.shadow_audit_service import purge_expired, recompute_daily_summary
 
     db = SessionLocal()
     try:
         purge_expired(db)
+        # Recount yesterday and today so late verdicts land in a summary.
+        today = datetime.now().astimezone().date()
+        for day in (today - timedelta(days=1), today):
+            for source in SHADOW_SOURCES:
+                recompute_daily_summary(db, day, source)
     except Exception as e:
         db.rollback()
         logger.error("Scheduled shadow retention failed",

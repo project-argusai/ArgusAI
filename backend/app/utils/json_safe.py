@@ -1,4 +1,9 @@
-"""numpy-safe JSON helper (#708): cast numpy scalars/arrays to plain Python."""
+"""numpy-safe JSON helper (#708): cast numpy scalars/arrays to plain Python.
+
+Non-finite floats (NaN, +/-inf) become None so the output always passes
+``json.dumps(..., allow_nan=False)``.
+"""
+import math
 from typing import Any
 
 import numpy as np
@@ -15,7 +20,10 @@ def json_safe(obj: Any) -> Any:
     if isinstance(obj, np.integer):
         return int(obj)
     if isinstance(obj, np.floating):
-        return float(obj)
+        value = float(obj)
+        return value if math.isfinite(value) else None
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
     if isinstance(obj, np.ndarray):
         return json_safe(obj.tolist())
     return obj

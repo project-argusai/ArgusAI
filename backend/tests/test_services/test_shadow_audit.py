@@ -161,9 +161,12 @@ class TestRetention:
 
         result = sas.purge_expired(db_session, now=NOW)
 
-        assert result == {"shadow_results_deleted": 1, "shadow_summaries_deleted": 1}
-        remaining = {r.id for r in db_session.query(ShadowResult).all()}
-        assert remaining == {edge_pair.id, new_pair.id}
+        assert result == {"shadow_results_redacted": 1, "shadow_results_deleted": 0,
+                          "shadow_summaries_deleted": 1}
+        rows = {r.id: r for r in db_session.query(ShadowResult).all()}
+        assert set(rows) == {old_pair.id, edge_pair.id, new_pair.id}
+        assert rows[old_pair.id].local_result is None and rows[old_pair.id].cloud_result is None
+        assert rows[edge_pair.id].local_result is not None
         days = sorted(json.loads(r.metrics)["p"] for r in db_session.query(ShadowDailySummary))
         assert days == [2, 3]  # a 31-day-old summary is kept (365-day window)
         assert db_session.query(Event).count() == events_before  # events untouched
@@ -179,9 +182,9 @@ class TestRetention:
         monkeypatch.setattr(db_session, "close", lambda: None)
         caplog.set_level(logging.DEBUG)
         await retention_jobs.scheduled_shadow_retention_job()
-        assert db_session.query(ShadowResult).count() == 0
+        assert db_session.query(ShadowResult).one().local_result is None
         rec = [r for r in caplog.records if getattr(r, "event_type", None) == "shadow_retention"]
-        assert rec and rec[0].shadow_results_deleted == 1
+        assert rec and rec[0].shadow_results_redacted == 1
 
     def test_job_registered(self):
         from app.services.retention_jobs import register_retention_jobs
@@ -254,3 +257,106 @@ class TestMigration:
         assert not ({"shadow_results", "shadow_daily_summary"} & tables())
         alembic("upgrade", "head")
         assert {"shadow_results", "shadow_daily_summary"} <= tables()
+
+
+class TestGracieReview:
+    """Gracie's #742 review (M1, M2, L1) and Terry's verdict-after-summary case."""
+
+    def test_json_safe_maps_non_finite_to_none(self):
+        from app.utils.json_safe import json_safe
+        out = json_safe({"a": float("nan"), "b": np.float32("inf"), "c": [float("-inf"), 1.5],
+                         "d": np.array([np.nan, 2.0]), "e": np.float64(0.5)})
+        assert out == {"a": None, "b": None, "c": [None, 1.5], "d": [None, 2.0], "e": 0.5}
+
+    def test_pair_with_nan_round_trips_as_strict_json(self, db_session):
+        ev = _event(db_session)
+        row = sas.record_shadow_result(db_session, event_id=ev.id, source="audit",
+                                       local_result={"score": float("nan")},
+                                       cloud_result={"score": np.float32("inf")})
+        assert "NaN" not in row.local_result and "Infinity" not in row.cloud_result
+        assert json.loads(row.local_result) == {"score": None}
+
+    def test_summary_with_nan_is_strict_json(self, db_session):
+        row = sas.upsert_daily_summary(db_session, date(2026, 6, 1), "audit",
+                                       {"rate": float("nan"), "n": 1})
+        assert json.loads(row.metrics) == {"rate": None, "n": 1}
+        assert "NaN" not in row.metrics
+
+    def test_30_day_purge_redacts_text_keeps_row_and_verdict(self, db_session):
+        ev, row = _pair(db_session, created=NOW - timedelta(days=31))
+        sas.set_verdict(db_session, ev.id, "disagree", now=NOW - timedelta(days=30, hours=12))
+        result = sas.purge_expired(db_session, now=NOW)
+        db_session.expire_all()
+        kept = db_session.get(ShadowResult, row.id)
+        assert kept is not None
+        assert kept.local_result is None and kept.cloud_result is None
+        assert kept.verdict == "disagree" and kept.source == "audit"
+        assert kept.verdict_at is not None and kept.created_at is not None
+        assert result["shadow_results_redacted"] == 1 and result["shadow_results_deleted"] == 0
+
+    def test_rows_deleted_after_365_days(self, db_session):
+        _, old = _pair(db_session, created=NOW - timedelta(days=366))
+        _, mid = _pair(db_session, created=NOW - timedelta(days=200))
+        result = sas.purge_expired(db_session, now=NOW)
+        ids = {r.id for r in db_session.query(ShadowResult).all()}
+        assert ids == {mid.id}
+        assert result["shadow_results_deleted"] == 1
+
+    def test_redaction_is_idempotent(self, db_session):
+        _pair(db_session, created=NOW - timedelta(days=40))
+        assert sas.purge_expired(db_session, now=NOW)["shadow_results_redacted"] == 1
+        assert sas.purge_expired(db_session, now=NOW)["shadow_results_redacted"] == 0
+
+    @pytest.mark.parametrize("column,value", [("source", "other"), ("verdict", "same")])
+    def test_check_constraints(self, db_session, column, value):
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+        ev, row = _pair(db_session)
+        with pytest.raises(IntegrityError):
+            db_session.execute(text(f"UPDATE shadow_results SET {column} = :v WHERE id = :id"),
+                               {"v": value, "id": row.id})
+            db_session.commit()
+        db_session.rollback()
+
+    def test_verdict_after_summary_counts_in_later_summary(self, db_session):
+        day1 = NOW
+        day2 = NOW + timedelta(days=1)
+        ev, _ = _pair(db_session, created=day1)
+        s1 = sas.recompute_daily_summary(db_session, day1.astimezone().date(), "audit")
+        assert json.loads(s1.metrics)["verdicts_agree"] == 0
+        sas.set_verdict(db_session, ev.id, "agree", now=day2)  # after day 1's summary ran
+        s2 = sas.recompute_daily_summary(db_session, day2.astimezone().date(), "audit")
+        assert json.loads(s2.metrics)["verdicts_agree"] == 1
+        # Re-running day 1 doesn't double count: verdicts count by verdict_at.
+        s1 = sas.recompute_daily_summary(db_session, day1.astimezone().date(), "audit")
+        m1 = json.loads(s1.metrics)
+        assert m1["verdicts_agree"] == 0 and m1["pairs_recorded"] == 1
+
+    def test_recompute_keeps_other_metrics(self, db_session):
+        d = NOW.astimezone().date()
+        sas.upsert_daily_summary(db_session, d, "audit", {"pairs": 3, "sum_objects_jaccard": 2.5})
+        _pair(db_session, created=NOW)
+        m = json.loads(sas.recompute_daily_summary(db_session, d, "audit").metrics)
+        assert m["pairs"] == 3 and m["sum_objects_jaccard"] == 2.5
+        assert m["pairs_recorded"] == 1
+        assert {"verdicts_agree", "verdicts_disagree", "verdicts_unsure"} <= set(m)
+
+    def test_recompute_works_after_redaction(self, db_session):
+        ev, _ = _pair(db_session, created=NOW - timedelta(days=40))
+        sas.set_verdict(db_session, ev.id, "unsure", now=NOW - timedelta(days=39))
+        sas.purge_expired(db_session, now=NOW)
+        d = (NOW - timedelta(days=39)).astimezone().date()
+        assert json.loads(sas.recompute_daily_summary(db_session, d, "audit").metrics)["verdicts_unsure"] == 1
+
+    @pytest.mark.asyncio
+    async def test_job_recomputes_recent_summaries(self, db_session, monkeypatch):
+        from app.services import retention_jobs
+        ev, _ = _pair(db_session, created=datetime.now(timezone.utc) - timedelta(days=1))
+        sas.set_verdict(db_session, ev.id, "agree")
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None)
+        await retention_jobs.scheduled_shadow_retention_job()
+        today = datetime.now(timezone.utc).astimezone().date()
+        row = (db_session.query(ShadowDailySummary)
+               .filter(ShadowDailySummary.day == today, ShadowDailySummary.source == "audit").one())
+        assert json.loads(row.metrics)["verdicts_agree"] == 1

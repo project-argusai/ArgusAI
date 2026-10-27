@@ -21,6 +21,23 @@ from litellm import Router, completion_cost
 
 from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
 import litellm
+from app.services.ai_providers.base import box_confidence_fraction
+
+
+def _normalize_box_confidences(boxes: Any) -> Optional[List[Dict[str, Any]]]:
+    """Put every LiteLLM box confidence on the stored 0-1 scale (#748).
+
+    The prompt asks for 0-100, so a raw 92 would fail the schema's le=1
+    check and draw as 9200%. Non-dict entries are dropped.
+    """
+    if not isinstance(boxes, list):
+        return None
+    normalized = [
+        {**box, "confidence": box_confidence_fraction(box.get("confidence"))}
+        for box in boxes
+        if isinstance(box, dict)
+    ]
+    return normalized or None
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +377,7 @@ class LiteLLMProvider:
                 if "description" in data:
                     description = data.get("description", response_text)
                     ai_confidence = data.get("confidence")
-                    bounding_boxes = data.get("bounding_boxes")
+                    bounding_boxes = _normalize_box_confidences(data.get("bounding_boxes"))
 
                     if isinstance(ai_confidence, (int, float)):
                         ai_confidence = int(ai_confidence)

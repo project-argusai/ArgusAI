@@ -41,7 +41,9 @@ def box_confidence_fraction(value: Any) -> float:
     confidence. Stored boxes (annotation labels, API schemas) keep their 0-1
     float, so a value above 1 up to 100 is divided by 100. A value from 0 to
     1 is read as an old-style fraction and kept, so exactly 1 means 100% for
-    a box. Missing, non-numeric, bool, NaN/inf or out-of-range values give
+    a box. Unlike the event-level ``normalize_confidence`` (where 1 means
+    1%), that is acceptable here: boxes are display-only, and old 0-1
+    replies keep working. Missing, non-numeric, bool, NaN/inf or out-of-range values give
     the previous default of 0.5.
     """
     if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):

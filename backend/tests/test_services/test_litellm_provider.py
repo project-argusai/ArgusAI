@@ -425,3 +425,32 @@ class TestModelMappings:
         assert MODEL_MAPPINGS["grok"].startswith("xai/")
         assert MODEL_MAPPINGS["claude"].startswith("anthropic/")
         assert MODEL_MAPPINGS["gemini"].startswith("gemini/")
+
+
+class TestLiteLLMBoxConfidenceScale:
+    """#748: LiteLLM boxes go through box_confidence_fraction."""
+
+    @pytest.fixture
+    def provider(self):
+        return LiteLLMProvider(openai_key="sk-test")
+
+    def test_box_confidence_0_100_becomes_fraction(self):
+        import json
+        from app.services.litellm_provider import _normalize_box_confidences
+        from app.schemas.ai import BoundingBox  # noqa: F401  (schema le=1)
+        boxes = [
+            {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, "entity_type": "person", "confidence": 92, "label": "person"},
+            {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, "entity_type": "vehicle", "confidence": 0.8, "label": "car"},
+            {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, "entity_type": "other", "label": "x"},
+        ]
+        out = _normalize_box_confidences(boxes)
+        assert [b["confidence"] for b in out] == [0.92, 0.8, 0.5]
+        for b in out:
+            BoundingBox(**b)
+        assert _normalize_box_confidences("nope") is None
+        assert _normalize_box_confidences([1, "a"]) is None
+
+    def test_parse_response_normalizes_boxes(self, provider):
+        response = '{"description": "A person", "confidence": 90, "bounding_boxes": [{"label": "person", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4, "entity_type": "person", "confidence": 92}]}'
+        _, _, boxes = provider._parse_response(response)
+        assert boxes[0]["confidence"] == 0.92

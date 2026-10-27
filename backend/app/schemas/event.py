@@ -228,6 +228,22 @@ class CorrelatedEventResponse(BaseModel):
     }
 
 
+class IncidentResponse(BaseModel):
+    """Combined result for a multi-camera correlation group."""
+    id: str = Field(..., description="Incident id (equals correlation_group_id)")
+    correlation_group_id: str = Field(..., description="Correlation group id shared by member events")
+    status: str = Field(..., description="pending | done | fallback | failed. Show per-camera descriptions unless done")
+    combined_description: Optional[str] = Field(None, description="One description across all member cameras (null unless status is done)")
+    combined_identification: Optional[dict] = Field(None, description="Structured identification from the combined pass")
+    matched_entity_ids: List[str] = Field(default_factory=list, description="Entity chip source: union of member events' matched_entity_ids")
+    member_event_ids: List[str] = Field(default_factory=list, description="Member event ids, oldest first")
+    member_count: int = Field(0, description="Number of member events")
+    primary_event_id: Optional[str] = Field(None, description="Earliest member event id")
+    provider_used: Optional[str] = Field(None, description="AI provider used for the combined pass")
+    created_at: Optional[UTCDateTime] = None
+    updated_at: Optional[UTCDateTime] = None
+
+
 class EventResponse(BaseModel):
     """Schema for event API responses"""
     id: str = Field(..., description="Event UUID")
@@ -249,6 +265,7 @@ class EventResponse(BaseModel):
     # Story P2-4.4: Multi-camera event correlation
     correlation_group_id: Optional[str] = Field(None, description="UUID linking correlated events across cameras")
     correlated_events: Optional[List["CorrelatedEventResponse"]] = Field(None, description="Related events from same correlation group")
+    incident: Optional[IncidentResponse] = Field(None, description="Combined multi-camera incident result, or null")
     # Story P2-5.3: AI provider tracking
     provider_used: Optional[str] = Field(None, description="AI provider that generated description (openai/grok/claude/gemini)")
     # Story P3-1.4: Fallback reason tracking

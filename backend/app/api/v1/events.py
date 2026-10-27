@@ -717,6 +717,8 @@ def list_events(
 
         # Enrich events with camera_name and feedback
         correlated_by_event = _correlated_responses_by_event_id(db, events)
+        from app.services.incident_service import incidents_for_events
+        incidents_by_group = incidents_for_events(db, events)
         enriched_events = []
         for event in events:
             event_dict = {
@@ -737,6 +739,7 @@ def list_events(
                 "created_at": event.created_at,
                 "correlation_group_id": event.correlation_group_id,
                 "correlated_events": correlated_by_event.get(event.id),
+                "incident": incidents_by_group.get(event.correlation_group_id) if event.correlation_group_id else None,
                 "provider_used": event.provider_used,
                 "prompt_variant": getattr(event, 'prompt_variant', None),
                 "fallback_reason": event.fallback_reason,
@@ -1840,6 +1843,16 @@ async def get_event(
             event_dict.update(legacy_entity_fields(event_entities))
         except Exception as entities_error:
             logger.debug(f"Could not get entities for event {event_id}: {entities_error}")
+
+        # Combined multi-camera incident result (null when none).
+        try:
+            from app.services.incident_service import incidents_for_events
+
+            event_dict["incident"] = incidents_for_events(db, [event]).get(event.correlation_group_id)
+        except Exception as incident_error:
+            logger.debug(
+                "Could not get incident for event %s: %s", event_id, type(incident_error).__name__
+            )
 
         # Story P4-5.1: Add feedback if exists
         if event.feedback:

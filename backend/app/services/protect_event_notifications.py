@@ -233,6 +233,18 @@ class ProtectEventNotifier:
                 extra={"event_type": "protect_push_suppressed_blocked", "event_id": snap.event_id},
             )
             return 0
+        # One push per incident when notify_per_incident is on (no-op when off).
+        try:
+            from app.services.incident_notifications import push_allowed
+
+            with session_factory() as db:
+                if not push_allowed(db, snap.event_id):
+                    return 0
+        except Exception as exc:
+            logger.warning(
+                "Incident push gate unavailable; sending",
+                extra={"event_id": snap.event_id, "error_type": type(exc).__name__},
+            )
         claim = self._claim_push_slot(snap)
         if claim is None:
             logger.info(

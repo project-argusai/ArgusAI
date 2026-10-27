@@ -84,14 +84,20 @@ async def scheduled_shadow_retention_job():
 
     from app.core.database import SessionLocal
     from app.models.shadow_result import SHADOW_SOURCES
-    from app.services.shadow_audit_service import purge_expired, recompute_daily_summary
+    from app.services.shadow_audit_service import (
+        RECOMPUTE_DAYS,
+        purge_expired,
+        recompute_daily_summary,
+    )
 
     db = SessionLocal()
     try:
         purge_expired(db)
-        # Recount yesterday and today so late verdicts land in a summary.
+        # Recount the last 30 days so late or changed verdicts land, once, on
+        # the day their pair was created.
         today = datetime.now().astimezone().date()
-        for day in (today - timedelta(days=1), today):
+        for offset in range(RECOMPUTE_DAYS, -1, -1):
+            day = today - timedelta(days=offset)
             for source in SHADOW_SOURCES:
                 recompute_daily_summary(db, day, source)
     except Exception as e:

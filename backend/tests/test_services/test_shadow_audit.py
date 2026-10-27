@@ -320,17 +320,30 @@ class TestGracieReview:
 
     def test_verdict_after_summary_counts_in_later_summary(self, db_session):
         day1 = NOW
-        day2 = NOW + timedelta(days=1)
         ev, _ = _pair(db_session, created=day1)
-        s1 = sas.recompute_daily_summary(db_session, day1.astimezone().date(), "audit")
-        assert json.loads(s1.metrics)["verdicts_agree"] == 0
-        sas.set_verdict(db_session, ev.id, "agree", now=day2)  # after day 1's summary ran
-        s2 = sas.recompute_daily_summary(db_session, day2.astimezone().date(), "audit")
-        assert json.loads(s2.metrics)["verdicts_agree"] == 1
-        # Re-running day 1 doesn't double count: verdicts count by verdict_at.
-        s1 = sas.recompute_daily_summary(db_session, day1.astimezone().date(), "audit")
-        m1 = json.loads(s1.metrics)
-        assert m1["verdicts_agree"] == 0 and m1["pairs_recorded"] == 1
+        d1 = day1.astimezone().date()
+        assert json.loads(sas.recompute_daily_summary(db_session, d1, "audit").metrics)["verdicts_agree"] == 0
+        sas.set_verdict(db_session, ev.id, "agree", now=NOW + timedelta(days=1))  # after day 1's run
+        # A later recompute of the pair's day picks it up.
+        assert json.loads(sas.recompute_daily_summary(db_session, d1, "audit").metrics)["verdicts_agree"] == 1
+
+    def test_changed_verdict_counted_once_as_final_value(self, db_session):
+        ev, _ = _pair(db_session, created=NOW)
+        sas.set_verdict(db_session, ev.id, "agree", now=NOW + timedelta(days=1))
+        days = [(NOW + timedelta(days=k)).astimezone().date() for k in range(4)]
+        for d in days[:2]:
+            sas.recompute_daily_summary(db_session, d, "audit")
+        sas.set_verdict(db_session, ev.id, "disagree", now=NOW + timedelta(days=3))
+        # Job-style: only the pair's day and the change day are recomputed;
+        # day 1's stored summary is left as it was.
+        sas.recompute_daily_summary(db_session, days[0], "audit")
+        sas.recompute_daily_summary(db_session, days[3], "audit")
+        totals = {"agree": 0, "disagree": 0, "unsure": 0}
+        for row in db_session.query(ShadowDailySummary).filter(ShadowDailySummary.source == "audit"):
+            m = json.loads(row.metrics)
+            for v in totals:
+                totals[v] += m.get(f"verdicts_{v}", 0)
+        assert totals == {"agree": 0, "disagree": 1, "unsure": 0}
 
     def test_recompute_keeps_other_metrics(self, db_session):
         d = NOW.astimezone().date()
@@ -345,18 +358,18 @@ class TestGracieReview:
         ev, _ = _pair(db_session, created=NOW - timedelta(days=40))
         sas.set_verdict(db_session, ev.id, "unsure", now=NOW - timedelta(days=39))
         sas.purge_expired(db_session, now=NOW)
-        d = (NOW - timedelta(days=39)).astimezone().date()
+        d = (NOW - timedelta(days=40)).astimezone().date()
         assert json.loads(sas.recompute_daily_summary(db_session, d, "audit").metrics)["verdicts_unsure"] == 1
 
     @pytest.mark.asyncio
-    async def test_job_recomputes_recent_summaries(self, db_session, monkeypatch):
+    async def test_job_recomputes_last_30_days(self, db_session, monkeypatch):
         from app.services import retention_jobs
-        ev, _ = _pair(db_session, created=datetime.now(timezone.utc) - timedelta(days=1))
+        ev, _ = _pair(db_session, created=datetime.now(timezone.utc) - timedelta(days=20))
         sas.set_verdict(db_session, ev.id, "agree")
         monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
         monkeypatch.setattr(db_session, "close", lambda: None)
         await retention_jobs.scheduled_shadow_retention_job()
-        today = datetime.now(timezone.utc).astimezone().date()
+        day = (datetime.now(timezone.utc) - timedelta(days=20)).astimezone().date()
         row = (db_session.query(ShadowDailySummary)
-               .filter(ShadowDailySummary.day == today, ShadowDailySummary.source == "audit").one())
+               .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == "audit").one())
         assert json.loads(row.metrics)["verdicts_agree"] == 1

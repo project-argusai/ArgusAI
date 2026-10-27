@@ -2,7 +2,8 @@
 
 ``shadow_results``: one row per audited event. Frozen JSON copies of the
 local and cloud results, a source (``audit`` or a free ``fallback`` pair) and
-the owner's verdict. After 30 days the paired text (``local_result`` and
+the owner's verdict, plus a status (claimed/complete/failed), the failure's
+exception class name and the pair's score_pair numbers. After 30 days the paired text (``local_result`` and
 ``cloud_result``) is nulled; the row keeps its source, verdict and
 timestamps until it is deleted at 365 days.
 
@@ -18,6 +19,10 @@ from app.core.database import Base
 
 SHADOW_SOURCES = ("audit", "fallback")
 SHADOW_VERDICTS = ("agree", "disagree", "unsure")  # matches #734 API and #739 UI
+# claimed: audit claim inserted before the cloud call; complete: pair stored;
+# failed: the call timed out / errored / ran out of memory, or the claim went
+# stale. Only complete rows reach the verdict queue and summaries.
+SHADOW_STATUSES = ("claimed", "complete", "failed")
 
 
 def _now():
@@ -32,6 +37,8 @@ class ShadowResult(Base):
         CheckConstraint("source IN ('audit', 'fallback')", name="ck_shadow_results_source"),
         CheckConstraint("verdict IS NULL OR verdict IN ('agree', 'disagree', 'unsure')",
                         name="ck_shadow_results_verdict"),
+        CheckConstraint("status IN ('claimed', 'complete', 'failed')",
+                        name="ck_shadow_results_status"),
     )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -42,6 +49,9 @@ class ShadowResult(Base):
     cloud_result = Column(Text, nullable=True)   # JSON, numpy-safe
     local_provider = Column(String(32), nullable=True)
     cloud_provider = Column(String(32), nullable=True)
+    status = Column(String(16), nullable=False, default="complete", server_default="complete")
+    error_type = Column(String(64), nullable=True)  # exception class name only
+    metrics = Column(Text, nullable=True)  # score_pair numbers, JSON; kept with the row
     verdict = Column(String(16), nullable=True)
     verdict_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_now)

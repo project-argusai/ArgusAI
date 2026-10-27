@@ -86,12 +86,14 @@ async def scheduled_shadow_retention_job():
     from app.models.shadow_result import SHADOW_SOURCES
     from app.services.shadow_audit_service import (
         RECOMPUTE_DAYS,
+        mark_stale_claims_failed,
         purge_expired,
         recompute_daily_summary,
     )
 
     db = SessionLocal()
     try:
+        mark_stale_claims_failed(db)
         purge_expired(db)
         # Recount the last 30 days so late or changed verdicts land, once, on
         # the day their pair was created.
@@ -103,6 +105,22 @@ async def scheduled_shadow_retention_job():
     except Exception as e:
         db.rollback()
         logger.error("Scheduled shadow retention failed",
+                     extra={"error_type": type(e).__name__})
+    finally:
+        db.close()
+
+
+async def startup_shadow_claim_sweep():
+    """At startup, fail audit claims left in ``claimed`` by a crash (#744)."""
+    from app.core.database import SessionLocal
+    from app.services.shadow_audit_service import mark_stale_claims_failed
+
+    db = SessionLocal()
+    try:
+        mark_stale_claims_failed(db)
+    except Exception as e:
+        db.rollback()
+        logger.error("Shadow claim startup sweep failed",
                      extra={"error_type": type(e).__name__})
     finally:
         db.close()
@@ -129,5 +147,12 @@ def register_retention_jobs(scheduler) -> None:
         trigger=CronTrigger(hour=2, minute=30),
         id="daily_shadow_retention",
         name="Daily cloud-audit pair and summary retention",
+        replace_existing=True,
+    )
+    # One-shot, runs as soon as the scheduler starts.
+    scheduler.add_job(
+        startup_shadow_claim_sweep,
+        id="shadow_claim_startup_sweep",
+        name="Fail stale cloud-audit claims at startup",
         replace_existing=True,
     )

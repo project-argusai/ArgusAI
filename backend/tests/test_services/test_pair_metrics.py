@@ -206,3 +206,19 @@ class TestGracieReview:
     def test_falls_back_to_confidence(self):
         m = pm.score_pair({**LOCAL, "ai_confidence": None}, CLOUD)
         assert m["confidence_delta"] == -20
+
+    def test_confidence_not_compared_when_neither_side_has_one(self):
+        a = {k: v for k, v in LOCAL.items() if k != "confidence"}
+        b = {k: v for k, v in CLOUD.items() if k != "confidence"}
+        m = pm.score_pair(a, b)
+        assert m["confidence_compared"] == 0 and m["confidence_delta"] == 0
+
+    def test_confidence_not_compared_when_one_side_missing_or_non_finite(self):
+        assert pm.score_pair({**LOCAL, "confidence": None}, CLOUD)["confidence_compared"] == 0
+        assert pm.score_pair(LOCAL, {**CLOUD, "confidence": float("nan")})["confidence_compared"] == 0
+
+    def test_confidence_compared_flag_set(self):
+        m = pm.score_pair(LOCAL, CLOUD)
+        assert m["confidence_compared"] == 1 and m["confidence_delta"] == -20
+        assert "confidence_compared" in pm.METRIC_KEYS
+        assert pm.score_pair(None, None)["confidence_compared"] == 0

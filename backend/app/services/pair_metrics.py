@@ -16,7 +16,9 @@ A result may be a dict, an ``AIResult``-like object, or ``None``.
   ``entities_jaccard`` is scored only when at least one side has ids;
   ``entities_compared`` says whether it was.
 - Confidence prefers ``ai_confidence`` and falls back to ``confidence``.
-  Non-finite or unparseable numbers count as absent.
+  Non-finite or unparseable numbers count as absent. ``confidence_delta`` is
+  scored only when both sides have one; ``confidence_compared`` says whether
+  it was, so averages can exclude pairs with no confidence.
 """
 from __future__ import annotations
 
@@ -41,6 +43,7 @@ METRIC_KEYS = (
     "entities_compared",
     "entities_jaccard",
     "description_similarity",
+    "confidence_compared",
     "confidence_delta",
 )
 
@@ -164,6 +167,7 @@ def score_pair(local: Any, cloud: Any) -> dict:
         "entities_jaccard": jaccard(local_ids, cloud_ids) if entities_compared else 0.0,
         "description_similarity": description_similarity(
             _get(local, "description"), _get(cloud, "description")),
+        "confidence_compared": int(local_conf is not None and cloud_conf is not None),
         "confidence_delta": (
             int(round(local_conf - cloud_conf))
             if local_conf is not None and cloud_conf is not None else 0

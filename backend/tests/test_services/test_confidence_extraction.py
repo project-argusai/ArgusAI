@@ -493,3 +493,9 @@ class TestIdentificationConfidence747:
         from app.services import identification
         src = inspect.getsource(identification)
         assert not re.search(r"int\(\s*\w*confidence", src)
+
+
+@pytest.mark.parametrize("value", ["\u0668\u0665", "\u0660.\u0668\u0665", "\uff18\uff15", "8\u0665"])
+def test_non_ascii_digit_strings_rejected_747(value):
+    from app.services.ai_providers.base import normalize_confidence
+    assert normalize_confidence(value) is None

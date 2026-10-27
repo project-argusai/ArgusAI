@@ -39,7 +39,7 @@ def resolve_request_timeout(requested: Optional[float], default: float) -> float
     return value
 
 
-_NUMERIC_STRING = re.compile(r"\d{1,3}(?:\.\d+)?")
+_NUMERIC_STRING = re.compile(r"\d+(\.\d+)?", re.ASCII)  # ASCII digits only (#747)
 
 
 def normalize_confidence(value: Any, *, count_exact_one: bool = True) -> Optional[int]:

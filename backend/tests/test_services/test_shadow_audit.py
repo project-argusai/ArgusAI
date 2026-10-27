@@ -219,7 +219,7 @@ class TestAuditCap:
         s2 = sessionmaker(bind=engine2)()
         since = NOW - timedelta(days=1)
         assert sas.count_audits_since(s2, since) == 3
-        assert sas.count_audits_since(s2, since, source="fallback") == 1
+        # Fallback pairs are not audit claims, so the count stays 3 (#746).
         s2.close()
         engine2.dispose()
 
@@ -253,7 +253,7 @@ class TestMigration:
 
         alembic("upgrade", "head")
         assert {"shadow_results", "shadow_daily_summary"} <= tables()
-        alembic("downgrade", "-1")
+        alembic("downgrade", "p3b719d1c2e3")
         assert not ({"shadow_results", "shadow_daily_summary"} & tables())
         alembic("upgrade", "head")
         assert {"shadow_results", "shadow_daily_summary"} <= tables()
@@ -498,3 +498,90 @@ class TestClaimStatus:
         monkeypatch.setattr(db_session, "close", lambda: None)
         await retention_jobs.startup_shadow_claim_sweep()
         assert db_session.query(ShadowResult).one().status == "failed"
+
+
+class TestAuditFollowups746:
+    """#746: was_audit_claim cap flag, zero-count summary skip, gate-path sweep."""
+
+    def _claim(self, db, ev, when=NOW):
+        return sas.claim_shadow_result(db, event_id=ev.id, source="audit", local_result=LOCAL, now=when)
+
+    def test_claim_sets_flag_and_fallback_keeps_it(self, db_session):
+        ev = _event(db_session)
+        assert self._claim(db_session, ev).was_audit_claim is True
+        sas.fail_claim(db_session, ev.id, error_type="TimeoutError")
+        row = sas.record_fallback_pair(db_session, event_id=ev.id, local_result=LOCAL,
+                                       cloud_result=CLOUD, now=NOW)
+        assert row.source == "fallback" and row.was_audit_claim is True
+
+    def test_plain_fallback_pair_not_flagged(self, db_session):
+        ev = _event(db_session)
+        row = sas.record_fallback_pair(db_session, event_id=ev.id, local_result=LOCAL,
+                                       cloud_result=CLOUD, now=NOW)
+        assert row.was_audit_claim is False
+        assert sas.count_audits_since(db_session, NOW - timedelta(hours=1)) == 0
+
+    def test_cap_holds_after_fallback_fills_failed_claim(self, db_session):
+        cap = 1
+        since = NOW - timedelta(hours=1)
+        e1, e2 = _event(db_session), _event(db_session)
+        assert sas.count_audits_since(db_session, since) < cap
+        self._claim(db_session, e1)
+        sas.fail_claim(db_session, e1.id, error_type="RuntimeError")
+        sas.record_fallback_pair(db_session, event_id=e1.id, local_result=LOCAL,
+                                 cloud_result=CLOUD, now=NOW)
+        # Second event's audit is refused: the filled row still counts.
+        assert sas.count_audits_since(db_session, since) >= cap
+
+    def test_flag_column_not_null_default_false(self, db_session):
+        col = ShadowResult.__table__.c.was_audit_claim
+        assert col.nullable is False
+        _, row = _pair(db_session, source="fallback")
+        assert row.was_audit_claim is False
+
+    def test_zero_count_summary_not_created(self, db_session):
+        d = NOW.astimezone().date()
+        assert sas.recompute_daily_summary(db_session, d, "audit") is None
+        assert db_session.query(ShadowDailySummary).count() == 0
+
+    def test_zero_count_updates_existing_summary(self, db_session):
+        d = NOW.astimezone().date()
+        sas.upsert_daily_summary(db_session, d, "audit", {"pairs_recorded": 3})
+        row = sas.recompute_daily_summary(db_session, d, "audit")
+        assert json.loads(row.metrics)["pairs_recorded"] == 0
+
+    def test_gate_sweep_runs_at_most_hourly_and_is_idempotent(self, db_session):
+        sas.reset_gate_sweep()
+        ev = _event(db_session)
+        self._claim(db_session, ev, when=NOW - timedelta(minutes=10))
+        assert sas.sweep_stale_claims_if_due(db_session, now=NOW) == 1
+        assert sas.sweep_stale_claims_if_due(db_session, now=NOW + timedelta(minutes=5)) == 0
+        ev2 = _event(db_session)
+        self._claim(db_session, ev2, when=NOW)
+        assert sas.sweep_stale_claims_if_due(db_session, now=NOW + timedelta(minutes=59)) == 0
+        assert sas.sweep_stale_claims_if_due(db_session, now=NOW + timedelta(hours=1)) == 1
+        # Running the sweep again changes nothing.
+        assert sas.mark_stale_claims_failed(db_session, now=NOW + timedelta(hours=2)) == 0
+        assert {r.status for r in db_session.query(ShadowResult).all()} == {"failed"}
+        assert {r.error_type for r in db_session.query(ShadowResult).all()} == {"stale_claim"}
+
+    def test_migration_adds_flag(self, tmp_path):
+        backend = Path(__file__).resolve().parents[2]
+        env = {**os.environ, "DATABASE_URL": f"sqlite:///{tmp_path / 'mig746.db'}"}
+
+        def alembic(*args):
+            subprocess.run([sys.executable, "-m", "alembic", *args], cwd=backend, env=env,
+                           check=True, capture_output=True)
+
+        def cols():
+            eng = create_engine(env["DATABASE_URL"])
+            names = {c["name"] for c in inspect(eng).get_columns("shadow_results")}
+            eng.dispose()
+            return names
+
+        alembic("upgrade", "head")
+        assert "was_audit_claim" in cols()
+        alembic("downgrade", "q4c735a1b2c3")
+        assert "was_audit_claim" not in cols()
+        alembic("upgrade", "head")
+        assert "was_audit_claim" in cols()

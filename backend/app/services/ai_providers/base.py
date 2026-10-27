@@ -7,6 +7,10 @@ Extracted from the monolithic ai_service.py during Phase 3.3.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
+import math
+import numbers
+
+import numpy as np
 
 # Temporary import during extraction phase.
 # Long-term: AIResult should live in a shared ai_types module.
@@ -31,6 +35,34 @@ def resolve_request_timeout(requested: Optional[float], default: float) -> float
     if value <= 0:
         return default
     return value
+
+
+def normalize_confidence(value: Any) -> Optional[int]:
+    """Map a model's top-level confidence to an int on the 0-100 scale (#745).
+
+    - A non-integer float strictly between 0 and 1 (e.g. 0.85) is a 0-1
+      score: scaled by 100 and rounded half up (0.85 -> 85). Before #745,
+      ``int(0.85)`` gave 0 and could trigger the #696 cloud fallback.
+    - Anything else from 0 to 100 (int, or float such as 85.0 / 85.7) is
+      already 0-100 and is truncated as before (85.7 -> 85).
+    - Exactly 1 / 1.0 is kept as 1 (1%), not 100. A low reading at worst
+      costs one capped cloud fallback with a correct result; reading it as
+      100% could silently skip the fallback for an answer the model rated
+      near zero. 0 / 0.0 stay 0.
+    - NaN, inf, out-of-range values, bools and non-numbers return None
+      (the existing "no usable score" path).
+    numpy scalars are accepted.
+    """
+    if value is None or isinstance(value, (bool, np.bool_)):
+        return None
+    if not isinstance(value, (numbers.Real, np.integer, np.floating)):
+        return None
+    number = float(value)
+    if not math.isfinite(number) or number < 0 or number > 100:
+        return None
+    if 0 < number < 1:
+        return int(math.floor(number * 100 + 0.5))
+    return int(number)
 
 
 class AIProviderBase(ABC):
@@ -134,9 +166,10 @@ class AIProviderBase(ABC):
                     if validated_boxes:
                         bounding_boxes = validated_boxes
 
-                if isinstance(confidence, (int, float)) and 0 <= confidence <= 100:
+                confidence = normalize_confidence(confidence)
+                if confidence is not None:
                     if description:
-                        return description, int(confidence), bounding_boxes
+                        return description, confidence, bounding_boxes
                 # A structured identification reply always has a description.
                 # Keep that sentence even when the model omits a usable score,
                 # so the UI never stores the raw JSON object.

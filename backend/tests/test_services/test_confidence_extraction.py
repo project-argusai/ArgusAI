@@ -334,3 +334,57 @@ class TestProviderConfidenceIntegration:
             assert result.success is True
             assert result.ai_confidence is None  # AC4: defaults to None
             assert "person" in result.description.lower()
+
+
+class TestConfidenceScale745:
+    """#745: a 0-1 confidence must not become 0 and trigger the #696 fallback."""
+
+    @pytest.fixture
+    def provider(self):
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        AIProviderBase.__init__(provider, "test-api-key")
+        return provider
+
+    def _conf(self, provider, value):
+        return provider._parse_confidence_response(
+            json.dumps({"description": "A person at the door.", "confidence": value}))[1]
+
+    @pytest.mark.parametrize("value,expected", [
+        (0.85, 85), (0.9, 90), (0.6, 60), (0.005, 1), (0.994, 99), (0.5, 50),
+        (85, 85), (85.0, 85), (85.7, 85), (100, 100), (2, 2),
+        (1, 1), (1.0, 1),  # exactly 1: 1%, see normalize_confidence
+        (0, 0), (0.0, 0),
+    ])
+    def test_scale(self, provider, value, expected):
+        got = self._conf(provider, value)
+        assert got == expected and type(got) is int
+
+    @pytest.mark.parametrize("raw", ['NaN', 'Infinity', '-Infinity', '101', '-0.5', '1e9', 'true', '"85"'])
+    def test_rejected_like_before(self, provider, raw):
+        text = '{"description": "A person at the door.", "confidence": %s}' % raw
+        description, confidence, _ = provider._parse_confidence_response(text)
+        assert confidence is None and description == "A person at the door."
+
+    def test_numpy_values(self):
+        import numpy as np
+        from app.services.ai_providers.base import normalize_confidence
+        assert normalize_confidence(np.float32(0.85)) == 85
+        assert normalize_confidence(np.int64(85)) == 85
+        assert normalize_confidence(np.float64("nan")) is None
+        assert normalize_confidence(np.bool_(True)) is None
+
+    def test_point_nine_vs_point_six_does_not_trigger_fallback(self, provider):
+        from app.services.local_first import local_answer_problem
+        local = AIResult(description="A person at the door.", confidence=0, objects_detected=["person"],
+                         provider="local", tokens_used=0, response_time_ms=1, cost_estimate=0.0,
+                         success=True, ai_confidence=self._conf(provider, 0.6))
+        cloud_conf = self._conf(provider, 0.9)
+        assert (local.ai_confidence, cloud_conf) == (60, 90)
+        assert cloud_conf - local.ai_confidence == 30
+        assert local_answer_problem(local, min_confidence=50) is None
+        # Before #745 this was int(0.6) == 0 -> "low_confidence".
+        local_low = AIResult(description="x", confidence=0, objects_detected=[], provider="local",
+                             tokens_used=0, response_time_ms=1, cost_estimate=0.0, success=True,
+                             ai_confidence=self._conf(provider, 0.3))
+        assert local_low.ai_confidence == 30
+        assert local_answer_problem(local_low, min_confidence=50) == "low_confidence"

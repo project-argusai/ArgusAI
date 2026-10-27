@@ -345,14 +345,18 @@ class TestGracieReview:
                 totals[v] += m.get(f"verdicts_{v}", 0)
         assert totals == {"agree": 0, "disagree": 1, "unsure": 0}
 
-    def test_recompute_keeps_other_metrics(self, db_session):
+    def test_recompute_builds_sums_from_row_metrics(self, db_session):
         d = NOW.astimezone().date()
         sas.upsert_daily_summary(db_session, d, "audit", {"pairs": 3, "sum_objects_jaccard": 2.5})
-        _pair(db_session, created=NOW)
+        for score in (1.0, 0.5):
+            ev = _event(db_session)
+            sas.record_shadow_result(db_session, event_id=ev.id, source="audit", local_result=LOCAL,
+                                     cloud_result=CLOUD, now=NOW,
+                                     metrics={"objects_jaccard": score, "confidence_delta": None})
         m = json.loads(sas.recompute_daily_summary(db_session, d, "audit").metrics)
-        assert m["pairs"] == 3 and m["sum_objects_jaccard"] == 2.5
-        assert m["pairs_recorded"] == 1
-        assert {"verdicts_agree", "verdicts_disagree", "verdicts_unsure"} <= set(m)
+        assert m["pairs_recorded"] == 2 and m["sum_objects_jaccard"] == 1.5
+        assert "pairs" not in m and "sum_confidence_delta" not in m  # rebuilt, not merged
+        assert {"verdicts_agree", "verdicts_disagree", "verdicts_unsure", "failed"} <= set(m)
 
     def test_recompute_works_after_redaction(self, db_session):
         ev, _ = _pair(db_session, created=NOW - timedelta(days=40))
@@ -373,3 +377,124 @@ class TestGracieReview:
         row = (db_session.query(ShadowDailySummary)
                .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == "audit").one())
         assert json.loads(row.metrics)["verdicts_agree"] == 1
+
+
+class TestClaimStatus:
+    """#744 claim rows: status claimed/complete/failed (#742 storage)."""
+
+    def test_default_status_complete_and_metrics_stored(self, db_session):
+        ev = _event(db_session)
+        row = sas.record_shadow_result(db_session, event_id=ev.id, source="audit",
+                                       local_result=LOCAL, cloud_result=CLOUD, now=NOW,
+                                       metrics={"objects_jaccard": np.float32(0.5)})
+        assert row.status == "complete" and row.error_type is None
+        assert json.loads(row.metrics) == {"objects_jaccard": 0.5}
+
+    def test_status_check_constraint(self, db_session):
+        from sqlalchemy import text
+        from sqlalchemy.exc import IntegrityError
+        _pair(db_session)
+        with pytest.raises(IntegrityError):
+            db_session.execute(text("UPDATE shadow_results SET status = 'pending'"))
+            db_session.commit()
+        db_session.rollback()
+
+    def test_claim_dedupes_on_event(self, db_session):
+        ev = _event(db_session)
+        row = sas.claim_shadow_result(db_session, event_id=ev.id, source="audit",
+                                      local_result=LOCAL, now=NOW)
+        assert row is not None and row.status == "claimed" and row.cloud_result is None
+        assert sas.claim_shadow_result(db_session, event_id=ev.id, source="audit",
+                                       local_result=LOCAL, now=NOW) is None
+
+    def test_complete_and_fail_claim(self, db_session):
+        e1, e2 = _event(db_session), _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=e1.id, source="audit", local_result=LOCAL, now=NOW)
+        sas.claim_shadow_result(db_session, event_id=e2.id, source="audit", local_result=LOCAL, now=NOW)
+        done = sas.complete_claim(db_session, e1.id, cloud_result=CLOUD, cloud_provider="cloud",
+                                  metrics={"pair_complete": 1})
+        failed = sas.fail_claim(db_session, e2.id, error_type="TimeoutError")
+        assert done.status == "complete" and json.loads(done.cloud_result)["confidence"] == 88
+        assert failed.status == "failed" and failed.error_type == "TimeoutError"
+        assert failed.cloud_result is None
+
+    def test_claimed_and_failed_count_against_cap(self, db_session):
+        e1, e2, e3 = (_event(db_session) for _ in range(3))
+        sas.claim_shadow_result(db_session, event_id=e1.id, source="audit", local_result=LOCAL, now=NOW)
+        sas.claim_shadow_result(db_session, event_id=e2.id, source="audit", local_result=LOCAL, now=NOW)
+        sas.fail_claim(db_session, e2.id, error_type="RuntimeError")
+        _pair(db_session, ev=e3)
+        assert sas.count_audits_since(db_session, NOW - timedelta(hours=1)) == 3
+
+    def test_stale_claims_marked_failed(self, db_session):
+        old, fresh = _event(db_session), _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=old.id, source="audit", local_result=LOCAL,
+                                now=NOW - timedelta(minutes=6))
+        sas.claim_shadow_result(db_session, event_id=fresh.id, source="audit", local_result=LOCAL,
+                                now=NOW - timedelta(minutes=4))
+        assert sas.mark_stale_claims_failed(db_session, now=NOW) == 1
+        rows = {r.event_id: r for r in db_session.query(ShadowResult).all()}
+        assert rows[old.id].status == "failed" and rows[old.id].error_type == "stale_claim"
+        assert rows[fresh.id].status == "claimed"
+
+    def test_only_complete_rows_take_verdicts(self, db_session):
+        ev = _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=ev.id, source="audit", local_result=LOCAL, now=NOW)
+        assert sas.set_verdict(db_session, ev.id, "agree") is None
+        sas.fail_claim(db_session, ev.id, error_type="RuntimeError")
+        assert sas.set_verdict(db_session, ev.id, "agree") is None
+        assert db_session.query(ShadowResult).one().verdict is None
+
+    def test_recompute_counts_only_complete_plus_failed_count(self, db_session):
+        d = NOW.astimezone().date()
+        ev_ok, ev_claim, ev_fail = (_event(db_session) for _ in range(3))
+        sas.record_shadow_result(db_session, event_id=ev_ok.id, source="audit", local_result=LOCAL,
+                                 cloud_result=CLOUD, now=NOW, metrics={"objects_jaccard": 1.0})
+        sas.set_verdict(db_session, ev_ok.id, "agree")
+        sas.claim_shadow_result(db_session, event_id=ev_claim.id, source="audit", local_result=LOCAL, now=NOW)
+        sas.claim_shadow_result(db_session, event_id=ev_fail.id, source="audit", local_result=LOCAL, now=NOW)
+        sas.fail_claim(db_session, ev_fail.id, error_type="TimeoutError")
+        m = json.loads(sas.recompute_daily_summary(db_session, d, "audit").metrics)
+        assert m["pairs_recorded"] == 1 and m["verdicts_agree"] == 1
+        assert m["sum_objects_jaccard"] == 1.0 and m["failed"] == 1
+        assert all(isinstance(v, (int, float)) for v in m.values())
+
+    def test_fallback_fills_failed_claim(self, db_session):
+        ev = _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=ev.id, source="audit", local_result=LOCAL, now=NOW)
+        sas.fail_claim(db_session, ev.id, error_type="TimeoutError")
+        row = sas.record_fallback_pair(db_session, event_id=ev.id, local_result=LOCAL,
+                                       cloud_result=CLOUD, metrics={"pair_complete": 1}, now=NOW)
+        assert row.source == "fallback" and row.status == "complete" and row.error_type is None
+        assert db_session.query(ShadowResult).count() == 1
+
+    def test_fallback_skips_claimed_or_complete(self, db_session):
+        e1, e2 = _event(db_session), _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=e1.id, source="audit", local_result=LOCAL, now=NOW)
+        _pair(db_session, ev=e2)
+        for ev in (e1, e2):
+            assert sas.record_fallback_pair(db_session, event_id=ev.id, local_result=LOCAL,
+                                            cloud_result=CLOUD, now=NOW) is None
+        assert {r.source for r in db_session.query(ShadowResult).all()} == {"audit"}
+
+    @pytest.mark.asyncio
+    async def test_job_marks_stale_claims_failed(self, db_session, monkeypatch):
+        from app.services import retention_jobs
+        ev = _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=ev.id, source="audit", local_result=LOCAL,
+                                now=datetime.now(timezone.utc) - timedelta(minutes=10))
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None)
+        await retention_jobs.scheduled_shadow_retention_job()
+        assert db_session.query(ShadowResult).one().status == "failed"
+
+    @pytest.mark.asyncio
+    async def test_startup_sweep_marks_stale_claims_failed(self, db_session, monkeypatch):
+        from app.services import retention_jobs
+        ev = _event(db_session)
+        sas.claim_shadow_result(db_session, event_id=ev.id, source="audit", local_result=LOCAL,
+                                now=datetime.now(timezone.utc) - timedelta(minutes=10))
+        monkeypatch.setattr("app.core.database.SessionLocal", lambda: db_session)
+        monkeypatch.setattr(db_session, "close", lambda: None)
+        await retention_jobs.startup_shadow_claim_sweep()
+        assert db_session.query(ShadowResult).one().status == "failed"

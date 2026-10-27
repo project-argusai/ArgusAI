@@ -1,9 +1,16 @@
 """Cloud-audit shadow storage and retention (#735, #691 Phase 1 S1).
 
-- ``record_shadow_result``: one frozen local/cloud pair per event.
-- ``count_audits_since``: the audit cap counts ``shadow_results`` rows, so it
-  survives a restart (no in-memory counter).
-- ``upsert_daily_summary``: numbers only, one row per (day, source).
+- ``record_shadow_result``: one frozen local/cloud pair per event (complete).
+- Claims (#744): ``claim_shadow_result`` inserts a ``claimed`` row before the
+  cloud call (the unique event_id dedupes), then ``complete_claim`` or
+  ``fail_claim`` (exception class name only; never deleted).
+  ``mark_stale_claims_failed`` fails claims stuck over 5 minutes.
+  ``record_fallback_pair`` stores a free fallback pair, or fills a failed
+  claim in as source=fallback, complete.
+- ``count_audits_since``: the audit cap counts ``shadow_results`` rows of any
+  status (claimed and failed included), so it survives a restart.
+- ``upsert_daily_summary``: numbers only, one row per (day, source). Summaries
+  are built by ``recompute_daily_summary`` only.
 - ``purge_expired``: after 30 days the paired text is nulled (the row keeps
   its source, verdict and timestamps); rows and summaries are deleted after
   365 days.
@@ -29,6 +36,7 @@ from sqlalchemy.orm import Session
 from app.models.shadow_result import (
     SHADOW_SOURCES,
     SHADOW_VERDICTS,
+    SHADOW_STATUSES,
     ShadowDailySummary,
     ShadowResult,
 )
@@ -39,6 +47,7 @@ logger = logging.getLogger(__name__)
 PAIR_RETENTION_DAYS = 30
 RECOMPUTE_DAYS = 30
 SUMMARY_RETENTION_DAYS = 365
+STALE_CLAIM_MINUTES = 5
 
 
 def _now(now: Optional[datetime] = None) -> datetime:
@@ -66,6 +75,7 @@ def record_shadow_result(
     local_provider: Optional[str] = None,
     cloud_provider: Optional[str] = None,
     now: Optional[datetime] = None,
+    metrics: Optional[Dict[str, Any]] = None,
 ) -> ShadowResult:
     """Store the frozen pair for ``event_id``; an existing row is returned as is."""
     _check_source(source)
@@ -79,6 +89,8 @@ def record_shadow_result(
         cloud_result=_dumps(cloud_result),
         local_provider=local_provider,
         cloud_provider=cloud_provider,
+        status="complete",
+        metrics=_metrics(metrics),
         created_at=_now(now),
     )
     db.add(row)
@@ -93,12 +105,110 @@ def record_shadow_result(
     return row
 
 
+def _metrics(metrics: Optional[Dict[str, Any]]) -> Optional[str]:
+    if metrics is None:
+        return None
+    safe = json_safe(metrics)
+    if not isinstance(safe, dict) or not _numbers_only(safe):
+        raise ValueError("pair metrics must be numbers only")
+    return json.dumps(safe, allow_nan=False)
+
+
+def _row(db: Session, event_id: str) -> Optional[ShadowResult]:
+    return db.query(ShadowResult).filter(ShadowResult.event_id == event_id).first()
+
+
+def claim_shadow_result(db: Session, *, event_id: str, source: str, local_result: Any,
+                        local_provider: Optional[str] = None,
+                        now: Optional[datetime] = None) -> Optional[ShadowResult]:
+    """Insert a ``claimed`` row; None if the event already has a row."""
+    _check_source(source)
+    if _row(db, event_id) is not None:
+        return None
+    row = ShadowResult(event_id=event_id, source=source, status="claimed",
+                       local_result=_dumps(local_result), local_provider=local_provider,
+                       created_at=_now(now))
+    db.add(row)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return None
+    return row
+
+
+def complete_claim(db: Session, event_id: str, *, cloud_result: Any,
+                   cloud_provider: Optional[str] = None,
+                   metrics: Optional[Dict[str, Any]] = None) -> Optional[ShadowResult]:
+    row = _row(db, event_id)
+    if row is None or row.status != "claimed":
+        return None
+    row.cloud_result = _dumps(cloud_result)
+    row.cloud_provider = cloud_provider
+    row.metrics = _metrics(metrics)
+    row.status = "complete"
+    db.commit()
+    return row
+
+
+def fail_claim(db: Session, event_id: str, *, error_type: str) -> Optional[ShadowResult]:
+    """Mark a claim failed. The row stays: it counts toward the cap."""
+    row = _row(db, event_id)
+    if row is None or row.status != "claimed":
+        return None
+    row.status = "failed"
+    row.error_type = str(error_type)[:64]
+    db.commit()
+    return row
+
+
+def mark_stale_claims_failed(db: Session, now: Optional[datetime] = None,
+                             minutes: int = STALE_CLAIM_MINUTES) -> int:
+    cutoff = _now(now) - timedelta(minutes=minutes)
+    count = (db.query(ShadowResult)
+             .filter(ShadowResult.status == "claimed", ShadowResult.created_at < cutoff)
+             .update({ShadowResult.status: "failed", ShadowResult.error_type: "stale_claim"},
+                     synchronize_session=False))
+    db.commit()
+    if count:
+        logger.info("Stale shadow claims failed",
+                    extra={"event_type": "shadow_stale_claims", "count": int(count)})
+    return int(count or 0)
+
+
+def record_fallback_pair(db: Session, *, event_id: str, local_result: Any, cloud_result: Any,
+                         local_provider: Optional[str] = None,
+                         cloud_provider: Optional[str] = None,
+                         metrics: Optional[Dict[str, Any]] = None,
+                         now: Optional[datetime] = None) -> Optional[ShadowResult]:
+    """Free fallback pair: new row, or fill a failed claim. None if claimed/complete."""
+    row = _row(db, event_id)
+    if row is None:
+        created = record_shadow_result(db, event_id=event_id, source="fallback",
+                                       local_result=local_result, cloud_result=cloud_result,
+                                       local_provider=local_provider,
+                                       cloud_provider=cloud_provider, now=now, metrics=metrics)
+        return created if created.source == "fallback" and created.status == "complete" else None
+    if row.status != "failed":
+        return None
+    row.source = "fallback"
+    row.status = "complete"
+    row.error_type = None
+    row.local_result = _dumps(local_result)
+    row.cloud_result = _dumps(cloud_result)
+    row.local_provider = local_provider
+    row.cloud_provider = cloud_provider
+    row.metrics = _metrics(metrics)
+    db.commit()
+    return row
+
+
 def set_verdict(db: Session, event_id: str, verdict: str,
                 now: Optional[datetime] = None) -> Optional[ShadowResult]:
     if verdict not in SHADOW_VERDICTS:
         raise ValueError("invalid verdict")
     row = db.query(ShadowResult).filter(ShadowResult.event_id == event_id).first()
-    if row is None:
+    if row is None or row.status != "complete":
         return None
     row.verdict = verdict
     row.verdict_at = _now(now)
@@ -109,7 +219,7 @@ def set_verdict(db: Session, event_id: str, verdict: str,
 
 
 def count_audits_since(db: Session, since: datetime, source: str = "audit") -> int:
-    """Rows recorded since ``since``. Backed by the table, so restart-safe."""
+    """Rows of any status since ``since``. Backed by the table, so restart-safe."""
     _check_source(source)
     return (
         db.query(ShadowResult)
@@ -158,27 +268,34 @@ def _local_day_bounds(day: date):
 
 
 def recompute_daily_summary(db: Session, day: date, source: str) -> ShadowDailySummary:
-    """Recount ``day`` (box-local) from ``shadow_results`` and merge into its summary.
+    """Rebuild the summary for ``day`` (box-local) from ``shadow_results``.
 
-    ``pairs_recorded`` counts rows created that day; ``verdicts_<v>`` counts
-    the current verdict of those same rows (by ``created_at``, not
-    ``verdict_at``), so a changed verdict never lands on two days. Other keys already in the
-    summary (e.g. metric sums from the audit service) are kept. Safe to re-run.
+    Over the complete rows created that day: ``pairs_recorded``,
+    ``verdicts_<v>`` (each row's current verdict, so a changed verdict never
+    lands on two days) and ``sum_<metric>`` from the stored score_pair
+    numbers. ``failed`` counts that day's failed rows. Claimed rows are left
+    out. Replaces the stored summary; safe to re-run.
     """
     _check_source(source)
     start, end = _local_day_bounds(day)
-    base = db.query(ShadowResult).filter(ShadowResult.source == source,
-                                         ShadowResult.created_at >= start,
-                                         ShadowResult.created_at < end)
-    counts = {"pairs_recorded": base.count()}
+    day_rows = db.query(ShadowResult).filter(ShadowResult.source == source,
+                                             ShadowResult.created_at >= start,
+                                             ShadowResult.created_at < end)
+    complete = day_rows.filter(ShadowResult.status == "complete")
+    summary: Dict[str, Any] = {"pairs_recorded": complete.count(),
+                               "failed": day_rows.filter(ShadowResult.status == "failed").count()}
     for verdict in SHADOW_VERDICTS:
-        counts[f"verdicts_{verdict}"] = base.filter(ShadowResult.verdict == verdict).count()
-    row = (db.query(ShadowDailySummary)
-           .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == source)
-           .first())
-    merged = json.loads(row.metrics) if row is not None else {}
-    merged.update(counts)
-    return upsert_daily_summary(db, day, source, merged)
+        summary[f"verdicts_{verdict}"] = complete.filter(ShadowResult.verdict == verdict).count()
+    sums: Dict[str, float] = {}
+    for (raw,) in complete.with_entities(ShadowResult.metrics):
+        if not raw:
+            continue
+        for key, value in json.loads(raw).items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            sums[f"sum_{key}"] = sums.get(f"sum_{key}", 0) + value
+    summary.update(sums)
+    return upsert_daily_summary(db, day, source, summary)
 
 
 def purge_expired(

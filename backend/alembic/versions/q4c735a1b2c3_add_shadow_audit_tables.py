@@ -26,6 +26,9 @@ def upgrade() -> None:
         sa.Column("cloud_result", sa.Text(), nullable=True),
         sa.Column("local_provider", sa.String(length=32), nullable=True),
         sa.Column("cloud_provider", sa.String(length=32), nullable=True),
+        sa.Column("status", sa.String(length=16), nullable=False, server_default="complete"),
+        sa.Column("error_type", sa.String(length=64), nullable=True),
+        sa.Column("metrics", sa.Text(), nullable=True),
         sa.Column("verdict", sa.String(length=16), nullable=True),
         sa.Column("verdict_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -33,6 +36,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("event_id"),
         sa.CheckConstraint("source IN ('audit', 'fallback')", name="ck_shadow_results_source"),
+        sa.CheckConstraint("status IN ('claimed', 'complete', 'failed')",
+                           name="ck_shadow_results_status"),
         sa.CheckConstraint("verdict IS NULL OR verdict IN ('agree', 'disagree', 'unsure')",
                            name="ck_shadow_results_verdict"),
     )

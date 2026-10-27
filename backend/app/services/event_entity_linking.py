@@ -288,7 +288,9 @@ def verify_named_identities(
                     "event_type": "vehicle_identity_evidence",
                     "vehicles_detected": len(observed),
                     "linked": [v.entity_id for v in vehicles],
-                    "candidates": [e.as_log() for e in evidence if e.has_gallery or e.accepted],
+                    # Log every candidate (including colour/plate vetoes). Filtering
+                    # to has_gallery|accepted hid why Driveway Teslas were dropped.
+                    "candidates": [e.as_log() for e in evidence],
                 },
             )
 

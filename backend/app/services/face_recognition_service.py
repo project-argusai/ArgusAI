@@ -94,7 +94,7 @@ class DetectedFace:
     row: np.ndarray
 
     def bbox(self) -> dict:
-        return {"x": self.x, "y": self.y, "width": self.width, "height": self.height}
+        return {"x": int(self.x), "y": int(self.y), "width": int(self.width), "height": int(self.height)}
 
 
 @dataclass

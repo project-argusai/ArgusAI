@@ -24,6 +24,7 @@ import { VideoPlayerModal } from '@/components/video/VideoPlayerModal';
 import { EventEntities } from './EventEntities';
 import { cn } from '@/lib/utils';
 import { parseApiDate } from '@/lib/datetime';
+import { readIncident } from '@/lib/incident';
 
 interface EventCardProps {
   event: IEvent;
@@ -52,6 +53,8 @@ export const EventCard = memo(function EventCard({
   onReanalyze,
 }: EventCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  // #720: per-camera description stays reachable under a combined one
+  const [showCameraDescription, setShowCameraDescription] = useState(false);
   const [imageError, setImageError] = useState(false);
   // Story P8-2.2: Frame gallery modal state
   const [frameGalleryOpen, setFrameGalleryOpen] = useState(false);
@@ -77,11 +80,17 @@ export const EventCard = memo(function EventCard({
 
 
   // Truncate description to 3 lines (~150 chars)
+  // #720: a grouped incident with a finished combined pass shows that text;
+  // otherwise (no group, pending, fallback, failed) the per-camera text.
+  const incident = event.correlation_group_id ? readIncident(event) : null;
+  const combinedDescription = incident?.combinedDescription ?? null;
+  const incidentEntityCount = incident?.matchedEntityIds.length ?? 0;
+  const primaryText = combinedDescription ?? event.description;
   const MAX_LENGTH = 150;
-  const isTruncated = event.description.length > MAX_LENGTH;
+  const isTruncated = primaryText.length > MAX_LENGTH;
   const displayDescription = !isExpanded && isTruncated
-    ? event.description.slice(0, MAX_LENGTH) + '...'
-    : event.description;
+    ? primaryText.slice(0, MAX_LENGTH) + '...'
+    : primaryText;
 
   return (
     <Card
@@ -193,6 +202,11 @@ export const EventCard = memo(function EventCard({
 
           {/* Description */}
           <div className="space-y-1">
+            {combinedDescription && (
+              <p className="text-xs font-medium text-blue-700" data-testid="incident-summary-label">
+                Incident summary (all cameras)
+              </p>
+            )}
             <p className="text-sm leading-relaxed">{displayDescription}</p>
             {isTruncated && (
               <button
@@ -214,6 +228,34 @@ export const EventCard = memo(function EventCard({
                   </>
                 )}
               </button>
+            )}
+            {combinedDescription && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCameraDescription(!showCameraDescription);
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+                  aria-expanded={showCameraDescription}
+                >
+                  {showCameraDescription ? 'Hide this camera\'s description' : 'Show this camera\'s description'}
+                </button>
+                {showCameraDescription && (
+                  <p className="text-sm leading-relaxed text-muted-foreground" data-testid="camera-description">
+                    {event.description}
+                  </p>
+                )}
+              </>
+            )}
+            {incidentEntityCount > 0 && (
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700"
+                data-testid="incident-entity-count"
+              >
+                {incidentEntityCount} identified across cameras
+              </span>
             )}
           </div>
 

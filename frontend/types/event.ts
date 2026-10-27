@@ -157,6 +157,9 @@ export interface IEvent {
   // Story P2-4.4: Multi-camera event correlation
   correlation_group_id?: string | null;  // UUID linking correlated events across cameras
   correlated_events?: ICorrelatedEvent[]; // Related events from same correlation group
+  // #675/#718: combined incident data for a correlation group (raw API shape;
+  // read it through lib/incident.ts, never directly). Null/absent = none.
+  incident?: unknown;
   // Story P2-5.3: AI provider tracking
   provider_used?: string | null;  // AI provider: openai, grok, claude, gemini
   // Story P3-3.4: Analysis mode tracking

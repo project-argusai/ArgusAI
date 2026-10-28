@@ -20,6 +20,7 @@ from typing import Optional, List, Dict, Any
 from litellm import Router, completion_cost
 
 from app.services.identification import DESCRIPTION_MAX_OUTPUT_TOKENS
+from app.services.ai_providers.base import normalize_confidence
 import litellm
 
 logger = logging.getLogger(__name__)
@@ -362,10 +363,7 @@ class LiteLLMProvider:
                     ai_confidence = data.get("confidence")
                     bounding_boxes = data.get("bounding_boxes")
 
-                    if isinstance(ai_confidence, (int, float)):
-                        ai_confidence = int(ai_confidence)
-                    else:
-                        ai_confidence = None
+                    ai_confidence = normalize_confidence(ai_confidence)  # #745/#747
 
                     return description, ai_confidence, bounding_boxes
         except json.JSONDecodeError:
@@ -379,21 +377,19 @@ class LiteLLMProvider:
                 description = data.get("description", response_text)
                 ai_confidence = data.get("confidence")
 
-                if isinstance(ai_confidence, (int, float)):
-                    ai_confidence = int(ai_confidence)
-                else:
-                    ai_confidence = None
+                ai_confidence = normalize_confidence(ai_confidence)  # #745/#747
 
                 return description, ai_confidence, None
             except json.JSONDecodeError:
                 pass
 
         # Fallback: look for confidence pattern in plain text
-        confidence_match = re.search(r'confidence[:\s]+(\d+)', response_text.lower())
+        confidence_match = re.search(r'confidence[:\s]+(\d{1,3}(?:\.\d+)?)', response_text.lower())
         if confidence_match:
-            ai_confidence = int(confidence_match.group(1))
+            ai_confidence = normalize_confidence(confidence_match.group(1))
             # Remove confidence statement from description
-            description = re.sub(r'\s*confidence[:\s]+\d+\s*', '', response_text, flags=re.IGNORECASE).strip()
+            description = re.sub(r'\s*confidence[:\s]+\d+(?:\.\d+)?\s*', '', response_text,
+                                 flags=re.IGNORECASE).strip()
         else:
             description = response_text
 

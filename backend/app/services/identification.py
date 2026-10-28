@@ -502,7 +502,8 @@ def confidence_from_identification(
     """Derive a 0–100 confidence from structured identification.
 
     Preference order:
-    1. Explicit model-reported ``ai_confidence`` when it is an int/float in 0–100.
+    1. Explicit model-reported ``ai_confidence`` when ``normalize_confidence``
+       accepts it (0–100, or a 0–1 score scaled to 0–100; #745/#747).
        (Stored separately on ``AIResult.ai_confidence`` for MQTT/UI.)
     2. Otherwise score parsed fields:
        - Concrete subject (person/vehicle/package/animal): base 70
@@ -515,9 +516,13 @@ def confidence_from_identification(
        - −5 when a concrete subject has no count
        Result is clamped to 0–100.
     """
-    if isinstance(ai_confidence, (int, float)):
-        reported = int(ai_confidence)
-        if 0 <= reported <= 100:
+    if ai_confidence is not None:
+        # Usually already normalized by the provider parser; don't count an
+        # exactly-1 value a second time (#747).
+        from app.services.ai_providers.base import normalize_confidence
+
+        reported = normalize_confidence(ai_confidence, count_exact_one=False)
+        if reported is not None:
             return reported
 
     ident = identification if isinstance(identification, Mapping) else empty_identification()

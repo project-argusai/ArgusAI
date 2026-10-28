@@ -47,8 +47,8 @@ def _dummy(col):
     return "x"
 
 
-def _insert_event(conn, **values):
-    cols = sa.inspect(conn).get_columns("events")
+def _insert(conn, table, **values):
+    cols = sa.inspect(conn).get_columns(table)
     for col in cols:
         if col["name"] in values:
             continue
@@ -56,7 +56,11 @@ def _insert_event(conn, **values):
             values[col["name"]] = _dummy(col)
     names = ", ".join(f'"{k}"' for k in values)
     marks = ", ".join(f":{k}" for k in values)
-    conn.execute(sa.text(f"INSERT INTO events ({names}) VALUES ({marks})"), values)
+    conn.execute(sa.text(f"INSERT INTO {table} ({names}) VALUES ({marks})"), values)
+
+
+def _insert_event(conn, **values):
+    _insert(conn, "events", camera_id="cam-1", **values)
 
 
 def _naive_utc(value):
@@ -94,6 +98,7 @@ def test_local_protect_timestamps_repaired(dialect, tmp_path):
     ok_ts = created - timedelta(seconds=3)              # correctly stored UTC
     eng = sa.create_engine(url)
     with eng.begin() as conn:
+        _insert(conn, "cameras", id="cam-1")
         _insert_event(conn, id="evt-bad", source_type="protect",
                       timestamp=local_ts, created_at=created)
         _insert_event(conn, id="evt-ok", source_type="protect",

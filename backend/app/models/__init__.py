@@ -39,6 +39,8 @@ from app.models.hot_activity import HotCameraActivity, HotEntityActivity
 __all__ = [
     "Incident",
     "IncidentDelivery",
+    "ShadowResult",
+    "ShadowDailySummary",
     "ProtectController",
     "Camera",
     "MotionEvent",
@@ -83,3 +85,4 @@ __all__ = [
     "HotEntityActivity",
 ]
 from app.models.incident import Incident, IncidentDelivery
+from app.models.shadow_result import ShadowDailySummary, ShadowResult

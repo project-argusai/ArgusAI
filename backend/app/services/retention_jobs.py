@@ -78,6 +78,54 @@ async def scheduled_video_cleanup_job():
         logger.error(f"Scheduled video cleanup failed: {e}", exc_info=True)
 
 
+async def scheduled_shadow_retention_job():
+    """Purge cloud-audit pairs after 30 days and summaries after 365 (#735)."""
+    from datetime import datetime, timedelta
+
+    from app.core.database import SessionLocal
+    from app.models.shadow_result import SHADOW_SOURCES
+    from app.services.shadow_audit_service import (
+        RECOMPUTE_DAYS,
+        mark_stale_claims_failed,
+        purge_expired,
+        recompute_daily_summary,
+    )
+
+    db = SessionLocal()
+    try:
+        mark_stale_claims_failed(db)
+        purge_expired(db)
+        # Recount the last 30 days so late or changed verdicts land, once, on
+        # the day their pair was created.
+        today = datetime.now().astimezone().date()
+        for offset in range(RECOMPUTE_DAYS, -1, -1):
+            day = today - timedelta(days=offset)
+            for source in SHADOW_SOURCES:
+                recompute_daily_summary(db, day, source)
+    except Exception as e:
+        db.rollback()
+        logger.error("Scheduled shadow retention failed",
+                     extra={"error_type": type(e).__name__})
+    finally:
+        db.close()
+
+
+async def startup_shadow_claim_sweep():
+    """At startup, fail audit claims left in ``claimed`` by a crash (#744)."""
+    from app.core.database import SessionLocal
+    from app.services.shadow_audit_service import mark_stale_claims_failed
+
+    db = SessionLocal()
+    try:
+        mark_stale_claims_failed(db)
+    except Exception as e:
+        db.rollback()
+        logger.error("Shadow claim startup sweep failed",
+                     extra={"error_type": type(e).__name__})
+    finally:
+        db.close()
+
+
 def register_retention_jobs(scheduler) -> None:
     """Register the daily event and video retention jobs."""
     scheduler.add_job(
@@ -92,5 +140,19 @@ def register_retention_jobs(scheduler) -> None:
         trigger=CronTrigger(hour=2, minute=15),
         id="daily_video_cleanup",
         name="Daily motion video cleanup based on video retention policy",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        scheduled_shadow_retention_job,
+        trigger=CronTrigger(hour=2, minute=30),
+        id="daily_shadow_retention",
+        name="Daily cloud-audit pair and summary retention",
+        replace_existing=True,
+    )
+    # One-shot, runs as soon as the scheduler starts.
+    scheduler.add_job(
+        startup_shadow_claim_sweep,
+        id="shadow_claim_startup_sweep",
+        name="Fail stale cloud-audit claims at startup",
         replace_existing=True,
     )

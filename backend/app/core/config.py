@@ -363,6 +363,15 @@ class Settings(BaseSettings):
     # today's cloud-described events at first use).
     CLOUD_FALLBACK_DAILY_CAP: int = Field(default=50, ge=0, le=10_000)
 
+    # Sampled background cloud audit of key events while AI_PRIMARY=local
+    # (#736, #691 Phase 1). Off by default (kill switch). Never runs with
+    # AI_PRIMARY=cloud. The daily cap counts shadow_results rows.
+    CLOUD_AUDIT_ENABLED: bool = False
+    CLOUD_AUDIT_SAMPLE_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
+    CLOUD_AUDIT_DAILY_CAP: int = Field(default=200, ge=0, le=10_000)
+    CLOUD_AUDIT_MIN_FALLBACK_LEFT: int = Field(default=10, ge=0, le=10_000)
+    CLOUD_AUDIT_MIN_FREE_MEMORY_MB: int = Field(default=1024, ge=0, le=1_000_000)
+
     # Cloud provider controls. Comma-separated provider names to skip without
     # deleting their keys: openai, grok, claude (or anthropic), gemini (or google).
     AI_DISABLED_PROVIDERS: str = ""

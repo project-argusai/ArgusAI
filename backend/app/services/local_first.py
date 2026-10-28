@@ -127,6 +127,34 @@ def _seed_from_db(day: date) -> int:
         )
 
 
+# In-flight #696 cloud fallback calls. The cloud audit (#736) steps aside
+# while any are running. The live pipeline wraps its fallback call with
+# ``track_cloud_fallback()`` (hook lands in #737).
+_fallback_in_flight = 0
+_fallback_lock = threading.Lock()
+
+
+def cloud_fallback_in_progress() -> bool:
+    with _fallback_lock:
+        return _fallback_in_flight > 0
+
+
+class track_cloud_fallback:
+    """Context manager marking a cloud fallback call as in progress."""
+
+    def __enter__(self):
+        global _fallback_in_flight
+        with _fallback_lock:
+            _fallback_in_flight += 1
+        return self
+
+    def __exit__(self, *exc):
+        global _fallback_in_flight
+        with _fallback_lock:
+            _fallback_in_flight = max(0, _fallback_in_flight - 1)
+        return False
+
+
 _budget: Optional[CloudFallbackBudget] = None
 _budget_lock = threading.Lock()
 

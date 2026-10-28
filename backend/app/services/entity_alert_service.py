@@ -85,7 +85,39 @@ def visible_vehicle_details(description: str) -> Tuple[Optional[str], Optional[s
     return color, make, model
 
 
-def vehicle_label_agrees(description: str, entity) -> bool:
+def identified_vehicle_text(description: Optional[str], identification: Any = None) -> str:
+    """The description, plus the make/model from structured identification.
+
+    Local models often describe "a red sedan" yet fill ``vehicle_make`` in the
+    identification JSON (#755). When the description names no make, the
+    identified make (and model) is appended as a short sentence so the #679
+    description rules can use it. A description that already names a make is
+    returned unchanged: the free text wins over the structured field.
+    """
+    text = description or ""
+    if not isinstance(identification, dict):
+        return text
+    make = identification.get("vehicle_make")
+    if not isinstance(make, str) or not make.strip():
+        return text
+    make = make.strip().lower()
+    if make in {"unknown", "cannot_tell", "none", "n/a"}:
+        return text
+    if _earliest_vocab(make, VEHICLE_MAKES, _MAKE_ALIASES) is None:
+        return text
+    if _earliest_vocab(text, VEHICLE_MAKES, _MAKE_ALIASES) is not None:
+        return text
+    words = [make]
+    model = identification.get("vehicle_model")
+    if isinstance(model, str) and model.strip() and model.strip().lower() not in {
+        "unknown", "cannot_tell", "none", "n/a"
+    }:
+        words.append(model.strip().lower())
+    sentence = f"The vehicle is a {' '.join(words)}."
+    return f"{text.rstrip()} {sentence}".strip()
+
+
+def vehicle_label_agrees(description: str, entity, identification: Any = None) -> bool:
     """Whether a stored vehicle name can be shown for this description.
 
     The name is a hint. A make or model written into the name (or stored on
@@ -97,6 +129,7 @@ def vehicle_label_agrees(description: str, entity) -> bool:
     name = name.strip()
     if not name:
         return False
+    description = identified_vehicle_text(description, identification)
     visible_color, visible_make, visible_model = visible_vehicle_details(description or "")
     label_make = _earliest_vocab(name, VEHICLE_MAKES, _MAKE_ALIASES)
     label_model = _earliest_vocab(name, VEHICLE_MODELS, {})
@@ -139,7 +172,7 @@ def _all_vocab(text: str, vocab: List[str], aliases: Dict[str, str]) -> set:
     }
 
 
-def vehicle_description_signal(description: Optional[str], entity) -> str:
+def vehicle_description_signal(description: Optional[str], entity, identification: Any = None) -> str:
     """How a description bears on a saved vehicle: 'agree', 'contradict' or 'none'.
 
     Unlike ``vehicle_label_agrees`` (one make/colour, the earliest named),
@@ -156,7 +189,7 @@ def vehicle_description_signal(description: Optional[str], entity) -> str:
     """
     from app.services.vehicle_color import color_agreement, normalize_color_name
 
-    text = description or ""
+    text = identified_vehicle_text(description, identification)
     if not text.strip():
         return "none"
     name = entity.name if isinstance(getattr(entity, "name", None), str) else ""
@@ -209,7 +242,7 @@ def suppress_inconsistent_vehicle_identity(
         name = getattr(entity, "name", None)
         if not isinstance(name, str) or token.lower() != name.strip().lower():
             continue
-        if not vehicle_label_agrees(description, entity):
+        if not vehicle_label_agrees(description, entity, identification):
             identification["identity"] = "cannot_tell"
         return
 
@@ -329,7 +362,8 @@ class EntityAlertService:
     def enrich_description(
         self,
         original_description: str,
-        matched_entities: List[RecognizedEntity]
+        matched_entities: List[RecognizedEntity],
+        identification: Any = None,
     ) -> str:
         """
         Enrich event description with entity names.
@@ -362,7 +396,7 @@ class EntityAlertService:
         named_vehicles = [
             e for e in named_entities
             if getattr(e, "entity_type", None) == "vehicle"
-            and vehicle_label_agrees(original_description, e)
+            and vehicle_label_agrees(original_description, e, identification)
         ]
         # Fall back to the old "all named entities" list when type is missing
         # (some callers/tests only set .name). A vehicle the description

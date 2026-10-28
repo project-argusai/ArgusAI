@@ -141,6 +141,7 @@ def select_named_vehicles(
     *,
     preferred_ids: Iterable[str] = (),
     embedding: Optional[Sequence[float]] = None,
+    identification: Any = None,
 ) -> List[NamedIdentity]:
     """Named vehicles the description supports. At most one is returned.
 
@@ -155,7 +156,7 @@ def select_named_vehicles(
         if vehicle is None or vehicle.entity_type != "vehicle" or vehicle.entity_id in seen:
             continue
         seen.add(vehicle.entity_id)
-        if vehicle_label_agrees(description or "", vehicle):
+        if vehicle_label_agrees(description or "", vehicle, identification):
             agreeing.append(vehicle)
     if len(agreeing) <= 1:
         return agreeing
@@ -227,6 +228,7 @@ def verify_named_identities(
     looks_like_vehicle: bool,
     embedding: Optional[Sequence[float]] = None,
     object_analysis: Any = None,
+    identification: Any = None,
 ) -> List[NamedIdentity]:
     """The named people and vehicles this event supports, people first.
 
@@ -266,7 +268,9 @@ def verify_named_identities(
                 seen.add(identity.entity_id)
                 pool.append(identity)
         gallery = _vehicle_gallery(db)
-        evidence = evaluate_vehicle_candidates(description, pool, observed, gallery)
+        evidence = evaluate_vehicle_candidates(
+            description, pool, observed, gallery, identification=identification
+        )
         winner, tied = pick_vehicle(evidence)
         by_id = {i.entity_id: i for i in pool}
         if winner is not None:
@@ -280,6 +284,7 @@ def verify_named_identities(
                 [by_id[e.entity_id] for e in tied],
                 preferred_ids=[v.entity_id for v in clip_vehicles],
                 embedding=embedding,
+                identification=identification,
             )
         if evidence and (observed or gallery):
             logger.info(

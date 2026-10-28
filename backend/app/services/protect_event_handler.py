@@ -280,6 +280,7 @@ class ProtectEventHandler:
 
         out = {"matched_ids": [], "enriched": None, "recognition_status": None}
         description = getattr(ai_result, "description", None) if ai_result else None
+        identification = getattr(ai_result, "identification", None) if ai_result is not None else None
         candidates = list(getattr(bundle, "named_identities", None) or [])
         analysis = getattr(bundle, "object_analysis", None)
         if not (description or candidates or getattr(analysis, "vehicles", None)):
@@ -292,17 +293,16 @@ class ProtectEventHandler:
                 looks_like_vehicle=event_looks_like_vehicle(event_type, ai_result),
                 embedding=getattr(bundle, "embedding_vector", None),
                 object_analysis=analysis,
+                identification=identification,
             )
             if entities:
                 out["matched_ids"] = [e.entity_id for e in entities]
                 out["recognition_status"] = "known"
                 if description:
-                    suppress_inconsistent_vehicle_identity(
-                        description,
-                        getattr(ai_result, "identification", None) if ai_result is not None else None,
-                        entities,
+                    suppress_inconsistent_vehicle_identity(description, identification, entities)
+                    enriched = get_entity_alert_service().enrich_description(
+                        description, entities, identification
                     )
-                    enriched = get_entity_alert_service().enrich_description(description, entities)
                     if enriched and enriched != description and ai_result is not None:
                         ai_result.description = enriched
                     out["enriched"] = enriched

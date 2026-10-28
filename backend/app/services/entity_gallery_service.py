@@ -449,6 +449,7 @@ def evaluate_vehicle_candidates(
     gallery: Dict[str, GalleryEntry],
     thresholds: Optional[MatchThresholds] = None,
     extra_signals: Optional[Sequence[VehicleSignal]] = None,
+    identification: Any = None,
 ) -> List[VehicleEvidence]:
     """Score each named vehicle against the event's evidence.
 
@@ -485,6 +486,9 @@ def evaluate_vehicle_candidates(
     more evidence, e.g. a plate reader: a ``contradict`` vetoes right after
     the description veto; an ``agree`` links at the signal's tier once the
     built-in vetoes have passed. None are registered by default.
+
+    ``identification`` (the AI's structured fields) supplies the make/model
+    when the description text names none (#755).
     """
     from app.services.entity_alert_service import vehicle_description_signal, vehicle_label_agrees
 
@@ -522,7 +526,7 @@ def evaluate_vehicle_candidates(
             color_status = color_agreement(best_obs.color, expected_color)
         else:
             color_status = _color_status_for(expected_color, [v.color for v in observed])
-        desc = vehicle_description_signal(description, ident)
+        desc = vehicle_description_signal(description, ident, identification)
         ev = VehicleEvidence(
             entity_id=ident.entity_id,
             name=ident.name,
@@ -567,7 +571,7 @@ def evaluate_vehicle_candidates(
                 ev.accepted, ev.signal = True, "crop+color"
             else:
                 ev.reason = "crop_disagrees"
-        elif desc == "agree" and vehicle_label_agrees(description or "", ident):
+        elif desc == "agree" and vehicle_label_agrees(description or "", ident, identification):
             # Description only: the #679 rule exactly (stricter than "agree").
             ev.accepted, ev.signal = True, "description"
         else:

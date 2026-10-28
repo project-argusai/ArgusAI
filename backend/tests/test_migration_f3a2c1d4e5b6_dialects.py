@@ -98,7 +98,8 @@ def test_local_protect_timestamps_repaired(dialect, tmp_path):
     ok_ts = created - timedelta(seconds=3)              # correctly stored UTC
     eng = sa.create_engine(url)
     with eng.begin() as conn:
-        _insert(conn, "cameras", id="cam-1")
+        _insert(conn, "cameras", id="cam-1", name="Test Cam", type="rtsp",
+                frame_rate=5, motion_sensitivity="medium", motion_cooldown=30)
         _insert_event(conn, id="evt-bad", source_type="protect",
                       timestamp=local_ts, created_at=created)
         _insert_event(conn, id="evt-ok", source_type="protect",

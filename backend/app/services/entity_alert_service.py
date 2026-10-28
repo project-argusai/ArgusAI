@@ -85,6 +85,57 @@ def visible_vehicle_details(description: str) -> Tuple[Optional[str], Optional[s
     return color, make, model
 
 
+# Distinguishing vehicle traits (#755). A saved vehicle may carry
+# ``entity_metadata["distinguishing_traits"]`` = {"front_light_bar": bool,
+# "front_plate": bool}; identification reports what the frames show as
+# ``front_light_bar`` / ``front_plate_present`` ("yes"/"no", absent = unknown).
+VEHICLE_TRAIT_KEYS = {"front_light_bar": "front_light_bar", "front_plate": "front_plate_present"}
+
+
+def entity_vehicle_traits(entity) -> Dict[str, bool]:
+    """Stored distinguishing traits of a saved vehicle; {} when none are set."""
+    raw = getattr(entity, "vehicle_traits", None)
+    if raw is None:
+        meta = getattr(entity, "entity_metadata", None)
+        if isinstance(meta, str) and meta:
+            try:
+                meta = json.loads(meta)
+            except (TypeError, ValueError):
+                meta = None
+        raw = meta.get("distinguishing_traits") if isinstance(meta, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {k: v for k, v in raw.items() if k in VEHICLE_TRAIT_KEYS and isinstance(v, bool)}
+
+
+def vehicle_traits_signal(entity, identification: Any = None) -> str:
+    """'agree', 'contradict' or 'none' for a saved vehicle's distinguishing traits.
+
+    Soft evidence only: unknown on either side is neutral. 'contradict' when
+    a reported trait differs from a stored one and none match; 'agree' when
+    at least one matches and none differ; mixed readings count as 'none'.
+    """
+    traits = entity_vehicle_traits(entity)
+    if not traits or not isinstance(identification, dict):
+        return "none"
+    matches = conflicts = 0
+    for stored_key, ident_key in VEHICLE_TRAIT_KEYS.items():
+        if stored_key not in traits:
+            continue
+        seen = identification.get(ident_key)
+        if seen not in ("yes", "no"):
+            continue
+        if (seen == "yes") == traits[stored_key]:
+            matches += 1
+        else:
+            conflicts += 1
+    if conflicts and not matches:
+        return "contradict"
+    if matches and not conflicts:
+        return "agree"
+    return "none"
+
+
 def identified_vehicle_text(description: Optional[str], identification: Any = None) -> str:
     """The description, plus the make/model from structured identification.
 
@@ -128,6 +179,8 @@ def vehicle_label_agrees(description: str, entity, identification: Any = None) -
     name = entity.name if isinstance(getattr(entity, "name", None), str) else ""
     name = name.strip()
     if not name:
+        return False
+    if vehicle_traits_signal(entity, identification) == "contradict":
         return False
     description = identified_vehicle_text(description, identification)
     visible_color, visible_make, visible_model = visible_vehicle_details(description or "")

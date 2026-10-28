@@ -60,6 +60,7 @@ class NamedIdentity:
     vehicle_model: Optional[str] = None
     similarity_score: Optional[float] = None
     reference_embedding: Optional[list] = None
+    vehicle_traits: Optional[dict] = None
 
 
 def _text(value: Any) -> Optional[str]:
@@ -87,6 +88,9 @@ def as_named_identity(obj: Any) -> Optional[NamedIdentity]:
         except (TypeError, ValueError):
             reference = None
     score = getattr(obj, "similarity_score", None)
+    from app.services.entity_alert_service import entity_vehicle_traits
+
+    traits = entity_vehicle_traits(obj) or None
     return NamedIdentity(
         entity_id=entity_id,
         name=name,
@@ -96,6 +100,7 @@ def as_named_identity(obj: Any) -> Optional[NamedIdentity]:
         vehicle_model=_text(getattr(obj, "vehicle_model", None)),
         similarity_score=score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
         reference_embedding=reference,
+        vehicle_traits=traits,
     )
 
 

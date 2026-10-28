@@ -350,6 +350,8 @@ class VehicleEvidence:
     rank_score: Optional[float] = None
     # Verdicts of registered extra signals (e.g. a plate reader), by name.
     signals: Dict[str, str] = field(default_factory=dict)
+    # Distinguishing traits (light bar, front plate): agree | contradict | none.
+    traits_status: str = "none"
 
     def as_log(self) -> dict:
         return {
@@ -358,6 +360,7 @@ class VehicleEvidence:
             "parked_score": None if self.parked_score is None else round(self.parked_score, 4),
             "color": self.color_status,
             "description": self.description_status,
+            "traits": self.traits_status,
             "accepted": self.accepted,
             "signal": self.signal,
             "reason": self.reason,
@@ -490,7 +493,11 @@ def evaluate_vehicle_candidates(
     ``identification`` (the AI's structured fields) supplies the make/model
     when the description text names none (#755).
     """
-    from app.services.entity_alert_service import vehicle_description_signal, vehicle_label_agrees
+    from app.services.entity_alert_service import (
+        vehicle_description_signal,
+        vehicle_label_agrees,
+        vehicle_traits_signal,
+    )
 
     t = thresholds or MatchThresholds.from_env()
     present = [v for v in vehicles or [] if v is not None]
@@ -535,6 +542,7 @@ def evaluate_vehicle_candidates(
             color_status=color_status,
             description_status=desc,
             parked_score=parked_score,
+            traits_status=vehicle_traits_signal(ident, identification),
         )
         verdicts = {sig.name: (sig, _run_signal(sig, ident, present, description)) for sig in extras}
         ev.signals = {name: v.status for name, (_, v) in verdicts.items()}
@@ -548,6 +556,11 @@ def evaluate_vehicle_candidates(
             ev.reason = "description_contradicts"
         elif contradicting:
             ev.reason = f"{contradicting[0]}_contradicts"
+        elif ev.traits_status == "contradict":
+            # A visible distinguishing feature disagrees (e.g. a front plate
+            # on a saved vehicle that has none) and nothing else about the
+            # traits agrees: this is not that vehicle.
+            ev.reason = "traits_contradict"
         elif (
             parked_score is not None
             and parked_score >= t.vehicle_support
@@ -568,6 +581,15 @@ def evaluate_vehicle_candidates(
             if crop_score is not None and crop_score >= t.vehicle_support and desc == "agree":
                 ev.accepted, ev.signal = True, "crop+description"
             elif crop_score is not None and crop_score >= t.vehicle_strong and color_status == "agree":
+                ev.accepted, ev.signal = True, "crop+color"
+            elif (
+                crop_score is not None
+                and crop_score >= t.vehicle_support
+                and color_status == "agree"
+                and ev.traits_status == "agree"
+            ):
+                # Modest support: matching traits let a supported (not strong)
+                # crop with the right colour link at the crop+color tier.
                 ev.accepted, ev.signal = True, "crop+color"
             else:
                 ev.reason = "crop_disagrees"
@@ -601,6 +623,11 @@ def pick_vehicle(
     top = accepted[0]
     if top.signal == "description":
         tied = [e for e in accepted if e.signal == "description"]
+        if len(tied) > 1:
+            # Matching distinguishing traits break a description-only tie.
+            backed = [e for e in tied if e.traits_status == "agree"]
+            if len(backed) == 1:
+                return backed[0], []
         return (top, []) if len(tied) == 1 else (None, tied)
     same_tier = [e for e in accepted[1:] if e.tier == top.tier]
     if same_tier and (top.rank_score or 0.0) - (same_tier[0].rank_score or 0.0) < t.vehicle_margin:

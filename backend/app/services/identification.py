@@ -87,6 +87,7 @@ or two sentences, follow this length instead.
 
 Cover what is visible:
 - who or what: clothing, apparent age or build, vehicle make, model and color, or animal type
+- for a vehicle, distinguishing features you can see, such as a full-width front light bar or a missing front plate
 - what they do across the frames, in time order
 - where they are in the scene
 - direction of travel
@@ -112,6 +113,8 @@ Fields:
 - package_or_carrier: "package", UPS, FedEx, USPS, Amazon, DHL, "none", or "cannot_tell"
 - vehicle_make: when object_type is vehicle, the make you can see from its badge, logo, or distinctive body (for example Tesla, BMW, Ford), otherwise "cannot_tell". Also write the make in the description when you can see it
 - vehicle_model: the model you can see (for example Model Y, X3), otherwise "cannot_tell"
+- front_light_bar: for a vehicle whose front is visible, "yes" when one continuous light bar runs the full width of the front, "no" when the headlights are separate, otherwise "unknown"
+- front_plate_present: for a vehicle whose front is visible, "yes" when a front licence plate is mounted, "no" when the front has none, otherwise "unknown". Never read the plate
 
 A package is a parcel, box, padded mailer, or delivery bag that is carried, dropped off or picked up, or lying at the door. Ordinary handheld items are not packages: paper, mail, a phone, an ordinary bag, a cup, a sheet of paper, or a small book. Use object_type "package" only for that same kind of item. Name a carrier (UPS, FedEx, USPS, Amazon, or DHL) only when a delivery-service cue is visible, such as a uniform, a branded vehicle, or a scanner. When you are unsure whether an item is a package, use "none" or "cannot_tell" rather than "package".
 
@@ -244,6 +247,25 @@ VEHICLE_FIELDS = ("vehicle_make", "vehicle_model")
 _NO_VEHICLE_DETAIL = {CANNOT_TELL, UNKNOWN, "cant_tell", "unsure", "none", "n/a", "null", ""}
 
 
+VEHICLE_TRAIT_FIELDS = ("front_light_bar", "front_plate_present")
+_YES = {"yes", "true", "y", "present"}
+_NO = {"no", "false", "n", "absent", "none"}
+
+
+def _parse_yes_no(value: Any) -> Optional[str]:
+    """'yes' / 'no' for a visible trait, None for unknown or anything else."""
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower()
+    if text in _YES:
+        return "yes"
+    if text in _NO:
+        return "no"
+    return None
+
+
 def _parse_vehicle_detail(value: Any) -> Optional[str]:
     """A make or model the model named, lowercased, or None for cannot-tell."""
     if not isinstance(value, str):
@@ -283,6 +305,11 @@ def _from_mapping(data: dict, *, check_package_wording: bool = False) -> Dict[st
         value = _parse_vehicle_detail(data.get(key))
         if value is not None:
             ident[key] = value
+    for key in VEHICLE_TRAIT_FIELDS:
+        # Optional distinguishing features (#755): kept only as yes/no.
+        trait = _parse_yes_no(data.get(key))
+        if trait is not None:
+            ident[key] = trait
     if check_package_wording:
         # Fresh model JSON only. Stored rows have no description, and re-checking
         # them would clear a package that was already accepted.
@@ -294,7 +321,7 @@ def _from_mapping(data: dict, *, check_package_wording: bool = False) -> Dict[st
         ident["action"] = CANNOT_TELL
         ident["direction"] = CANNOT_TELL
         ident["package_or_carrier"] = "none"
-        for key in VEHICLE_FIELDS:
+        for key in VEHICLE_FIELDS + VEHICLE_TRAIT_FIELDS:
             ident.pop(key, None)
     return ident
 

@@ -97,6 +97,40 @@ def normalize_confidence(value: Any, *, count_exact_one: bool = True) -> Optiona
     return int(number)
 
 
+def box_confidence_fraction(value: Any) -> float:
+    """Store a bounding-box confidence as a 0-1 fraction (#748).
+
+    The prompt asks for box confidences on 0-100, like the overall
+    confidence. Stored boxes (annotation labels, API schemas) keep their 0-1
+    float, so the value goes through ``normalize_confidence`` (one copy of
+    the scaling and rounding rules) and is divided by 100. That accepts
+    numeric strings such as ``"92"`` and scales old-style 0-1 fractions
+    (0.9 -> 90 -> 0.9).
+
+    Exactly 1 (``1``, ``1.0``, ``"1"``) is the one deliberate difference:
+    for a box it means 100%, not 1% as for the event-level score, because
+    old 0-1 replies used 1 for a full-confidence box and boxes are only
+    drawn on screen (no threshold or gate reads them). It is not counted in
+    ``ai_confidence_exactly_one_total``. Values over 100, negatives, NaN,
+    inf, bools, missing or non-numeric values have no usable score under
+    ``normalize_confidence`` (no clamping) and give the previous default
+    of 0.5.
+    """
+    score = normalize_confidence(value, count_exact_one=False)
+    if score is None:
+        return 0.5
+    if score == 1 and _is_exactly_one(value):
+        return 1.0
+    return score / 100.0
+
+
+def _is_exactly_one(value: Any) -> bool:
+    try:
+        return Decimal(value.strip() if isinstance(value, str) else str(float(value))) == 1
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class AIProviderBase(ABC):
     """
     Base class for AI vision providers.
@@ -192,7 +226,7 @@ class AIProviderBase(ABC):
                                     'width': float(width) if width is not None else 0,
                                     'height': float(height) if height is not None else 0,
                                     'entity_type': box.get('entity_type', 'other'),
-                                    'confidence': float(box.get('confidence', 0.5)),
+                                    'confidence': box_confidence_fraction(box.get('confidence')),
                                     'label': box.get('label', ''),
                                 })
                     if validated_boxes:

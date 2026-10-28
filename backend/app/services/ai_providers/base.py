@@ -8,6 +8,11 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import logging
 import math
+import numbers
+import re
+from decimal import ROUND_HALF_UP, Decimal
+
+import numpy as np
 
 # Temporary import during extraction phase.
 # Long-term: AIResult should live in a shared ai_types module.
@@ -34,24 +39,96 @@ def resolve_request_timeout(requested: Optional[float], default: float) -> float
     return value
 
 
+_NUMERIC_STRING = re.compile(r"\d+(\.\d+)?", re.ASCII)  # ASCII digits only (#747)
+
+
+def normalize_confidence(value: Any, *, count_exact_one: bool = True) -> Optional[int]:
+    """Map a model's confidence to an int on the 0-100 scale (#745, #747).
+
+    - Accepts int, float, ``Decimal``, numpy scalars and plain numeric
+      strings such as ``"85"`` or ``"0.85"`` (digits with an optional
+      decimal part; no sign, exponent, ``%``, NaN or inf).
+    - A non-integer value strictly between 0 and 1 (e.g. 0.85) is a 0-1
+      score: scaled by 100 and rounded half up on the decimal string
+      (``Decimal(str(v))``), so 0.285 -> 29 and 0.005 -> 1. Values below
+      0.005 round to 0. Before #745, ``int(0.85)`` gave 0 and could trigger
+      the #696 cloud fallback.
+    - Anything else from 0 to 100 is already 0-100 and is truncated as
+      before (85.7 -> 85).
+    - Exactly 1 / 1.0 / "1" is kept as 1 (1%), not 100: a low reading at
+      worst costs one capped cloud fallback with a correct result, while
+      reading it as 100% could silently skip the fallback for an answer the
+      model rated near zero. Each such value bumps the count-only metric
+      ``ai_confidence_exactly_one_total``, unless ``count_exact_one=False``
+      (use that when re-normalizing a value that was already parsed, so it
+      is counted once). 0 stays 0.
+    - NaN, inf, out-of-range values, bools and anything else return None
+      (the existing "no usable score" path).
+    """
+    if value is None or isinstance(value, (bool, np.bool_)):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not _NUMERIC_STRING.fullmatch(text):
+            return None
+        number = Decimal(text)
+    elif isinstance(value, Decimal):
+        number = value
+    elif isinstance(value, (numbers.Real, np.integer, np.floating)):
+        as_float = float(value)
+        if not math.isfinite(as_float):
+            return None
+        number = Decimal(str(as_float)) if not isinstance(value, (int, np.integer)) else Decimal(int(value))
+    else:
+        return None
+    if not number.is_finite() or number < 0 or number > 100:
+        return None
+    if number == 1:
+        if not count_exact_one:
+            return 1
+        try:
+            from app.core.metrics import ai_confidence_exactly_one_total
+            ai_confidence_exactly_one_total.inc()
+        except Exception:  # noqa: BLE001 - metrics must never break parsing
+            pass
+        return 1
+    if 0 < number < 1:
+        return int((number * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+    return int(number)
+
+
 def box_confidence_fraction(value: Any) -> float:
     """Store a bounding-box confidence as a 0-1 fraction (#748).
 
-    The prompt now asks for box confidences on 0-100, like the overall
+    The prompt asks for box confidences on 0-100, like the overall
     confidence. Stored boxes (annotation labels, API schemas) keep their 0-1
-    float, so a value above 1 up to 100 is divided by 100. A value from 0 to
-    1 is read as an old-style fraction and kept, so exactly 1 means 100% for
-    a box. Unlike the event-level ``normalize_confidence`` (where 1 means
-    1%), that is acceptable here: boxes are display-only, and old 0-1
-    replies keep working. Missing, non-numeric, bool, NaN/inf or out-of-range values give
-    the previous default of 0.5.
+    float, so the value goes through ``normalize_confidence`` (one copy of
+    the scaling and rounding rules) and is divided by 100. That accepts
+    numeric strings such as ``"92"`` and scales old-style 0-1 fractions
+    (0.9 -> 90 -> 0.9).
+
+    Exactly 1 (``1``, ``1.0``, ``"1"``) is the one deliberate difference:
+    for a box it means 100%, not 1% as for the event-level score, because
+    old 0-1 replies used 1 for a full-confidence box and boxes are only
+    drawn on screen (no threshold or gate reads them). It is not counted in
+    ``ai_confidence_exactly_one_total``. Values over 100, negatives, NaN,
+    inf, bools, missing or non-numeric values have no usable score under
+    ``normalize_confidence`` (no clamping) and give the previous default
+    of 0.5.
     """
-    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+    score = normalize_confidence(value, count_exact_one=False)
+    if score is None:
         return 0.5
-    number = float(value)
-    if not math.isfinite(number) or number < 0 or number > 100:
-        return 0.5
-    return number / 100.0 if number > 1 else number
+    if score == 1 and _is_exactly_one(value):
+        return 1.0
+    return score / 100.0
+
+
+def _is_exactly_one(value: Any) -> bool:
+    try:
+        return Decimal(value.strip() if isinstance(value, str) else str(float(value))) == 1
+    except Exception:  # noqa: BLE001
+        return False
 
 
 class AIProviderBase(ABC):
@@ -155,9 +232,10 @@ class AIProviderBase(ABC):
                     if validated_boxes:
                         bounding_boxes = validated_boxes
 
-                if isinstance(confidence, (int, float)) and 0 <= confidence <= 100:
+                confidence = normalize_confidence(confidence)
+                if confidence is not None:
                     if description:
-                        return description, int(confidence), bounding_boxes
+                        return description, confidence, bounding_boxes
                 # A structured identification reply always has a description.
                 # Keep that sentence even when the model omits a usable score,
                 # so the UI never stores the raw JSON object.
@@ -173,20 +251,20 @@ class AIProviderBase(ABC):
             partial_desc = truncated_match.group(1).strip()
             return partial_desc, None, None
 
+        number = r'(\d{1,3}(?:\.\d+)?)'  # "85" or "0.85" (#747)
         confidence_patterns = [
-            r'confidence[:\s]+(\d{1,3})(?:%|\b)',
-            r'(\d{1,3})%?\s*confiden',
-            r'confidence\s*(?:score|level|rating)?[:\s]*(\d{1,3})',
+            r'confidence[:\s]+' + number + r'(?:%|\b)',
+            number + r'%?\s*confiden',
+            # Linear: the old \s*[:\s]* (and \s*:?\s*) backtrack quadratically
+            # on long whitespace runs; the second \s* only runs after a colon (#747).
+            r'confidence(?:\s*(?:score|level|rating))?\s*(?::\s*)?' + number,
         ]
         for pattern in confidence_patterns:
             match = re.search(pattern, response_text, re.IGNORECASE)
             if match:
-                try:
-                    confidence = int(match.group(1))
-                    if 0 <= confidence <= 100:
-                        return response_text, confidence, None
-                except (ValueError, IndexError):
-                    continue
+                confidence = normalize_confidence(match.group(1))
+                if confidence is not None:
+                    return response_text, confidence, None
 
         return response_text, None, None
 

@@ -58,6 +58,7 @@ _EVENT_CHILD_TABLES = (
     "entity_adjustments",
     "webhook_logs",
     "notifications",
+    "shadow_results",
     "ai_usage",
 )
 _DELETE_CHUNK = 400

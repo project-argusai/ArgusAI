@@ -275,6 +275,7 @@ class CloudAuditService:
         Claimed and failed rows count against the cap; the lock makes
         count-then-insert atomic within this process.
         """
+        self._sweep_stale_if_due()
         with self._claim_lock:
             db = self._session_factory()
             try:
@@ -296,6 +297,27 @@ class CloudAuditService:
                 return None
             finally:
                 db.close()
+
+    def _sweep_stale_if_due(self) -> None:
+        """Hourly stale-claim sweep from the gate path (#746).
+
+        Runs inside ``_claim_sync``, which ``_run`` calls via
+        ``asyncio.to_thread``, so the DB work never blocks the event loop.
+        ``sweep_stale_claims_if_due`` is throttled per process and is a no-op
+        when not due. It lands with #746 (#749); until then the lookup finds
+        nothing and this is skipped. A sweep failure never blocks an audit.
+        """
+        sweep = getattr(sas, "sweep_stale_claims_if_due", None)
+        if sweep is None:
+            return
+        db = self._session_factory()
+        try:
+            sweep(db, now=self._now())
+        except Exception as e:  # noqa: BLE001 - the sweep must never block the gate
+            db.rollback()
+            logger.warning("Stale claim sweep failed", extra={"error_type": type(e).__name__})
+        finally:
+            db.close()
 
     def _fail_sync(self, event_id: str, error_type: str) -> None:
         db = self._session_factory()
@@ -377,11 +399,17 @@ class CloudAuditService:
             db.close()
 
     @staticmethod
-    def _recompute(db, row: ShadowResult, source: Optional[str] = None) -> None:
+    def _recompute(db, row: ShadowResult, source: Optional[str] = None) -> Optional[Any]:
+        """Rebuild the day's summary for ``row``.
+
+        ``recompute_daily_summary`` returns None when the day has no pairs and
+        no summary row yet (#746 zero-row skip); that is not an error, so
+        callers must not dereference the result.
+        """
         created = row.created_at
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
-        sas.recompute_daily_summary(db, created.astimezone().date(), source or row.source)
+        return sas.recompute_daily_summary(db, created.astimezone().date(), source or row.source)
 
     def record_fallback_pair(self, *, event_id: str, local_result: Any, cloud_result: Any) -> str:
         """The #696 fallback already called cloud: record the pair free.

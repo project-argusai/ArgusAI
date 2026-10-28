@@ -528,7 +528,7 @@ class TestLifecycleAndMetrics:
         eid, _ = _event(db_factory)
         svc.record_fallback_pair(event_id=eid, local_result=LOCAL, cloud_result=CLOUD)
         db = db_factory()
-        m = json.loads(db.query(ShadowDailySummary).one().metrics)
+        m = json.loads(db.query(ShadowDailySummary).filter(ShadowDailySummary.source == "fallback").one().metrics)
         db.close()
         assert m["sum_pair_complete"] == 1 and "sum_entities_compared" in m
 
@@ -709,3 +709,61 @@ class TestClaimDesign:
         self._schedule(svc, eid)
         await svc.drain()
         assert threads and loop_thread not in threads
+
+
+class TestGateSweep:
+    """#744/#746: the gate path runs the throttled stale-claim sweep off the loop."""
+
+    @pytest.mark.asyncio
+    async def test_claim_calls_sweep_in_worker_thread(self, db_factory, monkeypatch):
+        import threading
+        seen = []
+
+        def fake_sweep(db, now=None):
+            seen.append(threading.current_thread() is threading.main_thread())
+            return 0
+
+        monkeypatch.setattr(cas.sas, "sweep_stale_claims_if_due", fake_sweep, raising=False)
+        svc, _ = _svc(db_factory)
+        eid, _ = _event(db_factory)
+        assert await _run(svc, eid) == "scheduled"
+        assert seen == [False]  # called once, not on the event-loop thread
+        assert _rows(db_factory, "audit")[0].status == "complete"
+
+    @pytest.mark.asyncio
+    async def test_sweep_failure_does_not_block_audit(self, db_factory, monkeypatch):
+        def boom(db, now=None):
+            raise RuntimeError("db hiccup")
+
+        monkeypatch.setattr(cas.sas, "sweep_stale_claims_if_due", boom, raising=False)
+        call = Calls()
+        svc, _ = _svc(db_factory, call=call)
+        eid, _ = _event(db_factory)
+        assert await _run(svc, eid) == "scheduled"
+        assert call.n == 1 and len(_rows(db_factory, "audit")) == 1
+
+    @pytest.mark.asyncio
+    async def test_sweep_absent_is_skipped(self, db_factory, monkeypatch):
+        monkeypatch.delattr(cas.sas, "sweep_stale_claims_if_due", raising=False)
+        svc, _ = _svc(db_factory)
+        eid, _ = _event(db_factory)
+        assert await _run(svc, eid) == "scheduled"
+
+
+class TestRecomputeNone:
+    @pytest.mark.asyncio
+    async def test_recompute_returning_none_is_handled(self, db_factory, monkeypatch):
+        monkeypatch.setattr(cas.sas, "recompute_daily_summary", lambda *a, **k: None)
+        call = Calls()
+        svc, _ = _svc(db_factory, call=call)
+        eid, _ = _event(db_factory)
+        assert await _run(svc, eid) == "scheduled"
+        assert _rows(db_factory, "audit")[0].status == "complete"
+
+    @pytest.mark.asyncio
+    async def test_failed_claim_with_none_recompute(self, db_factory, monkeypatch):
+        monkeypatch.setattr(cas.sas, "recompute_daily_summary", lambda *a, **k: None)
+        svc, _ = _svc(db_factory, call=Calls(exc=RuntimeError("cloud down")))
+        eid, _ = _event(db_factory)
+        await _run(svc, eid)
+        assert _rows(db_factory, "audit")[0].status == "failed"

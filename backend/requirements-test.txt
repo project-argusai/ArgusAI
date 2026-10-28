@@ -1,0 +1,3 @@
+# Test/CI-only dependencies. Not installed in the runtime image.
+# PostgreSQL driver for the postgres-migrations CI job.
+psycopg2-binary==2.9.10

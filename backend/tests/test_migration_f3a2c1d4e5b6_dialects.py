@@ -94,18 +94,19 @@ def test_local_protect_timestamps_repaired(dialect, tmp_path):
     _alembic(url, "upgrade", BEFORE)
 
     created = datetime(2026, 6, 28, 18, 0, 0)          # UTC (CDT, offset -5)
-    local_ts = created - timedelta(hours=5)             # stored as Chicago wall time
+    local_ts = created - timedelta(hours=5)             # naive Chicago wall time, as the bug wrote it
     ok_ts = created - timedelta(seconds=3)              # correctly stored UTC
+    aware = (lambda d: d.replace(tzinfo=timezone.utc)) if dialect == "postgresql" else (lambda d: d)
     eng = sa.create_engine(url)
     with eng.begin() as conn:
         _insert(conn, "cameras", id="cam-1", name="Test Cam", type="rtsp",
                 frame_rate=5, motion_sensitivity="medium", motion_cooldown=30)
         _insert_event(conn, id="evt-bad", source_type="protect",
-                      timestamp=local_ts, created_at=created)
+                      timestamp=local_ts, created_at=aware(created))
         _insert_event(conn, id="evt-ok", source_type="protect",
-                      timestamp=ok_ts, created_at=created)
+                      timestamp=aware(ok_ts), created_at=aware(created))
         _insert_event(conn, id="evt-rtsp", source_type="rtsp",
-                      timestamp=local_ts, created_at=created)
+                      timestamp=aware(local_ts), created_at=aware(created))
 
     _alembic(url, "upgrade", TARGET)
 
@@ -115,3 +116,14 @@ def test_local_protect_timestamps_repaired(dialect, tmp_path):
     assert _naive_utc(rows["evt-bad"]) == created
     assert _naive_utc(rows["evt-ok"]) == ok_ts
     assert _naive_utc(rows["evt-rtsp"]) == local_ts
+
+
+def test_postgres_select_parses():
+    """Cheap guard that runs everywhere: the Postgres branch avoids julianday()."""
+    import importlib.util
+    path = BACKEND_DIR / "alembic" / "versions" / "f3a2c1d4e5b6_fix_protect_event_local_timestamps.py"
+    spec = importlib.util.spec_from_file_location("m_f3a2", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "julianday" not in str(mod._SELECT_POSTGRES)
+    assert "EXTRACT(EPOCH" in str(mod._SELECT_POSTGRES)

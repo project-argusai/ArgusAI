@@ -59,10 +59,12 @@ _SELECT_SQLITE = sa.text(
 
 # The bad rows came from app code (ProtectMediaService passing naive
 # datetime.now()), not from anything SQLite-specific, so a Postgres install
-# running that build could hold them too. Read the stored wall-clock as naive
-# UTC so _parse/localisation below behave the same as on SQLite.
+# running that build could hold them too. The column is timestamptz, so the
+# naive local value was interpreted in the session TimeZone when written; read
+# it back as naive wall-clock in that same zone so the America/Chicago
+# localisation below recovers the real instant, then write an aware UTC value.
 _SELECT_POSTGRES = sa.text(
-    "SELECT id, (events.timestamp AT TIME ZONE 'UTC') AS timestamp" + _WHERE
+    "SELECT id, (events.timestamp AT TIME ZONE current_setting('TimeZone')) AS timestamp" + _WHERE
     + "  AND EXTRACT(EPOCH FROM (events.created_at - events.timestamp)) BETWEEN 4 * 3600 AND 7 * 3600"
 )
 

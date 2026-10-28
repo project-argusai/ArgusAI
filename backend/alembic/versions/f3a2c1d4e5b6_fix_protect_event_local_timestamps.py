@@ -63,6 +63,10 @@ _SELECT_SQLITE = sa.text(
 # naive local value was interpreted in the session TimeZone when written; read
 # it back as naive wall-clock in that same zone so the America/Chicago
 # localisation below recovers the real instant, then write an aware UTC value.
+# NOTE: this is only correct if alembic runs with the same Postgres session
+# TimeZone the app used when it wrote the rows (server/role/database default
+# or PGTZ). If they differ, the read-back wall-clock is shifted by the
+# difference and the 4h..7h gap filter may miss or mis-convert rows.
 _SELECT_POSTGRES = sa.text(
     "SELECT id, (events.timestamp AT TIME ZONE current_setting('TimeZone')) AS timestamp" + _WHERE
     + "  AND EXTRACT(EPOCH FROM (events.created_at - events.timestamp)) BETWEEN 4 * 3600 AND 7 * 3600"

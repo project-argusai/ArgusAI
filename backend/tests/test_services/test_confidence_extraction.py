@@ -149,6 +149,27 @@ class TestParseConfidenceResponse:
         assert confidence == 85
         assert isinstance(confidence, int)
 
+    @pytest.mark.parametrize("response", [
+        "confidence" + " " * 50_000,
+        "confidence score" + " " * 50_000,
+        "confidence" + " \t" * 25_000 + ":",
+    ])
+    def test_text_pattern_no_quadratic_backtracking(self, provider, response):
+        """#747: long whitespace after 'confidence' must not backtrack quadratically."""
+        import time
+        start = time.perf_counter()
+        _, confidence, _ = provider._parse_confidence_response(response)
+        assert time.perf_counter() - start < 0.5
+        assert confidence is None
+
+    @pytest.mark.parametrize("text", [
+        "confidence score: 85", "Confidence level 85", "confidence rating : 85",
+        "confidence:85", "confidence   85",
+    ])
+    def test_text_pattern_variants_still_match(self, provider, text):
+        _, confidence, _ = provider._parse_confidence_response(text)
+        assert confidence == 85
+
 
 class TestAIResultWithConfidence:
     """AC6: Test AIResult dataclass includes ai_confidence field"""
@@ -334,3 +355,168 @@ class TestProviderConfidenceIntegration:
             assert result.success is True
             assert result.ai_confidence is None  # AC4: defaults to None
             assert "person" in result.description.lower()
+
+
+class TestConfidenceScale745:
+    """#745: a 0-1 confidence must not become 0 and trigger the #696 fallback."""
+
+    @pytest.fixture
+    def provider(self):
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        AIProviderBase.__init__(provider, "test-api-key")
+        return provider
+
+    def _conf(self, provider, value):
+        return provider._parse_confidence_response(
+            json.dumps({"description": "A person at the door.", "confidence": value}))[1]
+
+    @pytest.mark.parametrize("value,expected", [
+        (0.85, 85), (0.9, 90), (0.6, 60), (0.005, 1), (0.994, 99), (0.5, 50),
+        (85, 85), (85.0, 85), (85.7, 85), (100, 100), (2, 2),
+        (1, 1), (1.0, 1),  # exactly 1: 1%, see normalize_confidence
+        (0, 0), (0.0, 0),
+    ])
+    def test_scale(self, provider, value, expected):
+        got = self._conf(provider, value)
+        assert got == expected and type(got) is int
+
+    @pytest.mark.parametrize("raw", ['NaN', 'Infinity', '-Infinity', '101', '-0.5', '1e9', 'true',
+                                     '"NaN"', '"inf"', '"-5"', '"abc"', '"101"', '""'])
+    def test_rejected_like_before(self, provider, raw):
+        text = '{"description": "A person at the door.", "confidence": %s}' % raw
+        description, confidence, _ = provider._parse_confidence_response(text)
+        assert confidence is None and description == "A person at the door."
+
+    def test_numpy_values(self):
+        import numpy as np
+        from app.services.ai_providers.base import normalize_confidence
+        assert normalize_confidence(np.float32(0.85)) == 85
+        assert normalize_confidence(np.int64(85)) == 85
+        assert normalize_confidence(np.float64("nan")) is None
+        assert normalize_confidence(np.bool_(True)) is None
+
+    def test_point_nine_vs_point_six_does_not_trigger_fallback(self, provider):
+        from app.services.local_first import local_answer_problem
+        local = AIResult(description="A person at the door.", confidence=0, objects_detected=["person"],
+                         provider="local", tokens_used=0, response_time_ms=1, cost_estimate=0.0,
+                         success=True, ai_confidence=self._conf(provider, 0.6))
+        cloud_conf = self._conf(provider, 0.9)
+        assert (local.ai_confidence, cloud_conf) == (60, 90)
+        assert cloud_conf - local.ai_confidence == 30
+        assert local_answer_problem(local, min_confidence=50) is None
+        # Before #745 this was int(0.6) == 0 -> "low_confidence".
+        local_low = AIResult(description="x", confidence=0, objects_detected=[], provider="local",
+                             tokens_used=0, response_time_ms=1, cost_estimate=0.0, success=True,
+                             ai_confidence=self._conf(provider, 0.3))
+        assert local_low.ai_confidence == 30
+        assert local_answer_problem(local_low, min_confidence=50) == "low_confidence"
+
+
+class TestConfidenceScale747Review:
+    """#747 review (Gracie/Terry): text path, LiteLLM path, Decimal rounding, strings, counter."""
+
+    @pytest.fixture
+    def provider(self):
+        provider = OpenAIProvider.__new__(OpenAIProvider)
+        AIProviderBase.__init__(provider, "test-api-key")
+        return provider
+
+    @pytest.mark.parametrize("value,expected", [
+        (0.285, 29), (0.125, 13), (0.004, 0), (0.005, 1), (0.995, 100),
+    ])
+    def test_half_up_decimal_rounding(self, value, expected):
+        from app.services.ai_providers.base import normalize_confidence
+        assert normalize_confidence(value) == expected
+
+    @pytest.mark.parametrize("value,expected", [
+        ("85", 85), (" 85 ", 85), ("0.85", 85), ("85.7", 85), ("1", 1),
+        (__import__("decimal").Decimal("0.85"), 85), (__import__("decimal").Decimal("85"), 85),
+        ("NaN", None), ("inf", None), ("-1", None), ("1e2", None), ("85%", None),
+        (__import__("decimal").Decimal("NaN"), None), (__import__("decimal").Decimal("Infinity"), None),
+    ])
+    def test_strings_and_decimals(self, value, expected):
+        from app.services.ai_providers.base import normalize_confidence
+        assert normalize_confidence(value) == expected
+
+    def test_json_string_confidence_now_accepted(self, provider):
+        text = '{"description": "A person at the door.", "confidence": "85"}'
+        assert provider._parse_confidence_response(text)[1] == 85
+
+    @pytest.mark.parametrize("text,expected", [
+        ("A person at the door. Confidence: 0.85", 85),
+        ("A person at the door. Confidence: 85", 85),
+        ("A person at the door. 0.9 confidence", 90),
+        ("A person at the door. Confidence: 0.285", 29),
+    ])
+    def test_text_path(self, provider, text, expected):
+        assert provider._parse_confidence_response(text)[1] == expected
+
+    def test_litellm_paths(self):
+        from app.services.litellm_provider import LiteLLMProvider
+        p = LiteLLMProvider.__new__(LiteLLMProvider)
+        assert p._parse_response('{"description": "A cat.", "confidence": 0.85}')[1] == 85
+        assert p._parse_response('Note {"description": "A cat.", "confidence": 0.85} end')[1] == 85
+        desc, conf, _ = p._parse_response("A cat on the porch. Confidence: 0.85")
+        assert conf == 85 and "0.85" not in desc and "onfidence" not in desc
+        assert p._parse_response('{"description": "A cat.", "confidence": 85}')[1] == 85
+        assert p._parse_response('{"description": "A cat.", "confidence": NaN}')[1] is None
+        assert p._parse_response("A cat. Confidence: 150")[1] is None
+
+    def test_exactly_one_counter(self):
+        from app.core.metrics import REGISTRY
+        from app.services.ai_providers.base import normalize_confidence
+
+        def count():
+            return REGISTRY.get_sample_value("ai_confidence_exactly_one_total") or 0.0
+        before = count()
+        assert normalize_confidence(1) == 1
+        assert normalize_confidence(1.0) == 1
+        assert normalize_confidence("1") == 1
+        normalize_confidence(0.85)
+        normalize_confidence(100)
+        assert count() - before == 3
+
+
+class TestIdentificationConfidence747:
+    """#747: identification's ai_confidence goes through normalize_confidence, counted once."""
+
+    def _count(self):
+        from app.core.metrics import REGISTRY
+        return REGISTRY.get_sample_value("ai_confidence_exactly_one_total") or 0.0
+
+    @pytest.mark.parametrize("value,expected", [(85, 85), (0.85, 85), (0.285, 29), ("85", 85), (1, 1)])
+    def test_reported_value_normalized(self, value, expected):
+        from app.services.identification import confidence_from_identification
+        assert confidence_from_identification(None, ai_confidence=value) == expected
+
+    @pytest.mark.parametrize("value", [None, float("nan"), float("inf"), 101, -1, True, "abc"])
+    def test_unusable_falls_back_to_heuristic(self, value):
+        from app.services.identification import confidence_from_identification
+        heuristic = confidence_from_identification(None, ai_confidence=None)
+        assert confidence_from_identification(None, ai_confidence=value) == heuristic
+
+    def test_renormalizing_does_not_double_count(self, monkeypatch):
+        from app.services.ai_providers.base import normalize_confidence
+        from app.services.identification import confidence_from_identification
+        before = self._count()
+        parsed = normalize_confidence(1.0)  # parse step counts once
+        assert confidence_from_identification(None, ai_confidence=parsed) == 1
+        assert self._count() - before == 1
+
+    def test_skip_keyword(self):
+        from app.services.ai_providers.base import normalize_confidence
+        before = self._count()
+        assert normalize_confidence(1, count_exact_one=False) == 1
+        assert self._count() == before
+
+    def test_no_raw_int_on_confidence_left(self):
+        import inspect, re
+        from app.services import identification
+        src = inspect.getsource(identification)
+        assert not re.search(r"int\(\s*\w*confidence", src)
+
+
+@pytest.mark.parametrize("value", ["\u0668\u0665", "\u0660.\u0668\u0665", "\uff18\uff15", "8\u0665"])
+def test_non_ascii_digit_strings_rejected_747(value):
+    from app.services.ai_providers.base import normalize_confidence
+    assert normalize_confidence(value) is None

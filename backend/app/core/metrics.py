@@ -134,6 +134,14 @@ ai_api_cost_total = Counter(
     registry=REGISTRY
 )
 
+# Count only (#747): how often a model's confidence is exactly 1 / 1.0, which
+# normalize_confidence reads as 1%. No labels, no event data.
+ai_confidence_exactly_one_total = Counter(
+    'ai_confidence_exactly_one_total',
+    'Model confidences that were exactly 1 (read as 1%)',
+    registry=REGISTRY
+)
+
 # ============================================================================
 # AI Circuit Breaker Metrics (Story #436)
 # ============================================================================

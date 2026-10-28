@@ -79,3 +79,33 @@ class TestLiteLLMEventConfidence:
         _, conf, boxes = p._parse_response(text)
         assert conf == expected
         assert boxes[0]["confidence"] == 0.92
+
+
+class TestEventConfidenceFields:
+    @pytest.mark.parametrize("value", [150, 100.5, None, float("nan"), -5, "abc", True])
+    def test_no_usable_score_is_flagged(self, value):
+        from app.services.event_processor import _event_confidence_fields
+        assert _event_confidence_fields(value) == {
+            "confidence": 0, "ai_confidence": None, "low_confidence": True}
+
+    @pytest.mark.parametrize("value,expected", [(0, 0), (0.0, 0), ("0", 0), (85, 85), (0.85, 85), (1, 1)])
+    def test_real_score_not_flagged(self, value, expected):
+        from app.services.event_processor import _event_confidence_fields
+        assert _event_confidence_fields(value) == {"confidence": expected}
+
+    def test_over_100_stored_event(self, db_session):
+        import uuid
+        from datetime import datetime, timezone
+        from app.models.camera import Camera
+        from app.models.event import Event
+        from app.services.event_processor import _event_confidence_fields
+        cam = Camera(id=str(uuid.uuid4()), name="Cam A", type="rtsp",
+                     rtsp_url="rtsp://camera.example/s", frame_rate=5, is_enabled=True)
+        db_session.add(cam)
+        ev = Event(id=str(uuid.uuid4()), camera_id=cam.id, timestamp=datetime.now(timezone.utc),
+                   description="Test.", objects_detected='["person"]', alert_triggered=False,
+                   **_event_confidence_fields(150))
+        db_session.add(ev)
+        db_session.commit()
+        db_session.refresh(ev)
+        assert ev.confidence == 0 and ev.ai_confidence is None and ev.low_confidence is True

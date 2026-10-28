@@ -82,13 +82,27 @@ def _event_confidence(value: Any) -> int:
     already counted an exactly-1 value when it parsed it. Previously
     ``int(c * 100)`` turned a genuine 1% into 100.
 
-    Values over 100 are no longer clamped to 100: like negatives, NaN/inf,
-    bools and non-numeric values they have no usable score under
-    ``normalize_confidence`` and give 0, so a nonsense score can never be
-    stored as full confidence.
+    Values over 100 are no longer clamped to 100. ``Event.confidence`` is
+    NOT NULL, so a value with no usable score (over 100, missing, negative,
+    NaN/inf, bool, non-numeric) is stored as 0; ``_event_confidence_fields``
+    also flags it so it is not mistaken for a real 0.
     """
     score = normalize_confidence(value, count_exact_one=False)
     return 0 if score is None else score
+
+
+def _event_confidence_fields(value: Any) -> Dict[str, Any]:
+    """Event kwargs for the AI confidence (#748, Gracie's option a).
+
+    A usable score (including a real 0) gives ``{"confidence": score}`` only,
+    leaving ``ai_confidence``/``low_confidence`` at their defaults. No usable
+    score gives ``confidence=0``, ``ai_confidence=None`` and
+    ``low_confidence=True``, so it is told apart from a genuine 0.
+    """
+    score = normalize_confidence(value, count_exact_one=False)
+    if score is None:
+        return {"confidence": 0, "ai_confidence": None, "low_confidence": True}
+    return {"confidence": score}
 
 
 def query_cameras_for_motion_monitoring(db):
@@ -992,7 +1006,7 @@ class EventProcessor:
                         event_id = str(uuid.uuid4())
 
                     # Create event record
-                    confidence_int = _event_confidence(event_data.get("confidence"))
+                    confidence_fields = _event_confidence_fields(event_data.get("confidence"))
 
                     # Convert objects_detected list to JSON string
                     objects_detected = event_data.get("objects_detected", [])
@@ -1028,7 +1042,7 @@ class EventProcessor:
                         camera_id=event_data["camera_id"],
                         timestamp=timestamp,
                         description=event_data.get("description", ""),
-                        confidence=confidence_int,
+                        **confidence_fields,
                         objects_detected=objects_detected,
                         thumbnail_path=thumbnail_path,
                         alert_triggered=event_data.get("alert_triggered", False),

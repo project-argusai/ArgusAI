@@ -362,6 +362,10 @@ class Settings(BaseSettings):
     # call cloud. Counted per event in memory (resets on restart, seeded from
     # today's cloud-described events at first use).
     CLOUD_FALLBACK_DAILY_CAP: int = Field(default=50, ge=0, le=10_000)
+    # When the local answer is usable but describes a vehicle without naming
+    # its make, ask the cloud chain once (within CLOUD_FALLBACK_DAILY_CAP and
+    # AI_DISABLED_PROVIDERS) so make-based vehicle entity linking works (#755).
+    LOCAL_PRIMARY_ESCALATE_VEHICLE_NO_MAKE: bool = True
 
     # Cloud provider controls. Comma-separated provider names to skip without
     # deleting their keys: openai, grok, claude (or anthropic), gemini (or google).

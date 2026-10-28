@@ -60,6 +60,7 @@ class NamedIdentity:
     vehicle_model: Optional[str] = None
     similarity_score: Optional[float] = None
     reference_embedding: Optional[list] = None
+    vehicle_traits: Optional[dict] = None
 
 
 def _text(value: Any) -> Optional[str]:
@@ -87,6 +88,9 @@ def as_named_identity(obj: Any) -> Optional[NamedIdentity]:
         except (TypeError, ValueError):
             reference = None
     score = getattr(obj, "similarity_score", None)
+    from app.services.entity_alert_service import entity_vehicle_traits
+
+    traits = entity_vehicle_traits(obj) or None
     return NamedIdentity(
         entity_id=entity_id,
         name=name,
@@ -96,6 +100,7 @@ def as_named_identity(obj: Any) -> Optional[NamedIdentity]:
         vehicle_model=_text(getattr(obj, "vehicle_model", None)),
         similarity_score=score if isinstance(score, (int, float)) and not isinstance(score, bool) else None,
         reference_embedding=reference,
+        vehicle_traits=traits,
     )
 
 
@@ -141,6 +146,7 @@ def select_named_vehicles(
     *,
     preferred_ids: Iterable[str] = (),
     embedding: Optional[Sequence[float]] = None,
+    identification: Any = None,
 ) -> List[NamedIdentity]:
     """Named vehicles the description supports. At most one is returned.
 
@@ -155,7 +161,7 @@ def select_named_vehicles(
         if vehicle is None or vehicle.entity_type != "vehicle" or vehicle.entity_id in seen:
             continue
         seen.add(vehicle.entity_id)
-        if vehicle_label_agrees(description or "", vehicle):
+        if vehicle_label_agrees(description or "", vehicle, identification):
             agreeing.append(vehicle)
     if len(agreeing) <= 1:
         return agreeing
@@ -227,6 +233,7 @@ def verify_named_identities(
     looks_like_vehicle: bool,
     embedding: Optional[Sequence[float]] = None,
     object_analysis: Any = None,
+    identification: Any = None,
 ) -> List[NamedIdentity]:
     """The named people and vehicles this event supports, people first.
 
@@ -266,7 +273,9 @@ def verify_named_identities(
                 seen.add(identity.entity_id)
                 pool.append(identity)
         gallery = _vehicle_gallery(db)
-        evidence = evaluate_vehicle_candidates(description, pool, observed, gallery)
+        evidence = evaluate_vehicle_candidates(
+            description, pool, observed, gallery, identification=identification
+        )
         winner, tied = pick_vehicle(evidence)
         by_id = {i.entity_id: i for i in pool}
         if winner is not None:
@@ -280,6 +289,7 @@ def verify_named_identities(
                 [by_id[e.entity_id] for e in tied],
                 preferred_ids=[v.entity_id for v in clip_vehicles],
                 embedding=embedding,
+                identification=identification,
             )
         if evidence and (observed or gallery):
             logger.info(

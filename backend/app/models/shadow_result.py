@@ -13,7 +13,9 @@ timestamps until it is deleted at 365 days.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+
+from sqlalchemy.sql import false
 
 from app.core.database import Base
 
@@ -34,6 +36,8 @@ class ShadowResult(Base):
     __table_args__ = (
         Index("idx_shadow_results_created_at", "created_at"),
         Index("idx_shadow_results_source_created", "source", "created_at"),
+        Index("idx_shadow_results_claim_created", "was_audit_claim", "created_at"),
+        Index("idx_shadow_results_status_created", "status", "created_at"),
         CheckConstraint("source IN ('audit', 'fallback')", name="ck_shadow_results_source"),
         CheckConstraint("verdict IS NULL OR verdict IN ('agree', 'disagree', 'unsure')",
                         name="ck_shadow_results_verdict"),
@@ -50,6 +54,9 @@ class ShadowResult(Base):
     local_provider = Column(String(32), nullable=True)
     cloud_provider = Column(String(32), nullable=True)
     status = Column(String(16), nullable=False, default="complete", server_default="complete")
+    # True once the cloud audit claimed this row; never cleared (#746). The
+    # daily audit cap counts these, whatever the later source or status.
+    was_audit_claim = Column(Boolean, nullable=False, default=False, server_default=false())
     error_type = Column(String(64), nullable=True)  # exception class name only
     metrics = Column(Text, nullable=True)  # score_pair numbers, JSON; kept with the row
     verdict = Column(String(16), nullable=True)

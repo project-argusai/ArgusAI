@@ -89,6 +89,65 @@ jobs:
           JWT_SECRET_KEY: ci-smoke-test-secret-not-for-production
           PYTHONPATH: .
 
+  postgres-migrations:
+    # Runs every Alembic migration against a real PostgreSQL 16, since the
+    # other jobs only exercise SQLite. Fails on any migration error.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: argus_ci
+          # Throwaway password for an ephemeral CI container; not a secret.
+          POSTGRES_PASSWORD: ci-throwaway-password
+          POSTGRES_DB: argus_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U argus_ci -d argus_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://argus_ci:ci-throwaway-password@localhost:5432/argus_ci
+      ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY || 'YhLHon9m3QOhb394b-Qa761Vgj9ij3oLlT-moS2oRcg=' }}
+      JWT_SECRET_KEY: ci-smoke-test-secret-not-for-production
+      PYTHONPATH: .
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 (matches production)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-test.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-test.txt
+
+      - name: alembic upgrade head
+        run: alembic upgrade head
+
+      - name: alembic downgrade -1
+        run: alembic downgrade -1
+
+      - name: alembic upgrade head (again)
+        run: alembic upgrade head
+
+      - name: alembic downgrade base, then upgrade head (full round trip)
+        run: |
+          alembic downgrade base
+          alembic upgrade head
+
   frontend-tests:
     runs-on: ubuntu-latest
     defaults:

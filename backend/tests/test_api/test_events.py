@@ -568,6 +568,85 @@ def test_list_events_full_text_search(test_camera):
     assert "door" in data["events"][0]["description"].lower()
 
 
+def _add_events(camera_id, descriptions):
+    db = TestingSessionLocal()
+    try:
+        for i, d in enumerate(descriptions):
+            db.add(Event(
+                id=f"search-{i}",
+                camera_id=camera_id,
+                timestamp=datetime.now(timezone.utc),
+                description=d,
+                confidence=80,
+                objects_detected=json.dumps(["person"]),
+                alert_triggered=False,
+            ))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_search_sqlite_uses_fts5(test_camera):
+    """#753: on SQLite the search still goes through events_fts MATCH."""
+    from unittest.mock import patch
+    from sqlalchemy.orm import Session
+
+    _add_events(test_camera.id, ["Person at the front door", "Car in driveway"])
+    real_execute = Session.execute
+    seen = []
+
+    def spy(self, stmt, *a, **kw):
+        seen.append(str(stmt))
+        return real_execute(self, stmt, *a, **kw)
+
+    with patch.object(Session, "execute", spy):
+        response = client.get("/api/v1/events?search_query=door")
+    assert response.status_code == 200
+    assert response.json()["total_count"] == 1
+    assert any("events_fts" in s and "MATCH" in s for s in seen)
+
+
+def test_search_non_sqlite_falls_back_to_escaped_ilike(test_camera):
+    """#753: other dialects skip events_fts and use a literal ILIKE."""
+    from unittest.mock import patch
+    from sqlalchemy.orm import Session
+
+    _add_events(test_camera.id, [
+        "Person at the FRONT DOOR",
+        "100% sure a cat_box moved",
+        "1000 cats and a catXbox",
+        "path a\\b here",
+    ])
+    real_execute = Session.execute
+    seen = []
+
+    def spy(self, stmt, *a, **kw):
+        seen.append(str(stmt))
+        return real_execute(self, stmt, *a, **kw)
+
+    def run(q):
+        with patch.object(engine.dialect, "name", "postgresql"), \
+                patch.object(Session, "execute", spy):
+            return client.get("/api/v1/events", params={"search_query": q})
+
+    r = run("front door")
+    assert r.status_code == 200
+    assert r.json()["total_count"] == 1  # case-insensitive
+    r = run("0%")
+    assert r.status_code == 200
+    assert [e["description"] for e in r.json()["events"]] == ["100% sure a cat_box moved"]
+    r = run("cat_box")
+    assert r.status_code == 200
+    assert r.json()["total_count"] == 1  # "_" is literal, not a wildcard
+    r = run("a\\b")
+    assert r.status_code == 200
+    assert r.json()["total_count"] == 1
+    r = run("nothing matches")
+    assert r.status_code == 200
+    assert r.json()["total_count"] == 0
+    assert not any("events_fts" in s for s in seen)
+
+
 def test_list_events_sort_order(test_camera):
     """Test sorting events by timestamp"""
     db = TestingSessionLocal()

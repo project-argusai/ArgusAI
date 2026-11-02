@@ -253,7 +253,9 @@ class TestMigration:
 
         alembic("upgrade", "head")
         assert {"shadow_results", "shadow_daily_summary"} <= tables()
-        alembic("downgrade", "-1")
+        # Downgrade to the revision before q4c735a1b2c3 explicitly; later
+        # migrations (e.g. #757's r6e757a1b2c3) mean "-1" is no longer it.
+        alembic("downgrade", "p3b719d1c2e3")
         assert not ({"shadow_results", "shadow_daily_summary"} & tables())
         alembic("upgrade", "head")
         assert {"shadow_results", "shadow_daily_summary"} <= tables()

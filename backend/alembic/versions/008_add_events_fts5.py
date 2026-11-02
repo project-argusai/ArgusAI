@@ -16,8 +16,15 @@ branch_labels = None
 depends_on = None
 
 
+def _is_sqlite() -> bool:
+    """FTS5 virtual tables and these triggers are SQLite-only (#753)."""
+    return op.get_bind().dialect.name == "sqlite"
+
+
 def upgrade():
     """Create FTS5 virtual table and triggers for event description search"""
+    if not _is_sqlite():
+        return
 
     # Create FTS5 virtual table for full-text search on descriptions
     op.execute("""
@@ -63,6 +70,8 @@ def upgrade():
 
 def downgrade():
     """Drop FTS5 virtual table and triggers"""
+    if not _is_sqlite():
+        return
     op.execute("DROP TRIGGER IF EXISTS events_ad")
     op.execute("DROP TRIGGER IF EXISTS events_au")
     op.execute("DROP TRIGGER IF EXISTS events_ai")

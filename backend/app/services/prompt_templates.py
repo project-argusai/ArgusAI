@@ -63,11 +63,11 @@ For each person, vehicle, package, or animal visible in the frame:
    - width = box width as fraction of image width
    - height = box height as fraction of image height
 3. Assign entity_type: "person", "vehicle", "package", "animal", or "other"
-4. Rate confidence 0.0 to 1.0 for that specific detection
+4. Rate confidence 0 to 100 for that specific detection (same scale as the overall confidence)
 5. Describe the action being performed by that entity
 
 Return the description in natural language, followed by the bounding box data in this format:
-[entity_type: "person", x: 0.25, y: 0.40, width: 0.15, height: 0.35, confidence: 0.92, action: "walking toward door"]
+[entity_type: "person", x: 0.25, y: 0.40, width: 0.15, height: 0.35, confidence: 92, action: "walking toward door"]
 
 Respond in this exact JSON format:
 {"description": "your detailed description here", "confidence": 85, "bounding_boxes": [...] }"""

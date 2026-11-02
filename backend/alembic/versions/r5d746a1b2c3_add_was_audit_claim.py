@@ -4,7 +4,7 @@ Set when the cloud audit claims a row and never cleared, so the daily audit
 cap keeps counting a claim that a fallback later filled in.
 
 Revision ID: r5d746a1b2c3
-Revises: q4c735a1b2c3
+Revises: r6e757a1b2c3
 Create Date: 2026-10-27
 """
 from alembic import op
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision = "r5d746a1b2c3"
-down_revision = "q4c735a1b2c3"
+down_revision = "r6e757a1b2c3"
 branch_labels = None
 depends_on = None
 

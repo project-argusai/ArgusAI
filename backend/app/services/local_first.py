@@ -32,6 +32,7 @@ class LocalFirstConfig:
     max_wait_ms: int = 120_000
     min_confidence: int = 50
     daily_cloud_cap: int = 50
+    escalate_vehicle_no_make: bool = True
 
     @classmethod
     def from_settings(cls) -> "LocalFirstConfig":
@@ -43,6 +44,9 @@ class LocalFirstConfig:
             max_wait_ms=int(getattr(settings, "LOCAL_PRIMARY_MAX_WAIT_MS", 120_000)),
             min_confidence=int(getattr(settings, "LOCAL_PRIMARY_MIN_CONFIDENCE", 50)),
             daily_cloud_cap=int(getattr(settings, "CLOUD_FALLBACK_DAILY_CAP", 50)),
+            escalate_vehicle_no_make=bool(
+                getattr(settings, "LOCAL_PRIMARY_ESCALATE_VEHICLE_NO_MAKE", True)
+            ),
         )
 
 
@@ -62,6 +66,51 @@ def local_answer_problem(result: Optional[AIResult], min_confidence: int) -> Opt
     if confidence is not None and confidence < min_confidence:
         return "low_confidence"
     return None
+
+
+_VEHICLE_EVENT_TYPES = frozenset({"vehicle", "car", "truck", "van", "suv"})
+
+
+def result_names_vehicle_make(result: Optional[AIResult]) -> bool:
+    """Whether the description or structured identification names a make."""
+    from app.services.entity_alert_service import identified_vehicle_text, visible_vehicle_details
+
+    if result is None:
+        return False
+    text = identified_vehicle_text(result.description, getattr(result, "identification", None))
+    _color, make, _model = visible_vehicle_details(text)
+    return make is not None
+
+
+def _cloud_provider_available() -> bool:
+    from app.services.ai_provider_order import disabled_providers
+
+    return len(disabled_providers()) < len(CLOUD_PROVIDER_NAMES)
+
+
+def should_escalate_vehicle_make(
+    result: Optional[AIResult], event_type: Optional[str], config: LocalFirstConfig
+) -> bool:
+    """A usable local answer for a vehicle event that names no make (#755).
+
+    Make-based vehicle entity linking needs the make in the description or
+    identification; the small local model often leaves it out. Returns False
+    when the option is off, the event is not a vehicle event, the local model
+    saw nothing (object_type none), a make is named, or every cloud provider
+    is disabled. Never logs description text.
+    """
+    if not config.escalate_vehicle_no_make or config.daily_cloud_cap <= 0:
+        return False
+    if result is None or not result.success:
+        return False
+    if not (isinstance(event_type, str) and event_type.lower() in _VEHICLE_EVENT_TYPES):
+        return False
+    ident = getattr(result, "identification", None)
+    if isinstance(ident, dict) and ident.get("object_type") == "none":
+        return False
+    if result_names_vehicle_make(result):
+        return False
+    return _cloud_provider_available()
 
 
 class CloudFallbackBudget:

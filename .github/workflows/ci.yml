@@ -148,6 +148,11 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
+      - name: Postgres migration dialect tests
+        env:
+          ARGUS_PG_MIGRATION_TEST_URL: ${{ env.DATABASE_URL }}
+        run: pytest tests/test_migration_f3a2c1d4e5b6_dialects.py -v -rs --tb=short
+
   frontend-tests:
     runs-on: ubuntu-latest
     defaults:

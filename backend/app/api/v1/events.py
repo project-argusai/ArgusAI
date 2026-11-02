@@ -70,6 +70,10 @@ def _csv_formula_safe(value) -> str:
     return text_value
 
 
+def _escape_like(value: str) -> str:
+    """Escape LIKE/ILIKE wildcards so user input matches literally (#753)."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 
 router = APIRouter(prefix="/events", tags=["events"])
 
@@ -664,12 +668,23 @@ def list_events(
 
         # Apply full-text search using FTS5
         if search_query:
-            # Query FTS5 virtual table for matching event IDs
-            fts_query = db.execute(
-                text("SELECT id FROM events_fts WHERE description MATCH :query"),
-                {"query": search_query}
-            )
-            matching_ids = [row[0] for row in fts_query.fetchall()]
+            if db.get_bind().dialect.name == "sqlite":
+                # Query FTS5 virtual table for matching event IDs
+                fts_query = db.execute(
+                    text("SELECT id FROM events_fts WHERE description MATCH :query"),
+                    {"query": search_query}
+                )
+                matching_ids = [row[0] for row in fts_query.fetchall()]
+            else:
+                # #753: FTS5 is SQLite-only. Fall back to a case-insensitive
+                # substring match; Postgres full-text search is out of scope.
+                matching_ids = [
+                    row[0] for row in db.query(Event.id).filter(
+                        Event.description.ilike(
+                            f"%{_escape_like(search_query)}%", escape="\\"
+                        )
+                    ).all()
+                ]
 
             if matching_ids:
                 query = query.filter(Event.id.in_(matching_ids))

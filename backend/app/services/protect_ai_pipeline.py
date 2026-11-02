@@ -62,8 +62,47 @@ class ProtectAIPipeline:
         """
         Submit a Protect snapshot (and optional clip) to the AI pipeline.
 
-        Implements the full fallback chain and tracking.
+        Implements the full fallback chain and tracking. When a usable local
+        answer was escalated to the cloud (vehicle with no make, #755) and the
+        cloud chain does not succeed, the local answer is kept.
         """
+        escalation: dict = {}
+        result = await self._submit_snapshot(
+            snapshot_result,
+            camera,
+            event_type,
+            is_doorbell_ring=is_doorbell_ring,
+            clip_path=clip_path,
+            detection=detection,
+            clip_plan=clip_plan,
+            escalation=escalation,
+        )
+        local_result = escalation.get("local_result")
+        if local_result is None or (result is not None and result.success):
+            return result
+        logger.info(
+            "Vehicle make escalation got no cloud answer; keeping the local description",
+            extra={"event_type": "local_primary_vehicle_make_escalation_failed"},
+        )
+        self._restore_event_state(escalation.get("bundle"))
+        self._last_analysis_mode = "single_frame"
+        self._last_requested_mode = "local_primary"
+        self._last_frame_count = 1
+        self._last_fallback_reason = "local_primary:vehicle_no_make;cloud_failed"
+        return local_result
+
+    async def _submit_snapshot(
+        self,
+        snapshot_result: SnapshotResult,
+        camera: Camera,
+        event_type: str,
+        is_doorbell_ring: bool = False,
+        clip_path: Optional[Path] = None,
+        detection: Optional[Any] = None,
+        clip_plan: Optional[Any] = None,
+        escalation: Optional[dict] = None,
+    ) -> Optional["AIResult"]:
+        """The fallback chain behind ``submit_snapshot_for_analysis``."""
         # Reset tracking state for this event
         self._last_analysis_mode = None
         self._last_requested_mode = None
@@ -125,14 +164,50 @@ class ProtectAIPipeline:
                     snapshot_result, camera, event_type, local_timestamp, custom_prompt, local_first
                 )
                 self._restore_event_state(own_bundle)
-                if problem is None:
+                from app.services.local_first import (
+                    get_cloud_fallback_budget,
+                    should_escalate_vehicle_make,
+                )
+
+                budget = get_cloud_fallback_budget(local_first.daily_cloud_cap)
+                if problem is None and should_escalate_vehicle_make(
+                    local_result, event_type, local_first
+                ):
+                    # The local model described a vehicle without its make, so
+                    # the make-based entity linking (#679) has nothing to use.
+                    # Ask the cloud chain once, within the daily cap (#755).
+                    if budget.try_acquire():
+                        logger.info(
+                            "Local description names no vehicle make; escalating to cloud (%s/%s today)",
+                            budget.used,
+                            budget.cap,
+                            extra={
+                                "event_type": "local_primary_vehicle_make_escalation",
+                                "camera_id": getattr(camera, "id", None),
+                            },
+                        )
+                        if escalation is not None:
+                            escalation["local_result"] = local_result
+                            escalation["bundle"] = own_bundle
+                        self._last_fallback_reason = "local_primary:vehicle_no_make"
+                        cloud_is_fallback = True
+                    else:
+                        logger.info(
+                            "Local description names no vehicle make; daily cloud cap (%s) reached, keeping it",
+                            budget.cap,
+                            extra={"event_type": "local_primary_vehicle_make_cap_reached"},
+                        )
+                        self._last_fallback_reason = "local_primary:vehicle_no_make;cloud_cap_reached"
+                        self._last_analysis_mode = "single_frame"
+                        self._last_requested_mode = "local_primary"
+                        self._last_frame_count = 1
+                        return local_result
+                elif problem is None:
                     self._last_analysis_mode = "single_frame"
                     self._last_requested_mode = "local_primary"
                     self._last_frame_count = 1
                     return local_result
-                from app.services.local_first import get_cloud_fallback_budget
-
-                budget = get_cloud_fallback_budget(local_first.daily_cloud_cap)
+            if local_first.enabled and problem is not None:
                 if not budget.try_acquire():
                     logger.warning(
                         "Local answer unusable (%s) and the daily cloud fallback cap (%s) is reached",

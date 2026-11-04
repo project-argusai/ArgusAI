@@ -78,7 +78,10 @@ class ProtectAIPipeline:
             escalation=escalation,
         )
         local_result = escalation.get("local_result")
-        if local_result is None or (result is not None and result.success):
+        if local_result is None:
+            return result
+        if result is not None and result.success:
+            _carry_frame_condition(local_result, result)
             return result
         logger.info(
             "Vehicle make escalation got no cloud answer; keeping the local description",
@@ -88,7 +91,7 @@ class ProtectAIPipeline:
         self._last_analysis_mode = "single_frame"
         self._last_requested_mode = "local_primary"
         self._last_frame_count = 1
-        self._last_fallback_reason = "local_primary:vehicle_no_make;cloud_failed"
+        self._last_fallback_reason = f"{escalation.get('reason') or 'local_primary:vehicle_no_make'};cloud_failed"
         return local_result
 
     async def _submit_snapshot(
@@ -166,19 +169,28 @@ class ProtectAIPipeline:
                 self._restore_event_state(own_bundle)
                 from app.services.local_first import (
                     get_cloud_fallback_budget,
+                    should_escalate_night_vehicle,
                     should_escalate_vehicle_make,
                 )
 
                 budget = get_cloud_fallback_budget(local_first.daily_cloud_cap)
-                if problem is None and should_escalate_vehicle_make(
+                no_make = problem is None and should_escalate_vehicle_make(
                     local_result, event_type, local_first
-                ):
+                )
+                night_unidentified = (
+                    problem is None
+                    and not no_make
+                    and should_escalate_night_vehicle(local_result, event_type, local_first)
+                )
+                escalate_reason = "vehicle_no_make" if no_make else "night_vehicle_unidentified"
+                if no_make or night_unidentified:
                     # The local model described a vehicle without its make, so
                     # the make-based entity linking (#679) has nothing to use.
                     # Ask the cloud chain once, within the daily cap (#755).
                     if budget.try_acquire():
                         logger.info(
-                            "Local description names no vehicle make; escalating to cloud (%s/%s today)",
+                            "Local answer needs cloud for vehicle ID (%s); escalating (%s/%s today)",
+                            escalate_reason,
                             budget.used,
                             budget.cap,
                             extra={
@@ -189,15 +201,17 @@ class ProtectAIPipeline:
                         if escalation is not None:
                             escalation["local_result"] = local_result
                             escalation["bundle"] = own_bundle
-                        self._last_fallback_reason = "local_primary:vehicle_no_make"
+                            escalation["reason"] = f"local_primary:{escalate_reason}"
+                        self._last_fallback_reason = f"local_primary:{escalate_reason}"
                         cloud_is_fallback = True
                     else:
                         logger.info(
-                            "Local description names no vehicle make; daily cloud cap (%s) reached, keeping it",
+                            "Local answer needs cloud for vehicle ID (%s); daily cloud cap (%s) reached, keeping it",
+                            escalate_reason,
                             budget.cap,
                             extra={"event_type": "local_primary_vehicle_make_cap_reached"},
                         )
-                        self._last_fallback_reason = "local_primary:vehicle_no_make;cloud_cap_reached"
+                        self._last_fallback_reason = f"local_primary:{escalate_reason};cloud_cap_reached"
                         self._last_analysis_mode = "single_frame"
                         self._last_requested_mode = "local_primary"
                         self._last_frame_count = 1
@@ -612,3 +626,15 @@ def _local_failure(problem: str) -> "AIResult":
         success=False,
         error=f"local-first: {problem}; cloud fallback cap reached",
     )
+
+
+def _carry_frame_condition(local_result: Any, cloud_result: Any) -> None:
+    """Keep the local low-light / IR reading on an escalated cloud answer so
+    colour is still ignored for matching on that frame."""
+    local_ident = getattr(local_result, "identification", None)
+    cloud_ident = getattr(cloud_result, "identification", None)
+    if not (isinstance(local_ident, dict) and isinstance(cloud_ident, dict)):
+        return
+    condition = local_ident.get("frame_condition")
+    if condition and "frame_condition" not in cloud_ident and cloud_ident.get("object_type") != "none":
+        cloud_ident["frame_condition"] = condition

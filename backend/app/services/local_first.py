@@ -33,6 +33,7 @@ class LocalFirstConfig:
     min_confidence: int = 50
     daily_cloud_cap: int = 50
     escalate_vehicle_no_make: bool = True
+    escalate_night_unidentified: bool = True
 
     @classmethod
     def from_settings(cls) -> "LocalFirstConfig":
@@ -46,6 +47,9 @@ class LocalFirstConfig:
             daily_cloud_cap=int(getattr(settings, "CLOUD_FALLBACK_DAILY_CAP", 50)),
             escalate_vehicle_no_make=bool(
                 getattr(settings, "LOCAL_PRIMARY_ESCALATE_VEHICLE_NO_MAKE", True)
+            ),
+            escalate_night_unidentified=bool(
+                getattr(settings, "NIGHT_VEHICLE_ESCALATE_UNIDENTIFIED", True)
             ),
         )
 
@@ -109,6 +113,36 @@ def should_escalate_vehicle_make(
     if isinstance(ident, dict) and ident.get("object_type") == "none":
         return False
     if result_names_vehicle_make(result):
+        return False
+    return _cloud_provider_available()
+
+
+def should_escalate_night_vehicle(
+    result: Optional[AIResult],
+    event_type: Optional[str],
+    config: LocalFirstConfig,
+) -> bool:
+    """A usable local answer for a vehicle in a low-light / IR frame that
+    names no known vehicle (identity unknown or cannot_tell).
+
+    The frame condition comes from the local call's low-light check
+    (``identification.frame_condition``). Same guards as the no-make rule:
+    option on, cap above zero, a vehicle event, a subject seen, and a cloud
+    provider available. Never logs description text.
+    """
+    if not config.escalate_night_unidentified or config.daily_cloud_cap <= 0:
+        return False
+    if result is None or not result.success:
+        return False
+    if not (isinstance(event_type, str) and event_type.lower() in _VEHICLE_EVENT_TYPES):
+        return False
+    ident = getattr(result, "identification", None)
+    if not isinstance(ident, dict) or ident.get("object_type") == "none":
+        return False
+    if ident.get("frame_condition") not in ("low_light", "ir"):
+        return False
+    identity = str(ident.get("identity") or "unknown").strip().lower()
+    if identity not in ("unknown", "cannot_tell", ""):
         return False
     return _cloud_provider_available()
 

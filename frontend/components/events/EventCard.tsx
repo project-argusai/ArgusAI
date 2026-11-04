@@ -22,6 +22,7 @@ import { AnomalyBadge } from './AnomalyBadge';
 import { FrameGalleryModal } from './FrameGalleryModal';
 import { VideoPlayerModal } from '@/components/video/VideoPlayerModal';
 import { EventEntities } from './EventEntities';
+import { LikelyVehicleGuess } from './LikelyVehicleGuess';
 import { cn } from '@/lib/utils';
 import { parseApiDate } from '@/lib/datetime';
 import { readIncident } from '@/lib/incident';
@@ -289,7 +290,10 @@ export const EventCard = memo(function EventCard({
           {/* Story P9-4.4 / P16-4.3 / issue #652: entity chips, add, re-classify */}
           <div className="flex items-center justify-between gap-2 mt-2">
             {/* Issue #652: one chip per entity, each removable; Add keeps the others */}
-            <EventEntities event={event} onReanalyze={onReanalyze} />
+            <div className="flex flex-wrap items-center gap-2">
+              <EventEntities event={event} onReanalyze={onReanalyze} />
+              <LikelyVehicleGuess event={event} />
+            </div>
 
             {/* Story P4-5.1: Feedback Buttons (AC1, AC2, AC8, AC9, AC10) */}
             {/* Story P9-3.3: Pass smart_detection_type for package feedback */}

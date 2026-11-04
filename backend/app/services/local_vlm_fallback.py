@@ -107,6 +107,47 @@ def is_loopback_host(host: str) -> bool:
         return False
 
 
+def prepare_low_light(image_base64: str, prompt: str):
+    """Night handling before a local call: (image, prompt, FrameLight or None).
+
+    Behind NIGHT_VEHICLE_LOW_LIGHT_ENABLED. A low-light or IR frame is
+    enhanced (CLAHE or gamma) and the prompt gets a note so the model does
+    not guess colour. Never raises.
+    """
+    try:
+        from app.services.night_vision import (
+            LowLightConfig,
+            apply_low_light_note,
+            classify_frame,
+            enhance_low_light,
+            low_light_prompt_note,
+        )
+
+        cfg = LowLightConfig.from_settings()
+        if not cfg.enabled or not image_base64:
+            return image_base64, prompt, None
+        light = classify_frame(image_base64, cfg.dark_luma)
+        if light is None or not light.is_low_light:
+            return image_base64, prompt, light
+        enhanced = image_base64
+        if cfg.method in ("clahe", "gamma"):
+            enhanced = enhance_low_light(image_base64, cfg.method)
+        note = low_light_prompt_note(light, enhanced=enhanced is not image_base64)
+        return enhanced, apply_low_light_note(prompt, note), light
+    except Exception as exc:  # noqa: BLE001 - never block the local call
+        logger.debug("Low-light preparation skipped (%s)", type(exc).__name__)
+        return image_base64, prompt, None
+
+
+def tag_frame_condition(result: Any, light: Any) -> None:
+    """Record the frame condition on the parsed identification (colour gating)."""
+    if light is None or result is None:
+        return
+    ident = getattr(result, "identification", None)
+    if isinstance(ident, dict) and ident.get("object_type") != "none":
+        ident["frame_condition"] = light.condition
+
+
 @dataclass
 class RedescribeJob:
     """Everything the background call needs, captured before the handler returns."""
@@ -370,7 +411,8 @@ class LocalVLMFallbackService:
             image = await asyncio.to_thread(
                 downscale_image_base64, job.image_base64, self.config.max_image_side
             )
-            return await asyncio.wait_for(
+            image, prompt, light = await asyncio.to_thread(prepare_low_light, image, prompt)
+            result = await asyncio.wait_for(
                 self._get_provider().generate_description(
                     image,
                     job.camera_name,
@@ -381,6 +423,8 @@ class LocalVLMFallbackService:
                 ),
                 timeout=timeout_s + 2.0,
             )
+            tag_frame_condition(result, light)
+            return result
         except asyncio.TimeoutError:
             error = f"timeout after {int(timeout_s * 1000)}ms"
         except Exception as exc:  # noqa: BLE001

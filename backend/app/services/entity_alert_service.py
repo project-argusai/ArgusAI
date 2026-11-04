@@ -90,10 +90,27 @@ def visible_vehicle_details(description: str) -> Tuple[Optional[str], Optional[s
 # "front_plate": bool}; identification reports what the frames show as
 # ``front_light_bar`` / ``front_plate_present`` ("yes"/"no", absent = unknown).
 VEHICLE_TRAIT_KEYS = {"front_light_bar": "front_light_bar", "front_plate": "front_plate_present"}
+# Night lighting signature: stored as
+# ``distinguishing_traits["night_lighting_signature"]`` (one of
+# identification.HEADLIGHT_PATTERNS) and compared with the reported
+# ``headlight_pattern``. Behind NIGHT_VEHICLE_LIGHTING_MATCH_ENABLED.
+NIGHT_LIGHTING_KEY = "night_lighting_signature"
+_PATTERN_TO_LIGHT_BAR = {"full_width_light_bar": "yes", "split_headlights": "no", "round_headlights": "no"}
 
 
-def entity_vehicle_traits(entity) -> Dict[str, bool]:
+def _lighting_match_enabled() -> bool:
+    try:
+        from app.core.config import settings
+
+        return bool(getattr(settings, "NIGHT_VEHICLE_LIGHTING_MATCH_ENABLED", True))
+    except Exception:  # noqa: BLE001
+        return True
+
+
+def entity_vehicle_traits(entity) -> Dict[str, Any]:
     """Stored distinguishing traits of a saved vehicle; {} when none are set."""
+    from app.services.identification import HEADLIGHT_PATTERNS
+
     raw = getattr(entity, "vehicle_traits", None)
     if raw is None:
         meta = getattr(entity, "entity_metadata", None)
@@ -105,7 +122,13 @@ def entity_vehicle_traits(entity) -> Dict[str, bool]:
         raw = meta.get("distinguishing_traits") if isinstance(meta, dict) else None
     if not isinstance(raw, dict):
         return {}
-    return {k: v for k, v in raw.items() if k in VEHICLE_TRAIT_KEYS and isinstance(v, bool)}
+    traits: Dict[str, Any] = {
+        k: v for k, v in raw.items() if k in VEHICLE_TRAIT_KEYS and isinstance(v, bool)
+    }
+    signature = raw.get(NIGHT_LIGHTING_KEY)
+    if isinstance(signature, str) and signature.strip().lower() in HEADLIGHT_PATTERNS:
+        traits[NIGHT_LIGHTING_KEY] = signature.strip().lower()
+    return traits
 
 
 def vehicle_traits_signal(entity, identification: Any = None) -> str:
@@ -114,18 +137,38 @@ def vehicle_traits_signal(entity, identification: Any = None) -> str:
     Soft evidence only: unknown on either side is neutral. 'contradict' when
     a reported trait differs from a stored one and none match; 'agree' when
     at least one matches and none differ; mixed readings count as 'none'.
+
+    With lighting matching on, a reported ``headlight_pattern`` is compared
+    with a stored ``night_lighting_signature``; when the vehicle has no
+    signature it stands in for an unreported ``front_light_bar`` (a full-width
+    light bar supports a vehicle saved with one). Each reading counts once,
+    so lighting is modest evidence next to make and model.
     """
     traits = entity_vehicle_traits(entity)
     if not traits or not isinstance(identification, dict):
         return "none"
+    lighting = _lighting_match_enabled()
+    pattern = identification.get("headlight_pattern") if lighting else None
     matches = conflicts = 0
     for stored_key, ident_key in VEHICLE_TRAIT_KEYS.items():
         if stored_key not in traits:
             continue
         seen = identification.get(ident_key)
+        if (
+            seen not in ("yes", "no")
+            and stored_key == "front_light_bar"
+            and pattern
+            and NIGHT_LIGHTING_KEY not in traits
+        ):
+            seen = _PATTERN_TO_LIGHT_BAR.get(pattern)
         if seen not in ("yes", "no"):
             continue
         if (seen == "yes") == traits[stored_key]:
+            matches += 1
+        else:
+            conflicts += 1
+    if pattern and NIGHT_LIGHTING_KEY in traits:
+        if pattern == traits[NIGHT_LIGHTING_KEY]:
             matches += 1
         else:
             conflicts += 1
@@ -208,6 +251,10 @@ def vehicle_label_agrees(description: str, entity, identification: Any = None) -
         return False
     if visible_model and expected_models and visible_model not in expected_models:
         return False
+    from app.services.night_vision import identification_is_colorless
+
+    if identification_is_colorless(identification):
+        visible_color = None  # IR / grayscale: colour is not evidence
     if visible_color and stored_color and visible_color != stored_color:
         return False
     if expected_makes and visible_make not in expected_makes:
@@ -266,6 +313,10 @@ def vehicle_description_signal(description: Optional[str], entity, identificatio
         return "contradict"
     if models_seen and expected_models and not (models_seen & expected_models):
         return "contradict"
+    from app.services.night_vision import identification_is_colorless
+
+    if identification_is_colorless(identification):
+        colors_seen = set()  # IR / grayscale: colour is not evidence
     if colors_seen and stored_color and all(
         color_agreement(c, stored_color) == "conflict" for c in colors_seen
     ):

@@ -420,6 +420,22 @@ async def run_post_persist_entity_steps(
             },
         )
 
+    # Night context guess runs after alert rules, so it can never trigger an
+    # alert; it writes only identification.likely_vehicle (never a link).
+    try:
+        from app.services.night_vehicle_guess import suggest_likely_vehicle
+
+        await asyncio.wait_for(suggest_likely_vehicle(event_id, session_factory), link_timeout_s)
+    except Exception as exc:  # noqa: BLE001 - includes TimeoutError; never fails the event
+        logger.warning(
+            "Night vehicle guess failed",
+            extra={
+                "event_type": "night_vehicle_guess_failed",
+                "event_id": event_id,
+                "error_type": type(exc).__name__,
+            },
+        )
+
     if object_analysis is None:
         return
     try:

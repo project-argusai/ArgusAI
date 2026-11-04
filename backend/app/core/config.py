@@ -367,6 +367,29 @@ class Settings(BaseSettings):
     # AI_DISABLED_PROVIDERS) so make-based vehicle entity linking works (#755).
     LOCAL_PRIMARY_ESCALATE_VEHICLE_NO_MAKE: bool = True
 
+    # Night vehicle identification. Each part can be turned off on its own.
+    # Low-light handling: detect dark / IR / grayscale frames, enhance them
+    # before the local model sees them, tell the model not to guess colour,
+    # and ignore colour when matching saved vehicles on those frames.
+    NIGHT_VEHICLE_LOW_LIGHT_ENABLED: bool = True
+    NIGHT_VEHICLE_ENHANCE_METHOD: Literal["clahe", "gamma", "none"] = "clahe"
+    NIGHT_VEHICLE_DARK_LUMA: int = Field(default=70, ge=1, le=255)  # mean luma (0-255) below this = low light
+    # Ask the cloud chain once (within CLOUD_FALLBACK_DAILY_CAP) when the local
+    # model leaves a vehicle in a low-light frame unidentified.
+    NIGHT_VEHICLE_ESCALATE_UNIDENTIFIED: bool = True
+    # Headlight / lighting signature: the prompt asks for a structured
+    # headlight_pattern, matched against a saved vehicle's
+    # entity_metadata.distinguishing_traits.night_lighting_signature.
+    NIGHT_VEHICLE_LIGHTING_MATCH_ENABLED: bool = True
+    # Context guess: for an unidentified night vehicle arrival, store a
+    # labelled "likely X (guess)" suggestion from recent departures and usual
+    # arrival times. Never an entity link, alert, or sighting.
+    NIGHT_VEHICLE_GUESS_ENABLED: bool = True
+    NIGHT_VEHICLE_GUESS_LOOKBACK_HOURS: int = Field(default=18, ge=1, le=72)
+    NIGHT_VEHICLE_GUESS_HISTORY_DAYS: int = Field(default=30, ge=1, le=180)
+    NIGHT_VEHICLE_NIGHT_START_HOUR: int = Field(default=18, ge=0, le=23)  # box-local
+    NIGHT_VEHICLE_NIGHT_END_HOUR: int = Field(default=7, ge=0, le=23)
+
     # Cloud provider controls. Comma-separated provider names to skip without
     # deleting their keys: openai, grok, claude (or anthropic), gemini (or google).
     AI_DISABLED_PROVIDERS: str = ""

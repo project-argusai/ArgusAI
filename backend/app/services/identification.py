@@ -115,6 +115,8 @@ Fields:
 - vehicle_model: the model you can see (for example Model Y, X3), otherwise "cannot_tell"
 - front_light_bar: for a vehicle whose front is visible, "yes" when one continuous light bar runs the full width of the front, "no" when the headlights are separate, otherwise "unknown"
 - front_plate_present: for a vehicle whose front is visible, "yes" when a front licence plate is mounted, "no" when the front has none, otherwise "unknown". Never read the plate
+- headlight_pattern: for a vehicle whose lights are visible (especially at night), "full_width_light_bar" when one continuous light runs the full width of the front, "split_headlights" for two separate headlight units, "round_headlights" for two round headlights, otherwise "cannot_tell"
+- drl_shape: the daytime-running / accent light shape you can see: "line", "l_shape", "c_shape", "ring", "none", otherwise "cannot_tell"
 
 A package is a parcel, box, padded mailer, or delivery bag that is carried, dropped off or picked up, or lying at the door. Ordinary handheld items are not packages: paper, mail, a phone, an ordinary bag, a cup, a sheet of paper, or a small book. Use object_type "package" only for that same kind of item. Name a carrier (UPS, FedEx, USPS, Amazon, or DHL) only when a delivery-service cue is visible, such as a uniform, a branded vehicle, or a scanner. When you are unsure whether an item is a package, use "none" or "cannot_tell" rather than "package".
 
@@ -248,6 +250,39 @@ _NO_VEHICLE_DETAIL = {CANNOT_TELL, UNKNOWN, "cant_tell", "unsure", "none", "n/a"
 
 
 VEHICLE_TRAIT_FIELDS = ("front_light_bar", "front_plate_present")
+
+# Night lighting signature (structured; optional).
+HEADLIGHT_PATTERNS = ("full_width_light_bar", "split_headlights", "round_headlights")
+DRL_SHAPES = ("line", "l_shape", "c_shape", "ring", "none")
+LIGHTING_FIELDS = {"headlight_pattern": HEADLIGHT_PATTERNS, "drl_shape": DRL_SHAPES}
+FRAME_CONDITION_VALUES = ("normal", "low_light", "ir")
+
+
+def _parse_choice(value: Any, choices: Sequence[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    text = value.strip().lower().replace("-", "_").replace(" ", "_")
+    return text if text in choices else None
+
+
+def _parse_likely_vehicle(value: Any) -> Optional[Dict[str, Any]]:
+    """A stored context guess (never a link). Only known keys survive."""
+    if not isinstance(value, dict):
+        return None
+    entity_id = value.get("entity_id")
+    name = value.get("name")
+    if not isinstance(entity_id, str) or not entity_id or not isinstance(name, str) or not name.strip():
+        return None
+    basis = [b for b in (value.get("basis") or []) if isinstance(b, str)][:4]
+    score = value.get("score")
+    return {
+        "entity_id": entity_id[:64],
+        "name": _clip_text(name, empty="", limit=60),
+        "label": f"likely {_clip_text(name, empty='', limit=60)} (guess)",
+        "basis": basis,
+        "score": round(float(score), 2) if isinstance(score, (int, float)) else None,
+        "is_guess": True,
+    }
 _YES = {"yes", "true", "y", "present"}
 _NO = {"no", "false", "n", "absent", "none"}
 
@@ -310,6 +345,16 @@ def _from_mapping(data: dict, *, check_package_wording: bool = False) -> Dict[st
         trait = _parse_yes_no(data.get(key))
         if trait is not None:
             ident[key] = trait
+    for key, choices in LIGHTING_FIELDS.items():
+        choice = _parse_choice(data.get(key), choices)
+        if choice is not None:
+            ident[key] = choice
+    frame_condition = _parse_choice(data.get("frame_condition"), FRAME_CONDITION_VALUES)
+    if frame_condition is not None:
+        ident["frame_condition"] = frame_condition
+    likely = _parse_likely_vehicle(data.get("likely_vehicle"))
+    if likely is not None:
+        ident["likely_vehicle"] = likely
     if check_package_wording:
         # Fresh model JSON only. Stored rows have no description, and re-checking
         # them would clear a package that was already accepted.
@@ -321,7 +366,7 @@ def _from_mapping(data: dict, *, check_package_wording: bool = False) -> Dict[st
         ident["action"] = CANNOT_TELL
         ident["direction"] = CANNOT_TELL
         ident["package_or_carrier"] = "none"
-        for key in VEHICLE_FIELDS + VEHICLE_TRAIT_FIELDS:
+        for key in VEHICLE_FIELDS + VEHICLE_TRAIT_FIELDS + tuple(LIGHTING_FIELDS) + ("likely_vehicle",):
             ident.pop(key, None)
     return ident
 

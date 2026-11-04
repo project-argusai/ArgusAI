@@ -137,6 +137,30 @@ export interface IEventEntity {
 /** Most entities one event can hold (mirrors backend MAX_ENTITIES_PER_EVENT). */
 export const MAX_ENTITIES_PER_EVENT = 4;
 
+/**
+ * A context guess for an unidentified night vehicle arrival. Never an entity
+ * link: show it as a suggestion ("likely X (guess)") only.
+ */
+export interface ILikelyVehicleGuess {
+  entity_id: string;
+  name: string;
+  label: string;
+  basis?: string[];
+  score?: number | null;
+  is_guess: true;
+}
+
+/** Structured identification (subset the UI reads). */
+export interface IEventIdentification {
+  object_type?: string;
+  identity?: string;
+  direction?: string;
+  headlight_pattern?: string;
+  frame_condition?: 'normal' | 'low_light' | 'ir';
+  likely_vehicle?: ILikelyVehicleGuess;
+  [key: string]: unknown;
+}
+
 export interface IEvent {
   id: string;                     // UUID
   camera_id: string;              // UUID foreign key
@@ -200,6 +224,7 @@ export interface IEvent {
   has_annotations?: boolean;            // True if bounding box annotations are available
   bounding_boxes?: IBoundingBox[] | null;  // Bounding boxes for detected objects
   annotated_thumbnail_path?: string | null;  // Path to annotated thumbnail with bounding boxes drawn
+  identification?: IEventIdentification | null;  // Structured AI identification
 }
 
 /**

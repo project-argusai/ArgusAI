@@ -7,8 +7,11 @@
   ``mark_stale_claims_failed`` fails claims stuck over 5 minutes.
   ``record_fallback_pair`` stores a free fallback pair, or fills a failed
   claim in as source=fallback, complete.
-- ``count_audits_since``: the audit cap counts ``shadow_results`` rows of any
-  status (claimed and failed included), so it survives a restart.
+- ``count_audits_since``: the audit cap counts rows with ``was_audit_claim``
+  (set when the audit claims a row, never cleared), whatever their source or
+  status, so it survives a restart and a fallback filling a failed claim.
+- ``sweep_stale_claims_if_due``: the stale-claim sweep, throttled to once an
+  hour per process, for the audit gate path (#746).
 - ``upsert_daily_summary``: numbers only, one row per (day, source). Summaries
   are built by ``recompute_daily_summary`` only.
 - ``purge_expired``: after 30 days the paired text is nulled (the row keeps
@@ -27,6 +30,7 @@ from __future__ import annotations
 import json
 import logging
 import numbers
+import threading
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -48,6 +52,10 @@ PAIR_RETENTION_DAYS = 30
 RECOMPUTE_DAYS = 30
 SUMMARY_RETENTION_DAYS = 365
 STALE_CLAIM_MINUTES = 5
+GATE_SWEEP_INTERVAL = timedelta(hours=1)
+
+_gate_sweep_lock = threading.Lock()
+_gate_sweep_last: Optional[datetime] = None
 
 
 def _now(now: Optional[datetime] = None) -> datetime:
@@ -90,6 +98,7 @@ def record_shadow_result(
         local_provider=local_provider,
         cloud_provider=cloud_provider,
         status="complete",
+        was_audit_claim=(source == "audit"),
         metrics=_metrics(metrics),
         created_at=_now(now),
     )
@@ -126,6 +135,7 @@ def claim_shadow_result(db: Session, *, event_id: str, source: str, local_result
     if _row(db, event_id) is not None:
         return None
     row = ShadowResult(event_id=event_id, source=source, status="claimed",
+                       was_audit_claim=(source == "audit"),
                        local_result=_dumps(local_result), local_provider=local_provider,
                        created_at=_now(now))
     db.add(row)
@@ -176,6 +186,29 @@ def mark_stale_claims_failed(db: Session, now: Optional[datetime] = None,
     return int(count or 0)
 
 
+def reset_gate_sweep() -> None:
+    """Forget the last gate-path sweep (tests, or after a restart)."""
+    global _gate_sweep_last
+    with _gate_sweep_lock:
+        _gate_sweep_last = None
+
+
+def sweep_stale_claims_if_due(db: Session, now: Optional[datetime] = None,
+                              interval: timedelta = GATE_SWEEP_INTERVAL) -> int:
+    """Run ``mark_stale_claims_failed`` at most once per ``interval`` per process.
+
+    Cheap when not due (no DB work); safe to call twice or concurrently: the
+    update only touches rows still ``claimed`` and older than 5 minutes.
+    """
+    global _gate_sweep_last
+    current = _now(now)
+    with _gate_sweep_lock:
+        if _gate_sweep_last is not None and current - _gate_sweep_last < interval:
+            return 0
+        _gate_sweep_last = current
+    return mark_stale_claims_failed(db, now=current)
+
+
 def record_fallback_pair(db: Session, *, event_id: str, local_result: Any, cloud_result: Any,
                          local_provider: Optional[str] = None,
                          cloud_provider: Optional[str] = None,
@@ -218,12 +251,11 @@ def set_verdict(db: Session, event_id: str, verdict: str,
     return row
 
 
-def count_audits_since(db: Session, since: datetime, source: str = "audit") -> int:
-    """Rows of any status since ``since``. Backed by the table, so restart-safe."""
-    _check_source(source)
+def count_audits_since(db: Session, since: datetime) -> int:
+    """Audit claims since ``since``, any source or status (#746). Restart-safe."""
     return (
         db.query(ShadowResult)
-        .filter(ShadowResult.source == source, ShadowResult.created_at >= since)
+        .filter(ShadowResult.was_audit_claim.is_(True), ShadowResult.created_at >= since)
         .count()
     )
 
@@ -267,14 +299,16 @@ def _local_day_bounds(day: date):
     return start.astimezone(timezone.utc), (start + timedelta(days=1)).astimezone(timezone.utc)
 
 
-def recompute_daily_summary(db: Session, day: date, source: str) -> ShadowDailySummary:
+def recompute_daily_summary(db: Session, day: date, source: str) -> Optional[ShadowDailySummary]:
     """Rebuild the summary for ``day`` (box-local) from ``shadow_results``.
 
     Over the complete rows created that day: ``pairs_recorded``,
     ``verdicts_<v>`` (each row's current verdict, so a changed verdict never
     lands on two days) and ``sum_<metric>`` from the stored score_pair
     numbers. ``failed`` counts that day's failed rows. Claimed rows are left
-    out. Replaces the stored summary; safe to re-run.
+    out. Replaces the stored summary; safe to re-run. When every count is
+    zero and no summary exists for that day and source, nothing is written
+    and None is returned (#746).
     """
     _check_source(source)
     start, end = _local_day_bounds(day)
@@ -295,6 +329,12 @@ def recompute_daily_summary(db: Session, day: date, source: str) -> ShadowDailyS
                 continue
             sums[f"sum_{key}"] = sums.get(f"sum_{key}", 0) + value
     summary.update(sums)
+    if not any(summary.values()):
+        existing = (db.query(ShadowDailySummary.id)
+                    .filter(ShadowDailySummary.day == day, ShadowDailySummary.source == source)
+                    .first())
+        if existing is None:
+            return None
     return upsert_daily_summary(db, day, source, summary)
 
 

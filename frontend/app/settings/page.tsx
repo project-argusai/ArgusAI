@@ -29,6 +29,7 @@ import {
   BarChart3,
   Sparkles,
   Users,
+  Scale,
 } from 'lucide-react';
 
 import { ErrorBoundary } from '@/components/common/ErrorBoundary';
@@ -54,6 +55,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { IncidentNotificationSetting } from '@/components/settings/IncidentNotificationSetting';
+import { AuditHelpText } from '@/components/ai-audit/AuditHelpText';
+import { AuditReview } from '@/components/ai-audit/AuditReview';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/settings/ConfirmDialog';
@@ -91,7 +94,7 @@ export default function SettingsPage() {
   const searchParams = useSearchParams();
   const initialTab = searchParams.get('tab') || 'general';
   const { refreshSystemName } = useSettings(); // BUG-003: Refresh system name after save
-  const { user, canManageUsers } = useAuth();
+  const { user, canManageUsers, isAdmin } = useAuth();
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -396,6 +399,12 @@ export default function SettingsPage() {
                   <Shield className="h-4 w-4" />
                   <span className="hidden sm:inline">Security</span>
                 </TabsTrigger>
+                {isAdmin && (
+                  <TabsTrigger value="ai-audit" className="flex items-center gap-2 px-3">
+                    <Scale className="h-4 w-4" />
+                    <span className="hidden sm:inline">AI Audit</span>
+                  </TabsTrigger>
+                )}
                 {canManageUsers && (
                   <TabsTrigger value="users" className="flex items-center gap-2 px-3">
                     <Users className="h-4 w-4" />
@@ -754,6 +763,8 @@ export default function SettingsPage() {
 
             {/* AI Models Tab */}
             <TabsContent value="ai" className="space-y-4">
+              {/* #691 S5: plain notice that the audit sends sampled images to cloud */}
+              <AuditHelpText />
               {/* AI Providers List - Story P2-5.2, wrapped with ErrorBoundary (P2-6.3 AC17) */}
               <ErrorBoundary context="AI Providers">
                 <AIProviders
@@ -1446,6 +1457,16 @@ Keep the summary concise (2-3 paragraphs).`}
               </ErrorBoundary>
               <DeviceManager />
             </TabsContent>
+
+            {/* #691 S5 (#733): local vs cloud AI audit review (Admin only) */}
+            {isAdmin && (
+              <TabsContent value="ai-audit" className="space-y-4">
+                <AuditHelpText />
+                <ErrorBoundary context="AI Audit">
+                  <AuditReview />
+                </ErrorBoundary>
+              </TabsContent>
+            )}
 
             {/* Users Tab - Story P15-2.10 (Admin only) */}
             {canManageUsers && (

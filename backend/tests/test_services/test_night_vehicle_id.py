@@ -29,9 +29,11 @@ from app.services.local_vlm_fallback import prepare_low_light, tag_frame_conditi
 from app.services.night_vehicle_guess import (
     GuessConfig,
     Sighting,
+    action_indicates_approach,
     direction_kind,
     is_unidentified_night_arrival,
     pick_guess,
+    pick_guess_skip_reason,
     score_candidates,
     suggest_for_event,
 )
@@ -250,6 +252,11 @@ class TestScoring:
         assert direction_kind("away") == "departure"
         assert direction_kind("toward camera") == "arrival"
         assert direction_kind("cannot_tell") == "other"
+        # Schema / free-text "left" used to miss "leav" and stay other.
+        assert direction_kind("left") == "departure"
+        assert direction_kind("going left") == "departure"
+        assert direction_kind("leaving") == "departure"
+        assert direction_kind("right") == "other"
 
     def test_departed_vehicle_is_guessed(self):
         a, b = _veh("a", "Car A"), _veh("b", "Car B")
@@ -265,6 +272,28 @@ class TestScoring:
                      Sighting("a", "cam", NIGHT - timedelta(hours=2), "arrival")]
         assert pick_guess(score_candidates(event_time=NIGHT, camera_id="cam", identification={},
                                            vehicles=[a], sightings=sightings, config=CFG)) is None
+
+    def test_ambiguous_last_seen_plus_hour_reaches_min_score(self):
+        """Last same-cam sighting other/cannot_tell gives +1; with hour pattern reaches 2."""
+        a = _veh("a", "Car A")
+        sightings = [
+            Sighting("a", "cam", NIGHT - timedelta(hours=4), "other"),
+            Sighting("a", "cam", NIGHT - timedelta(days=1), "arrival"),
+            Sighting("a", "cam", NIGHT - timedelta(days=2), "arrival"),
+        ]
+        best = pick_guess(score_candidates(event_time=NIGHT, camera_id="cam", identification={},
+                                           vehicles=[a], sightings=sightings, config=CFG))
+        assert best is not None and best.entity.id == "a"
+        assert best.score == 2.0
+        assert any("direction unclear" in b for b in best.basis)
+
+    def test_ambiguous_last_seen_alone_below_min_score(self):
+        a = _veh("a", "Car A")
+        sightings = [Sighting("a", "cam", NIGHT - timedelta(hours=3), "other")]
+        scored = score_candidates(event_time=NIGHT, camera_id="cam", identification={},
+                                  vehicles=[a], sightings=sightings, config=CFG)
+        assert scored and scored[0].score == 1.0
+        assert pick_guess(scored) is None
 
     def test_arrival_pattern_plus_trait_agreement(self):
         a = _veh("a", "Car A", {"front_light_bar": True})
@@ -284,8 +313,11 @@ class TestScoring:
     def test_tie_gives_no_guess(self):
         a, b = _veh("a", "Car A"), _veh("b", "Car B")
         sightings = [Sighting(x, "cam", NIGHT - timedelta(hours=3), "departure") for x in ("a", "b")]
-        assert pick_guess(score_candidates(event_time=NIGHT, camera_id="cam", identification={},
-                                           vehicles=[a, b], sightings=sightings, config=CFG)) is None
+        scored = score_candidates(event_time=NIGHT, camera_id="cam", identification={},
+                                  vehicles=[a, b], sightings=sightings, config=CFG)
+        assert pick_guess(scored) is None
+        assert pick_guess_skip_reason(scored) == "tie"
+        assert pick_guess_skip_reason([]) == "score"
 
     def test_night_arrival_gate(self):
         ev = SimpleNamespace(smart_detection_type="vehicle", timestamp=NIGHT)
@@ -294,8 +326,26 @@ class TestScoring:
         assert not is_unidentified_night_arrival(ev, {"object_type": "vehicle"}, day_cfg)
         assert not is_unidentified_night_arrival(ev, {"object_type": "vehicle", "identity": "Car A",
                                                       "frame_condition": "ir"}, day_cfg)
+        # Clear leave without approach action still blocked.
         assert not is_unidentified_night_arrival(ev, {"object_type": "vehicle", "direction": "away",
                                                       "frame_condition": "ir"}, day_cfg)
+        # Soft gate: away + approaching action is eligible; cannot_tell/other too.
+        assert is_unidentified_night_arrival(
+            ev,
+            {"object_type": "vehicle", "direction": "away", "action": "approaching driveway",
+             "frame_condition": "ir"},
+            day_cfg,
+        )
+        assert is_unidentified_night_arrival(
+            ev, {"object_type": "vehicle", "direction": "cannot_tell", "frame_condition": "ir"}, day_cfg
+        )
+        assert is_unidentified_night_arrival(
+            ev, {"object_type": "vehicle", "direction": "other", "frame_condition": "ir"}, day_cfg
+        )
+        assert action_indicates_approach("approaching driveway")
+        assert action_indicates_approach("pulling in")
+        assert not action_indicates_approach("cannot_tell")
+        assert not action_indicates_approach("driving away")
 
     def test_is_night_hour_wraps(self):
         local = datetime(2026, 1, 1, 23, 0)
@@ -345,6 +395,63 @@ class TestSuggestForEvent:
     def test_disabled(self, db_session):
         self._setup(db_session)
         assert suggest_for_event(db_session, "ev-new", GuessConfig(enabled=False)) is None
+
+    def test_skip_logs_disabled(self, db_session, caplog):
+        import logging
+
+        self._setup(db_session)
+        with caplog.at_level(logging.DEBUG, logger="app.services.night_vehicle_guess"):
+            assert suggest_for_event(db_session, "ev-new", GuessConfig(enabled=False)) is None
+        records = [r for r in caplog.records if getattr(r, "event_type", None) == "night_vehicle_guess_skipped"]
+        assert records and records[-1].reason == "disabled"
+
+    def test_skip_logs_departure(self, db_session, caplog):
+        import logging
+        from app.models.event import Event
+
+        self._setup(db_session)
+        ev = db_session.query(Event).filter(Event.id == "ev-new").one()
+        ev.identification = json.dumps({
+            "object_type": "vehicle",
+            "identity": "unknown",
+            "direction": "away",
+            "action": "cannot_tell",
+            "frame_condition": "ir",
+        })
+        db_session.commit()
+        with caplog.at_level(logging.DEBUG, logger="app.services.night_vehicle_guess"):
+            assert suggest_for_event(db_session, "ev-new", CFG) is None
+        records = [r for r in caplog.records if getattr(r, "event_type", None) == "night_vehicle_guess_skipped"]
+        assert records and records[-1].reason == "departure"
+
+    def test_skip_logs_already_linked(self, db_session, caplog):
+        import logging
+        from app.models.event import Event
+        from app.models.recognized_entity import EntityEvent
+
+        self._setup(db_session)
+        db_session.add(EntityEvent(entity_id="ent-1", event_id="ev-new", similarity_score=0.9))
+        db_session.commit()
+        with caplog.at_level(logging.DEBUG, logger="app.services.night_vehicle_guess"):
+            assert suggest_for_event(db_session, "ev-new", CFG) is None
+        records = [r for r in caplog.records if getattr(r, "event_type", None) == "night_vehicle_guess_skipped"]
+        assert records and records[-1].reason == "already_linked"
+
+    def test_away_with_approach_action_still_guesses(self, db_session):
+        """Soft gate: direction=away but action approaching remains eligible."""
+        from app.models.event import Event
+
+        new = self._setup(db_session)
+        new.identification = json.dumps({
+            "object_type": "vehicle",
+            "identity": "unknown",
+            "direction": "away",
+            "action": "approaching driveway",
+            "frame_condition": "ir",
+        })
+        db_session.commit()
+        payload = suggest_for_event(db_session, "ev-new", CFG)
+        assert payload is not None and payload["is_guess"] is True
 
 
 # ------------------------------------------------------ pipeline: night escalation
